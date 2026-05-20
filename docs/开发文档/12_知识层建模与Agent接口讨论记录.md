@@ -404,7 +404,238 @@ Agent 可基于这些事实自行判断储能板块预期是否需要修正。
 6. Agent 工具返回时，JSON 与 markdown_summary 的权重和格式。
 7. 这四个接口内部如何复用现有 Neo4j、Qdrant、Mongo、SQL 数据。
 
-## 十一、当前结论
+## 十一、Evidence-first 知识构建管线
+
+后续讨论确认：知识构建层应采用 Evidence-first 管线。
+
+也就是先把原始材料解析、分块并保存为 Evidence，再由异步并发抽取任务从 Evidence 中抽取实体、关系和结构化状态事实。
+
+核心链路：
+
+```text
+Raw Source
+→ Parser
+→ Chunker
+→ Evidence 入库
+→ Extraction Jobs 并发消费 Evidence
+→ Entity / Relation / StructuredFact 入库
+→ 向量索引更新
+→ ResearchContext 可查询
+```
+
+### 11.1 Evidence 的生成职责
+
+Evidence 不由 LLM 推理生成，而由数据接入和解析层机械生成。
+
+不同来源对应不同生成器：
+
+- 公告、财报 PDF：PDF parser + chunker + evidence builder
+- 互动易问答：IRM ingestion + evidence builder
+- 研报：report parser + chunker + evidence builder
+- 新闻、网页：web fetch parser + evidence builder
+- 行情：market snapshot builder
+- 用户上传文件：upload parser + chunker + evidence builder
+
+原则：
+
+```text
+谁接入原始数据，谁负责生成 Evidence。
+```
+
+### 11.2 Evidence 的最小字段
+
+MVP 中 Evidence 可以先保持轻量，不需要复杂建模。
+
+建议字段：
+
+```text
+evidence_id
+source_type
+source_name
+subject_hint
+publish_date
+observed_at
+text_excerpt
+source_ref
+checksum
+confidence
+```
+
+字段含义：
+
+- `evidence_id`：稳定 ID，用于去重和回溯。
+- `source_type`：announcement / report / irm / market / news / upload。
+- `source_name`：公告标题、互动易编号、研报名、网页标题等。
+- `subject_hint`：可能关联的股票代码、公司名、主题或行业。
+- `publish_date`：材料发布时间。
+- `observed_at`：系统观测或入库时间。
+- `text_excerpt`：原文片段或行情窗口描述。
+- `source_ref`：PDF 文件、页码、chunk_id、Mongo 原始记录 ID、URL、行情窗口等。
+- `checksum`：内容 hash，用于幂等入库。
+- `confidence`：来源可信度基础分。
+
+### 11.3 Evidence 生成策略
+
+Evidence 生成应遵守以下策略：
+
+1. **机械生成，避免推理**
+
+   Evidence 只保存原文片段和来源元数据，不写入“利好”“错杀”“预期差”等判断。
+
+2. **稳定 ID**
+
+   ID 由来源类型、来源 ID、chunk 编号或内容 hash 生成。
+
+   示例：
+
+   ```text
+   evidence_id = hash(source_type + source_id + chunk_index + text_checksum)
+   ```
+
+3. **按源头分置信度**
+
+   默认可信度可由来源类型决定：
+
+   ```text
+   公告/财报：0.95 - 1.0
+   行情：1.0
+   互动易：0.80 - 0.90
+   研报：0.70 - 0.85
+   新闻：0.50 - 0.75
+   用户上传：按来源标注
+   ```
+
+4. **保留 source_ref**
+
+   Evidence 必须能回到原始材料，包括 PDF 页码、chunk、Mongo 原始记录、URL 或行情窗口。
+
+5. **切块服务抽取**
+
+   公告和研报不应整篇作为一个 Evidence。切块应考虑章节、页码、语义段落和 token 上限。
+
+6. **Evidence 只追加，不随意覆盖**
+
+   原始证据是审计记录。重复导入可去重，但不因后续状态变化删除旧 Evidence。
+
+7. **Evidence 与抽取结果解耦**
+
+   一个 Evidence 可以产生多个实体、关系、结构化状态事实。一个结构化事实也可以由多个 Evidence 支撑。
+
+### 11.4 Evidence 入库后的并发抽取
+
+Evidence 入库后，后续抽取应作为异步任务执行。
+
+设计原则：
+
+```text
+Evidence 入库是主链路；
+实体、关系、状态事实抽取是异步并发知识构建任务。
+```
+
+这样可以避免公告下载、互动易同步、研报导入被 LLM 抽取阻塞。
+
+MVP 任务模型：
+
+```text
+extraction_job
+- job_id
+- evidence_id
+- job_type
+- status
+- retry_count
+- error
+- extractor_version
+- created_at
+- updated_at
+```
+
+`job_type` 第一版可以包括：
+
+- entity_relation
+- structured_fact
+- vector
+
+MVP 可以先用 combined extractor：
+
+```text
+Evidence -> entities + relations + structured_facts
+```
+
+后续再拆成：
+
+- entity extractor
+- relation extractor
+- structured fact extractor
+- metric extractor
+- vector indexer
+
+### 11.5 并发抽取的写入原则
+
+多个 Evidence 可能抽到同一个实体、关系或状态事实，因此所有知识写入必须幂等。
+
+建议幂等键：
+
+```text
+Entity:
+  deterministic entity_id
+
+Relation:
+  from_entity + to_entity + valid_from + text_hash
+
+StructuredFact:
+  subject_id + dimension + state_value + observed_at + evidence_id
+```
+
+抽取失败不得影响 Evidence 本身。
+
+Evidence 是原始事实锚点，抽取失败只是 job failed，可重试、可重跑。
+
+### 11.6 抽取状态与版本
+
+每个 Evidence 应能追踪不同抽取阶段的状态。
+
+示例：
+
+```text
+extraction_status:
+  entity_relation: done
+  structured_fact: pending
+  vector: done
+  last_extracted_at: 2026-05-20T...
+  extractor_version: v1
+```
+
+当 prompt、parser 或 extractor 升级时，可以按版本重抽：
+
+```text
+where extractor_version < current_version
+```
+
+这对后续修复抽取质量、升级状态词表、重建向量索引很重要。
+
+### 11.7 推荐存储分工
+
+MVP 推荐分工：
+
+```text
+MongoDB:
+  Evidence 原文片段、source_ref、抽取 job 状态
+
+Neo4j:
+  Entity / Relation / StructuredFact，引用 evidence_id 或 evidence_ids
+
+Qdrant:
+  Evidence chunk、实体描述、关系描述、结构化事实的向量索引
+```
+
+这个分工可以保持：
+
+- Evidence 可审计
+- 图谱可遍历
+- 向量可检索
+- 抽取任务可重跑
+
+## 十二、当前结论
 
 第一版方向：
 
