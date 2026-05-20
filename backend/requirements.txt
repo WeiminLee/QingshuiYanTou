@@ -1,0 +1,47 @@
+# FastAPI & Server
+fastapi==0.115.0
+uvicorn[standard]==0.32.0
+python-multipart==0.0.12
+
+# Database
+sqlalchemy[asyncio]==2.0.36
+asyncpg==0.30.0
+motor==3.6.0
+PyPDF2==3.0.1
+redis==5.2.0
+alembic==1.14.0
+pdfplumber==0.11.0
+neo4j==5.26.0
+qdrant-client>=1.18.0
+tiktoken==0.8.0
+
+# Data Processing
+pandas==2.2.3
+numpy==2.2.1
+tushare==1.4.1
+akshare>=1.18.60
+baostock==0.9.1
+
+# Frontend
+jinja2==3.1.4
+
+# Utils
+python-dotenv==1.0.1
+requests==2.32.3
+apscheduler>=3.10
+pydantic>=2.10
+pydantic-settings>=2.6.1
+pytz>=2024.1
+neo4j>=5.26.0
+httpx==0.28.1
+beautifulsoup4==4.12.3
+tenacity==9.0.0
+tqdm==4.67.1
+openai>=1.0.0
+pytest>=9.0.3
+
+# LangChain (1.2.x — provides langchain.agents.create_agent)
+langchain-core>=1.2.17
+langchain-openai>=1.1.7
+langchain>=1.2.3
+langgraph>=1.0.6

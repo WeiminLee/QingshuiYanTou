@@ -1,0 +1,42 @@
+# 清水投研系统定时任务 crontab 配置
+# ============================================================
+# 用法:
+#   crontab crontab.txt        # 安装此 crontab（追加到现有 crontab 末尾）
+#   crontab -l                  # 查看当前 crontab
+#   crontab -r                  # 清除所有 crontab（慎用）
+# ============================================================
+# Python: /home/10241671/code/LocalProjects/QingShuiTouYan/.venv/bin/python
+
+# ── 工作日收盘后（18:00-18:30）───────────────────────────────────────────
+# 每日 18:05（工作日收盘后）—— StockPool 热门板块
+05 18 * * 1-5 cd /home/10241671/code/LocalProjects/QingShuiTouYan/backend && /home/10241671/code/LocalProjects/QingShuiTouYan/.venv/bin/python scripts/sync_stock_pool.py >> logs/stock_pool.log 2>&1
+
+# 每日 18:07（紧接 StockPool 之后）—— StockPool → 知识图谱同步
+07 18 * * 1-5 cd /home/10241671/code/LocalProjects/QingShuiTouYan/backend && /home/10241671/code/LocalProjects/QingShuiTouYan/.venv/bin/python scripts/sync_kg_from_stockpool.py >> logs/kg_from_stockpool.log 2>&1
+
+
+# 每日 18:12（收盘后，紧接公告之后）—— 互动易 Q&A 同步（Tushare）
+12 18 * * 1-5 cd /home/10241671/code/LocalProjects/QingShuiTouYan/backend && /home/10241671/code/LocalProjects/QingShuiTouYan/.venv/bin/python scripts/sync_information.py >> logs/information.log 2>&1
+
+# 每日 18:15（收盘后）—— 增量日线（仅最近交易日，全市场股票）
+15 18 * * 1-5 cd /home/10241671/code/LocalProjects/QingShuiTouYan/backend && /home/10241671/code/LocalProjects/QingShuiTouYan/.venv/bin/python scripts/sync_daily_incremental.py >> logs/daily_incremental.log 2>&1
+
+# 每日 18:20（收盘后）—— 基础数据（热榜、资金流向，MongoDB）
+20 18 * * 1-5 cd /home/10241671/code/LocalProjects/QingShuiTouYan/backend && /home/10241671/code/LocalProjects/QingShuiTouYan/.venv/bin/python scripts/sync_basic_data.py >> logs/basic_data.log 2>&1
+
+# ── 深夜批量数据（23:00-次日）───────────────────────────────────────────
+# 每日 23:00（收盘后 4.5 小时，Tushare 配额已恢复）—— ThsConceptMember 增量同步
+# 仅同步 StockPool 中的板块成分股（约 20 概念，~60 API calls，<1 分钟）
+00 23 * * 1-5 cd /home/10241671/code/LocalProjects/QingShuiTouYan/backend && /home/10241671/code/LocalProjects/QingShuiTouYan/.venv/bin/python scripts/sync_ths_concept_member.py --mode pool >> logs/ths_concept_member.log 2>&1
+
+# 每周日 23:03 —— ThsConceptMember 全量同步（约 4000 概念，~4000 API calls，约 50 分钟）
+# 策略：周日低峰期执行，配额充足；周一至周六仅增量同步 pool 模式
+03 23 * * 0 cd /home/10241671/code/LocalProjects/QingShuiTouYan/backend && /home/10241671/code/LocalProjects/QingShuiTouYan/.venv/bin/python scripts/sync_ths_concept_member.py --mode full >> logs/ths_concept_member_full.log 2>&1
+
+# 每日 23:10（K 线批量回补，错开 ThsConceptMember 任务）—— StockPool 个股历史 K 线
+# StockPool 个股约 100-400 只，每只 ~1 个 API call，预计 100-400 calls，~3-5 分钟
+10 23 * * 1-5 cd /home/10241671/code/LocalProjects/QingShuiTouYan/backend && /home/10241671/code/LocalProjects/QingShuiTouYan/.venv/bin/python scripts/sync_daily_incremental.py --mode batch >> logs/daily_batch.log 2>&1
+
+# ── 整点轮询（每小时）───────────────────────────────────────────────────
+# 每小时整点（周一至周日）—— 新闻快讯（财联社）
+0 * * * 1-7 cd /home/10241671/code/LocalProjects/QingShuiTouYan/backend && /home/10241671/code/LocalProjects/QingShuiTouYan/.venv/bin/python scripts/sync_news_flash.py --src cls >> logs/news_flash.log 2>&1

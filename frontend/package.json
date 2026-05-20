@@ -1,0 +1,40 @@
+{
+  "name": "qingshui-frontend",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@element-plus/icons-vue": "^2.3.1",
+    "@tdesign-vue-next/chat": "0.5.2",
+    "@vueuse/core": "^14.3.0",
+    "axios": "^1.7.9",
+    "dompurify": "^3.4.1",
+    "echarts": "^5.5.1",
+    "element-plus": "^2.9.2",
+    "idiomorph": "^0.7.4",
+    "lucide-vue-next": "^1.0.0",
+    "markdown-it": "^14.1.1",
+    "markdown-it-footnote": "^4.0.0",
+    "markdown-it-regexp": "^0.4.0",
+    "marked": "^18.0.2",
+    "pinia": "^2.3.1",
+    "vis-data": "^8.0.3",
+    "vis-network": "^10.0.2",
+    "vue": "^3.5.13",
+    "vue-router": "^4.5.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^5.2.1",
+    "@vue/test-utils": "^2.4.8",
+    "jsdom": "^29.0.2",
+    "vite": "^6.0.7",
+    "vitest": "^4.1.5"
+  }
+}

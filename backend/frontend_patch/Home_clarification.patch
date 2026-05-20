@@ -1,0 +1,64 @@
+# Home.vue 改造说明
+
+## 需要修改的位置
+
+### 1. import 部分添加 ClarificationCard
+
+在 import 列表中添加：
+```typescript
+import ClarificationCard from '@/components/ClarificationCard.vue'
+```
+
+### 2. 添加澄清状态
+
+在 useChatSession 解构后添加：
+```typescript
+const { clarificationPending, clearClarification } = useChatSession()
+```
+
+### 3. 获取当前澄清问题
+
+添加 computed：
+```typescript
+const currentClarification = computed(() => {
+  const msg = messages.value.find(m => m.role === 'assistant' && m.clarificationQuestions?.length)
+  return msg?.clarificationQuestions || null
+})
+```
+
+### 4. 添加澄清处理函数
+
+```typescript
+function handleClarificationAnswer(answer: string) {
+  clearClarification()
+  handleSend(answer)
+}
+```
+
+### 5. 模板中添加 ClarificationCard
+
+在 <template #content="{ item }"> 部分，toolCalls 渲染后添加：
+
+```vue
+<!-- Clarification Card -->
+<ClarificationCard
+  v-if="currentClarification && item.id === messages.find(m => m.clarificationQuestions?.length)?.id"
+  :questions="currentClarification"
+  @answer="handleClarificationAnswer"
+/>
+```
+
+### 6. 完整模板参考
+
+在 ChatList 的 #content slot 中，toolCalls 渲染后添加 ClarificationCard：
+
+```vue
+<!-- Clarification Card -->
+<ClarificationCard
+  v-if="currentClarification && item.id === currentClarificationId"
+  :questions="currentClarification"
+  @answer="handleClarificationAnswer"
+/>
+```
+
+其中 currentClarificationId 是当前显示澄清的消息 ID。

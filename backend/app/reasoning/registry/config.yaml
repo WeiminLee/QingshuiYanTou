@@ -1,0 +1,135 @@
+# =============================================================================
+# 清水投研工具配置（DeerFlow 风格）
+# =============================================================================
+# 格式参考 deer-flow/config.yaml。
+# 每个工具通过 use 字段指向 "module.path:func_name"，由 loader.py 的 resolve_variable 动态导入。
+# 环境变量格式：$ENV_VAR 或 ${ENV_VAR}（在 use 或 description 中均可使用）。
+#
+# 工具分组：
+#   market_data    — K线、板块热度、市场宽度（金融数据）
+#   knowledge      — 知识图谱、研报、公告
+#   search         — 联网搜索/抓取
+#   financial      — 财务数据、互动易
+#   chart          — 可视化图表
+#   agent          — Agent 控制工具（plan mode）
+#   file           — 文件操作（sandbox）
+#   clarification  — 澄清拦截
+# =============================================================================
+
+tools:
+
+  # ── market_data ────────────────────────────────────────────────────────────
+
+  - name: get_kline
+    group: market_data
+    use: app.reasoning.tools.market_data.kline:get_kline
+    description: 获取股票K线数据和技术指标（MACD/RSI/BOLL/MA），用于判断技术面趋势
+
+  - name: get_concept_hot
+    group: market_data
+    use: app.reasoning.tools.market_data.concept_hot:get_concept_hot
+    description: 获取概念板块热度排名，包括涨跌幅度、成交量、涨停家数等
+
+  - name: get_market_breadth
+    group: market_data
+    use: app.reasoning.tools.market_data.market_breadth:get_market_breadth
+    description: 获取市场宽度指标，包括上涨下跌家数、涨停炸板数量、市场情绪等
+
+  # ── knowledge ──────────────────────────────────────────────────────────────
+
+  - name: neo4j_traverse
+    group: knowledge
+    use: app.reasoning.tools.knowledge.neo4j:neo4j_traverse
+    description: 查询知识图谱中实体间的关系（1-hop 或 2-hop 传导链），支持 V2 RELATES 边
+
+  - name: neo4j_entity_info
+    group: knowledge
+    use: app.reasoning.tools.knowledge.neo4j:neo4j_entity_info
+    description: 查询知识图谱中实体的详细属性（行业状态、信号、置信度、别名等）
+
+  - name: neo4j_path
+    group: knowledge
+    use: app.reasoning.tools.knowledge.neo4j:neo4j_path
+    description: 查询两个实体之间的传导路径（供应链、产业链等）
+
+  - name: neo4j_industry_state
+    group: knowledge
+    use: app.reasoning.tools.knowledge.neo4j:neo4j_industry_state
+    description: 查询行业内各公司的生命周期状态分布和信号
+
+  - name: neo4j_kg_search
+    group: knowledge
+    use: app.reasoning.tools.knowledge.neo4j:neo4j_kg_search
+    description: 知识图谱智能搜索：根据自然语言查询，自动选择实体搜索、关系搜索或路径搜索策略，返回相关性排序的结果
+
+  - name: get_research_report
+    group: knowledge
+    use: app.reasoning.tools.knowledge.research_report:get_research_report
+    description: 检索研报摘要，包括券商评级、目标价、核心观点等
+
+  - name: get_announcement
+    group: knowledge
+    use: app.reasoning.tools.knowledge.announcement:get_announcement
+    description: 检索上市公司公告，查看重要事件披露
+
+  # ── search ───────────────────────────────────────────────────────────────
+
+  - name: tavily_search
+    group: search
+    use: app.reasoning.tools.search.tavily:tavily_search
+    description: 联网搜索实时市场信息、新闻、政策动态
+
+  - name: web_fetch
+    group: search
+    use: app.reasoning.tools.search.web_fetch:web_fetch
+    description: 抓取网页正文内容（使用 Jina AI Reader），用于提取外部财经页面原文
+
+  # ── financial ────────────────────────────────────────────────────────────
+
+  - name: get_stock_profile
+    group: financial
+    use: app.reasoning.tools.financial.profile:get_stock_profile
+    description: 查询股票主营业务概况，包括主营产品、经营范围
+
+  - name: get_irm
+    group: financial
+    use: app.reasoning.tools.financial.irm:get_irm
+    description: 查询互动易 Q&A 数据，了解投资者与公司的交流内容
+
+  # ── chart ──────────────────────────────────────────────────────────────
+
+  - name: present_chart
+    group: chart
+    use: app.reasoning.tools.chart:present_chart
+    description: 渲染交互式图表（ECharts）：K线图/板块热度/雷达图/桑基图
+
+  # ── agent ──────────────────────────────────────────────────────────────
+
+  - name: write_todos
+    group: agent
+    use: app.reasoning.langchain_agent.tools.todo:write_todos
+    description: 更新待办列表状态（plan mode 下用于记录分析步骤进度）
+
+  # ── file (sandbox) ─────────────────────────────────────────────────────
+
+  - name: ls
+    group: file
+    use: app.reasoning.tools.sandbox.file_tools:ls_tool
+    description: 列出目录内容（最多2层深度，树状格式）。使用 /mnt/user-data/{workspace,uploads,outputs}/ 虚拟路径
+
+  - name: read_file
+    group: file
+    use: app.reasoning.tools.sandbox.file_tools:read_file_tool
+    description: 读取文本文件内容，支持行范围截取。使用 /mnt/user-data/{workspace,uploads,outputs}/ 虚拟路径
+
+  - name: write_file
+    group: file
+    use: app.reasoning.tools.sandbox.file_tools:write_file_tool
+    description: 写入或追加内容到文件。使用 /mnt/user-data/{workspace,uploads,outputs}/ 虚拟路径
+
+  # ── clarification ──────────────────────────────────────────────────────
+
+  - name: ask_clarification
+    group: clarification
+    use: app.reasoning.tools.builtins.clarification:ask_clarification
+    description: 向用户提问以澄清模糊需求（missing_info/ambiguous/approach_choice/risk_confirmation）

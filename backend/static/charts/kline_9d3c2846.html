@@ -1,0 +1,24 @@
+<!DOCTYPE html><html><head><meta charset="utf-8">
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script></head>
+<body><div id="c" style="width:100%;height:500px;"></div>
+<script>
+const c=echarts.init(document.getElementById('c'));
+c.setOption({
+  title:{text:"测试K线"},
+  tooltip:{trigger:'axis',axisPointer:{type:'cross'}},
+  legend:{data: ['K线','MA5','MA10','成交量']},
+  grid:[{left:'10%',right:'8%',top:'10%',height:'55%'},{left:'10%',right:'8%',top:'72%',height:'15%'}],
+  xAxis:[{type:'category',data:["2024-05-01", "2024-05-02"],gridIndex:0,boundaryGap:false},
+         {type:'category',data:["2024-05-01", "2024-05-02"],gridIndex:1,boundaryGap:false}],
+  yAxis:[{scale:true,gridIndex:0},{scale:true,gridIndex:1}],
+  dataZoom:[{type:'inside',xAxisIndex:[0,1],start:60,end:100}],
+  series:[
+    {name:'K线',type:'candlestick',xAxisIndex:0,yAxisIndex:0,
+      data:[[50, 52, 49, 53], [52, 51, 50, 53]],
+      itemStyle:{color:'#ef5350',color0:'#26a69a',borderColor:'#ef5350',borderColor0:'#26a69a'}},
+    {name:'MA5',type:'line',xAxisIndex:0,yAxisIndex:0,data:[null, 51.5],smooth:true,showSymbol:false},
+    {name:'MA10',type:'line',xAxisIndex:0,yAxisIndex:0,data:[null, 51.5],smooth:true,showSymbol:false},
+    {name:'成交量',type:'bar',xAxisIndex:1,yAxisIndex:1,data:[1000, 1100]}
+  ]
+});
+</script></body></html>

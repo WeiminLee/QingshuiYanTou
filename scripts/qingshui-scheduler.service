@@ -1,0 +1,25 @@
+[Unit]
+Description=QingShuiTouYan Data Pipeline Scheduler
+After=network.target docker-compose.service
+Wants=docker-compose.service
+
+[Service]
+Type=simple
+User=lwm
+WorkingDirectory=/home/lwm/code/QingShuiTouYan/backend
+Environment="PYTHONPATH=/home/lwm/code/QingShuiTouYan/backend"
+ExecStart=/home/lwm/code/QingShuiTouYan/.venv/bin/python -m app.data_pipeline.scheduler
+Restart=always
+RestartSec=10
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=qingshui-scheduler
+
+# Resource limits
+MemoryMax=2G
+CPUQuota=200%
+
+[Install]
+WantedBy=multi-user.target
