@@ -9,3 +9,13 @@ knowledge - 知识图谱构建
 - relation_service: 关系服务
 - vector_client: 向量存储
 """
+
+from app.knowledge.evidence import EvidenceInput, stable_evidence_id, stable_job_id
+from app.knowledge.evidence_service import EvidenceService
+
+__all__ = [
+    "EvidenceInput",
+    "EvidenceService",
+    "stable_evidence_id",
+    "stable_job_id",
+]

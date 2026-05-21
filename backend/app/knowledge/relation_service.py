@@ -786,6 +786,8 @@ def upsert_relates_v4(
     valid_to: date | None = None,
     direction: str = "neutral",
     llm_client: Any | None = None,
+    evidence_id: str | None = None,
+    evidence_ids: list[str] | None = None,
 ) -> tuple[dict, bool]:
     """
     Upsert 统一 RELATES 关系（Schema V4 核心函数）。
@@ -878,6 +880,18 @@ def upsert_relates_v4(
                 merged[field] = val
         if valid_to_str and not merged.get("valid_to"):
             merged["valid_to"] = valid_to_str
+        if evidence_id and not merged.get("evidence_id"):
+            merged["evidence_id"] = evidence_id
+        if evidence_ids:
+            existing_ids = merged.get("evidence_ids") or []
+            if not isinstance(existing_ids, list):
+                existing_ids = [existing_ids]
+            seen = set(existing_ids)
+            for eid in evidence_ids:
+                if eid and eid not in seen:
+                    existing_ids.append(eid)
+                    seen.add(eid)
+            merged["evidence_ids"] = existing_ids
 
         merged["updated_at"] = now
 
@@ -914,6 +928,8 @@ def upsert_relates_v4(
         "source_file": source_file or "",
         "valid_from": valid_from_str,
         "valid_to": valid_to_str,
+        "evidence_id": evidence_id or "",
+        "evidence_ids": list(dict.fromkeys(evidence_ids or [])),
         "state_history": _serialize_state_history(
             _default_state_history(text, valid_from_str, valid_to_str)
         ),

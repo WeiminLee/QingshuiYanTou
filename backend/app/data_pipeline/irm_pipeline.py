@@ -14,7 +14,7 @@ from app.data_pipeline.progress import (
     SUCCESS,
     IngestionProgressTracker,
 )
-from app.knowledge.irm_extractor import extract_irm_batch
+from app.knowledge.irm_extractor import create_irm_evidence_jobs, extract_irm_batch
 
 logger = logging.getLogger(__name__)
 IRM_KG_PROGRESS_EVERY = 5
@@ -46,6 +46,7 @@ async def get_irm_records_from_db(ts_code: str) -> list[dict[str, Any]]:
 async def process_irm_for_company(
     ts_code: str,
     progress_callback: Any | None = None,
+    evidence_first: bool = True,
 ) -> dict[str, int]:
     records = await get_irm_records_from_db(ts_code)
     if not records:
@@ -65,7 +66,10 @@ async def process_irm_for_company(
             total_items=len(records),
             metadata={"records": len(records)},
         )
-    result = await extract_irm_batch(records, progress_callback=progress_callback)
+    if evidence_first:
+        result = await create_irm_evidence_jobs(records, progress_callback=progress_callback)
+    else:
+        result = await extract_irm_batch(records, progress_callback=progress_callback)
     if progress_callback:
         await progress_callback(
             stage="company_done",
@@ -81,7 +85,7 @@ async def process_irm_for_company(
     return {"companies": 1, **result}
 
 
-async def process_irm_batch(ts_codes: list[str], max_concurrency: int = 4) -> dict[str, int]:
+async def process_irm_batch(ts_codes: list[str], max_concurrency: int = 4, evidence_first: bool = True) -> dict[str, int]:
     semaphore = asyncio.Semaphore(max_concurrency)
     scope = ",".join(ts_codes[:5]) if len(ts_codes) <= 5 else f"{len(ts_codes)}_companies"
     tracker = IngestionProgressTracker(
@@ -90,7 +94,7 @@ async def process_irm_batch(ts_codes: list[str], max_concurrency: int = 4) -> di
         scope=scope,
     )
     run_ctx = await tracker.start_run(
-        metadata={"companies": ts_codes, "max_concurrency": max_concurrency},
+        metadata={"companies": ts_codes, "max_concurrency": max_concurrency, "evidence_first": evidence_first},
     )
     total_companies = len(ts_codes)
     totals = {
@@ -112,7 +116,7 @@ async def process_irm_batch(ts_codes: list[str], max_concurrency: int = 4) -> di
     async def worker(code: str) -> dict[str, int]:
         async with semaphore:
             try:
-                return await process_irm_for_company(code, progress_callback=emit_event)
+                return await process_irm_for_company(code, progress_callback=emit_event, evidence_first=evidence_first)
             except Exception as exc:  # noqa: BLE001
                 logger.warning("IRM company processing failed [%s]: %s", code, exc)
                 await tracker.event(

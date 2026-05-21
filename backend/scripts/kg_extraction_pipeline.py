@@ -45,6 +45,8 @@ from app.core.neo4j_client import health_check as neo4j_health_check
 from app.data_pipeline.announcement_filter import classify_title
 from app.data_pipeline.progress import FAILED, PARTIAL, SUCCESS, IngestionProgressTracker
 from app.knowledge.file_indexer import FileIndexer
+from app.knowledge.evidence_builders import build_file_evidence
+from app.knowledge.evidence_service import EvidenceService
 from app.knowledge.kg_extractor import extract_text_async, _extract_text_from_file
 from app.core.llm_client import chat, get_llm_client
 from app.core.task_logger import TaskLogger
@@ -91,9 +93,11 @@ def _normalize_source_and_doc_type(file_info: dict) -> tuple[str, str]:
 class KGPipeline:
     """KG 抽取管道"""
 
-    def __init__(self):
+    def __init__(self, evidence_first: bool = True):
         self._db = get_mongo_db()
         self._indexer = FileIndexer(self._db)
+        self._evidence = EvidenceService(self._db)
+        self.evidence_first = evidence_first
 
     async def run(
         self,
@@ -318,6 +322,32 @@ class KGPipeline:
         logger.info("▶ 抽取: %s | 字数=%d | 预估chunk≈%d | ts=%s",
                      fname, len(text), est_chunks, ts_code)
 
+        if self.evidence_first:
+            try:
+                result = await self._create_file_evidence_jobs(
+                    file_info, text, source_type, doc_type, ts_code, tracker=tracker, ctx=ctx,
+                    chunk_max_tokens=chunk_max_tokens,
+                    max_chunks=MAX_PDF_CHUNKS_PER_FILE if file_type == "pdf" else None,
+                )
+                await self._indexer.mark_done(file_path, 0, 0, source_type=source_type, doc_type=doc_type)
+                if tracker and ctx:
+                    await tracker.event(
+                        ctx,
+                        stage="file_done",
+                        message="PDF Evidence 构建完成",
+                        item_id=str(file_info.get("cninfo_id") or fname)[:100],
+                        item_title=str(file_info.get("title") or fname)[:500],
+                        metadata={"file_path": file_path, **result},
+                    )
+                logger.info("✅ Evidence-first %s | evidence=%d jobs=%d", fname, result.get("evidence_created_or_updated", 0), result.get("jobs_enqueued", 0))
+                return "success"
+            except Exception as e:
+                logger.warning("❌ Evidence 构建失败: %s → %s", fname, e)
+                await self._indexer.mark_failed(file_path, str(e))
+                if tracker and ctx:
+                    await tracker.event(ctx, stage="file_error", message="PDF Evidence 构建失败", item_id=str(file_info.get("cninfo_id") or fname)[:100], item_title=fname, error=str(e))
+                raise
+
         def _progress(msg: str, pct: float):
             """逐阶段日志回调"""
             logger.info("  [%s] %.0f%% %s", fname, pct, msg)
@@ -389,17 +419,64 @@ class KGPipeline:
                 await tracker.event(ctx, stage="file_error", message="PDF 知识抽取失败", item_id=str(file_info.get("cninfo_id") or fname)[:100], item_title=fname, error=str(e), metadata={"file_path": file_path, "source_type": source_type, "doc_type": doc_type})
             raise
 
+
+    async def _create_file_evidence_jobs(
+        self,
+        file_info: dict,
+        text: str,
+        source_type: str,
+        doc_type: str,
+        ts_code: str | None,
+        tracker: IngestionProgressTracker | None = None,
+        ctx=None,
+        chunk_max_tokens: int = 2048,
+        max_chunks: int | None = None,
+    ) -> dict:
+        evidence_items = build_file_evidence(
+            file_info=file_info,
+            text=text,
+            source_type=source_type,
+            doc_type=doc_type,
+            ts_code=ts_code,
+            chunk_max_tokens=chunk_max_tokens,
+            max_chunks=max_chunks,
+        )
+        jobs_enqueued = 0
+        evidence_ids: list[str] = []
+        for idx, item in enumerate(evidence_items):
+            saved = await self._evidence.upsert_evidence(item, chunk_index=idx)
+            evidence_id = saved["evidence_id"]
+            evidence_ids.append(evidence_id)
+            jobs = await self._evidence.enqueue_default_jobs(evidence_id)
+            jobs_enqueued += len(jobs)
+        result = {
+            "evidence_created_or_updated": len(evidence_items),
+            "jobs_enqueued": jobs_enqueued,
+            "chunks_total": len(evidence_items),
+            "evidence_ids": evidence_ids[:20],
+        }
+        if tracker and ctx:
+            await tracker.event(
+                ctx,
+                stage="evidence_created",
+                message="PDF Evidence 已创建",
+                item_id=str(file_info.get("cninfo_id") or file_info.get("file_name") or "")[:100],
+                item_title=str(file_info.get("title") or file_info.get("file_name") or "")[:500],
+                metadata=result,
+            )
+        return result
+
     @staticmethod
     def _guess_ts_code(fname: str) -> str | None:
         from app.knowledge.file_indexer import _parse_ts_code_from_filename
         return _parse_ts_code_from_filename(fname)
 
 
-def run_daemon(interval_minutes: int, limit: int | None = None, max_runtime_seconds: int | None = None):
+def run_daemon(interval_minutes: int, limit: int | None = None, max_runtime_seconds: int | None = None, evidence_first: bool = True):
     """常驻模式：每 N 分钟扫描一次"""
     interval_sec = interval_minutes * 60
-    pipeline = KGPipeline()
-    logger.info("🚀 KG 抽取管道启动（常驻模式，间隔 %d 分钟）", interval_minutes)
+    pipeline = KGPipeline(evidence_first=evidence_first)
+    logger.info("🚀 KG 抽取管道启动（常驻模式，间隔 %d 分钟，evidence_first=%s）", interval_minutes, evidence_first)
 
     while True:
         tl = TaskLogger("kg_extraction_pipeline")
@@ -442,9 +519,9 @@ def _llm_health_check() -> bool:
         return False
 
 
-def run_once(scan: bool = True, limit: int | None = None, max_runtime_seconds: int | None = None):
+def run_once(scan: bool = True, limit: int | None = None, max_runtime_seconds: int | None = None, evidence_first: bool = True):
     """单次运行"""
-    pipeline = KGPipeline()
+    pipeline = KGPipeline(evidence_first=evidence_first)
     tl = TaskLogger("kg_extraction_pipeline")
     tl.start()
     try:
@@ -485,9 +562,11 @@ if __name__ == "__main__":
                         help="最多处理 pending 文件数；0 表示只启动并退出，不触发 LLM")
     parser.add_argument("--max-runtime", type=int, default=None,
                         help="本次处理最大运行秒数，到时停止领取新文件")
+    parser.add_argument("--legacy-direct-extract", action="store_true",
+                        help="使用旧路径直接 LLM 抽取写 KG；默认走 Evidence-first")
     args = parser.parse_args()
 
     if args.daemon:
-        run_daemon(args.interval, limit=args.limit, max_runtime_seconds=args.max_runtime)
+        run_daemon(args.interval, limit=args.limit, max_runtime_seconds=args.max_runtime, evidence_first=not args.legacy_direct_extract)
     else:
-        run_once(scan=not args.once, limit=args.limit, max_runtime_seconds=args.max_runtime)
+        run_once(scan=not args.once, limit=args.limit, max_runtime_seconds=args.max_runtime, evidence_first=not args.legacy_direct_extract)

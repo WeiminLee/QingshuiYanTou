@@ -706,6 +706,44 @@ def upsert_chunk_vector(
         return False
 
 
+def upsert_evidence_chunk_vector(
+    evidence: dict[str, Any],
+    collection: str = COLLECTION_CHUNKS,
+) -> bool:
+    """将 Evidence 片段写入向量库。"""
+    try:
+        evidence_id = str(evidence.get("evidence_id") or "")
+        text = str(evidence.get("text_excerpt") or "")
+        if not evidence_id or not text.strip():
+            logger.warning("upsert_evidence_chunk_vector 输入无效: evidence_id=%s", evidence_id)
+            return False
+
+        client = get_vector_client()
+        embedder = get_embedding_model()
+        vec = embedder.embed(text)
+        point_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, evidence_id))
+        record = VectorRecord(
+            id=point_id,
+            vector=vec,
+            payload={
+                "evidence_id": evidence_id,
+                "content": text,
+                "source_type": evidence.get("source_type", ""),
+                "source_name": evidence.get("source_name", ""),
+                "subject_hint": evidence.get("subject_hint") or {},
+                "source_ref": evidence.get("source_ref") or {},
+                "publish_date": evidence.get("publish_date"),
+                "observed_at": evidence.get("observed_at"),
+                "checksum": evidence.get("checksum", ""),
+            },
+        )
+        client.upsert(collection, [record])
+        return True
+    except Exception as e:
+        logger.warning("upsert_evidence_chunk_vector 失败: %s", e)
+        return False
+
+
 def semantic_search_entities(
     query: str,
     ts_code: Optional[str] = None,

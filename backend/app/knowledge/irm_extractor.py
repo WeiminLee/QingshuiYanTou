@@ -10,6 +10,8 @@ from typing import Any
 
 from app.core.mongodb import get_mongo_db
 from app.knowledge.entity_service import generate_entity_id_v4, upsert_entity
+from app.knowledge.evidence_builders import build_irm_evidence
+from app.knowledge.evidence_service import EvidenceService
 from app.knowledge.extraction.rag_extractor import extract_async as rag_extract_async
 from app.knowledge.relation_service import upsert_relates_v4
 from app.knowledge.vector_client import (
@@ -204,6 +206,44 @@ async def upsert_irm_metric(name: str, value: Any = None, period: str = "IRM") -
         source_name="互动易",
         parser_version="v4",
     )
+
+
+async def create_irm_evidence_jobs(
+    records: list[dict[str, Any]],
+    progress_callback: ProgressCallback | None = None,
+) -> dict[str, int]:
+    """Create Evidence-first jobs for IRM records without LLM extraction."""
+    service = EvidenceService()
+    totals = {"records": len(records), "evidence": 0, "jobs": 0, "fail": 0, "skipped": 0}
+    for rec in records:
+        item_id = str(rec.get("cninfo_id") or rec.get("ts_code") or "")[:100]
+        title = str(rec.get("question") or rec.get("title") or "")[:200]
+        try:
+            evidence_input = build_irm_evidence(rec)
+            saved = await service.upsert_evidence(evidence_input, chunk_index=0)
+            jobs = await service.enqueue_default_jobs(saved["evidence_id"])
+            totals["evidence"] += 1
+            totals["jobs"] += len(jobs)
+            await _emit(
+                progress_callback,
+                "irm_evidence_created",
+                "互动易 Evidence 已创建",
+                item_id=item_id or None,
+                item_title=title,
+                metadata={"evidence_id": saved["evidence_id"], "jobs": len(jobs)},
+            )
+        except Exception as exc:  # noqa: BLE001
+            totals["fail"] += 1
+            logger.warning("IRM Evidence creation failed [%s]: %s", item_id, exc)
+            await _emit(
+                progress_callback,
+                "irm_evidence_failed",
+                "互动易 Evidence 创建失败",
+                item_id=item_id or None,
+                item_title=title,
+                error=str(exc),
+            )
+    return totals
 
 
 async def extract_irm_qa(

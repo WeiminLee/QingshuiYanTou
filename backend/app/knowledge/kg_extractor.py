@@ -72,6 +72,8 @@ from app.knowledge.vector_client import (
     upsert_relation_vector,
     upsert_chunk_vector,
 )
+from app.knowledge.evidence import JOB_COMBINED, JOB_VECTOR, STATUS_DONE, STATUS_FAILED, STATUS_PENDING, STATUS_RUNNING
+
 
 # 从 confidence 模块导入（保持向后兼容）
 from app.knowledge.confidence import (
@@ -1052,6 +1054,171 @@ async def extract_text_async(
         "confidence_score": conf,
         "fallback": fallback_info,
         "noise_filter": noise_filter_info,
+    }
+
+
+async def extract_evidence_async(
+    evidence: dict[str, Any],
+    progress_callback: Any | None = None,
+) -> dict[str, Any]:
+    """Extract entities/relations from a single Evidence record."""
+    text = str(evidence.get("text_excerpt") or "")
+    if not text.strip():
+        return {
+            "entities_created": 0,
+            "entities_updated": 0,
+            "relations_created": 0,
+            "relations_updated": 0,
+            "chunks_processed": 0,
+            "evidence_id": evidence.get("evidence_id"),
+            "entities_raw": [],
+            "relations_raw": [],
+        }
+    source_name = str(evidence.get("source_name") or evidence.get("source_id") or "evidence")
+    source_type = str(evidence.get("source_type") or "unknown")
+    subject_hint = evidence.get("subject_hint") or {}
+    ts_code = str(subject_hint.get("ts_code") or "UNKNOWN")
+    chunk = type("EvidenceChunk", (), {"content": text, "chunk_id": 0, "heading": str(evidence.get("source_name") or "Evidence")})()
+    result = await rag_extract_async(
+        text,
+        chunks=[chunk],
+        max_tokens=1024,
+        overlap_tokens=0,
+        callback=progress_callback,
+        source_file=source_name,
+        source_type=source_type,
+    )
+    merged_entities, merged_relations = result
+    lookup = _build_name_to_id_map(merged_entities, ts_code, disambiguation_context=text[:500])
+    today = date.today()
+    conf, tier = _source_confidence(source_type)
+    entities_created = entities_updated = 0
+    entity_ids: list[str] = []
+    for e in merged_entities:
+        name = str(e.get("entity_name") or "").strip()
+        e_type = str(e.get("entity_type") or "Company")
+        description = e.get("description", "")
+        metric = e.get("metric") if isinstance(e.get("metric"), dict) else {}
+        props = {
+            "original_name": name,
+            "description": description,
+            "confidence_tier": tier.name,
+            "source_type": source_type,
+            "evidence_id": evidence.get("evidence_id"),
+            "evidence_ids": [evidence.get("evidence_id")],
+        }
+        if metric:
+            props.update({
+                "metric_value": metric.get("value"),
+                "metric_unit": metric.get("unit"),
+                "period": metric.get("period"),
+                "period_type": metric.get("period_type"),
+                "sentiment": metric.get("sentiment"),
+            })
+        entity_id = lookup.get(name) or lookup.get(name.lower()) or _entity_id_from_name(name, e_type)
+        try:
+            if e_type == "Company":
+                if entity_id.startswith("C:"):
+                    _, is_new = upsert_company(
+                        ts_code=entity_id[2:],
+                        name=name,
+                        source_type=source_type,
+                        source_name=source_name,
+                        properties=props,
+                    )
+                else:
+                    _, is_new = upsert_entity(
+                        entity_id=entity_id,
+                        entity_type="Company",
+                        name=name,
+                        properties=props,
+                        source_type=source_type,
+                        source_name=source_name,
+                        confidence=conf,
+                    )
+            else:
+                _, is_new = upsert_entity(
+                    entity_id=entity_id,
+                    entity_type=e_type,
+                    name=name,
+                    ts_code=ts_code if e_type in {"Metric", "Project"} else None,
+                    properties=props,
+                    source_type=source_type,
+                    source_name=source_name,
+                    confidence=conf,
+                )
+            if is_new:
+                entities_created += 1
+            else:
+                entities_updated += 1
+            entity_ids.append(entity_id)
+            try:
+                upsert_entity_vector(
+                    entity_id=entity_id,
+                    entity_name=name,
+                    description=description,
+                    entity_type=e_type,
+                    ts_code=ts_code,
+                )
+            except Exception as vec_ex:
+                logger.debug("实体向量写入失败 [%s]: %s", entity_id, vec_ex)
+        except Exception as ex:
+            logger.warning("实体入库失败 [%s %s]: %s", e_type, name, ex)
+
+    relations_created = relations_updated = 0
+    written_rels: list[dict[str, Any]] = []
+    for r in merged_relations:
+        src_name = str(r.get("src_id") or "").strip()
+        tgt_name = str(r.get("tgt_id") or "").strip()
+        rel_desc = str(r.get("description") or "").strip()
+        src_eid = lookup.get(src_name) or lookup.get(src_name.lower())
+        tgt_eid = lookup.get(tgt_name) or lookup.get(tgt_name.lower())
+        if not src_eid or not tgt_eid:
+            continue
+        raw_weight = float(r.get("weight", 5.0))
+        v2_weight = min(1.0, raw_weight / 10.0) if raw_weight > 1.0 else raw_weight
+        try:
+            _, is_new = upsert_relates_v4(
+                from_entity=src_eid,
+                to_entity=tgt_eid,
+                text=rel_desc,
+                weight=v2_weight,
+                source_file=source_name,
+                source_type=source_type,
+                source_name=source_name,
+                valid_from=today,
+            )
+            if is_new:
+                relations_created += 1
+            else:
+                relations_updated += 1
+            written_rels.append({"from": src_eid, "to": tgt_eid, "relation": rel_desc})
+            try:
+                upsert_relation_vector(
+                    relation_key=f"{src_eid}|{tgt_eid}|{rel_desc[:40]}",
+                    from_name=src_name,
+                    to_name=tgt_name,
+                    description=rel_desc,
+                    from_entity=src_eid,
+                    to_entity=tgt_eid,
+                    ts_code=ts_code,
+                )
+            except Exception as e:
+                logger.warning("关系向量写入失败 [%s → %s]: %s", src_eid, tgt_eid, e)
+        except Exception as ex:
+            logger.warning("关系入库失败 [%s → %s]: %s", src_eid, tgt_eid, ex)
+
+    return {
+        "entities_created": entities_created,
+        "entities_updated": entities_updated,
+        "relations_created": relations_created,
+        "relations_updated": relations_updated,
+        "chunks_processed": 1,
+        "evidence_id": evidence.get("evidence_id"),
+        "entities_raw": merged_entities,
+        "relations_raw": merged_relations,
+        "entities": entity_ids,
+        "relations": written_rels,
     }
 
 
