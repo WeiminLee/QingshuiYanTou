@@ -1,5 +1,6 @@
 """Phase 31 E / F / H — scheduler 修复验证"""
 import asyncio
+import inspect
 from datetime import datetime, time
 from unittest.mock import MagicMock, patch
 import pytest
@@ -87,3 +88,31 @@ class TestTradingHoursGate:
             # 2026-05-13 周三 14:00
             mock_dt.now.return_value = datetime(2026, 5, 13, 14, 0, tzinfo=TRADING_TZ)
             assert _is_trading_hours() is True
+
+
+class TestBatchReindexScheduler:
+    """D-07 batch reindex is scheduled nightly, not dispatched at startup."""
+
+    def test_batch_reindex_job_registered_at_0300(self):
+        from app.data_pipeline import scheduler as sched
+
+        scheduler = sched.Scheduler()
+
+        with patch.object(sched.AsyncIOScheduler, "start", return_value=None):
+            scheduler.start()
+
+        job = scheduler._scheduler.get_job("batch_reindex_daily")
+        assert job is not None
+
+        trigger_text = str(job.trigger)
+        assert f"hour='{sched.BATCH_REINDEX_HOUR}'" in trigger_text
+        assert f"minute='{sched.BATCH_REINDEX_MINUTE}'" in trigger_text
+        assert str(job.trigger.timezone) == sched.TIMEZONE
+
+    def test_run_now_does_not_dispatch_batch_reindex(self):
+        from app.data_pipeline import scheduler as sched
+
+        source = inspect.getsource(sched.Scheduler._fire_all_once)
+
+        assert "_run_batch_reindex_job" not in source
+        assert "batch_reindex_startup" not in source

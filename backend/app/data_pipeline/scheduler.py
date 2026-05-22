@@ -462,6 +462,7 @@ class Scheduler:
             replace_existing=True,
         )
         add_pdf_rotation_job(self._scheduler)
+        add_batch_reindex_job(self._scheduler)
         self._scheduler.add_job(
             _run_sync_stocks_job,
             CronTrigger(
