@@ -28,6 +28,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
+import math
 import re
 from datetime import date, datetime
 from pathlib import Path
@@ -252,13 +253,29 @@ def _infer_period_from_announcement(text: str, source_name: str) -> tuple[str, s
     year = year_match.group(1) if year_match else str(date.today().year)
     if "第一季度" in sample or "一季度" in sample:
         return f"{year}Q1", "quarterly"
+    if "第二季度" in sample or "二季度" in sample:
+        return f"{year}Q2", "quarterly"
     if "第三季度" in sample or "三季度" in sample:
         return f"{year}Q3", "quarterly"
+    if "第四季度" in sample or "四季度" in sample:
+        return f"{year}Q4", "quarterly"
     if "半年度" in sample or "半年报" in sample:
         return f"{year}H1", "half-year"
     if "预告" in sample or "预计" in sample:
         return f"{year}E", "forecast"
     return f"{year}A", "actual"
+
+
+def _normalize_relation_weight(value: Any, default: float = 0.5) -> float:
+    """Normalize LLM relation weights to Neo4j's 0-1 range."""
+    try:
+        raw_weight = float(value)
+    except (TypeError, ValueError):
+        raw_weight = default
+    if not math.isfinite(raw_weight):
+        raw_weight = default
+    normalized = min(1.0, raw_weight / 10.0) if raw_weight > 1.0 else raw_weight
+    return max(0.0, min(1.0, normalized))
 
 
 def _metric_unit_near(text: str, term: str) -> str | None:
@@ -573,8 +590,7 @@ def extract_text(
             logger.debug("关系跳过（节点不存在）: %s → %s", src_name, tgt_name)
             continue
 
-        raw_weight = float(r.get("weight", 5.0))
-        v4_weight = min(1.0, raw_weight / 10.0) if raw_weight > 1.0 else raw_weight
+        v4_weight = _normalize_relation_weight(r.get("weight", 5.0))
 
         try:
             _, is_new = upsert_relates_v4(
@@ -940,8 +956,7 @@ async def extract_text_async(
             continue
 
         # 从 weight 字段计算 V2 weight（V1 输出是 1-10，V2 需要 0-1 映射）
-        raw_weight = float(r.get("weight", 5.0))
-        v2_weight = min(1.0, raw_weight / 10.0) if raw_weight > 1.0 else raw_weight
+        v2_weight = _normalize_relation_weight(r.get("weight", 5.0))
 
         try:
             _, is_new = upsert_relates_v4(
@@ -1175,8 +1190,7 @@ async def extract_evidence_async(
         tgt_eid = lookup.get(tgt_name) or lookup.get(tgt_name.lower())
         if not src_eid or not tgt_eid:
             continue
-        raw_weight = float(r.get("weight", 5.0))
-        v2_weight = min(1.0, raw_weight / 10.0) if raw_weight > 1.0 else raw_weight
+        v2_weight = _normalize_relation_weight(r.get("weight", 5.0))
         try:
             _, is_new = upsert_relates_v4(
                 from_entity=src_eid,

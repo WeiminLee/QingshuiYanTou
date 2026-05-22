@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
+import math
 import random
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -94,9 +95,10 @@ def _safe_float(value: Any) -> float | None:
     if value in (None, "", b""):
         return None
     try:
-        return float(value)
+        parsed = float(value)
     except (TypeError, ValueError):
         return None
+    return parsed if math.isfinite(parsed) else None
 
 
 def _concept_code(concept_name: str) -> str:
@@ -216,8 +218,8 @@ class DataFetcher:
             logger.debug("研报入库: [%s] %s", c["ts_code"] or "_industry", c["title"][:40])
 
         logger.info(
-            "研报获取完成: 总 %d，预跳过 %d，新增 %d，失败 %d",
-            total, len(existing), success, fail,
+            "研报获取完成: 总 %d，预跳过 %d，总跳过 %d，新增 %d，失败 %d",
+            total, len(existing), skipped, success, fail,
         )
         return {"total": total, "success": success, "skipped": skipped, "fail": fail}
 

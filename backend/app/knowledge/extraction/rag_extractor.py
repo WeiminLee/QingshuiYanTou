@@ -763,7 +763,11 @@ class RAGExtractor:
         name = RAGExtractor._normalize_name_for_merge(name)
 
         # entity_type 投票
-        type_counter = Counter(e.get("entity_type", "") for e in instances)
+        type_counter = Counter(
+            e_type
+            for e in instances
+            if (e_type := str(e.get("entity_type") or "").strip())
+        )
         top_type = type_counter.most_common(1)[0][0] if type_counter else "Company"
 
         # 保留所有原文描述（不做 LLM summarization）

@@ -298,19 +298,20 @@ class HunyuanEmbedding(EmbeddingModelBase):
         }
 
     def embed(self, text: str) -> list[float]:
-        """Synchronous embed - delegates to async implementation."""
-        import asyncio
-        import concurrent.futures
-
-        try:
-            loop = asyncio.get_running_loop()
-            # Can't await in sync function - use thread pool
-            with concurrent.futures.ThreadPoolExecutor() as pool:
-                fut = pool.submit(asyncio.run, self.aembed([text]))
-                return fut.result()[0]
-        except RuntimeError:
-            # No event loop running
-            return asyncio.run(self.aembed([text]))[0]
+        """Synchronous embed using a synchronous HTTP client."""
+        client = self._get_sync()
+        resp = client.post(
+            self._api_url,
+            json={"input": [text], "model": self._model},
+            headers=self._headers(),
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        embeddings = [item["embedding"] for item in data["data"]]
+        if self._dim is None and embeddings:
+            self._dim = len(embeddings[0])
+            logger.info(f"[HunyuanEmbedding] Detected vector dimension: {self._dim}")
+        return embeddings[0]
 
     def embed_batch(self, texts: list[str]) -> list[list[float]]:
         raise NotImplementedError("embed_batch is async-only; use aembed()")
@@ -342,6 +343,12 @@ class HunyuanEmbedding(EmbeddingModelBase):
             self._dim = len(embeddings[0])
             logger.info(f"[HunyuanEmbedding] Detected vector dimension: {self._dim}")
         return embeddings
+
+    def _get_sync(self) -> httpx.Client:
+        """Return a reusable synchronous HTTP client."""
+        if self._sync_client is None:
+            self._sync_client = httpx.Client(timeout=self._timeout)
+        return self._sync_client
 
     def dimension(self) -> int:
         if self._dim is None:
