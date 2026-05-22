@@ -662,34 +662,44 @@ async def _pre_search(query: str, top_k: int = 10) -> str:
         if not results:
             return ""
 
-        chunks = []
+        context_parts = []
         for r in results:
             payload = r.payload or {}
-            # Determine source type for prefix
-            entity_id = payload.get("entity_id", "")
-            entity_name = payload.get("entity_name", "")
-            content = payload.get("content", "")
-            source = payload.get("source", "unknown")
 
-            if entity_name and entity_id:
-                # Entity result
-                desc = (payload.get("description") or "")[:200]
-                source_type = "实体"
-                text = f"{entity_name}: {desc}" if desc else entity_name
-            elif content:
-                # Document chunk
-                source_type = "文档"
-                text = content[:300]
+            if "entity_name" in payload:
+                label = payload.get("entity_name") or "entity"
+                text = (payload.get("description") or "")[:300]
+                source = payload.get("source") or payload.get("ts_code") or "unknown"
+                if text:
+                    context_parts.append(f"- [实体:{label}]: {text}...（来源：{source}）")
+            elif "from_name" in payload:
+                from_name = payload.get("from_name") or payload.get("from_entity") or ""
+                to_name = payload.get("to_name") or payload.get("to_entity") or ""
+                text = (payload.get("description") or "")[:300]
+                source = payload.get("source") or payload.get("ts_code") or "unknown"
+                if text:
+                    context_parts.append(
+                        f"- [关系:{from_name}->{to_name}]: {text}...（来源：{source}）"
+                    )
+            elif "content" in payload:
+                label = payload.get("heading") or "chunk"
+                text = (payload.get("content") or "")[:300]
+                source = payload.get("source") or payload.get("ts_code") or "unknown"
+                if text:
+                    context_parts.append(f"- [文档:{label}]: {text}...（来源：{source}）")
+            elif "question" in payload or "answer" in payload:
+                label = payload.get("question") or "qa"
+                text = (payload.get("answer") or "")[:300]
+                source = payload.get("source") or "unknown"
+                if text:
+                    context_parts.append(f"- [问答:{label}]: {text}...（来源：{source}）")
             else:
-                source_type = "其他"
                 text = str(payload)[:200]
+                if text:
+                    context_parts.append(f"- [其他]: {text}...（来源：unknown）")
 
-            text = (text or "")[:300]
-            if text:
-                chunks.append(f"- [{source_type}]: {text}...（来源：{source}）")
-
-        if chunks:
-            return "<background>\n## 相关背景知识\n" + "\n".join(chunks) + "\n</background>"
+        if context_parts:
+            return "<background>\n## 相关背景知识\n" + "\n".join(context_parts) + "\n</background>"
     except Exception as e:
         logger.warning(f"[PreSearch] Hybrid search failed: {e}")
         # Fallback to empty string - don't block agent
