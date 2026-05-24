@@ -542,7 +542,7 @@ def batch_upsert_relations_unwind(relations: list[dict]) -> dict:
         valid_to_str = str(rel.get("valid_to")) if rel.get("valid_to") else None
         source_file = rel.get("source_file", "unknown")
         direction = rel.get("direction", "neutral")
-        source_label = f"[{source_file}]{direction}: {rel.get('text', '')}"
+        description_entry = f"[{source_file}]{direction}: {rel.get('text', '')}"
 
         rows.append({
             "from_entity": rel["from_entity"],
@@ -550,7 +550,8 @@ def batch_upsert_relations_unwind(relations: list[dict]) -> dict:
             "text": rel.get("text", ""),
             "weight": float(rel.get("weight", 1.0)),
             "direction": direction,
-            "descriptions": [source_label],
+            "description_entry": description_entry,
+            "descriptions": [description_entry],
             "source_type": rel.get("source_type", "unknown"),
             "source_name": rel.get("source_name", "unknown"),
             "source_chunk": rel.get("source_chunk", ""),
@@ -566,6 +567,7 @@ def batch_upsert_relations_unwind(relations: list[dict]) -> dict:
     UNWIND $rows AS row
     MATCH (a {entity_id: row.from_entity})-[r:RELATES]->(b {entity_id: row.to_entity})
     WHERE r.valid_to IS NULL
+      AND r.valid_from <> row.valid_from
     SET r.valid_to = row.yesterday, r.updated_at = row.now
     """
 
@@ -574,7 +576,7 @@ def batch_upsert_relations_unwind(relations: list[dict]) -> dict:
     UNWIND $rows AS row
     MERGE (a {entity_id: row.from_entity})
     MERGE (b {entity_id: row.to_entity})
-    MERGE (a)-[r:RELATES]->(b)
+    MERGE (a)-[r:RELATES {valid_from: row.valid_from}]->(b)
     ON CREATE SET
         r.text         = row.text,
         r.weight       = row.weight,
@@ -584,7 +586,6 @@ def batch_upsert_relations_unwind(relations: list[dict]) -> dict:
         r.source_name   = row.source_name,
         r.source_chunk  = row.source_chunk,
         r.source_file   = row.source_file,
-        r.valid_from    = row.valid_from,
         r.valid_to      = row.valid_to,
         r.created_at    = row.now,
         r.updated_at    = row.now
@@ -594,7 +595,7 @@ def batch_upsert_relations_unwind(relations: list[dict]) -> dict:
         r.source_type = COALESCE(r.source_type, row.source_type),
         r.source_name = COALESCE(r.source_name, row.source_name)
     WITH r, row
-    WHERE NOT row.text IN r.descriptions
+    WHERE NOT row.description_entry IN r.descriptions
       SET r.descriptions = r.descriptions + row.descriptions
     RETURN count(r) AS total
     """
