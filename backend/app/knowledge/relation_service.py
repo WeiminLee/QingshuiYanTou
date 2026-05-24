@@ -548,6 +548,11 @@ def batch_upsert_relations_unwind(relations: list[dict]) -> dict:
         source_file = rel.get("source_file", "unknown")
         direction = rel.get("direction", "neutral")
         description_entry = f"[{source_file}]{direction}: {rel.get('text', '')}"
+        evidence_id = rel.get("evidence_id", "") or ""
+        evidence_ids = list(dict.fromkeys([
+            eid for eid in [*(rel.get("evidence_ids") or []), evidence_id]
+            if eid
+        ]))
 
         rows.append({
             "from_entity": rel["from_entity"],
@@ -563,10 +568,14 @@ def batch_upsert_relations_unwind(relations: list[dict]) -> dict:
             "source_file": source_file,
             "valid_from": valid_from_str,
             "valid_to": valid_to_str,
+            "evidence_id": evidence_id,
+            "evidence_ids": evidence_ids,
+            "state_history": [],
             "now": now,
             "yesterday": (valid_from_date - dt.timedelta(days=1)).isoformat(),
             "_valid_from_date": valid_from_date,
             "close_existing": False,
+            "batch_valid_froms": [],
         })
 
     rows.sort(key=lambda row: (row["from_entity"], row["to_entity"], row["_valid_from_date"]))
@@ -576,7 +585,10 @@ def batch_upsert_relations_unwind(relations: list[dict]) -> dict:
         grouped_rows.setdefault((row["from_entity"], row["to_entity"]), []).append(row)
 
     for group in grouped_rows.values():
+        batch_valid_froms = sorted({row["valid_from"] for row in group})
         group[0]["close_existing"] = True
+        for row in group:
+            row["batch_valid_froms"] = batch_valid_froms
         for index, row in enumerate(group):
             next_valid_from = next(
                 (
@@ -590,6 +602,9 @@ def batch_upsert_relations_unwind(relations: list[dict]) -> dict:
                 row["valid_to"] = (next_valid_from - dt.timedelta(days=1)).isoformat()
 
     for row in rows:
+        row["state_history"] = _serialize_state_history(
+            _default_state_history(row["text"], row["valid_from"], row["valid_to"])
+        )
         del row["_valid_from_date"]
 
     # Stage 1: 关闭已有开放边
@@ -599,6 +614,7 @@ def batch_upsert_relations_unwind(relations: list[dict]) -> dict:
     WHERE row.close_existing
       AND r.valid_to IS NULL
       AND r.valid_from <> row.valid_from
+      AND NOT r.valid_from IN row.batch_valid_froms
     SET r.valid_to = row.yesterday, r.updated_at = row.now
     """
 
@@ -618,13 +634,23 @@ def batch_upsert_relations_unwind(relations: list[dict]) -> dict:
         r.source_chunk  = row.source_chunk,
         r.source_file   = row.source_file,
         r.valid_to      = row.valid_to,
+        r.evidence_id   = row.evidence_id,
+        r.evidence_ids  = row.evidence_ids,
+        r.state_history = row.state_history,
         r.created_at    = row.now,
         r.updated_at    = row.now
     ON MATCH SET
         r.updated_at = row.now,
         r.weight = CASE WHEN r.weight < row.weight THEN row.weight ELSE r.weight END,
         r.source_type = COALESCE(r.source_type, row.source_type),
-        r.source_name = COALESCE(r.source_name, row.source_name)
+        r.source_name = COALESCE(r.source_name, row.source_name),
+        r.evidence_id = CASE
+            WHEN r.evidence_id IS NULL OR r.evidence_id = '' THEN row.evidence_id
+            ELSE r.evidence_id
+        END,
+        r.evidence_ids = reduce(ids = coalesce(r.evidence_ids, []), eid IN row.evidence_ids |
+            CASE WHEN eid IN ids THEN ids ELSE ids + eid END
+        )
     WITH r, row
     WHERE NOT row.description_entry IN r.descriptions
       SET r.descriptions = r.descriptions + row.descriptions

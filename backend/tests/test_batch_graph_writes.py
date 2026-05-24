@@ -98,3 +98,53 @@ def test_batch_upsert_relations_links_batch_timeline_and_closes_once(monkeypatch
     assert rows[1]["valid_from"] == "2024-03-01"
     assert rows[1]["valid_to"] is None
     assert rows[1]["close_existing"] is False
+
+
+def test_batch_upsert_relations_excludes_batch_valid_froms_from_close(monkeypatch) -> None:
+    calls = capture_batch_calls(monkeypatch, [
+        {
+            "from_entity": "C:300001.SZ",
+            "to_entity": "P:abc",
+            "text": "早期披露",
+            "source_file": "公告A",
+            "valid_from": date(2024, 1, 10),
+        },
+        {
+            "from_entity": "C:300001.SZ",
+            "to_entity": "P:abc",
+            "text": "后续披露",
+            "source_file": "公告B",
+            "valid_from": date(2024, 3, 1),
+        },
+    ])
+
+    close_query = calls[0][0]
+    rows = calls[1][1]["rows"]
+    assert "AND NOT r.valid_from IN row.batch_valid_froms" in close_query
+    assert rows[0]["batch_valid_froms"] == ["2024-01-10", "2024-03-01"]
+    assert rows[1]["batch_valid_froms"] == ["2024-01-10", "2024-03-01"]
+
+
+def test_batch_upsert_relations_writes_evidence_and_state_history(monkeypatch) -> None:
+    calls = capture_batch_calls(monkeypatch, [
+        {
+            "from_entity": "C:300001.SZ",
+            "to_entity": "P:abc",
+            "text": "公司披露产品已经量产",
+            "source_file": "公告A",
+            "valid_from": date(2024, 1, 10),
+            "valid_to": date(2024, 3, 1),
+            "evidence_id": "EV:1",
+            "evidence_ids": ["EV:1", "EV:2", "EV:2"],
+        }
+    ])
+
+    upsert_query = calls[1][0]
+    rows = calls[1][1]["rows"]
+    assert rows[0]["evidence_id"] == "EV:1"
+    assert rows[0]["evidence_ids"] == ["EV:1", "EV:2"]
+    assert rows[0]["state_history"] == ["2024-01-10~2024-03-01:公司披露产品已经量产"]
+    assert "r.evidence_id   = row.evidence_id" in upsert_query
+    assert "r.evidence_ids  = row.evidence_ids" in upsert_query
+    assert "r.state_history = row.state_history" in upsert_query
+    assert "r.evidence_ids = reduce(ids = coalesce(r.evidence_ids, [])" in upsert_query
