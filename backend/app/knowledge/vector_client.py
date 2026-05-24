@@ -24,6 +24,7 @@ Collection 设计：
 
 import hashlib
 import logging
+import re
 import uuid
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
@@ -477,6 +478,32 @@ class VectorClient(ABC):
 
 # ── Qdrant 实现 ────────────────────────────────────────────────────────────
 
+_FILTER_EXPR_PATTERN = re.compile(r'^\s*([A-Za-z_][A-Za-z0-9_.]*)\s*==\s*"([^"]*)"\s*$')
+
+
+def _build_qdrant_filter(filter_expr: str | None):
+    if not filter_expr:
+        return None
+    match = _FILTER_EXPR_PATTERN.match(filter_expr)
+    if not match:
+        logger.warning("Unsupported Qdrant filter expression: %s", filter_expr)
+        return None
+    field_name, value = match.groups()
+    try:
+        from qdrant_client.models import FieldCondition, Filter, MatchValue
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Qdrant filter models unavailable: %s", exc)
+        return None
+    return Filter(
+        must=[
+            FieldCondition(
+                key=field_name,
+                match=MatchValue(value=value),
+            )
+        ]
+    )
+
+
 class QdrantClient(VectorClient):
     """Qdrant 向量库客户端"""
 
@@ -580,11 +607,13 @@ class QdrantClient(VectorClient):
             import qdrant_client
 
             client = qdrant_client.QdrantClient(url=self._url, api_key=self._api_key or None)
+            qdrant_filter = _build_qdrant_filter(filter_expr)
             results = client.query_points(
                 collection_name=collection,
                 query=query_vector,
                 limit=top_k,
                 with_payload=True,
+                query_filter=qdrant_filter,
             )
             return [
                 SearchResult(id=str(r.id), score=r.score, payload=r.payload or {})

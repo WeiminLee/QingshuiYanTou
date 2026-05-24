@@ -263,6 +263,41 @@ def test_qdrant_collection_methods_treat_none_return_as_success(monkeypatch: pyt
     assert client.delete_collection("test_collection") is True
 
 
+def test_qdrant_search_passes_filter_expr_to_query_points(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, Any] = {}
+
+    class FakePoint:
+        id = "point-1"
+        score = 0.9
+        payload = {"ts_code": "300001.SZ"}
+
+    class FakeResult:
+        points = [FakePoint()]
+
+    class FakeNativeQdrantClient:
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            pass
+
+        def query_points(self, **kwargs: Any) -> FakeResult:
+            captured.update(kwargs)
+            return FakeResult()
+
+    install_fake_qdrant(monkeypatch, FakeNativeQdrantClient)
+    client = QdrantClient(url="http://qdrant.test")
+
+    result = client.search(
+        collection="doc_chunks",
+        query_vector=[0.1, 0.2],
+        top_k=3,
+        filter_expr='ts_code == "300001.SZ"',
+    )
+
+    assert len(result) == 1
+    assert captured["collection_name"] == "doc_chunks"
+    assert captured["limit"] == 3
+    assert captured["query_filter"] is not None
+
+
 def test_upsert_qa_vector_returns_false_when_client_upsert_fails() -> None:
     reset_vector_state(close=True)
     set_embedding_model(PlaceholderEmbedding(dimension=8))
@@ -303,9 +338,25 @@ def install_fake_qdrant(monkeypatch: pytest.MonkeyPatch, native_client: type) ->
             self.vector = vector
             self.payload = payload
 
+    class FakeMatchValue:
+        def __init__(self, value: Any) -> None:
+            self.value = value
+
+    class FakeFieldCondition:
+        def __init__(self, key: str, match: FakeMatchValue) -> None:
+            self.key = key
+            self.match = match
+
+    class FakeFilter:
+        def __init__(self, must: list[FakeFieldCondition]) -> None:
+            self.must = must
+
     fake_models.Distance = FakeDistance
     fake_models.VectorParams = FakeVectorParams
     fake_models.PointStruct = FakePointStruct
+    fake_models.MatchValue = FakeMatchValue
+    fake_models.FieldCondition = FakeFieldCondition
+    fake_models.Filter = FakeFilter
 
     monkeypatch.setitem(sys.modules, "qdrant_client", fake_qdrant)
     monkeypatch.setitem(sys.modules, "qdrant_client.models", fake_models)
