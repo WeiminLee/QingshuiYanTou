@@ -522,7 +522,7 @@ class QdrantClient(VectorClient):
                 logger.info("Qdrant Collection 已存在: %s", name)
                 return True
             distance_map = {"COSINE": Distance.COSINE, "EUCLID": Distance.EUCLID, "DOT": Distance.DOT}
-            client.create_collection(
+            result = client.create_collection(
                 collection_name=name,
                 vectors_config=VectorParams(
                     size=dimension,
@@ -530,7 +530,7 @@ class QdrantClient(VectorClient):
                 ),
             )
             logger.info("Qdrant Collection 创建成功: %s (dim=%d)", name, dimension)
-            return True
+            return _qdrant_bool_result(result)
         except ImportError:
             logger.warning("qdrant-client 未安装")
             return False
@@ -558,9 +558,9 @@ class QdrantClient(VectorClient):
                 PointStruct(id=r.id, vector=r.vector, payload=r.payload)
                 for r in records
             ]
-            client.upsert(collection_name=collection, points=points)
+            result = client.upsert(collection_name=collection, points=points)
             logger.debug("Qdrant upsert 完成: %d 条", len(records))
-            return True
+            return _qdrant_update_completed(result)
         except Exception as e:
             logger.warning("Qdrant upsert 失败 [%s]: %s", collection, e)
             return False
@@ -596,12 +596,41 @@ class QdrantClient(VectorClient):
         try:
             import qdrant_client
             client = qdrant_client.QdrantClient(url=self._url, api_key=self._api_key or None)
-            client.delete_collection(collection_name=name)
+            result = client.delete_collection(collection_name=name)
             logger.info("Qdrant Collection 已删除: %s", name)
-            return True
+            return _qdrant_bool_result(result)
         except Exception as e:
             logger.warning("Qdrant delete_collection 失败: %s", e)
             return False
+
+
+def _qdrant_bool_result(result: Any) -> bool:
+    """Interpret Qdrant bool/None results across client versions."""
+    if isinstance(result, bool):
+        return result
+    if result is None:
+        return True
+    return bool(result)
+
+
+def _qdrant_update_completed(result: Any) -> bool:
+    """Return True only when a Qdrant update result completed successfully."""
+    if not hasattr(result, "status"):
+        return True
+
+    status = getattr(result, "status")
+    if isinstance(status, str):
+        return status.lower() == "completed"
+
+    status_name = getattr(status, "name", None)
+    if isinstance(status_name, str):
+        return status_name.lower() == "completed"
+
+    status_value = getattr(status, "value", None)
+    if isinstance(status_value, str):
+        return status_value.lower() == "completed"
+
+    return str(status).split(".")[-1].lower() == "completed"
 
 
 # ── Collection 初始化 ───────────────────────────────────────────────────────
@@ -631,8 +660,7 @@ def init_collections(
     results = {}
     for name, desc in collections.items():
         try:
-            client.create_collection(name=name, dimension=dim, description=desc)
-            results[name] = True
+            results[name] = bool(client.create_collection(name=name, dimension=dim, description=desc))
         except Exception as e:
             logger.warning("Collection 初始化失败 [%s]: %s", name, e)
             results[name] = False

@@ -462,7 +462,7 @@ def _upsert_qa_vector(
         content = f"问题：{question}\n回答：{answer}"
         vec = embedder.embed(content)
         point_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, str(qa_id)))
-        client.upsert(
+        ok = client.upsert(
             COLLECTION_QA,
             [
                 VectorRecord(
@@ -480,7 +480,7 @@ def _upsert_qa_vector(
                 )
             ],
         )
-        return True
+        return bool(ok)
     except Exception as exc:  # noqa: BLE001
         logger.warning("IRM QA vector upsert failed [%s]: %s", qa_id, exc)
         return False

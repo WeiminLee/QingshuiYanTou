@@ -1,10 +1,24 @@
 from __future__ import annotations
 
+import sys
+import types
+from typing import Any
+
+import pytest
+
+import app.knowledge.vector_client as vector_client_module
+from app.knowledge.irm_extractor import _upsert_qa_vector
 from app.knowledge.vector_client import (
+    COLLECTION_CHUNKS,
+    COLLECTION_ENTITIES,
+    COLLECTION_QA,
+    COLLECTION_RELATIONS,
     PlaceholderEmbedding,
+    QdrantClient,
     SearchResult,
     VectorClient,
     VectorRecord,
+    init_collections,
     reset_vector_state,
     set_embedding_model,
     set_vector_client,
@@ -55,3 +69,166 @@ def test_upsert_evidence_chunk_vector_returns_false_when_client_upsert_fails() -
         assert ok is False
     finally:
         reset_vector_state(close=True)
+
+
+def test_init_collections_returns_false_when_create_collection_fails(monkeypatch: pytest.MonkeyPatch) -> None:
+    class CreateFailingQdrantClient:
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            pass
+
+        def create_collection(
+            self,
+            name: str,
+            dimension: int,
+            description: str = "",
+            metric: str = "COSINE",
+        ) -> bool:
+            return name != COLLECTION_CHUNKS
+
+    monkeypatch.setattr(vector_client_module, "QdrantClient", CreateFailingQdrantClient)
+
+    results = init_collections(embedder=PlaceholderEmbedding(dimension=8))
+
+    assert results == {
+        COLLECTION_ENTITIES: True,
+        COLLECTION_RELATIONS: True,
+        COLLECTION_CHUNKS: False,
+        COLLECTION_QA: True,
+    }
+
+
+def test_qdrant_collection_methods_respect_native_bool_returns(monkeypatch: pytest.MonkeyPatch) -> None:
+    class FakeNativeQdrantClient:
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            pass
+
+        def collection_exists(self, name: str) -> bool:
+            return False
+
+        def create_collection(self, *args: Any, **kwargs: Any) -> bool:
+            return False
+
+        def delete_collection(self, *args: Any, **kwargs: Any) -> bool:
+            return False
+
+    install_fake_qdrant(monkeypatch, FakeNativeQdrantClient)
+    client = QdrantClient()
+
+    assert client.create_collection("test_collection", 8) is False
+    assert client.delete_collection("test_collection") is False
+
+
+def test_qdrant_upsert_returns_false_when_native_status_is_not_completed(monkeypatch: pytest.MonkeyPatch) -> None:
+    class FakeNativeQdrantClient:
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            pass
+
+        def collection_exists(self, name: str) -> bool:
+            return True
+
+        def upsert(self, *args: Any, **kwargs: Any) -> Any:
+            return types.SimpleNamespace(status="failed")
+
+    install_fake_qdrant(monkeypatch, FakeNativeQdrantClient)
+    client = QdrantClient()
+
+    ok = client.upsert(
+        "test_collection",
+        [VectorRecord(id="point-1", vector=[0.1, 0.2], payload={})],
+    )
+
+    assert ok is False
+
+
+def test_qdrant_upsert_returns_true_for_completed_enum_status(monkeypatch: pytest.MonkeyPatch) -> None:
+    class FakeStatus:
+        name = "COMPLETED"
+
+    class FakeNativeQdrantClient:
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            pass
+
+        def collection_exists(self, name: str) -> bool:
+            return True
+
+        def upsert(self, *args: Any, **kwargs: Any) -> Any:
+            return types.SimpleNamespace(status=FakeStatus())
+
+    install_fake_qdrant(monkeypatch, FakeNativeQdrantClient)
+    client = QdrantClient()
+
+    ok = client.upsert(
+        "test_collection",
+        [VectorRecord(id="point-1", vector=[0.1, 0.2], payload={})],
+    )
+
+    assert ok is True
+
+
+def test_qdrant_collection_methods_treat_none_return_as_success(monkeypatch: pytest.MonkeyPatch) -> None:
+    class FakeNativeQdrantClient:
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            pass
+
+        def collection_exists(self, name: str) -> bool:
+            return False
+
+        def create_collection(self, *args: Any, **kwargs: Any) -> None:
+            return None
+
+        def delete_collection(self, *args: Any, **kwargs: Any) -> None:
+            return None
+
+    install_fake_qdrant(monkeypatch, FakeNativeQdrantClient)
+    client = QdrantClient()
+
+    assert client.create_collection("test_collection", 8) is True
+    assert client.delete_collection("test_collection") is True
+
+
+def test_upsert_qa_vector_returns_false_when_client_upsert_fails() -> None:
+    reset_vector_state(close=True)
+    set_embedding_model(PlaceholderEmbedding(dimension=8))
+    set_vector_client(FailingVectorClient())
+    try:
+        ok = _upsert_qa_vector(
+            qa_id="QA:test",
+            question="产品是否量产？",
+            answer="公司表示产品已经量产。",
+            ts_code="300001.SZ",
+            company_name="测试公司",
+            ann_date="2026-05-24",
+        )
+        assert ok is False
+    finally:
+        reset_vector_state(close=True)
+
+
+def install_fake_qdrant(monkeypatch: pytest.MonkeyPatch, native_client: type) -> None:
+    fake_qdrant = types.ModuleType("qdrant_client")
+    fake_qdrant.QdrantClient = native_client
+
+    fake_models = types.ModuleType("qdrant_client.models")
+
+    class FakeDistance:
+        COSINE = "COSINE"
+        EUCLID = "EUCLID"
+        DOT = "DOT"
+
+    class FakeVectorParams:
+        def __init__(self, size: int, distance: Any) -> None:
+            self.size = size
+            self.distance = distance
+
+    class FakePointStruct:
+        def __init__(self, id: str, vector: list[float], payload: dict[str, Any]) -> None:
+            self.id = id
+            self.vector = vector
+            self.payload = payload
+
+    fake_models.Distance = FakeDistance
+    fake_models.VectorParams = FakeVectorParams
+    fake_models.PointStruct = FakePointStruct
+
+    monkeypatch.setitem(sys.modules, "qdrant_client", fake_qdrant)
+    monkeypatch.setitem(sys.modules, "qdrant_client.models", fake_models)
