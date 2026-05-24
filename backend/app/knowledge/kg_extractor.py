@@ -1182,6 +1182,8 @@ async def extract_evidence_async(
 
     relations_created = relations_updated = 0
     written_rels: list[dict[str, Any]] = []
+    evidence_id = str(evidence.get("evidence_id") or "")
+    evidence_ids = [evidence_id] if evidence_id else []
     for r in merged_relations:
         src_name = str(r.get("src_id") or "").strip()
         tgt_name = str(r.get("tgt_id") or "").strip()
@@ -1201,6 +1203,8 @@ async def extract_evidence_async(
                 source_type=source_type,
                 source_name=source_name,
                 valid_from=today,
+                evidence_id=evidence_id,
+                evidence_ids=evidence_ids,
             )
             if is_new:
                 relations_created += 1
