@@ -138,9 +138,35 @@ def test_two_jobs_processed() -> None:
 
 def test_vector_job_success() -> None:
     async def main():
+        from app.knowledge import evidence_worker as ew
         service = FakeService()
         service.jobs = [{"job_id": "J3", "evidence_id": "EV:1", "job_type": JOB_VECTOR, "status": STATUS_PENDING}]
         worker = _worker(service)
-        result = await worker.run_once(limit=1, job_type=JOB_VECTOR)
-        assert result["success"] == 1
+        orig = ew.upsert_evidence_chunk_vector
+        ew.upsert_evidence_chunk_vector = lambda evidence: True
+        try:
+            result = await worker.run_once(limit=1, job_type=JOB_VECTOR)
+            assert result["success"] == 1
+            assert service.done
+            assert service.evidence["EV:1"]["status_updates"][-1] == (JOB_VECTOR, STATUS_DONE)
+        finally:
+            ew.upsert_evidence_chunk_vector = orig
+    asyncio.run(main())
+
+
+def test_vector_job_failure_marks_failed() -> None:
+    async def main():
+        from app.knowledge import evidence_worker as ew
+        service = FakeService()
+        service.jobs = [{"job_id": "J3", "evidence_id": "EV:1", "job_type": JOB_VECTOR, "status": STATUS_PENDING}]
+        worker = _worker(service)
+        orig = ew.upsert_evidence_chunk_vector
+        ew.upsert_evidence_chunk_vector = lambda evidence: False
+        try:
+            result = await worker.run_once(limit=1, job_type=JOB_VECTOR)
+            assert result["failed"] == 1
+            assert service.failed
+            assert service.evidence["EV:1"]["status_updates"][-1] == (JOB_VECTOR, STATUS_FAILED)
+        finally:
+            ew.upsert_evidence_chunk_vector = orig
     asyncio.run(main())

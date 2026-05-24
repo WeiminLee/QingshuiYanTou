@@ -140,6 +140,37 @@ def test_qdrant_upsert_returns_false_when_native_status_is_not_completed(monkeyp
     assert ok is False
 
 
+def test_qdrant_upsert_returns_false_and_skips_upsert_when_collection_create_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeNativeQdrantClient:
+        upsert_called = False
+
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            pass
+
+        def collection_exists(self, name: str) -> bool:
+            return False
+
+        def create_collection(self, *args: Any, **kwargs: Any) -> bool:
+            return False
+
+        def upsert(self, *args: Any, **kwargs: Any) -> Any:
+            type(self).upsert_called = True
+            return types.SimpleNamespace(status="completed")
+
+    install_fake_qdrant(monkeypatch, FakeNativeQdrantClient)
+    client = QdrantClient()
+
+    ok = client.upsert(
+        "test_collection",
+        [VectorRecord(id="point-1", vector=[0.1, 0.2], payload={})],
+    )
+
+    assert ok is False
+    assert FakeNativeQdrantClient.upsert_called is False
+
+
 def test_qdrant_upsert_returns_true_for_completed_enum_status(monkeypatch: pytest.MonkeyPatch) -> None:
     class FakeStatus:
         name = "COMPLETED"

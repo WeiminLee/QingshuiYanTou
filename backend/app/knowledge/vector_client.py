@@ -549,10 +549,13 @@ class QdrantClient(VectorClient):
             client = qdrant_client.QdrantClient(url=self._url, api_key=self._api_key or None)
             if not client.collection_exists(collection):
                 dim = len(records[0].vector)
-                client.create_collection(
+                create_result = client.create_collection(
                     collection_name=collection,
                     vectors_config=VectorParams(size=dim, distance=Distance.COSINE),
                 )
+                if not _qdrant_bool_result(create_result):
+                    logger.warning("Qdrant Collection 创建失败 [%s]: SDK returned false", collection)
+                    return False
                 logger.info("Qdrant Collection 创建: %s (dim=%d)", collection, dim)
             points = [
                 PointStruct(id=r.id, vector=r.vector, payload=r.payload)
