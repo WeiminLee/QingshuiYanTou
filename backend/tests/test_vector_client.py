@@ -140,6 +140,52 @@ def test_qdrant_upsert_returns_false_when_native_status_is_not_completed(monkeyp
     assert ok is False
 
 
+def test_qdrant_upsert_returns_false_when_native_result_is_false(monkeypatch: pytest.MonkeyPatch) -> None:
+    class FakeNativeQdrantClient:
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            pass
+
+        def collection_exists(self, name: str) -> bool:
+            return True
+
+        def upsert(self, *args: Any, **kwargs: Any) -> bool:
+            return False
+
+    install_fake_qdrant(monkeypatch, FakeNativeQdrantClient)
+    client = QdrantClient()
+
+    ok = client.upsert(
+        "test_collection",
+        [VectorRecord(id="point-1", vector=[0.1, 0.2], payload={})],
+    )
+
+    assert ok is False
+
+
+def test_qdrant_upsert_returns_false_when_native_result_dict_status_failed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeNativeQdrantClient:
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            pass
+
+        def collection_exists(self, name: str) -> bool:
+            return True
+
+        def upsert(self, *args: Any, **kwargs: Any) -> dict[str, str]:
+            return {"status": "failed"}
+
+    install_fake_qdrant(monkeypatch, FakeNativeQdrantClient)
+    client = QdrantClient()
+
+    ok = client.upsert(
+        "test_collection",
+        [VectorRecord(id="point-1", vector=[0.1, 0.2], payload={})],
+    )
+
+    assert ok is False
+
+
 def test_qdrant_upsert_returns_false_and_skips_upsert_when_collection_create_fails(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -618,22 +618,32 @@ def _qdrant_bool_result(result: Any) -> bool:
 
 def _qdrant_update_completed(result: Any) -> bool:
     """Return True only when a Qdrant update result completed successfully."""
-    if not hasattr(result, "status"):
+    if result is None:
         return True
+    if isinstance(result, bool):
+        return result
+    if isinstance(result, dict):
+        status = result.get("status")
+    else:
+        status = getattr(result, "status", None)
 
-    status = getattr(result, "status")
+    return _qdrant_status_value(status) == "completed"
+
+
+def _qdrant_status_value(status: Any) -> Optional[str]:
+    """Normalize Qdrant update statuses from strings and enum-like objects."""
     if isinstance(status, str):
-        return status.lower() == "completed"
-
-    status_name = getattr(status, "name", None)
-    if isinstance(status_name, str):
-        return status_name.lower() == "completed"
+        return status.strip().lower()
 
     status_value = getattr(status, "value", None)
     if isinstance(status_value, str):
-        return status_value.lower() == "completed"
+        return status_value.strip().lower()
 
-    return str(status).split(".")[-1].lower() == "completed"
+    status_name = getattr(status, "name", None)
+    if isinstance(status_name, str):
+        return status_name.strip().lower()
+
+    return None
 
 
 # ── Collection 初始化 ───────────────────────────────────────────────────────
