@@ -18,7 +18,7 @@ class FakeTx:
         return FakeResult()
 
 
-def test_batch_upsert_relations_merges_by_valid_from_and_dedupes_description(monkeypatch) -> None:
+def capture_batch_calls(monkeypatch, relations: list[dict]) -> list[tuple[str, dict]]:
     from app.knowledge import relation_service as rs
 
     calls: list[tuple[str, dict]] = []
@@ -29,7 +29,14 @@ def test_batch_upsert_relations_merges_by_valid_from_and_dedupes_description(mon
 
     monkeypatch.setattr(rs, "write_transaction", fake_write_transaction)
 
-    result = rs.batch_upsert_relations_unwind([
+    result = rs.batch_upsert_relations_unwind(relations)
+
+    assert result["failed"] == 0
+    return calls
+
+
+def test_batch_upsert_relations_merges_by_valid_from_and_dedupes_description(monkeypatch) -> None:
+    calls = capture_batch_calls(monkeypatch, [
         {
             "from_entity": "C:300001.SZ",
             "to_entity": "P:abc",
@@ -42,9 +49,52 @@ def test_batch_upsert_relations_merges_by_valid_from_and_dedupes_description(mon
         }
     ])
 
-    assert result["failed"] == 0
     upsert_query = calls[1][0]
     rows = calls[1][1]["rows"]
     assert "MERGE (a)-[r:RELATES {valid_from: row.valid_from}]->(b)" in upsert_query
     assert "WHERE NOT row.description_entry IN r.descriptions" in upsert_query
     assert rows[0]["description_entry"] == "[公告A]neutral: 公司披露产品已经量产"
+
+
+def test_batch_upsert_relations_uses_row_valid_from_for_yesterday(monkeypatch) -> None:
+    calls = capture_batch_calls(monkeypatch, [
+        {
+            "from_entity": "C:300001.SZ",
+            "to_entity": "P:abc",
+            "text": "历史披露",
+            "source_file": "公告A",
+            "valid_from": date(2024, 1, 10),
+        }
+    ])
+
+    rows = calls[1][1]["rows"]
+    assert rows[0]["yesterday"] == "2024-01-09"
+
+
+def test_batch_upsert_relations_links_batch_timeline_and_closes_once(monkeypatch) -> None:
+    calls = capture_batch_calls(monkeypatch, [
+        {
+            "from_entity": "C:300001.SZ",
+            "to_entity": "P:abc",
+            "text": "后续披露",
+            "source_file": "公告B",
+            "valid_from": date(2024, 3, 1),
+        },
+        {
+            "from_entity": "C:300001.SZ",
+            "to_entity": "P:abc",
+            "text": "早期披露",
+            "source_file": "公告A",
+            "valid_from": date(2024, 1, 10),
+        },
+    ])
+
+    close_query = calls[0][0]
+    rows = calls[1][1]["rows"]
+    assert "row.close_existing" in close_query
+    assert rows[0]["valid_from"] == "2024-01-10"
+    assert rows[0]["valid_to"] == "2024-02-29"
+    assert rows[0]["close_existing"] is True
+    assert rows[1]["valid_from"] == "2024-03-01"
+    assert rows[1]["valid_to"] is None
+    assert rows[1]["close_existing"] is False

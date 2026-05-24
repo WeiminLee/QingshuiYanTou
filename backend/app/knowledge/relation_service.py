@@ -533,12 +533,17 @@ def batch_upsert_relations_unwind(relations: list[dict]) -> dict:
         }
 
     now = datetime.now().isoformat()
-    default_valid_from = date.today().isoformat()
-    yesterday = (date.today() - dt.timedelta(days=1)).isoformat()
+    default_valid_from = date.today()
 
     rows = []
     for rel in valid_relations:
-        valid_from_str = str(rel.get("valid_from") or default_valid_from)
+        raw_valid_from = rel.get("valid_from") or default_valid_from
+        valid_from_date = (
+            raw_valid_from
+            if isinstance(raw_valid_from, date)
+            else date.fromisoformat(str(raw_valid_from))
+        )
+        valid_from_str = valid_from_date.isoformat()
         valid_to_str = str(rel.get("valid_to")) if rel.get("valid_to") else None
         source_file = rel.get("source_file", "unknown")
         direction = rel.get("direction", "neutral")
@@ -559,14 +564,40 @@ def batch_upsert_relations_unwind(relations: list[dict]) -> dict:
             "valid_from": valid_from_str,
             "valid_to": valid_to_str,
             "now": now,
-            "yesterday": yesterday,
+            "yesterday": (valid_from_date - dt.timedelta(days=1)).isoformat(),
+            "_valid_from_date": valid_from_date,
+            "close_existing": False,
         })
+
+    rows.sort(key=lambda row: (row["from_entity"], row["to_entity"], row["_valid_from_date"]))
+
+    grouped_rows: dict[tuple[str, str], list[dict]] = {}
+    for row in rows:
+        grouped_rows.setdefault((row["from_entity"], row["to_entity"]), []).append(row)
+
+    for group in grouped_rows.values():
+        group[0]["close_existing"] = True
+        for index, row in enumerate(group):
+            next_valid_from = next(
+                (
+                    other["_valid_from_date"]
+                    for other in group[index + 1:]
+                    if other["_valid_from_date"] > row["_valid_from_date"]
+                ),
+                None,
+            )
+            if next_valid_from and row["valid_to"] is None:
+                row["valid_to"] = (next_valid_from - dt.timedelta(days=1)).isoformat()
+
+    for row in rows:
+        del row["_valid_from_date"]
 
     # Stage 1: 关闭已有开放边
     close_cypher = """
     UNWIND $rows AS row
     MATCH (a {entity_id: row.from_entity})-[r:RELATES]->(b {entity_id: row.to_entity})
-    WHERE r.valid_to IS NULL
+    WHERE row.close_existing
+      AND r.valid_to IS NULL
       AND r.valid_from <> row.valid_from
     SET r.valid_to = row.yesterday, r.updated_at = row.now
     """
