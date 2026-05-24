@@ -201,7 +201,7 @@ class DataSourceClient:
             df = fetch_func(symbol=numeric)
         except Exception as e:
             logger.warning(f"{exchange} 互动易 {ts_code} 失败: {e}")
-            return []
+            raise
 
         if df is None or len(df) == 0 or "股票代码" not in df.columns:
             return []
@@ -241,7 +241,8 @@ class DataSourceClient:
                     }
                 )
             return records
-        except Exception:
+        except Exception as e:
+            logger.warning("获取财联社电报失败: %s", e)
             return []
 
     def get_all_stock_codes(self) -> list[str]:
@@ -274,8 +275,11 @@ class DataSourceClient:
                 code = row[0]
                 ipo_date = row[2] if len(row) > 2 else ""
                 out_date = row[3] if len(row) > 3 else ""
+                security_type = row[4] if len(row) > 4 else ""
                 status = row[5] if len(row) > 5 else ""
 
+                if security_type != "1":
+                    continue
                 if list_status == "L" and status != "1":
                     continue
                 if list_status == "D" and status == "1":
@@ -357,6 +361,7 @@ class DataSourceClient:
         start_date: str,
         end_date: str,
         adjustflag: str = "3",
+        raise_on_error: bool = False,
     ) -> list[dict[str, Any]]:
         """获取个股历史日线 K 线（baostock，Phase 31 D-A1）。
 
@@ -374,6 +379,8 @@ class DataSourceClient:
             bs_code = _ts_to_bs(ts_code)
         except ValueError as e:
             logger.warning("baostock ts_code 转换失败 %s: %s", ts_code, e)
+            if raise_on_error:
+                raise
             return []
 
         try:
@@ -408,13 +415,20 @@ class DataSourceClient:
                     "isST": row[12],
                 })
             if rs.error_code != "0":
-                logger.warning(
-                    "baostock %s 非零返回: %s %s",
-                    ts_code, rs.error_code, rs.error_msg,
-                )
+                message = f"baostock {ts_code} 非零返回: {rs.error_code} {rs.error_msg}"
+                if raise_on_error:
+                    raise RuntimeError(message)
+                logger.warning(message)
             return records
+        except RuntimeError as e:
+            if raise_on_error:
+                raise
+            logger.warning("获取个股K线 %s 失败: %s", ts_code, e)
+            return []
         except Exception as e:
             logger.warning("获取个股K线 %s 失败: %s", ts_code, e)
+            if raise_on_error:
+                raise
             return []
 
     def get_adjust_factor(

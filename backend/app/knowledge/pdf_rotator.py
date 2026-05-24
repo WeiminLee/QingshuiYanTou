@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -13,6 +13,10 @@ from app.knowledge.file_indexer import FileIndexer
 logger = logging.getLogger(__name__)
 
 
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
 async def get_files_older_than(cutoff_date: datetime, limit: int = 1000) -> list[dict[str, Any]]:
     db = get_mongo_db()
     indexer = FileIndexer(db)
@@ -21,7 +25,7 @@ async def get_files_older_than(cutoff_date: datetime, limit: int = 1000) -> list
 
 
 async def get_rotation_stats(days_threshold: int = 730) -> dict[str, int | float]:
-    cutoff = datetime.utcnow() - timedelta(days=days_threshold)
+    cutoff = _utc_now() - timedelta(days=days_threshold)
     files = await get_files_older_than(cutoff)
     total_size = 0
     existing = 0
@@ -54,7 +58,7 @@ def _mark_neo4j_pdf_rotated(cninfo_id: str, file_path: str) -> None:
                 "file_path": file_path,
                 "cninfo_id": cninfo_id,
                 "marker": f"PDF rotated: {cninfo_id}",
-                "rotated_at": datetime.utcnow().isoformat(),
+                "rotated_at": _utc_now().isoformat(),
             },
         )
     except Exception as exc:  # noqa: BLE001
@@ -63,7 +67,7 @@ def _mark_neo4j_pdf_rotated(cninfo_id: str, file_path: str) -> None:
 
 async def rotate_old_pdfs(days_threshold: int = 730, dry_run: bool = False) -> dict[str, int]:
     """Delete local PDFs older than the threshold; retain Mongo/Neo4j metadata."""
-    cutoff = datetime.utcnow() - timedelta(days=days_threshold)
+    cutoff = _utc_now() - timedelta(days=days_threshold)
     files = await get_files_older_than(cutoff)
     db = get_mongo_db()
     indexer = FileIndexer(db)
@@ -90,8 +94,8 @@ async def rotate_old_pdfs(days_threshold: int = 730, dry_run: bool = False) -> d
                         {"$set": {
                             "file_path": None,
                             "status": "rotated",
-                            "rotated_at": datetime.utcnow(),
-                            "updated_at": datetime.utcnow(),
+                            "rotated_at": _utc_now(),
+                            "updated_at": _utc_now(),
                         }},
                     )
                     cleared = True

@@ -165,7 +165,7 @@ class AsyncAuditLogger(AuditLogger):
                 await conn.execute(
                     text("""
                         INSERT INTO logs (timestamp, level, service, module, message, trace_id, task_id, duration_ms, extra_data)
-                        VALUES (:timestamp, :level, :service, :module, :message, :trace_id, :task_id, :duration_ms, :extra_data::jsonb)
+                        VALUES (:timestamp, :level, :service, :module, :message, :trace_id, :task_id, :duration_ms, CAST(:extra_data AS jsonb))
                     """),
                     {
                         "timestamp": timestamp,

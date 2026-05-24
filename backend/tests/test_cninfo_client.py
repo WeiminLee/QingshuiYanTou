@@ -5,7 +5,7 @@
 * ``cninfo_client``: 常量、请求头、payload 校验、静态解析助手
 * ``announcement_filter``: 标题分类（半年报/年报顺序混淆是 03-02 的回归）
 * ``rate_limiter``: cninfo API + PDF 限流器单例与节流参数
-* ``scheduler``: cninfo_daily 任务注册 / Cron 23:00 / 启动 fire_all_once
+* ``scheduler``: cninfo enqueue 任务注册 / Cron 23:00 / 启动 fire_all_once
 * ``DataFetcher.fetch_announcements``: mock cninfo + filter + storage 全链路（端到端、不发真实 HTTP）
 
 测试遵循新项目仅 ``pytest`` 的约定（无 ``pytest-asyncio``），
@@ -222,6 +222,28 @@ class TestCninfoPagination:
         assert len(result) == 35
 
 
+def test_get_announcements_stops_at_max_pages(monkeypatch):
+    from app.data_pipeline.cninfo_client import CninfoClient, CninfoClientError
+
+    client = CninfoClient()
+
+    async def endless_query(**kwargs):
+        return {
+            "total": 0,
+            "list": [{"announcementId": f"id-{kwargs['page']}"}],
+            "has_more": True,
+            "total_pages": 0,
+        }
+
+    monkeypatch.setattr(client, "query_announcements", endless_query)
+
+    try:
+        asyncio.run(client.get_announcements(ann_date="20260523", max_pages=3))
+    except CninfoClientError as exc:
+        assert "超过最大分页数 3" in str(exc)
+    else:
+        raise AssertionError("expected CninfoClientError")
+
 # ── Section 2: announcement_filter 模块 ─────────────────────────
 
 
@@ -375,7 +397,7 @@ class TestCninfoPdfLimiter:
 
 
 class TestSchedulerCninfoRegistration:
-    """Task 1 验收：cninfo_daily 任务在 Scheduler.start() 后注册成功。"""
+    """Task 1 验收：cninfo enqueue 任务在 Scheduler.start() 后注册成功。"""
 
     def test_cninfo_fetch_hour_constant(self):
         from app.data_pipeline.scheduler import CNINFO_FETCH_HOUR
@@ -387,7 +409,7 @@ class TestSchedulerCninfoRegistration:
             "_run_cninfo_job 必须是 async 协程函数"
         )
 
-    def test_cninfo_daily_registered_at_2300(self):
+    def test_cninfo_enqueue_registered_at_2300(self):
         """需要事件循环才能 ``AsyncIOScheduler.start()``"""
         from app.data_pipeline.scheduler import Scheduler
 
@@ -397,8 +419,8 @@ class TestSchedulerCninfoRegistration:
             try:
                 jobs = list(scheduler._scheduler.get_jobs())
                 job_ids = [j.id for j in jobs]
-                assert "cninfo_daily" in job_ids
-                cninfo_job = next(j for j in jobs if j.id == "cninfo_daily")
+                assert "cninfo_enqueue_daily" in job_ids
+                cninfo_job = next(j for j in jobs if j.id == "cninfo_enqueue_daily")
                 fields = {f.name: str(f) for f in cninfo_job.trigger.fields}
                 assert fields.get("hour") == "23"
                 assert fields.get("minute") == "0"
@@ -409,13 +431,13 @@ class TestSchedulerCninfoRegistration:
         asyncio.run(_main())
 
     def test_cninfo_in_fire_all_once_specs(self):
-        """启动补漏阶段必须包含 cninfo_startup（Phase 31 F 异常观测保留）。"""
+        """启动补漏阶段必须包含 cninfo enqueue startup（Phase 31 F 异常观测保留）。"""
         from app.data_pipeline import scheduler as sched_mod
 
         # 通过 inspect.getsource 静态校验 task_specs 列表
         src = inspect.getsource(sched_mod.Scheduler._fire_all_once)
-        assert "cninfo_startup" in src, "task_specs 缺少 cninfo_startup"
-        assert "_run_cninfo_job()" in src, "fire_all_once 未派发 _run_cninfo_job"
+        assert "cninfo_enqueue_startup" in src, "task_specs 缺少 cninfo_enqueue_startup"
+        assert "_run_cninfo_enqueue_job()" in src, "fire_all_once 未派发 _run_cninfo_enqueue_job"
 
 
 class TestRunCninfoJobBehavior:
@@ -692,6 +714,119 @@ class TestFetchAnnouncementsE2E:
         assert result["fail"] == 0
         assert fetcher.storage.download_notice.call_count == 1
         assert existing["id-repair"] == "/tmp/repaired.pdf"
+
+    def test_fetch_announcements_history_triggers_kg_after_new_pdf(self):
+        """历史公告新下载 PDF 后应触发 KG 抽取 hook。"""
+        from app.data_pipeline.fetcher import DataFetcher
+
+        ann = self._build_announcement(
+            "id-history-kg",
+            "300593",
+            "新雷能",
+            "2024年年度报告",
+        )
+        existing = {}
+        engine_mock = MagicMock()
+        engine_mock.connect = lambda: _FakeConnCM(existing)
+        engine_mock.begin = lambda: _FakeConnCM(existing, write=True)
+
+        fetcher = DataFetcher()
+        fetcher.cninfo_client = MagicMock()
+        fetcher.cninfo_client.get_announcements = AsyncMock(return_value=[ann])
+        fetcher.storage = MagicMock()
+        fetcher.storage.download_notice = MagicMock(return_value=Path("/tmp/history-kg.pdf"))
+        fetcher._on_pdf_download_complete = AsyncMock()
+
+        with patch("app.data_pipeline.fetcher.engine", engine_mock), \
+             patch("app.data_pipeline.fetcher.IngestionProgressTracker", _FakeTracker):
+            result = asyncio.run(
+                fetcher.fetch_announcements_history(
+                    start_date="20240517",
+                    end_date="20240517",
+                )
+            )
+
+        assert result["downloaded"] == 1
+        fetcher._on_pdf_download_complete.assert_awaited_once_with(
+            "id-history-kg",
+            Path("/tmp/history-kg.pdf"),
+            "300593.SZ",
+            "2024年年度报告",
+        )
+
+    def test_fetch_announcements_history_triggers_kg_after_repair_pdf(self):
+        """历史公告修复丢失 PDF 后应触发 KG 抽取 hook。"""
+        from app.data_pipeline.fetcher import DataFetcher
+
+        ann = self._build_announcement(
+            "id-history-repair-kg",
+            "300593",
+            "新雷能",
+            "2024年年度报告",
+        )
+        missing_path = "/tmp/qingshui-history-missing.pdf"
+        Path(missing_path).unlink(missing_ok=True)
+        existing = {"id-history-repair-kg": missing_path}
+        engine_mock = MagicMock()
+        engine_mock.connect = lambda: _FakeConnCM(existing)
+        engine_mock.begin = lambda: _FakeConnCM(existing, write=True)
+
+        fetcher = DataFetcher()
+        fetcher.cninfo_client = MagicMock()
+        fetcher.cninfo_client.get_announcements = AsyncMock(return_value=[ann])
+        fetcher.storage = MagicMock()
+        fetcher.storage.download_notice = MagicMock(return_value=Path("/tmp/history-repair.pdf"))
+        fetcher._on_pdf_download_complete = AsyncMock()
+
+        with patch("app.data_pipeline.fetcher.engine", engine_mock), \
+             patch("app.data_pipeline.fetcher.IngestionProgressTracker", _FakeTracker):
+            result = asyncio.run(
+                fetcher.fetch_announcements_history(
+                    start_date="20240517",
+                    end_date="20240517",
+                )
+            )
+
+        assert result["downloaded"] == 1
+        fetcher._on_pdf_download_complete.assert_awaited_once()
+
+    def test_fetch_announcements_history_does_not_trigger_kg_when_repair_update_fails(self):
+        """历史公告修复 PDF 路径回写失败时，不应触发 KG 抽取 hook。"""
+        from app.data_pipeline.fetcher import DataFetcher
+
+        ann = self._build_announcement(
+            "id-history-repair-update-fail",
+            "300593",
+            "新雷能",
+            "2024年年度报告",
+        )
+        missing_path = "/tmp/qingshui-history-update-fail.pdf"
+        Path(missing_path).unlink(missing_ok=True)
+        existing = {"id-history-repair-update-fail": missing_path}
+        engine_mock = MagicMock()
+        engine_mock.connect = lambda: _FakeConnCM(existing)
+        engine_mock.begin = lambda: _FakeConnCM(existing, write=True)
+
+        fetcher = DataFetcher()
+        fetcher.cninfo_client = MagicMock()
+        fetcher.cninfo_client.get_announcements = AsyncMock(return_value=[ann])
+        fetcher.storage = MagicMock()
+        fetcher.storage.download_notice = MagicMock(return_value=Path("/tmp/history-update-fail.pdf"))
+        fetcher._update_announcement_file_path = AsyncMock(return_value=False)
+        fetcher._on_pdf_download_complete = AsyncMock()
+
+        with patch("app.data_pipeline.fetcher.engine", engine_mock), \
+             patch("app.data_pipeline.fetcher.IngestionProgressTracker", _FakeTracker):
+            result = asyncio.run(
+                fetcher.fetch_announcements_history(
+                    start_date="20240517",
+                    end_date="20240517",
+                )
+            )
+
+        assert result["downloaded"] == 1
+        assert result["fail"] == 1
+        fetcher._on_pdf_download_complete.assert_not_awaited()
 
     def test_delete_announcement_pdf_clears_database_path(self):
         """通过业务入口删除 PDF 时，同步清空 announcements.file_path。"""

@@ -5,9 +5,10 @@ import logging
 import hashlib
 import uuid
 from collections.abc import Awaitable, Callable
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
+from app.core.metadata import CURRENT_KG_PARSER_VERSION, CURRENT_KG_SCHEMA_VERSION
 from app.core.mongodb import get_mongo_db
 from app.knowledge.entity_service import generate_entity_id_v4, upsert_entity
 from app.knowledge.evidence_builders import build_irm_evidence
@@ -27,9 +28,13 @@ logger = logging.getLogger(__name__)
 
 ProgressCallback = Callable[..., Awaitable[None]]
 IRM_KG_INDEX_COLLECTION = "irm_kg_index"
-IRM_KG_SCHEMA_VERSION = "v4"
-IRM_KG_PARSER_VERSION = "v4"
+IRM_KG_SCHEMA_VERSION = CURRENT_KG_SCHEMA_VERSION
+IRM_KG_PARSER_VERSION = CURRENT_KG_PARSER_VERSION
 _IRM_KG_INDEXES_READY = False
+
+
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc)
 
 
 async def _emit(progress_callback: ProgressCallback | None, stage: str, message: str, **kwargs: Any) -> None:
@@ -104,7 +109,7 @@ async def _get_done_checkpoint(record_key: str, content_hash: str) -> dict[str, 
 
 async def _mark_irm_running(rec: dict[str, Any], record_key: str, content_hash: str) -> None:
     col = await _irm_checkpoint_col()
-    now = datetime.utcnow()
+    now = _utc_now()
     await col.update_one(
         {"record_key": record_key},
         {
@@ -139,8 +144,8 @@ async def _mark_irm_done(record_key: str, result: dict[str, Any]) -> None:
                 "entity_vectors_ok": int(result.get("entity_vectors_ok", 0) or 0),
                 "relation_vectors_ok": int(result.get("relation_vectors_ok", 0) or 0),
                 "error": None,
-                "finished_at": datetime.utcnow(),
-                "updated_at": datetime.utcnow(),
+                "finished_at": _utc_now(),
+                "updated_at": _utc_now(),
             }
         },
     )
@@ -154,7 +159,7 @@ async def _mark_irm_failed(record_key: str, error: str) -> None:
             "$set": {
                 "status": "failed",
                 "error": error[:1000],
-                "updated_at": datetime.utcnow(),
+                "updated_at": _utc_now(),
             },
             "$inc": {"retry_count": 1},
         },
@@ -169,7 +174,7 @@ async def upsert_irm_company(ts_code: str, name: str) -> tuple[dict, bool]:
         ts_code=ts_code,
         source_type="irm",
         source_name="互动易",
-        parser_version="v4",
+        parser_version=IRM_KG_PARSER_VERSION,
     )
 
 
@@ -180,18 +185,18 @@ async def upsert_irm_product(name: str, company_id: str) -> tuple[dict, bool]:
         name=name,
         source_type="irm",
         source_name="互动易",
-        parser_version="v4",
+        parser_version=IRM_KG_PARSER_VERSION,
     )
     upsert_relates_v4(company_id, node["entity_id"], f"互动易提及公司与产品 {name} 相关", source_type="irm", source_name="互动易")
     return node, is_new
 
 
 async def upsert_irm_application(name: str) -> tuple[dict, bool]:
-    return upsert_entity(generate_entity_id_v4("Application", name), "Application", name, source_type="irm", source_name="互动易", parser_version="v4")
+    return upsert_entity(generate_entity_id_v4("Application", name), "Application", name, source_type="irm", source_name="互动易", parser_version=IRM_KG_PARSER_VERSION)
 
 
 async def upsert_irm_technology(name: str) -> tuple[dict, bool]:
-    return upsert_entity(generate_entity_id_v4("Technology", name), "Technology", name, source_type="irm", source_name="互动易", parser_version="v4")
+    return upsert_entity(generate_entity_id_v4("Technology", name), "Technology", name, source_type="irm", source_name="互动易", parser_version=IRM_KG_PARSER_VERSION)
 
 
 async def upsert_irm_metric(name: str, value: Any = None, period: str = "IRM") -> tuple[dict, bool]:
@@ -204,7 +209,7 @@ async def upsert_irm_metric(name: str, value: Any = None, period: str = "IRM") -
         properties=props,
         source_type="irm",
         source_name="互动易",
-        parser_version="v4",
+        parser_version=IRM_KG_PARSER_VERSION,
     )
 
 
@@ -333,7 +338,7 @@ async def extract_irm_qa(
                 properties={"description": entity.get("description", ""), "source_text": text[:500]},
                 source_type="irm",
                 source_name="互动易",
-                parser_version="v4",
+                parser_version=IRM_KG_PARSER_VERSION,
             )
             entity_ids[name] = node["entity_id"]
             created += int(is_new)

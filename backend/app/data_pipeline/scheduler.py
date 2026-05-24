@@ -17,6 +17,9 @@ import pytz
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
+from app.data_pipeline.job_producers import enqueue_irm_company_jobs, enqueue_recent_cninfo_jobs
+from app.data_pipeline.job_worker import IngestionJobWorker
+
 logger = logging.getLogger(__name__)
 
 
@@ -61,6 +64,8 @@ MONITORED_INDICES = [
 
 MAX_ATTEMPTS = 3  # Phase 31 E 修复：总执行次数（= 1 原始 + 2 次重试）
 RETRY_BASE_DELAY = 30  # 秒
+INGESTION_WORKER_DRAIN_LIMIT = 5
+INGESTION_WORKER_TIMEOUT_SECONDS = 300
 
 
 async def _run_with_retry(
@@ -229,6 +234,53 @@ async def _run_cninfo_job() -> None:
         await record_task_result("cninfo", TaskStatus.FAILED, error_message=str(e))
         notify_task_failed("巨潮公告同步", str(e))
         raise
+
+
+async def _run_cninfo_enqueue_job() -> None:
+    from app.data_pipeline.monitor import record_task_start, record_task_result, TaskStatus, init_monitor
+
+    await init_monitor()
+    await record_task_start("cninfo_enqueue")
+    try:
+        result = await enqueue_recent_cninfo_jobs(days=7)
+        enqueued = result.get("enqueued", 0)
+        await record_task_result(
+            "cninfo_enqueue",
+            TaskStatus.SUCCESS,
+            total=enqueued,
+            success=enqueued,
+            fail=0,
+        )
+    except Exception as exc:
+        await record_task_result("cninfo_enqueue", TaskStatus.FAILED, error_message=str(exc))
+        raise
+
+
+async def _run_irm_enqueue_job() -> None:
+    from app.data_pipeline.monitor import record_task_start, record_task_result, TaskStatus, init_monitor
+
+    await init_monitor()
+    await record_task_start("irm_enqueue")
+    try:
+        result = await enqueue_irm_company_jobs()
+        enqueued = result.get("enqueued", 0)
+        await record_task_result(
+            "irm_enqueue",
+            TaskStatus.SUCCESS,
+            total=enqueued,
+            success=enqueued,
+            fail=0,
+        )
+    except Exception as exc:
+        await record_task_result("irm_enqueue", TaskStatus.FAILED, error_message=str(exc))
+        raise
+
+
+async def _run_ingestion_worker_job() -> None:
+    result = await IngestionJobWorker(
+        job_timeout_seconds=INGESTION_WORKER_TIMEOUT_SECONDS,
+    ).run_once(limit=INGESTION_WORKER_DRAIN_LIMIT)
+    logger.info("[ingestion_worker] drain result: %s", result)
 
 
 async def _run_pdf_rotation_job() -> None:
@@ -450,16 +502,24 @@ class Scheduler:
             replace_existing=True,
         )
         self._scheduler.add_job(
-            _run_irm_job,
+            _run_irm_enqueue_job,
             CronTrigger(hour=IRM_HOUR, minute=0, timezone=TIMEZONE),
-            id="irm_daily",
+            id="irm_enqueue_daily",
             replace_existing=True,
         )
         self._scheduler.add_job(
-            _run_cninfo_job,
+            _run_cninfo_enqueue_job,
             CronTrigger(hour=CNINFO_FETCH_HOUR, minute=0, timezone=TIMEZONE),
-            id="cninfo_daily",
+            id="cninfo_enqueue_daily",
             replace_existing=True,
+        )
+        self._scheduler.add_job(
+            _run_ingestion_worker_job,
+            CronTrigger(minute="*/5", timezone=TIMEZONE),
+            id="ingestion_worker_drain",
+            replace_existing=True,
+            max_instances=1,
+            coalesce=True,
         )
         add_pdf_rotation_job(self._scheduler)
         add_batch_reindex_job(self._scheduler)
@@ -487,13 +547,18 @@ class Scheduler:
         Phase 31 F 修复：每个 task 加 name + add_done_callback，
         异常不再被 asyncio GC 静默吞掉。
         """
-        loop = asyncio.get_event_loop()
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            logger.error("[启动补漏] 无运行中的 asyncio loop，跳过 run_now 补跑")
+            return
         task_specs = [
             (_run_report_job(), "report_startup"),
             (_run_concept_job(), "concept_startup"),
             (_run_kline_job(), "kline_startup"),
-            (_run_irm_job(), "irm_startup"),
-            (_run_cninfo_job(), "cninfo_startup"),
+            (_run_irm_enqueue_job(), "irm_enqueue_startup"),
+            (_run_cninfo_enqueue_job(), "cninfo_enqueue_startup"),
+            (_run_ingestion_worker_job(), "ingestion_worker_startup"),
             (_run_sync_stocks_job(), "sync_stocks_startup"),
         ]
         tasks = []

@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from pymongo import ReturnDocument
@@ -28,6 +28,10 @@ from app.knowledge.evidence import (
 logger = logging.getLogger(__name__)
 
 
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
 class EvidenceService:
     """Async repository for Evidence and extraction jobs."""
 
@@ -51,7 +55,7 @@ class EvidenceService:
 
     async def upsert_evidence(self, input: EvidenceInput, chunk_index: int = 0) -> dict[str, Any]:
         await self.ensure_indexes()
-        now = datetime.utcnow()
+        now = _utc_now()
         text = input.text_excerpt or ""
         evidence_id = stable_evidence_id(input.source_type, input.source_id, chunk_index, text)
         checksum = text_checksum(text)
@@ -108,7 +112,7 @@ class EvidenceService:
         extractor_version: str = EXTRACTOR_VERSION,
     ) -> dict[str, Any]:
         await self.ensure_indexes()
-        now = datetime.utcnow()
+        now = _utc_now()
         job_id = stable_job_id(evidence_id, job_type, extractor_version)
         doc = {
             "job_id": job_id,
@@ -146,7 +150,7 @@ class EvidenceService:
         stale_after_minutes: int = 30,
     ) -> dict[str, Any] | None:
         await self.ensure_indexes()
-        now = datetime.utcnow()
+        now = _utc_now()
         stale_cutoff = now - timedelta(minutes=stale_after_minutes)
         query: dict[str, Any] = {
             "$or": [
@@ -176,7 +180,7 @@ class EvidenceService:
         return dict(doc) if doc else None
 
     async def mark_job_done(self, job_id: str, result: dict | None = None) -> None:
-        now = datetime.utcnow()
+        now = _utc_now()
         doc = await self._jobs.find_one({"job_id": job_id}, {"_id": 0})
         await self._jobs.update_one(
             {"job_id": job_id},
@@ -197,7 +201,7 @@ class EvidenceService:
             )
 
     async def mark_job_failed(self, job_id: str, error: str, max_retries: int = 3) -> None:
-        now = datetime.utcnow()
+        now = _utc_now()
         doc = await self._jobs.find_one({"job_id": job_id}, {"_id": 0})
         retry_count = int((doc or {}).get("retry_count") or 0) + 1
         status = STATUS_FAILED if retry_count >= max_retries else STATUS_PENDING
@@ -228,7 +232,7 @@ class EvidenceService:
         status: str,
         extractor_version: str = EXTRACTOR_VERSION,
     ) -> None:
-        now = datetime.utcnow()
+        now = _utc_now()
         update = {
             f"extraction_status.{job_type}": status,
             "extraction_status.extractor_version": extractor_version,
@@ -239,7 +243,8 @@ class EvidenceService:
         await self._evidence.update_one({"evidence_id": evidence_id}, {"$set": update})
 
     async def heal_running_jobs(self, older_than_minutes: int = 30) -> int:
-        cutoff = datetime.utcnow() - timedelta(minutes=older_than_minutes)
+        now = _utc_now()
+        cutoff = now - timedelta(minutes=older_than_minutes)
         result = await self._jobs.update_many(
             {"status": STATUS_RUNNING, "locked_at": {"$lt": cutoff}},
             {"$set": {
@@ -247,7 +252,7 @@ class EvidenceService:
                 "locked_by": None,
                 "locked_at": None,
                 "error": "stale running job reset",
-                "updated_at": datetime.utcnow(),
+                "updated_at": now,
             }},
         )
         return int(getattr(result, "modified_count", 0))

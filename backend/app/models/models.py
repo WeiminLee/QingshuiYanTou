@@ -12,10 +12,11 @@ from sqlalchemy import (
     UniqueConstraint, text,
 )
 from sqlalchemy import BigInteger, JSON
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
 from app.core.database import Base  # 统一 Base，与 alembic 共享
+from app.core.metadata import CURRENT_PARSER_VERSION
 
 
 # ── 1. 行情层 ────────────────────────────────────────────────────────────────
@@ -278,7 +279,7 @@ class Announcement(Base):
     source_type: Mapped[str] = mapped_column(String(50), server_default="cninfo_announcement")
     source_name: Mapped[str] = mapped_column(String(100), server_default="巨潮资讯网")
     confidence_tier: Mapped[str] = mapped_column(String(20), server_default="Tier 1")
-    parser_version: Mapped[str] = mapped_column(String(20), server_default="v1.0")
+    parser_version: Mapped[str] = mapped_column(String(20), server_default=CURRENT_PARSER_VERSION)
     extracted_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
 
 
@@ -301,7 +302,7 @@ class ResearchReportMeta(Base):
     source_type: Mapped[str] = mapped_column(String(50), server_default="research_report")
     source_name: Mapped[str] = mapped_column(String(100), server_default="Tushare研报")
     confidence_tier: Mapped[str] = mapped_column(String(20), server_default="Tier 4")
-    parser_version: Mapped[str] = mapped_column(String(20), server_default="v1.0")
+    parser_version: Mapped[str] = mapped_column(String(20), server_default=CURRENT_PARSER_VERSION)
     extracted_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
 
 
@@ -338,7 +339,7 @@ class DownloadedDocument(Base):
     source_type: Mapped[str] = mapped_column(String(30), server_default="cninfo_document")
     source_name: Mapped[str] = mapped_column(String(50), server_default="巨潮资讯PDF")
     confidence_tier: Mapped[str] = mapped_column(String(10), server_default="Tier 1")
-    parser_version: Mapped[str] = mapped_column(String(10), server_default="v1.0")
+    parser_version: Mapped[str] = mapped_column(String(10), server_default=CURRENT_PARSER_VERSION)
     extracted_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     downloaded_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
@@ -366,7 +367,7 @@ class StockPool(Base):
     source_type: Mapped[str] = mapped_column(String(30), server_default="ths_concept")
     source_name: Mapped[str] = mapped_column(String(50), server_default="THS同花顺概念")
     confidence_tier: Mapped[str] = mapped_column(String(10), server_default="Tier 0")
-    parser_version: Mapped[str] = mapped_column(String(10), server_default="v1.0")
+    parser_version: Mapped[str] = mapped_column(String(10), server_default=CURRENT_PARSER_VERSION)
     extracted_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 
@@ -655,5 +656,32 @@ class IngestionCheckpoint(Base):
     last_attempt_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     next_from_watermark: Mapped[Optional[str]] = mapped_column(String(50))
     metadata_json: Mapped[Optional[dict]] = mapped_column("metadata", JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class IngestionJob(Base):
+    """Durable queue job for data ingestion tasks."""
+    __tablename__ = "ingestion_jobs"
+    __table_args__ = (
+        UniqueConstraint("job_type", "job_key", name="uq_ingestion_jobs_type_key"),
+        Index("idx_ingestion_jobs_claim", "status", "next_run_at", "priority", "id"),
+        Index("idx_ingestion_jobs_type_status", "job_type", "status"),
+        Index("idx_ingestion_jobs_locked_at", "locked_at"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    job_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    job_key: Mapped[str] = mapped_column(String(200), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="pending")
+    payload: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    priority: Mapped[int] = mapped_column(Integer, nullable=False, server_default="100")
+    attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    max_attempts: Mapped[int] = mapped_column(Integer, nullable=False, server_default="5")
+    next_run_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    locked_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    locked_by: Mapped[Optional[str]] = mapped_column(String(100))
+    last_error: Mapped[Optional[str]] = mapped_column(Text)
+    result_summary: Mapped[Optional[dict]] = mapped_column(JSONB)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

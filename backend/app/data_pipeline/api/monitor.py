@@ -162,6 +162,44 @@ async def get_unread_count(db: AsyncSession = Depends(get_db)):
 
 # ── 数据同步任务监控 API ─────────────────────────────────
 
+@router.get("/sync/jobs/summary")
+async def get_ingestion_job_summary():
+    async with engine.connect() as conn:
+        rows = (
+            await conn.execute(
+                text("""
+                    SELECT job_type, status, COUNT(*) AS count
+                    FROM ingestion_jobs
+                    GROUP BY job_type, status
+                    ORDER BY job_type, status
+                """)
+            )
+        ).mappings().all()
+    summary: dict[str, dict[str, int]] = {}
+    for row in rows:
+        summary.setdefault(row["job_type"], {})[row["status"]] = int(row["count"])
+    return summary
+
+
+@router.get("/sync/jobs/failures")
+async def list_ingestion_job_failures(limit: int = 100):
+    async with engine.connect() as conn:
+        rows = (
+            await conn.execute(
+                text("""
+                    SELECT id, job_type, job_key, status, attempt_count, max_attempts,
+                           next_run_at, last_error, result_summary, updated_at
+                    FROM ingestion_jobs
+                    WHERE status IN ('failed', 'dead')
+                    ORDER BY updated_at DESC
+                    LIMIT :limit
+                """),
+                {"limit": min(max(limit, 1), 500)},
+            )
+        ).mappings().all()
+    return [dict(row) for row in rows]
+
+
 @router.get("/sync/status")
 async def get_sync_status():
     """获取数据同步整体状态"""

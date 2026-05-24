@@ -33,7 +33,19 @@ from pathlib import Path
 BACKEND_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(BACKEND_DIR))
 
-from app.core.data.cloud_api_client import CloudDataClient  # noqa: E402
+try:
+    from app.core.data.cloud_api_client import CloudDataClient  # type: ignore[import-not-found]  # noqa: E402
+except ModuleNotFoundError:  # pragma: no cover - compatibility path for deprecated script
+    from app.data_pipeline.data_source import DataSourceClient  # noqa: E402
+
+    class CloudDataClient:  # type: ignore[no-redef]
+        """Compatibility adapter for the deprecated alias-table script."""
+
+        def __init__(self, base_url: str | None = None) -> None:
+            self._client = DataSourceClient()
+
+        def get_stocks(self) -> list[dict]:
+            return self._client.get_stocks_basic("L")
 
 logging.basicConfig(
     level=logging.INFO,

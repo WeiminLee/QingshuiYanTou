@@ -10,10 +10,12 @@ import hashlib
 import logging
 import math
 import random
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
+from functools import partial
 from pathlib import Path
 from typing import Any, Iterable, Optional
 
+import pytz
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
@@ -62,6 +64,9 @@ STOCK_KLINE_BACKFILL_DAYS = 30        # 首次回填窗口（D-A5：agent 分析
 IRM_CHECKPOINT_COLLECTION = "irm_checkpoint"
 IRM_CHECKPOINT_WINDOW_HOURS = 20   # 20 小时内成功过的 ts_code 跳过
 
+# 中国时区常量（用于 IRM checkpoint 等时间敏感操作）
+SH_TZ = pytz.timezone("Asia/Shanghai")
+
 
 # ── 工具函数 ────────────────────────────────────────────
 
@@ -87,7 +92,6 @@ def _yyyymmdd_to_date(value: str | None) -> date | None:
     """YYYYMMDD → date；无效值返回 None。"""
     if not value or len(value) < 8 or not value[:8].isdigit():
         return None
-    from datetime import date
     return date(int(value[:4]), int(value[4:6]), int(value[6:8]))
 
 
@@ -535,7 +539,8 @@ class DataFetcher:
         ann_id = _stable_id("irm", exchange, ts_code, question_time or "-", q_hash)
 
         # 解析中文日期格式: "2026年05月08日 09:00" -> date
-        ann_date_obj = datetime.utcnow().date()
+        # P1 修复：使用北京时间，避免凌晨抓取时日期错位
+        ann_date_obj = datetime.now(SH_TZ).date()
         if question_time:
             import re
             m = re.match(r"(\d{4})年(\d{1,2})月(\d{1,2})日", question_time)
@@ -597,7 +602,8 @@ class DataFetcher:
             return []
         try:
             db = get_mongo_db()
-            cutoff = datetime.now(timezone.utc) - timedelta(hours=IRM_CHECKPOINT_WINDOW_HOURS)
+            # P1 修复：使用北京时间，保持 checkpoint 窗口一致性
+            cutoff = datetime.now(SH_TZ) - timedelta(hours=IRM_CHECKPOINT_WINDOW_HOURS)
             cursor = db[IRM_CHECKPOINT_COLLECTION].find(
                 {
                     "ts_code": {"$in": ts_codes},
@@ -620,7 +626,8 @@ class DataFetcher:
         """更新 irm_checkpoint：success=True 写 last_success_at，否则仅 last_attempt_at。"""
         try:
             db = get_mongo_db()
-            now = datetime.now(timezone.utc)
+            # P1 修复：使用北京时间，与 _filter_irm_pending 保持一致
+            now = datetime.now(SH_TZ)
             update: dict[str, Any] = {"last_attempt_at": now}
             if success:
                 update["status"] = "done"
@@ -633,7 +640,7 @@ class DataFetcher:
                 upsert=True,
             )
         except Exception as exc:
-            logger.debug("IRM checkpoint 写入失败 [%s]: %s", ts_code, exc)
+            logger.warning("IRM checkpoint 写入失败 [%s]: %s", ts_code, exc)
 
     # ---------- 巨潮公告（cninfo） ----------
 
@@ -803,12 +810,13 @@ class DataFetcher:
                             item["cninfo_id"],
                             repaired_path,
                         )
-                        await self._on_pdf_download_complete(
-                            item["cninfo_id"],
-                            repaired_path,
-                            item["ts_code"],
-                            item["title"],
-                        )
+                        if updated is True:
+                            await self._on_pdf_download_complete(
+                                item["cninfo_id"],
+                                repaired_path,
+                                item["ts_code"],
+                                item["title"],
+                            )
                         if updated is False:
                             fail += 1
                             await tracker.event(
@@ -1306,6 +1314,13 @@ class DataFetcher:
                             item["cninfo_id"],
                             repaired_path,
                         )
+                        if updated is True:
+                            await self._on_pdf_download_complete(
+                                item["cninfo_id"],
+                                repaired_path,
+                                item["ts_code"],
+                                item["title"],
+                            )
                         if updated is False:
                             fail += 1
                             await tracker.event(
@@ -1364,6 +1379,13 @@ class DataFetcher:
             )
             if saved is True:
                 success += 1
+                if file_path is not None:
+                    await self._on_pdf_download_complete(
+                        item["cninfo_id"],
+                        file_path,
+                        item["ts_code"],
+                        item["title"],
+                    )
             elif saved is None:
                 skipped += 1
             else:
@@ -1616,10 +1638,20 @@ class DataFetcher:
         start_str = start.strftime("%Y%m%d")
         end_str = end.strftime("%Y%m%d")
 
-        records = await asyncio.to_thread(
-            self.data_source.get_stock_kline,
-            ts_code, start_str, end_str,
-        )
+        try:
+            records = await asyncio.to_thread(
+                partial(
+                    self.data_source.get_stock_kline,
+                    ts_code=ts_code,
+                    start_date=start_str,
+                    end_date=end_str,
+                    adjustflag="3",
+                    raise_on_error=True,
+                )
+            )
+        except Exception as exc:
+            logger.warning("个股 %s K线抓取失败: %s", ts_code, exc)
+            return {"total": 0, "success": 0, "skipped": 0, "fail": 1}
         if not records:
             return {"total": 0, "success": 0, "skipped": 0, "fail": 0}
 
@@ -1648,11 +1680,12 @@ class DataFetcher:
 
         起始日期决策（D-A5）：
           - 显式传 start_date：使用之
-          - 否则查 max(daily_data.trade_date)，缺口 > 3 天 → 回填 STOCK_KLINE_BACKFILL_DAYS
-          - 缺口 ≤ 3 天 → 补 7 天（防补漏）
+          - 否则按每只 ts_code 自己的 MAX(daily_data.trade_date) 计算缺口
+          - 单只股票无历史数据：回填 STOCK_KLINE_BACKFILL_DAYS
+          - 单只股票已到 end_date：跳过，避免用全表最大日期掩盖个股遗漏
 
         T-A-5000-overload mitigation: Semaphore=STOCK_KLINE_CONCURRENCY；
-        每 STOCK_KLINE_RECONNECT_EVERY 只 logout/login 重连防长连接断开。
+        每只股票使用隔离 DataSourceClient，抓取后 logout，避免共享 baostock session。
         """
         all_stocks = await asyncio.to_thread(self.data_source.get_stocks_basic, "L")
         ts_codes = [s["ts_code"] for s in all_stocks if s.get("ts_code")]
@@ -1664,40 +1697,82 @@ class DataFetcher:
 
         today = datetime.now()
         end = datetime.strptime(end_date, "%Y%m%d") if end_date else today - timedelta(days=1)
+        end_day = end.date()
 
         if start_date:
-            start = datetime.strptime(start_date, "%Y%m%d")
+            explicit_start = datetime.strptime(start_date, "%Y%m%d").date()
+            kline_jobs = [(code, explicit_start, end_day) for code in ts_codes]
         else:
+            latest_by_code: dict[str, date] = {}
             async with engine.connect() as conn:
-                row = await conn.execute(text("SELECT MAX(trade_date) FROM daily_data"))
-                latest = row.scalar()
-            if latest and (end.date() - latest).days <= 3:
-                start = end - timedelta(days=7)
-                logger.info("daily_data 已是最新，仅补 7 天")
-            else:
-                start = end - timedelta(days=STOCK_KLINE_BACKFILL_DAYS)
-                logger.info("daily_data 缺口大，回填 %d 天", STOCK_KLINE_BACKFILL_DAYS)
+                result = await conn.execute(
+                    text(
+                        """
+                        SELECT ts_code, MAX(trade_date) AS latest
+                        FROM daily_data
+                        WHERE ts_code = ANY(:ts_codes)
+                        GROUP BY ts_code
+                        """
+                    ),
+                    {"ts_codes": ts_codes},
+                )
+                for row in result.mappings().all():
+                    latest = row["latest"]
+                    if latest:
+                        latest_by_code[row["ts_code"]] = latest
 
-        start_str = start.strftime("%Y%m%d")
+            kline_jobs = []
+            up_to_date = 0
+            missing_history = 0
+            for code in ts_codes:
+                latest = latest_by_code.get(code)
+                if latest is None:
+                    start_day = end_day - timedelta(days=STOCK_KLINE_BACKFILL_DAYS)
+                    missing_history += 1
+                elif latest >= end_day:
+                    up_to_date += 1
+                    continue
+                else:
+                    start_day = latest + timedelta(days=1)
+                kline_jobs.append((code, start_day, end_day))
+            logger.info(
+                "全市场 K 线补齐计划: 待抓取 %d/%d，只股票已最新 %d，无历史 %d",
+                len(kline_jobs), total, up_to_date, missing_history,
+            )
+
         end_str = end.strftime("%Y%m%d")
 
         semaphore = asyncio.Semaphore(STOCK_KLINE_CONCURRENCY)
-        counters = {"success": 0, "fail": 0, "skipped": 0, "processed": 0}
+        counters = {
+            "success": 0,
+            "fail": 0,
+            "skipped": total - len(kline_jobs),
+            "processed": 0,
+            "up_to_date": total - len(kline_jobs),
+        }
 
-        async def worker(idx: int, code: str) -> None:
+        def fetch_with_isolated_client(code: str, start_str: str, end_str: str) -> list[dict[str, Any]]:
+            client = DataSourceClient()
+            try:
+                return client.get_stock_kline(
+                    code,
+                    start_str,
+                    end_str,
+                    raise_on_error=True,
+                )
+            finally:
+                client._bs_logout()
+
+        async def worker(idx: int, code: str, start_day: date, end_day: date) -> None:
             async with semaphore:
-                # 每 N 只 logout/login 重连，防 baostock 长连接 broken pipe（RESEARCH §Pitfall 2）
-                if idx > 0 and idx % STOCK_KLINE_RECONNECT_EVERY == 0:
-                    try:
-                        await asyncio.to_thread(self.data_source._bs_logout)
-                        await asyncio.to_thread(self.data_source._bs_login)
-                        logger.info("baostock 重连: 已处理 %d 只", idx)
-                    except Exception as exc:
-                        logger.warning("baostock 重连失败（继续）: %s", exc)
                 try:
+                    start_str = start_day.strftime("%Y%m%d")
+                    end_str = end_day.strftime("%Y%m%d")
                     records = await asyncio.to_thread(
-                        self.data_source.get_stock_kline,
-                        code, start_str, end_str,
+                        fetch_with_isolated_client,
+                        code,
+                        start_str,
+                        end_str,
                     )
                 except Exception as exc:
                     logger.warning("股票 %s 抓取失败: %s", code, exc)
@@ -1712,16 +1787,19 @@ class DataFetcher:
                         saved = await self._save_stock_kline(code, trade_date, rec)
                         if saved is True:
                             counters["success"] += 1
+                        elif saved is False:
+                            counters["fail"] += 1
                     except Exception as exc:
+                        counters["fail"] += 1
                         logger.debug("保存 %s %s 失败: %s", code, trade_date, exc)
                 counters["processed"] += 1
                 await asyncio.sleep(STOCK_KLINE_SLEEP_BASE + random.random() * STOCK_KLINE_SLEEP_JITTER)
 
-        await asyncio.gather(*(worker(i, c) for i, c in enumerate(ts_codes)))
+        await asyncio.gather(*(worker(i, code, start, end) for i, (code, start, end) in enumerate(kline_jobs)))
         logger.info(
-            "全市场 K 线完成: 处理 %d/%d，入库 %d 条，跳过 %d，失败 %d",
+            "全市场 K 线完成: 处理 %d/%d，入库 %d 条，跳过 %d，失败 %d，已最新 %d",
             counters["processed"], total, counters["success"],
-            counters["skipped"], counters["fail"],
+            counters["skipped"], counters["fail"], counters["up_to_date"],
         )
         return {"total": total, **counters}
 
@@ -1791,7 +1869,7 @@ async def async_sync_stocks() -> dict[str, int]:
             inserted += 1
         except Exception as exc:
             failed += 1
-            logger.debug("股票同步失败 %s: %s", ts_code, exc)
+            logger.warning("股票同步失败 %s: %s", ts_code, exc)
 
     logger.info("股票列表同步完成: 处理 %d，失败 %d", inserted, failed)
     return {"total": len(stocks), "success": inserted, "fail": failed}
@@ -1862,7 +1940,7 @@ async def fetch_concept() -> dict[str, int]:
             success += 1
         except Exception as exc:
             fail += 1
-            logger.debug("保存概念 %s 失败: %s", concept_name, exc)
+            logger.warning("保存概念 %s 失败: %s", concept_name, exc)
 
     logger.info("概念热度同步完成: 入库 %d 个概念", success)
     return {"success": success, "fail": fail, "skipped": 0}

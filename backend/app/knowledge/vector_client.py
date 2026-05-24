@@ -44,6 +44,13 @@ _vector_client: Optional["VectorClient"] = None
 _embedding_model: Optional["EmbeddingModelBase"] = None
 
 
+def default_embedding_dimension() -> int:
+    """Return the configured fallback embedding dimension."""
+    from app.config import settings
+
+    return int(getattr(settings, "embedding_dimension", 2560) or 2560)
+
+
 def get_vector_client() -> "VectorClient":
     """获取全局向量客户端（延迟初始化）"""
     global _vector_client
@@ -92,7 +99,7 @@ def get_embedding_model() -> "EmbeddingModelBase":
             return _embedding_model
 
         # 优先级 3: Placeholder（仅开发环境）
-        _embedding_model = PlaceholderEmbedding(dimension=2560)
+        _embedding_model = PlaceholderEmbedding()
         logger.warning("Embedding 模型: PlaceholderEmbedding（请在 .env 配置 HUNYUAN_API_KEY 用于生产）")
     return _embedding_model
 
@@ -107,6 +114,23 @@ def set_embedding_model(model: "EmbeddingModelBase") -> None:
     """注入自定义 Embedding 模型（用于测试）"""
     global _embedding_model
     _embedding_model = model
+
+
+def reset_vector_state(close: bool = False) -> None:
+    """Reset global vector client and embedding model state."""
+    global _vector_client, _embedding_model
+    client = _vector_client
+    embedding = _embedding_model
+    _vector_client = None
+    _embedding_model = None
+    if not close:
+        return
+    for resource in (client, embedding):
+        if resource is None:
+            continue
+        close_fn = getattr(resource, "close", None) or getattr(resource, "disconnect", None)
+        if callable(close_fn):
+            close_fn()
 
 
 # ── Embedding 模型抽象 ────────────────────────────────────────────────────
@@ -238,15 +262,15 @@ class LocalEmbedding(EmbeddingModelBase):
 
     def dimension(self) -> int:
         if self._dim is None:
-            return 2560
+            return default_embedding_dimension()
         return self._dim
 
 
 class PlaceholderEmbedding(EmbeddingModelBase):
     """占位实现（本地服务不可用时用于接口联调）"""
 
-    def __init__(self, dimension: int = 1536):
-        self._dim = dimension
+    def __init__(self, dimension: int | None = None):
+        self._dim = int(dimension or default_embedding_dimension())
 
     def embed(self, text: str) -> list[float]:
         h = hashlib.sha256(text.encode()).digest()
@@ -352,8 +376,7 @@ class HunyuanEmbedding(EmbeddingModelBase):
 
     def dimension(self) -> int:
         if self._dim is None:
-            # Default to 2560 per D-10 (match existing collection dimension)
-            return 2560
+            return default_embedding_dimension()
         return self._dim
 
     async def aclose(self) -> None:
@@ -580,8 +603,6 @@ COLLECTION_ENTITIES  = "kg_entities"
 COLLECTION_RELATIONS = "kg_relations"
 COLLECTION_CHUNKS    = "doc_chunks"
 COLLECTION_QA        = "qa_flash"
-
-_EMBED_DIM = 2560
 
 
 def init_collections(

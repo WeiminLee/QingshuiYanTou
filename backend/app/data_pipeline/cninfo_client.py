@@ -264,6 +264,7 @@ class CninfoClient:
         ts_code: str | None = None,
         ann_date_end: str | None = None,
         progress_callback: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
+        max_pages: int = 500,
     ) -> list[dict[str, Any]]:
         """获取指定日期范围/股票的所有公告（自动分页）
 
@@ -280,6 +281,11 @@ class CninfoClient:
         page_size = DEFAULT_PAGE_SIZE
 
         while True:
+            if page > max_pages:
+                raise CninfoClientError(
+                    f"巨潮 API 分页超过最大分页数 {max_pages}: "
+                    f"ann_date={ann_date} ann_date_end={ann_date_end} ts_code={ts_code}"
+                )
             resp = await self.query_announcements(
                 ann_date=ann_date,
                 ts_code=ts_code,

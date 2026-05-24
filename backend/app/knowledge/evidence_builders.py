@@ -2,11 +2,15 @@
 from __future__ import annotations
 
 import hashlib
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from app.knowledge.evidence import EvidenceInput, default_source_confidence
 from app.knowledge.extraction.chunker import chunk_by_token
+
+
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc)
 
 
 def _as_str(value: Any) -> str:
@@ -63,7 +67,7 @@ def build_text_evidence(
             text_excerpt=getattr(chunk, "content", str(chunk)),
             subject_hint=dict(subject_hint or {}),
             publish_date=publish_date,
-            observed_at=observed_at or datetime.utcnow(),
+            observed_at=observed_at or _utc_now(),
             source_ref=ref,
             confidence=default_source_confidence(source_type),
             metadata=dict(metadata or {}),
@@ -104,7 +108,7 @@ def build_file_evidence(
         subject_hint=subject_hint,
         source_ref=source_ref,
         publish_date=file_info.get("publish_date") or file_info.get("ann_date"),
-        observed_at=datetime.utcnow(),
+        observed_at=_utc_now(),
         chunk_max_tokens=chunk_max_tokens,
         max_chunks=max_chunks,
         metadata={"doc_type": doc_type},
@@ -126,7 +130,7 @@ def build_irm_evidence(record: dict[str, Any]) -> EvidenceInput:
         text_excerpt=text,
         subject_hint={"ts_code": ts_code, "company_name": company_name},
         publish_date=record.get("ann_date"),
-        observed_at=datetime.utcnow(),
+        observed_at=_utc_now(),
         source_ref={
             "cninfo_id": cninfo_id,
             "ts_code": ts_code,

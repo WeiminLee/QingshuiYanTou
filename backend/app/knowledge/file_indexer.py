@@ -15,11 +15,13 @@ import hashlib
 import logging
 import os
 import re
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
 from motor.motor_asyncio import AsyncIOMotorDatabase
+
+from app.core.metadata import CURRENT_KG_PARSER_VERSION, CURRENT_KG_SCHEMA_VERSION
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +35,10 @@ ALLOWED_EXTENSIONS = {".md", ".pdf"}
 
 # 例：华工科技(000988)深度研究 → 000988.SZ
 _STOCK_CODE_RE = re.compile(r"\((\d{6})\)")
+
+
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc)
 
 
 def _parse_ts_code_from_filename(filename: str) -> Optional[str]:
@@ -99,7 +105,7 @@ class FileIndexer:
         """
         await self.ensure_indexes()
         result = {"new": [], "changed": [], "unchanged": 0, "removed": 0}
-        now = datetime.utcnow()
+        now = _utc_now()
 
         for base_dir in REPORT_DIRS:
             dir_path = Path(base_dir)
@@ -140,8 +146,8 @@ class FileIndexer:
                         "extracted_at": None,
                         "error": None,
                         "retry_count": 0,
-                        "schema_version": "v4",
-                        "parser_version": "v4",
+                        "schema_version": CURRENT_KG_SCHEMA_VERSION,
+                        "parser_version": CURRENT_KG_PARSER_VERSION,
                         "created_at": now,
                         "updated_at": now,
                     })
@@ -162,8 +168,8 @@ class FileIndexer:
                                 "relations_count": 0,
                                 "extracted_at": None,
                                 "error": None,
-                                "schema_version": "v4",
-                                "parser_version": "v4",
+                                "schema_version": CURRENT_KG_SCHEMA_VERSION,
+                                "parser_version": CURRENT_KG_PARSER_VERSION,
                                 "updated_at": now,
                             }}
                         )
@@ -217,7 +223,7 @@ class FileIndexer:
         return [doc async for doc in cursor]
 
     async def get_extracting_files(self, older_than_minutes: int = 30) -> list[dict]:
-        cutoff = datetime.utcnow() - timedelta(minutes=older_than_minutes)
+        cutoff = _utc_now() - timedelta(minutes=older_than_minutes)
         cursor = self._col.find(
             {"status": "extracting", "updated_at": {"$lt": cutoff}},
             {"_id": 0},
@@ -232,9 +238,9 @@ class FileIndexer:
     ) -> None:
         update = {
             "status": "extracting",
-            "schema_version": "v4",
-            "parser_version": "v4",
-            "updated_at": datetime.utcnow(),
+            "schema_version": CURRENT_KG_SCHEMA_VERSION,
+            "parser_version": CURRENT_KG_PARSER_VERSION,
+            "updated_at": _utc_now(),
         }
         if source_type:
             update["source_type"] = source_type
@@ -253,9 +259,9 @@ class FileIndexer:
             {"file_path": {"$in": file_paths}},
             {"$set": {
                 "status": "extracting",
-                "schema_version": "v4",
-                "parser_version": "v4",
-                "updated_at": datetime.utcnow(),
+                "schema_version": CURRENT_KG_SCHEMA_VERSION,
+                "parser_version": CURRENT_KG_PARSER_VERSION,
+                "updated_at": _utc_now(),
             }},
         )
         return int(result.modified_count)
@@ -272,11 +278,11 @@ class FileIndexer:
             "status": "done",
             "entities_count": entities_count,
             "relations_count": relations_count,
-            "extracted_at": datetime.utcnow(),
-            "schema_version": "v4",
-            "parser_version": "v4",
+            "extracted_at": _utc_now(),
+            "schema_version": CURRENT_KG_SCHEMA_VERSION,
+            "parser_version": CURRENT_KG_PARSER_VERSION,
             "error": None,
-            "updated_at": datetime.utcnow(),
+            "updated_at": _utc_now(),
         }
         if source_type:
             update["source_type"] = source_type
@@ -311,7 +317,7 @@ class FileIndexer:
                 "error": error[:500],
                 "last_error": error[:1000],
                 "retry_count": retry_count,
-                "updated_at": datetime.utcnow(),
+                "updated_at": _utc_now(),
             }}
         )
 
@@ -331,8 +337,8 @@ class FileIndexer:
             {"$set": {
                 "file_path": None,
                 "status": "rotated",
-                "rotated_at": datetime.utcnow(),
-                "updated_at": datetime.utcnow(),
+                "rotated_at": _utc_now(),
+                "updated_at": _utc_now(),
             }},
         )
         return bool(result.modified_count)
@@ -348,7 +354,7 @@ class FileIndexer:
             {"$set": {
                 "status": "pending",
                 "error": "进程中断，上次抽取未完成",
-                "updated_at": datetime.utcnow(),
+                "updated_at": _utc_now(),
             }}
         )
         return result.modified_count

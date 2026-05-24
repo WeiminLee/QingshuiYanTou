@@ -4,10 +4,10 @@ from __future__ import annotations
 import json
 import hashlib
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
-from app.core.neo4j_client import run_write, run_single
+from app.core.neo4j_client import write_transaction
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +19,10 @@ FORBIDDEN_STATE_VALUES = {
     "recommendation_upgrade",
     "recommendation_downgrade",
 }
+
+
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc)
 
 
 def stable_fact_id(subject_id: str, dimension: str, state_value: str, observed_at: Any, evidence_id: str) -> str:
@@ -43,7 +47,7 @@ def upsert_structured_fact(fact: dict[str, Any]) -> tuple[dict[str, Any], bool]:
         fact.get("observed_at"),
         str(fact.get("evidence_id") or ""),
     )
-    now = datetime.utcnow().isoformat()
+    now = _utc_now().isoformat()
     props = {
         "fact_id": fact_id,
         "subject_id": fact.get("subject_id"),
@@ -62,18 +66,24 @@ def upsert_structured_fact(fact: dict[str, Any]) -> tuple[dict[str, Any], bool]:
         "created_at": now,
         "updated_at": now,
     }
-    existing = run_single("MATCH (f:StructuredFact {fact_id: $fact_id}) RETURN f", {"fact_id": fact_id})
+    with write_transaction() as tx:
+        existing = tx.run(
+            "MATCH (f:StructuredFact {fact_id: $fact_id}) RETURN f",
+            {"fact_id": fact_id},
+        ).single()
+        if existing:
+            tx.run("MATCH (f:StructuredFact {fact_id: $fact_id}) SET f += $props", {"fact_id": fact_id, "props": props})
+        else:
+            tx.run("CREATE (f:StructuredFact $props)", {"props": props})
+            subject_id = str(fact.get("subject_id") or "")
+            if subject_id:
+                tx.run(
+                    "MATCH (s {entity_id: $subject_id}) MATCH (f:StructuredFact {fact_id: $fact_id}) MERGE (s)-[:HAS_FACT]->(f)",
+                    {"subject_id": subject_id, "fact_id": fact_id},
+                )
     if existing:
-        run_write("MATCH (f:StructuredFact {fact_id: $fact_id}) SET f += $props", {"fact_id": fact_id, "props": props})
         return {**props, "fact_id": fact_id}, False
 
-    run_write("CREATE (f:StructuredFact $props)", {"props": props})
-    subject_id = str(fact.get("subject_id") or "")
-    if subject_id:
-        run_write(
-            "MATCH (s {entity_id: $subject_id}) MATCH (f:StructuredFact {fact_id: $fact_id}) MERGE (s)-[:HAS_FACT]->(f)",
-            {"subject_id": subject_id, "fact_id": fact_id},
-        )
     return {**props, "fact_id": fact_id}, True
 
 

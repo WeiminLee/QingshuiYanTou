@@ -21,6 +21,87 @@ class TestBackfillWindow:
         assert STOCK_KLINE_BACKFILL_DAYS == 30
 
 
+class TestPerStockKlineCatchup:
+    """全市场 K 线补齐必须按单只股票自己的最新日期计算窗口。"""
+
+    def test_fetch_all_stocks_uses_per_stock_latest_date(self, monkeypatch):
+        import asyncio
+        from datetime import date
+        from unittest.mock import AsyncMock, MagicMock
+
+        import app.data_pipeline.fetcher as fetcher_mod
+        from app.data_pipeline.fetcher import DataFetcher
+
+        latest_by_code = {
+            "600000.SH": date(2026, 5, 21),
+            "000001.SZ": date(2026, 4, 30),
+        }
+
+        class FakeResult:
+            def scalar(self):
+                return max(latest_by_code.values())
+
+            def fetchall(self):
+                return list(latest_by_code.items())
+
+            def mappings(self):
+                return self
+
+            def all(self):
+                return [
+                    {"ts_code": ts_code, "latest": latest}
+                    for ts_code, latest in latest_by_code.items()
+                ]
+
+        class FakeConn:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                return None
+
+            async def execute(self, *args, **kwargs):
+                return FakeResult()
+
+        fake_engine = MagicMock()
+        fake_engine.connect.return_value = FakeConn()
+        monkeypatch.setattr(fetcher_mod, "engine", fake_engine)
+        monkeypatch.setattr(fetcher_mod, "STOCK_KLINE_SLEEP_BASE", 0)
+        monkeypatch.setattr(fetcher_mod, "STOCK_KLINE_SLEEP_JITTER", 0)
+
+        fetcher = DataFetcher()
+        fetcher.data_source = MagicMock()
+        fetcher.data_source.get_stocks_basic.return_value = [
+            {"ts_code": "600000.SH"},
+            {"ts_code": "000001.SZ"},
+        ]
+
+        calls: dict[str, tuple[str, str]] = {}
+
+        class IsolatedClient:
+            def get_stock_kline(self, ts_code, start_date, end_date, adjustflag="3", raise_on_error=False):
+                assert raise_on_error is True
+                calls[ts_code] = (start_date, end_date)
+                return [{"date": "2026-05-22"}]
+
+            def _bs_logout(self):
+                return None
+
+        monkeypatch.setattr(fetcher_mod, "DataSourceClient", IsolatedClient)
+
+        def fake_get_stock_kline(ts_code, start_date, end_date):
+            calls[ts_code] = (start_date, end_date)
+            return [{"date": "2026-05-22"}]
+
+        fetcher.data_source.get_stock_kline.side_effect = fake_get_stock_kline
+        fetcher._save_stock_kline = AsyncMock(return_value=True)
+
+        asyncio.run(fetcher.fetch_all_stocks_kline(end_date="20260522"))
+
+        assert calls["600000.SH"] == ("20260522", "20260522")
+        assert calls["000001.SZ"] == ("20260501", "20260522")
+
+
 @pytest.mark.integration
 class TestSaveStockKline:
     """D-A3 _save_stock_kline 写 daily_data"""
@@ -85,6 +166,43 @@ class TestAkshareThrottleApplied:
             # 手动传一只代码，绕过 get_stocks_basic
             await fetcher.fetch_irm(ts_codes=["600000.SH"])
         assert mock_limiter.wait_and_acquire.called
+
+    def test_fetch_irm_counts_data_source_exception_as_failure(self):
+        import asyncio
+        from unittest.mock import AsyncMock, MagicMock, patch
+        from app.data_pipeline.fetcher import DataFetcher
+
+        fetcher = DataFetcher()
+        fetcher.data_source = MagicMock()
+        fetcher.data_source.get_irm = MagicMock(side_effect=RuntimeError("irm api bad response"))
+        fetcher._filter_irm_pending = AsyncMock(return_value=["600000.SH"])
+        fetcher._ensure_irm_checkpoint_index = AsyncMock()
+        fetcher._save_irm_checkpoint = AsyncMock()
+        mock_limiter = MagicMock()
+        mock_limiter.wait_and_acquire = MagicMock()
+
+        with patch(
+            "app.data_pipeline.fetcher.get_akshare_limiter",
+            return_value=mock_limiter,
+        ):
+            result = asyncio.run(fetcher.fetch_irm(ts_codes=["600000.SH"]))
+
+        assert result["total"] == 1
+        assert result["fail"] == 1
+        assert result["success"] == 0
+
+    def test_data_source_get_irm_raises_on_fetch_error(self, monkeypatch):
+        import pytest
+        import app.data_pipeline.data_source as data_source_mod
+        from app.data_pipeline.data_source import DataSourceClient
+
+        def bad_fetch(symbol):
+            raise ValueError("bad json")
+
+        monkeypatch.setattr(data_source_mod.ak, "stock_sns_sseinfo", bad_fetch)
+
+        with pytest.raises(ValueError, match="bad json"):
+            DataSourceClient().get_irm("600000.SH")
 
     @pytest.mark.asyncio
     async def test_fetch_concept_calls_akshare_limiter(self):
@@ -165,3 +283,118 @@ class TestIrmCheckpointFilter:
             pending = await fetcher._filter_irm_pending(["600000.SH", "600001.SH"])
             assert "600000.SH" not in pending
             assert "600001.SH" in pending
+
+
+def test_fetch_all_stocks_kline_uses_isolated_data_source(monkeypatch):
+    import asyncio
+    from unittest.mock import AsyncMock, MagicMock
+
+    import app.data_pipeline.fetcher as fetcher_mod
+    from app.data_pipeline.fetcher import DataFetcher
+
+    class FakeResult:
+        def mappings(self):
+            return self
+
+        def all(self):
+            return []
+
+    class FakeConn:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def execute(self, *args, **kwargs):
+            return FakeResult()
+
+    fake_engine = MagicMock()
+    fake_engine.connect.return_value = FakeConn()
+    monkeypatch.setattr(fetcher_mod, "engine", fake_engine)
+    monkeypatch.setattr(fetcher_mod, "STOCK_KLINE_SLEEP_BASE", 0)
+    monkeypatch.setattr(fetcher_mod, "STOCK_KLINE_SLEEP_JITTER", 0)
+
+    created_clients = []
+
+    class IsolatedClient:
+        def __init__(self):
+            created_clients.append(self)
+            self.logged_out = False
+
+        def get_stock_kline(self, ts_code, start_date, end_date, adjustflag="3", raise_on_error=False):
+            assert raise_on_error is True
+            return [{"date": "2026-05-22", "close": "10", "preclose": "9"}]
+
+        def _bs_logout(self):
+            self.logged_out = True
+
+    monkeypatch.setattr(fetcher_mod, "DataSourceClient", IsolatedClient)
+
+    fetcher = DataFetcher()
+    created_clients.clear()
+    fetcher.data_source = MagicMock()
+    fetcher.data_source.get_stocks_basic.return_value = [
+        {"ts_code": "600000.SH"},
+        {"ts_code": "000001.SZ"},
+    ]
+    fetcher._save_stock_kline = AsyncMock(return_value=True)
+
+    result = asyncio.run(fetcher.fetch_all_stocks_kline(end_date="20260522"))
+
+    assert result["fail"] == 0
+    assert result["success"] == 2
+    assert len(created_clients) == 2
+    assert all(client.logged_out for client in created_clients)
+    fetcher.data_source.get_stock_kline.assert_not_called()
+
+
+def test_fetch_all_stocks_kline_counts_save_exception_as_fail(monkeypatch):
+    import asyncio
+    from unittest.mock import AsyncMock, MagicMock
+
+    import app.data_pipeline.fetcher as fetcher_mod
+    from app.data_pipeline.fetcher import DataFetcher
+
+    class FakeResult:
+        def mappings(self):
+            return self
+
+        def all(self):
+            return []
+
+    class FakeConn:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def execute(self, *args, **kwargs):
+            return FakeResult()
+
+    fake_engine = MagicMock()
+    fake_engine.connect.return_value = FakeConn()
+    monkeypatch.setattr(fetcher_mod, "engine", fake_engine)
+    monkeypatch.setattr(fetcher_mod, "STOCK_KLINE_SLEEP_BASE", 0)
+    monkeypatch.setattr(fetcher_mod, "STOCK_KLINE_SLEEP_JITTER", 0)
+
+    class IsolatedClient:
+        def get_stock_kline(self, ts_code, start_date, end_date, adjustflag="3", raise_on_error=False):
+            assert raise_on_error is True
+            return [{"date": "2026-05-22", "close": "10", "preclose": "9"}]
+
+        def _bs_logout(self):
+            return None
+
+    monkeypatch.setattr(fetcher_mod, "DataSourceClient", IsolatedClient)
+
+    fetcher = DataFetcher()
+    fetcher.data_source = MagicMock()
+    fetcher.data_source.get_stocks_basic.return_value = [{"ts_code": "600000.SH"}]
+    fetcher._save_stock_kline = AsyncMock(side_effect=RuntimeError("db bad"))
+
+    result = asyncio.run(fetcher.fetch_all_stocks_kline(end_date="20260522"))
+
+    assert result["fail"] == 1
+    assert result["success"] == 0

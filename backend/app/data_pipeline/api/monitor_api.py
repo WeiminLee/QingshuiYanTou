@@ -13,6 +13,7 @@ from app.data_pipeline.monitor import (
     get_recent_alerts,
     AlertLevel,
 )
+from app.core.database import engine
 
 router = APIRouter(prefix="/api/v1/monitor", tags=["监控"])
 
@@ -108,7 +109,7 @@ async def get_task_detail(
     """获取特定任务的详细执行历史"""
     from sqlalchemy import text
 
-    async with (await import('app.core.database')).engine.connect() as conn:
+    async with engine.connect() as conn:
         result = await conn.execute(
             text("""
                 SELECT id, status, started_at, completed_at,

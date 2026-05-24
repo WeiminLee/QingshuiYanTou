@@ -187,21 +187,25 @@ class AsyncRateLimiter:
         )
 
 
-def get_akshare_async_limiter() -> AsyncRateLimiter:
-    """获取异步版本的 akshare 限速器。
-
-    E2 fix: 在异步代码路径中使用此限速器。
-
-    用法：
-        limiter = get_akshare_async_limiter()
-        await limiter.wait_and_acquire()
-    """
-    return AsyncRateLimiter(max_requests=1, window_seconds=1.0, name="akshare-async")
-
-
 # ── akshare 接口限速器 ──────────────────────────────────────────
 # akshare 接口本身无公开速率限制，保守每秒 1 次，避免反爬封 IP（D-D2 接入点）
+_limiter_init_lock = threading.Lock()
 _akshare_limiter: RateLimiter | None = None
+_akshare_async_limiter: AsyncRateLimiter | None = None
+
+
+def get_akshare_async_limiter() -> AsyncRateLimiter:
+    """获取全局异步版本 akshare 限速器。"""
+    global _akshare_async_limiter
+    if _akshare_async_limiter is None:
+        with _limiter_init_lock:
+            if _akshare_async_limiter is None:
+                _akshare_async_limiter = AsyncRateLimiter(
+                    max_requests=1,
+                    window_seconds=1.0,
+                    name="akshare-async",
+                )
+    return _akshare_async_limiter
 
 
 def get_akshare_limiter() -> RateLimiter:
@@ -213,7 +217,13 @@ def get_akshare_limiter() -> RateLimiter:
     """
     global _akshare_limiter
     if _akshare_limiter is None:
-        _akshare_limiter = RateLimiter(max_requests=1, window_seconds=1.0, name="akshare")
+        with _limiter_init_lock:
+            if _akshare_limiter is None:
+                _akshare_limiter = RateLimiter(
+                    max_requests=1,
+                    window_seconds=1.0,
+                    name="akshare",
+                )
     return _akshare_limiter
 
 
@@ -226,7 +236,13 @@ def get_cninfo_pdf_limiter() -> RateLimiter:
     """获取全局巨潮 PDF 下载限速器（每秒 1 个文件）"""
     global _cninfo_pdf_limiter
     if _cninfo_pdf_limiter is None:
-        _cninfo_pdf_limiter = RateLimiter(max_requests=1, window_seconds=1.0, name="巨潮PDF下载")
+        with _limiter_init_lock:
+            if _cninfo_pdf_limiter is None:
+                _cninfo_pdf_limiter = RateLimiter(
+                    max_requests=1,
+                    window_seconds=1.0,
+                    name="巨潮PDF下载",
+                )
     return _cninfo_pdf_limiter
 
 
@@ -248,9 +264,11 @@ def get_cninfo_api_limiter() -> AsyncRateLimiter:
     """
     global _cninfo_api_limiter
     if _cninfo_api_limiter is None:
-        _cninfo_api_limiter = AsyncRateLimiter(
-            max_requests=1,
-            window_seconds=1.0,
-            name="cninfo-api",
-        )
+        with _limiter_init_lock:
+            if _cninfo_api_limiter is None:
+                _cninfo_api_limiter = AsyncRateLimiter(
+                    max_requests=1,
+                    window_seconds=1.0,
+                    name="cninfo-api",
+                )
     return _cninfo_api_limiter

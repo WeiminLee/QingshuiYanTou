@@ -64,6 +64,7 @@ class Settings(BaseSettings):
     hunyuan_api_key: str = ""
     hunyuan_model: str = "hunyuan-embedding"
     hunyuan_embedding_url: str = "https://api.hunyuan.cloud.tencent.com/v1/embeddings"
+    embedding_dimension: int = 2560
 
     # 向量数据库（Qdrant）
     qdrant_url: str = "http://localhost:6333"
