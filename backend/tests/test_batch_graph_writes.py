@@ -147,4 +147,6 @@ def test_batch_upsert_relations_writes_evidence_and_state_history(monkeypatch) -
     assert "r.evidence_id   = row.evidence_id" in upsert_query
     assert "r.evidence_ids  = row.evidence_ids" in upsert_query
     assert "r.state_history = row.state_history" in upsert_query
+    assert "r.valid_to = CASE WHEN row.valid_to IS NOT NULL" in upsert_query
+    assert "r.state_history = CASE WHEN r.state_history IS NULL OR size(r.state_history) = 0" in upsert_query
     assert "r.evidence_ids = reduce(ids = coalesce(r.evidence_ids, [])" in upsert_query

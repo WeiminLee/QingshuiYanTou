@@ -644,6 +644,11 @@ def batch_upsert_relations_unwind(relations: list[dict]) -> dict:
         r.weight = CASE WHEN r.weight < row.weight THEN row.weight ELSE r.weight END,
         r.source_type = COALESCE(r.source_type, row.source_type),
         r.source_name = COALESCE(r.source_name, row.source_name),
+        r.valid_to = CASE WHEN row.valid_to IS NOT NULL THEN row.valid_to ELSE r.valid_to END,
+        r.state_history = CASE WHEN r.state_history IS NULL OR size(r.state_history) = 0
+            THEN row.state_history
+            ELSE r.state_history
+        END,
         r.evidence_id = CASE
             WHEN r.evidence_id IS NULL OR r.evidence_id = '' THEN row.evidence_id
             ELSE r.evidence_id
