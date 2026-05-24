@@ -440,11 +440,11 @@ class VectorClient(ABC):
         dimension: int,
         description: str = "",
         metric: str = "COSINE",
-    ) -> None:
+    ) -> bool:
         raise NotImplementedError
 
     @abstractmethod
-    def upsert(self, collection: str, records: list[VectorRecord]) -> None:
+    def upsert(self, collection: str, records: list[VectorRecord]) -> bool:
         raise NotImplementedError
 
     @abstractmethod
@@ -458,7 +458,7 @@ class VectorClient(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def delete_collection(self, name: str) -> None:
+    def delete_collection(self, name: str) -> bool:
         raise NotImplementedError
 
     def search_by_text(
@@ -511,7 +511,7 @@ class QdrantClient(VectorClient):
         dimension: int,
         description: str = "",
         metric: str = "COSINE",
-    ) -> None:
+    ) -> bool:
         self._ensure_connected()
         try:
             import qdrant_client
@@ -520,7 +520,7 @@ class QdrantClient(VectorClient):
             client = qdrant_client.QdrantClient(url=self._url, api_key=self._api_key or None)
             if client.collection_exists(name):
                 logger.info("Qdrant Collection 已存在: %s", name)
-                return
+                return True
             distance_map = {"COSINE": Distance.COSINE, "EUCLID": Distance.EUCLID, "DOT": Distance.DOT}
             client.create_collection(
                 collection_name=name,
@@ -530,15 +530,18 @@ class QdrantClient(VectorClient):
                 ),
             )
             logger.info("Qdrant Collection 创建成功: %s (dim=%d)", name, dimension)
+            return True
         except ImportError:
             logger.warning("qdrant-client 未安装")
+            return False
         except Exception as e:
             logger.warning("Qdrant Collection 创建失败 [%s]: %s", name, e)
+            return False
 
-    def upsert(self, collection: str, records: list[VectorRecord]) -> None:
+    def upsert(self, collection: str, records: list[VectorRecord]) -> bool:
         self._ensure_connected()
         if not records:
-            return
+            return True
         try:
             import qdrant_client
             from qdrant_client.models import PointStruct, Distance, VectorParams
@@ -557,8 +560,10 @@ class QdrantClient(VectorClient):
             ]
             client.upsert(collection_name=collection, points=points)
             logger.debug("Qdrant upsert 完成: %d 条", len(records))
+            return True
         except Exception as e:
             logger.warning("Qdrant upsert 失败 [%s]: %s", collection, e)
+            return False
 
     def search(
         self,
@@ -586,15 +591,17 @@ class QdrantClient(VectorClient):
             logger.error(f"[RETRIEVE-FAIL] Qdrant search failed [{collection}]: {e}", exc_info=True)
             return []
 
-    def delete_collection(self, name: str) -> None:
+    def delete_collection(self, name: str) -> bool:
         self._ensure_connected()
         try:
             import qdrant_client
             client = qdrant_client.QdrantClient(url=self._url, api_key=self._api_key or None)
             client.delete_collection(collection_name=name)
             logger.info("Qdrant Collection 已删除: %s", name)
+            return True
         except Exception as e:
             logger.warning("Qdrant delete_collection 失败: %s", e)
+            return False
 
 
 # ── Collection 初始化 ───────────────────────────────────────────────────────
@@ -660,8 +667,7 @@ def upsert_entity_vector(
                 "ts_code": ts_code,
             },
         )
-        client.upsert(collection, [record])
-        return True
+        return bool(client.upsert(collection, [record]))
     except Exception as e:
         logger.warning("upsert_entity_vector 失败: %s", e)
         return False
@@ -695,8 +701,7 @@ def upsert_relation_vector(
                 "ts_code": ts_code,
             },
         )
-        client.upsert(collection, [record])
-        return True
+        return bool(client.upsert(collection, [record]))
     except Exception as e:
         logger.warning("upsert_relation_vector 失败: %s", e)
         return False
@@ -727,8 +732,7 @@ def upsert_chunk_vector(
                 "ts_code": ts_code,
             },
         )
-        client.upsert(collection, [record])
-        return True
+        return bool(client.upsert(collection, [record]))
     except Exception as e:
         logger.warning("upsert_chunk_vector 失败: %s", e)
         return False
@@ -765,8 +769,7 @@ def upsert_evidence_chunk_vector(
                 "checksum": evidence.get("checksum", ""),
             },
         )
-        client.upsert(collection, [record])
-        return True
+        return bool(client.upsert(collection, [record]))
     except Exception as e:
         logger.warning("upsert_evidence_chunk_vector 失败: %s", e)
         return False

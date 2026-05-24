@@ -162,8 +162,7 @@ async def async_upsert_entity_vector(
                     "ts_code": ts_code,
                 },
             )
-            client.upsert(COLLECTION_ENTITIES, [record])
-            return True
+            return bool(client.upsert(COLLECTION_ENTITIES, [record]))
         except Exception as e:
             logger.warning(f"async_upsert_entity_vector failed: {e}")
             return False
@@ -197,8 +196,7 @@ async def async_upsert_relation_vector(
                     "ts_code": ts_code,
                 },
             )
-            client.upsert(COLLECTION_RELATIONS, [record])
-            return True
+            return bool(client.upsert(COLLECTION_RELATIONS, [record]))
         except Exception as e:
             logger.warning(f"async_upsert_relation_vector failed: {e}")
             return False
@@ -229,8 +227,7 @@ async def async_upsert_chunk_vector(
                     "ts_code": ts_code,
                 },
             )
-            client.upsert(COLLECTION_CHUNKS, [record])
-            return True
+            return bool(client.upsert(COLLECTION_CHUNKS, [record]))
         except Exception as e:
             logger.warning(f"async_upsert_chunk_vector failed: {e}")
             return False
