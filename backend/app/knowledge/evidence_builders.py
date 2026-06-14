@@ -6,6 +6,13 @@ from datetime import datetime, timezone
 from typing import Any
 
 from app.knowledge.evidence import EvidenceInput, default_source_confidence
+from app.knowledge.evidence_filters import (
+    FilterConfig,
+    clean_chunk_text,
+    filter_chunks,
+    preprocess_text,
+    should_include_chunk,
+)
 from app.knowledge.extraction.chunker import chunk_by_token
 
 
@@ -50,12 +57,39 @@ def build_text_evidence(
     chunk_max_tokens: int = 2048,
     max_chunks: int | None = None,
     metadata: dict[str, Any] | None = None,
+    filter_config: FilterConfig | None = None,
 ) -> list[EvidenceInput]:
+    """
+    构建 Evidence 列表（带内容过滤）。
+
+    Args:
+        chunk_max_tokens: 最大 token 数（默认 2048）
+        filter_config: 过滤器配置
+    """
+    # 分块
     chunks = chunk_by_token(text or "", max_tokens=chunk_max_tokens, overlap_tokens=0)
+
+    # 应用过滤器
+    if filter_config is None:
+        filter_config = FilterConfig(min_chars=50)
+
+    chunks = filter_chunks(chunks, filter_config)
+
     if max_chunks is not None and max_chunks > 0:
         chunks = chunks[:max_chunks]
+
     evidence: list[EvidenceInput] = []
     for index, chunk in enumerate(chunks):
+        # 获取 chunk 文本
+        chunk_text = getattr(chunk, "content", str(chunk))
+
+        # 清理文本
+        chunk_text = clean_chunk_text(chunk_text)
+
+        # 再次检查（清理后可能变短）
+        if not should_include_chunk(chunk_text, filter_config):
+            continue
+
         ref = dict(source_ref or {})
         chunk_id = getattr(chunk, "chunk_id", index)
         heading = getattr(chunk, "heading", "") or ""
@@ -64,7 +98,7 @@ def build_text_evidence(
             source_type=source_type,
             source_name=source_name,
             source_id=source_id,
-            text_excerpt=getattr(chunk, "content", str(chunk)),
+            text_excerpt=chunk_text,
             subject_hint=dict(subject_hint or {}),
             publish_date=publish_date,
             observed_at=observed_at or _utc_now(),
@@ -83,7 +117,36 @@ def build_file_evidence(
     ts_code: str | None,
     chunk_max_tokens: int = 2048,
     max_chunks: int | None = None,
+    filter_config: FilterConfig | None = None,
 ) -> list[EvidenceInput]:
+    """
+    从文件构建 Evidence 列表。
+
+    Args:
+        file_info: 文件元信息
+        text: 原始文本
+        source_type: 来源类型
+        doc_type: 文档类型
+        ts_code: 股票代码
+        chunk_max_tokens: 最大 token 数（默认 2048）
+        max_chunks: 最大 chunk 数
+        filter_config: 过滤器配置（默认启用全部过滤）
+    """
+    # 默认过滤器配置
+    if filter_config is None:
+        filter_config = FilterConfig(
+            min_chars=50,
+            min_tokens=None,
+            max_tokens=chunk_max_tokens,
+            enable_table_filter=True,
+            enable_legal_filter=True,
+            enable_header_filter=True,
+            enable_noise_filter=True,
+        )
+
+    # 预处理：去除页眉页脚、表格噪声
+    text = preprocess_text(text, filter_config)
+
     source_id = _as_str(file_info.get("cninfo_id")) or _as_str(file_info.get("file_path"))
     file_name = _as_str(file_info.get("file_name"))
     title = _as_str(file_info.get("title"))
@@ -112,6 +175,7 @@ def build_file_evidence(
         chunk_max_tokens=chunk_max_tokens,
         max_chunks=max_chunks,
         metadata={"doc_type": doc_type},
+        filter_config=filter_config,
     )
 
 

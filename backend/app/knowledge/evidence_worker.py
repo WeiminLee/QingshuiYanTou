@@ -28,6 +28,7 @@ class EvidenceExtractionWorker:
         self.worker_id = worker_id or f"worker-{socket.gethostname()}-{int(time.time())}"
         self.batch_size = batch_size
         self.max_concurrency = max_concurrency
+        self._sem = asyncio.Semaphore(max_concurrency)
 
     async def run_once(self, limit: int | None = None, job_type: str = "combined") -> dict[str, int]:
         if limit is not None and limit <= 0:
@@ -49,9 +50,8 @@ class EvidenceExtractionWorker:
                 jobs.append(job)
             if not jobs:
                 break
-            sem = asyncio.Semaphore(self.max_concurrency)
             async def _run(job: dict[str, Any]) -> dict[str, Any]:
-                async with sem:
+                async with self._sem:
                     return await self.process_job(job)
             results = await asyncio.gather(*[_run(job) for job in jobs], return_exceptions=True)
             for job, res in zip(jobs, results):

@@ -32,6 +32,8 @@ from typing import Any, Optional
 
 import httpx
 
+from app.knowledge.evidence_service import _normalize_date
+
 logger = logging.getLogger(__name__)
 
 
@@ -834,8 +836,8 @@ def upsert_evidence_chunk_vector(
                 "source_name": evidence.get("source_name", ""),
                 "subject_hint": evidence.get("subject_hint") or {},
                 "source_ref": evidence.get("source_ref") or {},
-                "publish_date": evidence.get("publish_date"),
-                "observed_at": evidence.get("observed_at"),
+                "publish_date": _normalize_date(evidence.get("publish_date")),
+                "observed_at": _normalize_date(evidence.get("observed_at")),
                 "checksum": evidence.get("checksum", ""),
             },
         )

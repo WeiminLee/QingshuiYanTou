@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 from pymongo import ReturnDocument
@@ -30,6 +30,38 @@ logger = logging.getLogger(__name__)
 
 def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _normalize_date(value: Any) -> str | None:
+    """Convert datetime.date or datetime.datetime to ISO string for MongoDB."""
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, date):
+        return datetime.combine(value, datetime.min.time(), tzinfo=timezone.utc).isoformat()
+    if isinstance(value, str):
+        return value.strip() or None
+    return str(value) or None
+
+
+def _normalize_dict_dates(data: dict[str, Any]) -> dict[str, Any]:
+    """Recursively normalize date/datetime values in a dict to ISO strings."""
+    if not data:
+        return {}
+    result: dict[str, Any] = {}
+    for k, v in data.items():
+        if isinstance(v, datetime):
+            result[k] = v.isoformat()
+        elif isinstance(v, date):
+            result[k] = datetime.combine(v, datetime.min.time(), tzinfo=timezone.utc).isoformat()
+        elif isinstance(v, dict):
+            result[k] = _normalize_dict_dates(v)
+        elif isinstance(v, list):
+            result[k] = [_normalize_date(item) if isinstance(item, (datetime, date)) else item for item in v]
+        else:
+            result[k] = v
+    return result
 
 
 class EvidenceService:
@@ -62,7 +94,7 @@ class EvidenceService:
         confidence = input.confidence
         if confidence is None:
             confidence = default_source_confidence(input.source_type)
-        source_ref = dict(input.source_ref or {})
+        source_ref = _normalize_dict_dates(dict(input.source_ref or {}))
         source_ref.setdefault("chunk_index", chunk_index)
 
         existing = await self._evidence.find_one({"evidence_id": evidence_id}, {"_id": 0})
@@ -74,14 +106,14 @@ class EvidenceService:
             "source_type": input.source_type,
             "source_name": input.source_name,
             "source_id": input.source_id,
-            "subject_hint": dict(input.subject_hint or {}),
-            "publish_date": input.publish_date,
-            "observed_at": input.observed_at or now,
+            "subject_hint": _normalize_dict_dates(dict(input.subject_hint or {})),
+            "publish_date": _normalize_date(input.publish_date),
+            "observed_at": _normalize_date(input.observed_at) or now,
             "text_excerpt": text,
             "source_ref": source_ref,
             "checksum": checksum,
             "confidence": float(confidence),
-            "metadata": dict(input.metadata or {}),
+            "metadata": _normalize_dict_dates(dict(input.metadata or {})),
             "updated_at": now,
         }
         set_on_insert = {
@@ -178,6 +210,58 @@ class EvidenceService:
             projection={"_id": 0},
         )
         return dict(doc) if doc else None
+
+    async def claim_batch_jobs(
+        self,
+        n: int,
+        job_type: str | None = None,
+        worker_id: str = "",
+    ) -> list[dict[str, Any]]:
+        """Claim up to n pending jobs atomically.
+
+        Uses find + update_many to reduce MongoDB round-trips compared to
+        calling claim_next_job in a loop.
+        """
+        await self.ensure_indexes()
+        now = _utc_now()
+
+        # Build query for pending jobs
+        query: dict[str, Any] = {"status": STATUS_PENDING}
+        if job_type:
+            query["job_type"] = job_type
+
+        # Find up to n pending jobs, oldest first
+        cursor = self._jobs.find(query).sort("created_at", 1).limit(n)
+        jobs_to_claim = await cursor.to_list(length=n)
+
+        if not jobs_to_claim:
+            return []
+
+        # Extract job_ids for batch update
+        job_ids = [j["job_id"] for j in jobs_to_claim]
+
+        # Atomically update all matching jobs to RUNNING
+        # The status check in the query prevents double-claim races
+        await self._jobs.update_many(
+            {
+                "job_id": {"$in": job_ids},
+                "status": STATUS_PENDING,  #二次检查防止竞争
+            },
+            {"$set": {
+                "status": STATUS_RUNNING,
+                "locked_by": worker_id,
+                "locked_at": now,
+                "started_at": now,
+                "updated_at": now,
+            }},
+        )
+
+        # Re-query to confirm claimed jobs
+        claimed = await self._jobs.find(
+            {"job_id": {"$in": job_ids}, "status": STATUS_RUNNING, "locked_by": worker_id}
+        ).to_list(length=n)
+
+        return claimed
 
     async def mark_job_done(self, job_id: str, result: dict | None = None) -> None:
         now = _utc_now()

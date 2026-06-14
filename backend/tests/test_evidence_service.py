@@ -63,6 +63,17 @@ def _match(doc: dict[str, Any], query: dict[str, Any]) -> bool:
 class FakeCursor:
     def __init__(self, rows: list[dict[str, Any]]):
         self.rows = rows
+        self._index = 0
+
+    def sort(self, key, direction):
+        """Support cursor.sort() chaining."""
+        self.rows.sort(key=lambda d: _get_path(d, key) or datetime.min, reverse=direction < 0)
+        return self
+
+    def limit(self, n: int):
+        """Support cursor.limit() chaining."""
+        self.rows = self.rows[:n]
+        return self
 
     def __aiter__(self):
         self._iter = iter(self.rows)
@@ -73,6 +84,10 @@ class FakeCursor:
             return next(self._iter)
         except StopIteration as exc:
             raise StopAsyncIteration from exc
+
+    async def to_list(self, length=None):
+        """Support cursor.to_list() for async iteration."""
+        return self.rows[:length]
 
 
 class FakeCollection:
@@ -89,6 +104,11 @@ class FakeCollection:
             if _match(doc, query):
                 return self._project(doc, projection)
         return None
+
+    def find(self, query, *args, **kwargs):
+        """Return a FakeCursor for find() operations with sort/limit support."""
+        rows = [self._project(doc) for doc in self.docs if _match(doc, query)]
+        return FakeCursor(rows)
 
     async def update_one(self, query, update, upsert=False):
         for doc in self.docs:

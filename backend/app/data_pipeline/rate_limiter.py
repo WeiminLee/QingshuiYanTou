@@ -272,3 +272,30 @@ def get_cninfo_api_limiter() -> AsyncRateLimiter:
                     name="cninfo-api",
                 )
     return _cninfo_api_limiter
+
+
+# ── MiniMax API 限速器 ──────────────────────────────────────────
+# Phase 05-26: MiniMax API 每日额度 2000 次
+# 窗口 24 小时 (86400 秒)，最大 2000 次请求
+_minimax_api_limiter: AsyncRateLimiter | None = None
+
+
+def get_minimax_api_limiter() -> AsyncRateLimiter:
+    """获取全局 MiniMax API 限速器（每日 2000 次）。
+
+    每日额度 2000 次请求，窗口 24 小时。
+    用于 LLM 调用（知识抽取、实体识别等）。
+
+    用法:
+        await get_minimax_api_limiter().wait_and_acquire()
+    """
+    global _minimax_api_limiter
+    if _minimax_api_limiter is None:
+        with _limiter_init_lock:
+            if _minimax_api_limiter is None:
+                _minimax_api_limiter = AsyncRateLimiter(
+                    max_requests=2000,
+                    window_seconds=86400,  # 24 小时
+                    name="minimax-api",
+                )
+    return _minimax_api_limiter

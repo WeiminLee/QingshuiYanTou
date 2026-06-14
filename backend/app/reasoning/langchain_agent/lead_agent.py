@@ -19,6 +19,8 @@ from langchain_core.runnables import RunnableConfig
 from app.reasoning.langchain_agent.middlewares.loop_detection import LoopDetectionMiddleware
 from app.reasoning.langchain_agent.middlewares.context_compressor import ContextCompressorMiddleware
 from app.reasoning.langchain_agent.middlewares.reasoning_validation import ReasoningValidationMiddleware
+from app.reasoning.langchain_agent.middlewares.dangling_tool_call import DanglingToolCallMiddleware
+from app.reasoning.langchain_agent.middlewares.token_usage import TokenUsageMiddleware
 
 logger = logging.getLogger(__name__)
 
@@ -61,10 +63,15 @@ def _build_middlewares(
     """
     构建 middleware 链（DeerFlow _build_middlewares 风格）。
 
-    顺序：
-    1. ContextCompressorMiddleware — before_model: 上下文压缩
-    2. LoopDetectionMiddleware — after_model: 循环检测
-    3. ReasoningValidationMiddleware — after_model: 推理质量检测
+    顺序（before_model 钩子按顺序执行，after_model 钩子按逆序执行）：
+    before_model:
+      1. ContextCompressorMiddleware — 上下文压缩
+      2. DanglingToolCallMiddleware — 修复断开的工具调用
+
+    after_model:
+      3. LoopDetectionMiddleware — 循环检测
+      4. ReasoningValidationMiddleware — 推理质量检测
+      5. TokenUsageMiddleware — Token 消耗追踪
 
     注意：
     - ClarificationMiddleware 不在此链中注册，澄清拦截在 client.py 外层预检中处理（提前退出）。
@@ -73,14 +80,14 @@ def _build_middlewares(
     """
     middlewares = []
 
-    # ContextCompressor — before_model 钩子
+    # before_model 钩子
     middlewares.append(ContextCompressorMiddleware(tenant_id=thread_id))
+    middlewares.append(DanglingToolCallMiddleware())
 
-    # LoopDetection — after_model 钩子
+    # after_model 钩子
     middlewares.append(LoopDetectionMiddleware())
-
-    # ReasoningValidation — after_model 钩子：推理质量检测
     middlewares.append(ReasoningValidationMiddleware(enabled=True))
+    middlewares.append(TokenUsageMiddleware())
 
     return middlewares
 
