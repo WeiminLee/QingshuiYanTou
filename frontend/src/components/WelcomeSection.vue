@@ -4,8 +4,13 @@
       <div class="welcome-product-name">观仓</div>
 
       <div class="welcome-ornament">
-        <svg width="64" height="2" viewBox="0 0 64 2">
-          <line x1="0" y1="1" x2="64" y2="1" stroke="#e8a317" stroke-width="1" stroke-dasharray="4 4"/>
+        <svg width="200" height="20" viewBox="0 0 200 20" fill="none">
+          <!-- 羽毛笔分隔线 -->
+          <line x1="0" y1="10" x2="80" y2="10" stroke="#D4CFC4" stroke-width="1"/>
+          <!-- 羽毛 -->
+          <path d="M85 10 Q90 5 95 8 Q92 10 95 12 Q90 15 85 10Z" fill="#B8860B" opacity="0.6"/>
+          <path d="M95 10 L100 10" stroke="#B8860B" stroke-width="1"/>
+          <line x1="105" y1="10" x2="200" y2="10" stroke="#D4CFC4" stroke-width="1"/>
         </svg>
       </div>
 
@@ -59,24 +64,29 @@ defineEmits<{
   max-width: 620px;
   width: 100%;
   text-align: center;
-  animation: fade-up 0.5s ease both;
-  transform: translateY(-20px);
+  animation: fade-in 0.5s ease both;
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
 }
 
 .welcome-product-name {
   font-family: var(--font-display);
-  font-size: 20px;
-  font-weight: 600;
-  color: var(--accent-gold);
-  margin-bottom: 16px;
-  letter-spacing: 2px;
+  font-size: 48px;
+  font-weight: 700;
+  color: var(--ledger-ink);
+  margin-bottom: 8px;
+  letter-spacing: 8px;
+  animation: fade-in 0.5s ease both;
 }
 
 .welcome-ornament {
   display: flex;
   justify-content: center;
   margin-bottom: 28px;
-  opacity: 0.6;
+  opacity: 0.5;
 }
 
 .welcome-greeting {
@@ -117,32 +127,46 @@ defineEmits<{
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 11px 16px;
-  border-radius: 10px;
-  border: 1px solid var(--border-light-2);
-  background: var(--bg-main-card);
+  padding: 12px 18px;
+  border-radius: 0;
+  border: 1px solid var(--ledger-rule);
+  background: var(--ledger-entry);
   color: var(--text-main-2);
   font-family: var(--font-ui);
   font-size: 13px;
   cursor: pointer;
   text-align: left;
-  box-shadow: 0 1px 4px rgba(0,0,0,0.04);
+  box-shadow: 0 2px 6px rgba(0,0,0,0.04);
   transition: all 0.2s;
-  animation: fade-up 0.4s ease both;
+  animation: fade-in 0.4s ease both;
+  /* 账页标签 — 左侧打孔边 */
+  position: relative;
+}
+.quick-chip::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 6px;
+  background-image: radial-gradient(
+    circle at 50% 50%,
+    var(--ledger-paper) 3px,
+    transparent 4px
+  );
+  background-size: 6px 20px;
+  background-repeat: repeat-y;
+  background-position: center;
+  border-right: 1px solid var(--ledger-rule);
 }
 .quick-chip:nth-child(1) { animation-delay: 0.1s; }
 .quick-chip:nth-child(2) { animation-delay: 0.2s; }
 .quick-chip:nth-child(3) { animation-delay: 0.3s; }
 .quick-chip:hover {
-  border-color: var(--accent-gold);
+  border-color: var(--ledger-gold);
   color: var(--text-main);
-  box-shadow: 0 2px 12px rgba(232,163,23,0.12);
-  transform: translateY(-1px);
+  transform: rotateX(2deg) translateY(-2px);
+  box-shadow: 0 4px 12px rgba(184,134,11,0.12);
 }
-.quick-chip svg { color: var(--accent-gold); flex-shrink: 0; }
-
-@keyframes fade-up {
-  from { opacity: 0; transform: translateY(10px); }
-  to   { opacity: 1; transform: translateY(0); }
-}
+.quick-chip svg { color: var(--ledger-gold); flex-shrink: 0; }
 </style>
