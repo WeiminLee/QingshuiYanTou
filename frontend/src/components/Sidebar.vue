@@ -3,9 +3,9 @@
     :default-active="activePanel"
     :collapse="collapsed"
     class="dashboard-sidebar"
-    background-color="#1a1a2e"
-    text-color="rgba(255,255,255,0.7)"
-    active-text-color="#ffffff"
+    :background-color="ledgerSpineBg"
+    :text-color="ledgerTextColor"
+    :active-text-color="ledgerActiveTextColor"
     :collapse-transition="true"
     @select="onSelect"
   >
@@ -44,6 +44,11 @@ import { useUiStore } from '../store/ui.js'
 const uiStore = useUiStore()
 const { activePanel } = storeToRefs(uiStore)
 
+// Ledger Spine color values
+const ledgerSpineBg = '#1E1C18'
+const ledgerTextColor = 'rgba(255,255,255,0.7)'
+const ledgerActiveTextColor = '#D8D0C0'
+
 const props = defineProps({
   collapsed: {
     type: Boolean,
@@ -60,6 +65,7 @@ function onSelect(index) {
 .dashboard-sidebar {
   height: 100%;
   border-right: none;
+  background: #1E1C18 !important;
 }
 
 .dashboard-sidebar:not(.el-menu--collapse) {
@@ -68,17 +74,18 @@ function onSelect(index) {
 
 .dashboard-sidebar .el-menu-item {
   border-left: 3px solid transparent;
+  color: rgba(255,255,255,0.7);
 }
 
 .dashboard-sidebar .el-menu-item.is-active {
-  background-color: rgba(64, 158, 255, 0.1) !important;
-  border-left-color: #409eff;
-  color: #ffffff;
+  background-color: #2C2419 !important;
+  border-left-color: #B8860B;
+  color: #D8D0C0;
 }
 
 .dashboard-sidebar .el-menu-item:hover {
-  background-color: rgba(255, 255, 255, 0.05) !important;
-  color: #ffffff;
+  background-color: #353028 !important;
+  color: #D8D0C0;
 }
 
 .dashboard-sidebar .el-menu-item.is-disabled {
