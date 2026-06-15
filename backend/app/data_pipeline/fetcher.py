@@ -644,6 +644,179 @@ class DataFetcher:
 
     # ---------- 巨潮公告（cninfo） ----------
 
+    async def _process_announcement_list(
+        self,
+        announcements: list[dict[str, Any]],
+        default_date: str,
+        scope: str,
+        tracker: IngestionProgressTracker,
+        run_ctx: Any,
+        *,
+        is_history: bool = False,
+    ) -> dict[str, int]:
+        """共享的公告列表处理逻辑（fetch_announcements / fetch_announcements_history 共用）。
+
+        Returns:
+            {"total", "success", "skipped", "downloaded", "fail"}
+        """
+        total = len(announcements)
+        if total == 0:
+            await tracker.finish_run(
+                run_ctx,
+                status=SUCCESS,
+                total_items=0,
+                processed_items=0,
+                success_count=0,
+                skipped_count=0,
+                downloaded_count=0,
+                fail_count=0,
+                current_watermark=default_date,
+                checkpoint_watermark=default_date,
+                next_from_watermark=default_date,
+                metadata={"mode": "history" if is_history else "daily_increment", "scope": scope},
+            )
+            return {"total": 0, "success": 0, "skipped": 0, "downloaded": 0, "fail": 0}
+
+        # ── 预查询：批量过滤已入库 cninfo_id ──
+        candidate_ids: list[str] = []
+        prepared: list[dict[str, Any]] = []
+        for ann in announcements:
+            cninfo_id = CninfoClient.get_announcement_id(ann)
+            if not cninfo_id:
+                continue
+            candidate_ids.append(cninfo_id)
+            prepared.append({
+                "raw": ann,
+                "cninfo_id": cninfo_id,
+                "title": CninfoClient.get_title(ann),
+                "ts_code": CninfoClient.get_ts_code(ann),
+                "ann_date_str": CninfoClient.get_ann_date(ann) or default_date,
+                "name": str(ann.get("secName", "")),
+                "pdf_url": CninfoClient.get_pdf_url(ann),
+            })
+
+        existing: dict[str, str | None] = {}
+        if candidate_ids:
+            try:
+                async with engine.connect() as conn:
+                    rows = await conn.execute(
+                        text(
+                            "SELECT cninfo_id, file_path FROM announcements "
+                            "WHERE cninfo_id = ANY(:ids)"
+                        ),
+                        {"ids": candidate_ids},
+                    )
+                    existing = {r[0]: r[1] for r in rows.fetchall()}
+            except Exception as exc:
+                logger.warning("公告 cninfo_id 预查询失败: %s", exc)
+
+        success = skipped = downloaded = fail = 0
+        for idx, item in enumerate(prepared, start=1):
+            doc_type, action = classify_title(item["title"])
+            need_download = action == DOC_TYPE_SAVE
+            cninfo_id = item["cninfo_id"]
+
+            if cninfo_id in existing:
+                skipped += 1
+                old_file_path = existing[cninfo_id]
+                if old_file_path and Path(old_file_path).exists():
+                    pass  # 已入库且本地文件存在，无需处理
+                else:
+                    if old_file_path:
+                        await self._clear_announcement_file_path(cninfo_id)
+                    if need_download and item["pdf_url"]:
+                        repaired_path = await self._download_announcement_pdf(item)
+                        if repaired_path is not None:
+                            downloaded += 1
+                            updated = await self._update_announcement_file_path(cninfo_id, repaired_path)
+                            if updated is True:
+                                await self._on_pdf_download_complete(cninfo_id, repaired_path, item["ts_code"], item["title"])
+                            elif updated is False:
+                                fail += 1
+                                await tracker.event(
+                                    run_ctx, stage="item_error", message="公告 PDF 路径回写失败",
+                                    total_items=total, processed_items=idx,
+                                    success_count=success, skipped_count=skipped,
+                                    downloaded_count=downloaded, fail_count=fail,
+                                    item_id=cninfo_id, item_title=item["title"],
+                                )
+            else:
+                file_path: Path | None = None
+                if need_download and item["pdf_url"]:
+                    file_path = await self._download_announcement_pdf(item)
+                    if file_path is not None:
+                        downloaded += 1
+
+                saved = await self._save_announcement(
+                    cninfo_id=cninfo_id,
+                    ann_date_str=item["ann_date_str"],
+                    ts_code=item["ts_code"],
+                    name=item["name"],
+                    title=item["title"],
+                    doc_type=doc_type,
+                    pdf_url=item["pdf_url"],
+                    file_path=file_path,
+                )
+                if saved is True:
+                    success += 1
+                    if file_path is not None:
+                        await self._on_pdf_download_complete(cninfo_id, file_path, item["ts_code"], item["title"])
+                elif saved is None:
+                    skipped += 1
+                else:
+                    fail += 1
+                    await tracker.event(
+                        run_ctx, stage="item_error", message="公告元数据入库失败",
+                        total_items=total, processed_items=idx,
+                        success_count=success, skipped_count=skipped,
+                        downloaded_count=downloaded, fail_count=fail,
+                        item_id=cninfo_id, item_title=item["title"],
+                    )
+
+            if idx % CNINFO_PROGRESS_EVERY == 0 or idx == total:
+                await tracker.update_run(
+                    run_ctx,
+                    total_items=total, processed_items=idx,
+                    success_count=success, skipped_count=skipped,
+                    downloaded_count=downloaded, fail_count=fail,
+                    last_item_id=cninfo_id,
+                )
+                await tracker.event(
+                    run_ctx, stage="process_batch", message="公告处理进展",
+                    total_items=total, processed_items=idx,
+                    success_count=success, skipped_count=skipped,
+                    downloaded_count=downloaded, fail_count=fail,
+                    item_id=cninfo_id,
+                )
+
+        current_watermark = prepared[-1]["cninfo_id"] if prepared else default_date
+        await tracker.finish_run(
+            run_ctx,
+            status=SUCCESS if fail == 0 else PARTIAL,
+            total_items=total,
+            processed_items=len(prepared),
+            success_count=success,
+            skipped_count=skipped,
+            downloaded_count=downloaded,
+            fail_count=fail,
+            current_watermark=current_watermark,
+            last_item_id=current_watermark,
+            checkpoint_watermark=default_date,
+            next_from_watermark=default_date,
+            metadata={
+                "mode": "history" if is_history else "daily_increment",
+                "scope": scope,
+                "candidate_count": len(prepared),
+            },
+        )
+        return {
+            "total": total,
+            "success": success,
+            "skipped": skipped,
+            "downloaded": downloaded,
+            "fail": fail,
+        }
+
     async def fetch_announcements(
         self,
         ann_date: str | None = None,
@@ -735,224 +908,19 @@ class DataFetcher:
             )
             return {"total": 0, "success": 0, "skipped": 0, "downloaded": 0, "fail": 1}
 
-        total = len(announcements)
-        if total == 0:
-            logger.info("巨潮公告为空: %s", ann_date)
-            await tracker.finish_run(
-                run_ctx,
-                status=SUCCESS,
-                total_items=0,
-                processed_items=0,
-                success_count=0,
-                skipped_count=0,
-                downloaded_count=0,
-                fail_count=0,
-                current_watermark=ann_date,
-                checkpoint_watermark=ann_date,
-                next_from_watermark=ann_date,
-                metadata={"mode": "daily_increment"},
-            )
-            return {"total": 0, "success": 0, "skipped": 0, "downloaded": 0, "fail": 0}
-
-        # ── 预查询：批量过滤已入库 cninfo_id（D-04 增量只增不减） ──
-        candidate_ids: list[str] = []
-        prepared: list[dict[str, Any]] = []
-        for ann in announcements:
-            cninfo_id = CninfoClient.get_announcement_id(ann)
-            if not cninfo_id:
-                continue  # T-03-07：缺关键 ID 直接丢弃
-            candidate_ids.append(cninfo_id)
-            prepared.append({
-                "raw": ann,
-                "cninfo_id": cninfo_id,
-                "title": CninfoClient.get_title(ann),
-                "ts_code": CninfoClient.get_ts_code(ann),
-                "ann_date_str": CninfoClient.get_ann_date(ann) or ann_date,
-                "name": str(ann.get("secName", "")),
-                "pdf_url": CninfoClient.get_pdf_url(ann),
-            })
-
-        existing: dict[str, str | None] = {}
-        if candidate_ids:
-            try:
-                async with engine.connect() as conn:
-                    rows = await conn.execute(
-                        text(
-                            "SELECT cninfo_id, file_path FROM announcements "
-                            "WHERE cninfo_id = ANY(:ids)"
-                        ),
-                        {"ids": candidate_ids},
-                    )
-                    existing = {r[0]: r[1] for r in rows.fetchall()}
-            except Exception as exc:
-                logger.warning(
-                    "公告 cninfo_id 预查询失败，回退 ON CONFLICT 路径: %s",
-                    exc,
-                )
-
-        success = skipped = downloaded = fail = 0
-        for idx, item in enumerate(prepared, start=1):
-            doc_type, action = classify_title(item["title"])
-            need_download = action == DOC_TYPE_SAVE
-
-            if item["cninfo_id"] in existing:
-                skipped += 1
-                old_file_path = existing[item["cninfo_id"]]
-                if old_file_path and Path(old_file_path).exists():
-                    continue
-                if old_file_path:
-                    await self._clear_announcement_file_path(item["cninfo_id"])
-                if need_download and item["pdf_url"]:
-                    repaired_path = await self._download_announcement_pdf(item)
-                    if repaired_path is not None:
-                        downloaded += 1
-                        updated = await self._update_announcement_file_path(
-                            item["cninfo_id"],
-                            repaired_path,
-                        )
-                        if updated is True:
-                            await self._on_pdf_download_complete(
-                                item["cninfo_id"],
-                                repaired_path,
-                                item["ts_code"],
-                                item["title"],
-                            )
-                        if updated is False:
-                            fail += 1
-                            await tracker.event(
-                                run_ctx,
-                                stage="item_error",
-                                message="公告 PDF 路径回写失败",
-                                total_items=total,
-                                processed_items=idx,
-                                success_count=success,
-                                skipped_count=skipped,
-                                downloaded_count=downloaded,
-                                fail_count=fail,
-                                item_id=item["cninfo_id"],
-                                item_title=item["title"],
-                            )
-                if idx % CNINFO_PROGRESS_EVERY == 0:
-                    await tracker.update_run(
-                        run_ctx,
-                        total_items=total,
-                        processed_items=idx,
-                        success_count=success,
-                        skipped_count=skipped,
-                        downloaded_count=downloaded,
-                        fail_count=fail,
-                        last_item_id=item["cninfo_id"],
-                    )
-                    await tracker.event(
-                        run_ctx,
-                        stage="process_batch",
-                        message="巨潮公告处理进展",
-                        total_items=total,
-                        processed_items=idx,
-                        success_count=success,
-                        skipped_count=skipped,
-                        downloaded_count=downloaded,
-                        fail_count=fail,
-                        item_id=item["cninfo_id"],
-                    )
-                continue
-
-            file_path: Path | None = None
-            if need_download and item["pdf_url"]:
-                file_path = await self._download_announcement_pdf(item)
-                if file_path is not None:
-                    downloaded += 1
-
-            saved = await self._save_announcement(
-                cninfo_id=item["cninfo_id"],
-                ann_date_str=item["ann_date_str"],
-                ts_code=item["ts_code"],
-                name=item["name"],
-                title=item["title"],
-                doc_type=doc_type,
-                pdf_url=item["pdf_url"],
-                file_path=file_path,
-            )
-            if saved is True:
-                success += 1
-                if file_path is not None:
-                    await self._on_pdf_download_complete(
-                        item["cninfo_id"],
-                        file_path,
-                        item["ts_code"],
-                        item["title"],
-                    )
-            elif saved is None:
-                skipped += 1
-            else:
-                fail += 1
-                await tracker.event(
-                    run_ctx,
-                    stage="item_error",
-                    message="公告元数据入库失败",
-                    total_items=total,
-                    processed_items=idx,
-                    success_count=success,
-                    skipped_count=skipped,
-                    downloaded_count=downloaded,
-                    fail_count=fail,
-                    item_id=item["cninfo_id"],
-                    item_title=item["title"],
-                )
-
-            if idx % CNINFO_PROGRESS_EVERY == 0:
-                await tracker.update_run(
-                    run_ctx,
-                    total_items=total,
-                    processed_items=idx,
-                    success_count=success,
-                    skipped_count=skipped,
-                    downloaded_count=downloaded,
-                    fail_count=fail,
-                    last_item_id=item["cninfo_id"],
-                )
-                await tracker.event(
-                    run_ctx,
-                    stage="process_batch",
-                    message="巨潮公告处理进展",
-                    total_items=total,
-                    processed_items=idx,
-                    success_count=success,
-                    skipped_count=skipped,
-                    downloaded_count=downloaded,
-                    fail_count=fail,
-                    item_id=item["cninfo_id"],
-                )
-
+        result = await self._process_announcement_list(
+            announcements=announcements,
+            default_date=ann_date,
+            scope=ann_date,
+            tracker=tracker,
+            run_ctx=run_ctx,
+            is_history=False,
+        )
         logger.info(
             "巨潮公告完成 [%s]: 总 %d，新增 %d，跳过 %d，下载 PDF %d，失败 %d",
-            ann_date, total, success, skipped, downloaded, fail,
+            ann_date, result["total"], result["success"], result["skipped"], result["downloaded"], result["fail"],
         )
-        await tracker.finish_run(
-            run_ctx,
-            status=SUCCESS if fail == 0 else PARTIAL,
-            total_items=total,
-            processed_items=len(prepared),
-            success_count=success,
-            skipped_count=skipped,
-            downloaded_count=downloaded,
-            fail_count=fail,
-            current_watermark=ann_date,
-            last_item_id=prepared[-1]["cninfo_id"] if prepared else None,
-            checkpoint_watermark=ann_date,
-            next_from_watermark=ann_date,
-            metadata={
-                "mode": "daily_increment",
-                "candidate_count": len(prepared),
-            },
-        )
-        return {
-            "total": total,
-            "success": success,
-            "skipped": skipped,
-            "downloaded": downloaded,
-            "fail": fail,
-        }
+        return result
 
     async def _save_announcement(
         self,
@@ -1242,222 +1210,19 @@ class DataFetcher:
             )
             return {"total": 0, "success": 0, "skipped": 0, "downloaded": 0, "fail": 1}
 
-        total = len(announcements)
-        if total == 0:
-            logger.info("历史公告为空: %s~%s", start_date, end_date)
-            await tracker.finish_run(
-                run_ctx,
-                status=SUCCESS,
-                total_items=0,
-                processed_items=0,
-                success_count=0,
-                skipped_count=0,
-                downloaded_count=0,
-                fail_count=0,
-                current_watermark=end_date,
-                checkpoint_watermark=end_date,
-                next_from_watermark=end_date,
-                metadata={"mode": "history", "ts_code": ts_code},
-            )
-            return {"total": 0, "success": 0, "skipped": 0, "downloaded": 0, "fail": 0}
-
-        # 预查询：批量过滤已入库 cninfo_id
-        candidate_ids: list[str] = []
-        prepared: list[dict[str, Any]] = []
-        for ann in announcements:
-            cninfo_id = CninfoClient.get_announcement_id(ann)
-            if not cninfo_id:
-                continue
-            candidate_ids.append(cninfo_id)
-            prepared.append({
-                "raw": ann,
-                "cninfo_id": cninfo_id,
-                "title": CninfoClient.get_title(ann),
-                "ts_code": CninfoClient.get_ts_code(ann),
-                "ann_date_str": CninfoClient.get_ann_date(ann) or start_date,
-                "name": str(ann.get("secName", "")),
-                "pdf_url": CninfoClient.get_pdf_url(ann),
-            })
-
-        existing: dict[str, str | None] = {}
-        if candidate_ids:
-            try:
-                async with engine.connect() as conn:
-                    rows = await conn.execute(
-                        text(
-                            "SELECT cninfo_id, file_path FROM announcements "
-                            "WHERE cninfo_id = ANY(:ids)"
-                        ),
-                        {"ids": candidate_ids},
-                    )
-                    existing = {r[0]: r[1] for r in rows.fetchall()}
-            except Exception as exc:
-                logger.warning("历史公告预查询失败: %s", exc)
-
-        success = skipped = downloaded = fail = 0
-        for idx, item in enumerate(prepared, start=1):
-            doc_type, action = classify_title(item["title"])
-            need_download = action == DOC_TYPE_SAVE
-
-            if item["cninfo_id"] in existing:
-                skipped += 1
-                old_file_path = existing[item["cninfo_id"]]
-                if old_file_path and Path(old_file_path).exists():
-                    continue
-                if old_file_path:
-                    await self._clear_announcement_file_path(item["cninfo_id"])
-                if need_download and item["pdf_url"]:
-                    repaired_path = await self._download_announcement_pdf(item)
-                    if repaired_path is not None:
-                        downloaded += 1
-                        updated = await self._update_announcement_file_path(
-                            item["cninfo_id"],
-                            repaired_path,
-                        )
-                        if updated is True:
-                            await self._on_pdf_download_complete(
-                                item["cninfo_id"],
-                                repaired_path,
-                                item["ts_code"],
-                                item["title"],
-                            )
-                        if updated is False:
-                            fail += 1
-                            await tracker.event(
-                                run_ctx,
-                                stage="item_error",
-                                message="历史公告 PDF 路径回写失败",
-                                total_items=total,
-                                processed_items=idx,
-                                success_count=success,
-                                skipped_count=skipped,
-                                downloaded_count=downloaded,
-                                fail_count=fail,
-                                item_id=item["cninfo_id"],
-                                item_title=item["title"],
-                            )
-                if idx % CNINFO_PROGRESS_EVERY == 0:
-                    await tracker.update_run(
-                        run_ctx,
-                        total_items=total,
-                        processed_items=idx,
-                        success_count=success,
-                        skipped_count=skipped,
-                        downloaded_count=downloaded,
-                        fail_count=fail,
-                        last_item_id=item["cninfo_id"],
-                    )
-                    await tracker.event(
-                        run_ctx,
-                        stage="process_batch",
-                        message="巨潮历史公告处理进展",
-                        total_items=total,
-                        processed_items=idx,
-                        success_count=success,
-                        skipped_count=skipped,
-                        downloaded_count=downloaded,
-                        fail_count=fail,
-                        item_id=item["cninfo_id"],
-                    )
-                continue
-
-            file_path: Path | None = None
-            if need_download and item["pdf_url"]:
-                file_path = await self._download_announcement_pdf(item)
-                if file_path is not None:
-                    downloaded += 1
-
-            saved = await self._save_announcement(
-                cninfo_id=item["cninfo_id"],
-                ann_date_str=item["ann_date_str"],
-                ts_code=item["ts_code"],
-                name=item["name"],
-                title=item["title"],
-                doc_type=doc_type,
-                pdf_url=item["pdf_url"],
-                file_path=file_path,
-            )
-            if saved is True:
-                success += 1
-                if file_path is not None:
-                    await self._on_pdf_download_complete(
-                        item["cninfo_id"],
-                        file_path,
-                        item["ts_code"],
-                        item["title"],
-                    )
-            elif saved is None:
-                skipped += 1
-            else:
-                fail += 1
-                await tracker.event(
-                    run_ctx,
-                    stage="item_error",
-                    message="历史公告元数据入库失败",
-                    total_items=total,
-                    processed_items=idx,
-                    success_count=success,
-                    skipped_count=skipped,
-                    downloaded_count=downloaded,
-                    fail_count=fail,
-                    item_id=item["cninfo_id"],
-                    item_title=item["title"],
-                )
-
-            if idx % CNINFO_PROGRESS_EVERY == 0:
-                await tracker.update_run(
-                    run_ctx,
-                    total_items=total,
-                    processed_items=idx,
-                    success_count=success,
-                    skipped_count=skipped,
-                    downloaded_count=downloaded,
-                    fail_count=fail,
-                    last_item_id=item["cninfo_id"],
-                )
-                await tracker.event(
-                    run_ctx,
-                    stage="process_batch",
-                    message="巨潮历史公告处理进展",
-                    total_items=total,
-                    processed_items=idx,
-                    success_count=success,
-                    skipped_count=skipped,
-                    downloaded_count=downloaded,
-                    fail_count=fail,
-                    item_id=item["cninfo_id"],
-                )
-
+        result = await self._process_announcement_list(
+            announcements=announcements,
+            default_date=end_date,
+            scope=scope,
+            tracker=tracker,
+            run_ctx=run_ctx,
+            is_history=True,
+        )
         logger.info(
             "历史公告完成 [%s~%s]: 总 %d，新增 %d，跳过 %d，下载 %d，失败 %d",
-            start_date, end_date, total, success, skipped, downloaded, fail,
+            start_date, end_date, result["total"], result["success"], result["skipped"], result["downloaded"], result["fail"],
         )
-        await tracker.finish_run(
-            run_ctx,
-            status=SUCCESS if fail == 0 else PARTIAL,
-            total_items=total,
-            processed_items=len(prepared),
-            success_count=success,
-            skipped_count=skipped,
-            downloaded_count=downloaded,
-            fail_count=fail,
-            current_watermark=end_date,
-            last_item_id=prepared[-1]["cninfo_id"] if prepared else None,
-            checkpoint_watermark=end_date,
-            next_from_watermark=end_date,
-            metadata={
-                "mode": "history",
-                "ts_code": ts_code,
-                "candidate_count": len(prepared),
-            },
-        )
-        return {
-            "total": total,
-            "success": success,
-            "skipped": skipped,
-            "downloaded": downloaded,
-            "fail": fail,
-        }
+        return result
 
     # ---------- 指数 K 线 ----------
 
@@ -1751,7 +1516,12 @@ class DataFetcher:
             "up_to_date": total - len(kline_jobs),
         }
 
-        def fetch_with_isolated_client(code: str, start_str: str, end_str: str) -> list[dict[str, Any]]:
+        def fetch_with_isolated_client(
+            code: str,
+            start_str: str,
+            end_str: str,
+            force_reconnect: bool = False,
+        ) -> list[dict[str, Any]]:
             client = DataSourceClient()
             try:
                 return client.get_stock_kline(
@@ -1762,9 +1532,22 @@ class DataFetcher:
                 )
             finally:
                 client._bs_logout()
+                if force_reconnect:
+                    # 强制重新初始化连接：logout 后再 login，
+                    # 解决长连接 broken pipe 问题（Phase 31 承诺但未实现）
+                    client2 = DataSourceClient()
+                    try:
+                        client2._bs_login()
+                        client2._bs_logout()
+                    except Exception:
+                        pass
+
+        processed_count = 0
 
         async def worker(idx: int, code: str, start_day: date, end_day: date) -> None:
+            nonlocal processed_count
             async with semaphore:
+                force_reconnect = (processed_count > 0 and processed_count % STOCK_KLINE_RECONNECT_EVERY == 0)
                 try:
                     start_str = start_day.strftime("%Y%m%d")
                     end_str = end_day.strftime("%Y%m%d")
@@ -1773,10 +1556,12 @@ class DataFetcher:
                         code,
                         start_str,
                         end_str,
+                        force_reconnect=force_reconnect,
                     )
                 except Exception as exc:
                     logger.warning("股票 %s 抓取失败: %s", code, exc)
                     counters["fail"] += 1
+                    processed_count += 1
                     return
                 if not records:
                     counters["skipped"] += 1
@@ -1793,6 +1578,7 @@ class DataFetcher:
                         counters["fail"] += 1
                         logger.debug("保存 %s %s 失败: %s", code, trade_date, exc)
                 counters["processed"] += 1
+                processed_count += 1
                 await asyncio.sleep(STOCK_KLINE_SLEEP_BASE + random.random() * STOCK_KLINE_SLEEP_JITTER)
 
         await asyncio.gather(*(worker(i, code, start, end) for i, (code, start, end) in enumerate(kline_jobs)))

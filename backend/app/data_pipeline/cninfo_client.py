@@ -15,10 +15,10 @@ Decisions referenced: D-01 (官方 API), D-06 (1 req/sec 限流)
 from __future__ import annotations
 
 import asyncio
-from functools import lru_cache
 import re
 import logging
 import time
+import threading
 from typing import Any, Awaitable, Callable
 
 import requests
@@ -59,6 +59,43 @@ CNINFO_STOCK_JSON = "http://www.cninfo.com.cn/new/data/szse_stock.json"
 _HTML_TAG_RE = re.compile(r"<[^>]+>")
 
 
+# ── 模块级股票代码映射缓存（线程安全单例） ─────────────────────
+# @lru_cache on a staticmethod is unsafe under asyncio.to_thread concurrency.
+# Replace with a module-level singleton guarded by a lock.
+_org_map_lock = threading.Lock()
+_org_map_cache: dict[str, str] | None = None
+
+
+def _get_stock_org_map_cached() -> dict[str, str]:
+    """线程安全的模块级 A 股代码→orgId 映射缓存（进程内单次请求）。"""
+    global _org_map_cache
+    if _org_map_cache is None:
+        with _org_map_lock:
+            if _org_map_cache is None:  # double-check
+                try:
+                    response = requests.get(
+                        CNINFO_STOCK_JSON,
+                        headers=CNINFO_HEADERS,
+                        timeout=DEFAULT_TIMEOUT,
+                    )
+                    response.raise_for_status()
+                    data = response.json()
+                except Exception as e:
+                    logger.warning("获取巨潮股票 orgId 映射失败: %s", e)
+                    _org_map_cache = {}
+                    return _org_map_cache
+
+                stock_list = data.get("stockList") or []
+                result: dict[str, str] = {}
+                for item in stock_list:
+                    code = str(item.get("code") or "").strip()
+                    org_id = str(item.get("orgId") or "").strip()
+                    if code and org_id:
+                        result[code] = org_id
+                _org_map_cache = result
+    return _org_map_cache
+
+
 class CninfoClientError(RuntimeError):
     """巨潮公告接口请求失败或返回业务错误。"""
 
@@ -84,35 +121,6 @@ class CninfoClient:
         except Exception as e:  # noqa: BLE001 - 允许失败
             logger.debug("初始化巨潮 session 失败（可忽略）: %s", e)
 
-    @staticmethod
-    @lru_cache(maxsize=1)
-    def _get_stock_org_map_sync() -> dict[str, str]:
-        """获取 A 股代码到 cninfo orgId 的映射。
-
-        巨潮个股查询的 ``stock`` 参数不是裸股票代码，而是
-        ``{secCode},{orgId}``。缺少 orgId 时接口会稳定返回 0 条。
-        """
-        try:
-            response = requests.get(
-                CNINFO_STOCK_JSON,
-                headers=CNINFO_HEADERS,
-                timeout=DEFAULT_TIMEOUT,
-            )
-            response.raise_for_status()
-            data = response.json()
-        except Exception as e:  # noqa: BLE001
-            logger.warning("获取巨潮股票 orgId 映射失败: %s", e)
-            return {}
-
-        stock_list = data.get("stockList") or []
-        result: dict[str, str] = {}
-        for item in stock_list:
-            code = str(item.get("code") or "").strip()
-            org_id = str(item.get("orgId") or "").strip()
-            if code and org_id:
-                result[code] = org_id
-        return result
-
     def _build_payload(
         self,
         ann_date: str | None,
@@ -130,7 +138,7 @@ class CninfoClient:
         stock_code = ""
         if ts_code:
             sec_code = ts_code.split(".")[0] if "." in ts_code else ts_code
-            org_id = self._get_stock_org_map_sync().get(sec_code)
+            org_id = _get_stock_org_map_cached().get(sec_code)
             stock_code = f"{sec_code},{org_id}" if org_id else sec_code
 
         se_date = ""
