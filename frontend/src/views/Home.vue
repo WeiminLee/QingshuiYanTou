@@ -7,10 +7,15 @@
       <!-- Logo -->
       <div class="sidebar-logo">
         <div class="logo-mark">
-          <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
-            <circle cx="14" cy="14" r="13" stroke="#e8a317" stroke-width="1.5"/>
-            <path d="M8 18 Q14 8 20 18" stroke="#e8a317" stroke-width="1.5" fill="none" stroke-linecap="round"/>
-            <circle cx="14" cy="14" r="3" fill="#e8a317" opacity="0.6"/>
+          <svg width="26" height="26" viewBox="0 0 26 26" fill="none">
+            <!-- 账本图标 — 翻开的书页 -->
+            <rect x="3" y="4" width="9" height="18" rx="1" stroke="#B8860B" stroke-width="1.2" fill="none"/>
+            <rect x="14" y="4" width="9" height="18" rx="1" stroke="#B8860B" stroke-width="1.2" fill="none"/>
+            <line x1="12" y1="4" x2="12" y2="22" stroke="#B8860B" stroke-width="1.2"/>
+            <!-- 中缝虚线 -->
+            <line x1="12" y1="7" x2="12" y2="10" stroke="#B8860B" stroke-width="0.8" stroke-dasharray="2 2"/>
+            <line x1="12" y1="12" x2="12" y2="15" stroke="#B8860B" stroke-width="0.8" stroke-dasharray="2 2"/>
+            <line x1="12" y1="17" x2="12" y2="19" stroke="#B8860B" stroke-width="0.8" stroke-dasharray="2 2"/>
           </svg>
         </div>
         <div class="logo-text">
@@ -24,7 +29,7 @@
         <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
           <path d="M7 1v12M1 7h12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
         </svg>
-        开启新咨询
+        新建账目
       </button>
 
       <!-- History -->
@@ -71,12 +76,12 @@
 
       <!-- Quick categories -->
       <div class="sidebar-section sidebar-categories">
-        <div class="sidebar-section-label">快捷入口</div>
+        <div class="sidebar-section-label">快速分类</div>
         <div class="category-list">
           <button
             v-for="cat in categories"
             :key="cat.key"
-            class="category-pill"
+            class="category-link"
             @click="handleCategoryClick(cat.placeholder)"
           >
             <span class="cat-dot" :style="{ background: cat.color }"/>
@@ -181,7 +186,7 @@
             <div class="report-divider">
               <svg width="48" height="12" viewBox="0 0 48 12">
                 <line x1="0" y1="6" x2="20" y2="6" stroke="#d0ccc6" stroke-width="1"/>
-                <circle cx="24" cy="6" r="3" fill="none" stroke="#e8a317" stroke-width="1"/>
+                <circle cx="24" cy="6" r="3" fill="none" stroke="#c9943a" stroke-width="1"/>
                 <line x1="28" y1="6" x2="48" y2="6" stroke="#d0ccc6" stroke-width="1"/>
               </svg>
             </div>
@@ -308,7 +313,7 @@ const scrollAreaRef = ref<HTMLElement | null>(null)
 
 const categories = [
   { key: 'sector', name: '赛道分析', placeholder: '分析光模块赛道的竞争格局', color: '#3b6fd4' },
-  { key: 'stock',  name: '个股深度', placeholder: '中际旭创的投资价值分析', color: '#e8a317' },
+  { key: 'stock',  name: '个股深度', placeholder: '中际旭创的投资价值分析', color: '#c9943a' },
   { key: 'compare', name: '板块对比', placeholder: '对比光伏和锂电行业的景气度', color: '#2d9e6c' },
   { key: 'event',  name: '事件驱动', placeholder: '美国芯片出口管制对国产替代的影响', color: '#d44d4d' },
 ]
@@ -410,7 +415,7 @@ onMounted(loadHistory)
 }
 
 /* ══════════════════════════════════════════════════════════ */
-/* SIDEBAR — deep terminal aesthetic */
+/* SIDEBAR — Ledger Spine with binding holes */
 /* ══════════════════════════════════════════════════════════ */
 .sidebar {
   width: 260px;
@@ -421,8 +426,32 @@ onMounted(loadHistory)
   flex-direction: column;
   overflow: hidden;
   background-image:
-    radial-gradient(ellipse at 0% 0%, rgba(59,111,212,0.04) 0%, transparent 60%),
-    radial-gradient(ellipse at 100% 100%, rgba(232,163,23,0.03) 0%, transparent 60%);
+    radial-gradient(ellipse at 0% 0%, rgba(201,148,58,0.05) 0%, transparent 55%),
+    radial-gradient(ellipse at 100% 100%, rgba(59,111,212,0.03) 0%, transparent 55%);
+  /* Ledger Spine — 书脊深墨色 */
+  background-color: var(--ledger-spine);
+  position: relative;
+}
+
+/* ── Ledger Spine Binding Holes ────────────────────── */
+.sidebar::before {
+  content: '';
+  position: absolute;
+  left: 12px;
+  top: 80px;
+  bottom: 80px;
+  width: 8px;
+  background-image: radial-gradient(
+    circle at 50% 50%,
+    var(--ledger-spine) 5px,
+    transparent 6px
+  );
+  background-size: 8px 40px;
+  background-repeat: repeat-y;
+  background-position: 0 0;
+  opacity: 0.6;
+  animation: fade-in 0.6s ease both;
+  pointer-events: none;
 }
 
 .sidebar-logo {
@@ -459,15 +488,15 @@ onMounted(loadHistory)
   margin: 14px 16px;
   padding: 9px 16px;
   border-radius: 8px;
-  border: 1px solid rgba(232,163,23,0.35);
+  border: 1px solid rgba(184,134,11,0.35);
   background: var(--accent-gold-dim);
-  color: var(--accent-gold);
+  color: var(--ledger-gold);
   font-family: var(--font-ui);
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
   transition: all 0.2s;
-  animation: fade-up 0.4s 0.1s ease both;
+  animation: fade-in 0.4s 0.1s ease both;
 }
 .btn-new-chat:hover {
   background: rgba(232,163,23,0.2);
@@ -477,7 +506,7 @@ onMounted(loadHistory)
 
 .sidebar-section {
   padding: 16px 16px 8px;
-  animation: fade-up 0.4s ease both;
+  animation: fade-in 0.4s ease both;
 }
 .sidebar-section:nth-child(3) { animation-delay: 0.15s; }
 .sidebar-section:nth-child(4) { animation-delay: 0.2s; }
@@ -497,7 +526,7 @@ onMounted(loadHistory)
 .loading-dots span {
   width: 4px; height: 4px; border-radius: 50%;
   background: var(--text-sidebar-muted);
-  animation: dot-bounce 0.6s infinite alternate;
+  animation: fade-in 0.6s ease infinite alternate;
 }
 .loading-dots span:nth-child(2) { animation-delay: 0.2s; }
 .loading-dots span:nth-child(3) { animation-delay: 0.4s; }
@@ -523,8 +552,15 @@ onMounted(loadHistory)
   text-align: left;
   transition: background 0.15s;
   color: var(--text-sidebar);
+  border-bottom: 1px solid rgba(184,134,11,0.06);
 }
-.sidebar-item:hover { background: var(--bg-sidebar-3); color: var(--text-sidebar-hi); }
+.sidebar-item:last-child {
+  border-bottom: none;
+}
+.sidebar-item:hover {
+  background: var(--ledger-spine-3);
+  color: var(--text-sidebar-hi);
+}
 .item-icon { flex-shrink: 0; color: var(--text-sidebar-muted); }
 .item-text {
   font-size: 12px;
@@ -535,24 +571,27 @@ onMounted(loadHistory)
   flex: 1;
 }
 
-/* Quick categories */
+/* Quick categories — 快速分类 */
 .sidebar-categories { margin-top: auto; }
 .category-list { display: flex; flex-direction: column; gap: 3px; }
-.category-pill {
+.category-link {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 7px 8px;
-  border-radius: 6px;
+  padding: 6px 8px;
   border: none;
   background: transparent;
   cursor: pointer;
   font-size: 12px;
   color: var(--text-sidebar);
-  transition: background 0.15s;
+  transition: background 0.15s, color 0.15s;
   text-align: left;
+  border-radius: 4px;
 }
-.category-pill:hover { background: var(--bg-sidebar-3); color: var(--text-sidebar-hi); }
+.category-link:hover {
+  background: var(--ledger-spine-3);
+  color: var(--text-sidebar-hi);
+}
 .cat-dot {
   width: 6px; height: 6px; border-radius: 50%;
   flex-shrink: 0;
@@ -572,7 +611,7 @@ onMounted(loadHistory)
 .status-dot {
   width: 5px; height: 5px; border-radius: 50%;
   background: var(--status-success);
-  animation: gold-pulse 2s ease-in-out infinite;
+  animation: fade-in 2s ease infinite;
 }
 
 /* ══════════════════════════════════════════════════════════ */
@@ -601,11 +640,21 @@ onMounted(loadHistory)
   display: flex;
   flex-direction: column;
   gap: 16px;
-  animation: fade-up 0.35s ease both;
+  animation: fade-in 0.35s ease both;
 }
 
-/* Report section */
-.report-section { display: flex; flex-direction: column; gap: 0; }
+/* Report section — 账页卡片 */
+.report-section {
+  background: var(--ledger-entry);
+  border: 1px solid var(--ledger-rule);
+  border-radius: 4px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+  padding: 32px 40px;
+  margin-top: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
 .report-divider {
   display: flex;
   align-items: center;
@@ -616,46 +665,40 @@ onMounted(loadHistory)
 }
 /* report-body styles moved to App.vue — Home.vue specific overrides */
 :deep(.report-body) { font-size: 14.5px; line-height: 1.9; }
-:deep(.report-body h1) {
-  font-family: var(--font-display);
-  font-size: 22px; font-weight: 700;
-  margin: 28px 0 14px;
-  letter-spacing: -0.3px;
-}
-:deep(.report-body h2) {
-  font-family: var(--font-display);
-  font-size: 18px; font-weight: 700;
-  margin: 24px 0 10px;
-  border-bottom: 1px solid var(--border-light);
-  padding-bottom: 6px;
-}
 :deep(.report-body code) {
-  color: var(--accent-gold);
-  border: 1px solid var(--border-light-2);
-}
-:deep(.report-body pre) {
-  border: 1px solid var(--border-sidebar);
-}
-:deep(.report-body blockquote) {
-  color: var(--text-main-2);
-  font-size: 14px;
+  color: var(--ledger-gold);
+  border: 1px solid var(--ledger-rule);
 }
 
+/* Compliance Stamp — 合规印章 */
 .compliance-stamp {
   display: flex;
   align-items: center;
-  gap: 9px;
+  justify-content: center;
+  gap: 10px;
   margin-top: 32px;
-  padding: 12px 16px;
-  background: var(--bg-main-card);
-  border: 1px solid var(--border-light-2);
-  border-radius: 8px;
-  font-size: 11.5px;
-  color: var(--text-main-3);
+  padding: 16px 20px;
+  background: var(--ledger-entry);
+  border: 2px solid var(--ledger-gold);
+  border-radius: 4px;
+  font-size: 11px;
+  color: var(--ledger-gold);
   line-height: 1.6;
-  animation: fade-up 0.4s 0.1s ease both;
+  text-align: center;
+  animation: fade-in 0.4s 0.1s ease both;
+  position: relative;
+  font-weight: 500;
+  letter-spacing: 0.5px;
 }
-.compliance-stamp svg { color: var(--text-main-3); flex-shrink: 0; }
+.compliance-stamp::before {
+  content: '';
+  position: absolute;
+  inset: 4px;
+  border: 1px solid rgba(184,134,11,0.3);
+  border-radius: 2px;
+  pointer-events: none;
+}
+.compliance-stamp svg { color: var(--ledger-gold); flex-shrink: 0; }
 
 .message-actions {
   display: flex;
@@ -664,18 +707,18 @@ onMounted(loadHistory)
   padding-left: 0;
 }
 
-/* ── Error ──────────────────────────────────────────────── */
+/* ── Error — ledger red styling ────────────────────── */
 .error-card {
   display: flex;
   align-items: center;
   gap: 10px;
   padding: 14px 18px;
-  background: #fef2f2;
-  border: 1px solid rgba(212,77,77,0.2);
-  border-radius: 10px;
-  color: var(--status-error);
+  background: var(--ledger-entry);
+  border: 1px solid var(--ledger-red);
+  border-radius: 4px;
+  color: var(--ledger-red);
   font-size: 13px;
-  animation: fade-up 0.3s ease both;
+  animation: fade-in 0.3s ease both;
 }
 .error-card svg { flex-shrink: 0; }
 .error-card span { flex: 1; }
@@ -693,23 +736,11 @@ onMounted(loadHistory)
 .btn-retry:hover { background: var(--status-error); color: #fff; }
 
 /* ══════════════════════════════════════════════════════════ */
-/* ANIMATIONS */
+/* ANIMATIONS —克制版 */
 /* ══════════════════════════════════════════════════════════ */
-@keyframes fade-up {
-  from { opacity: 0; transform: translateY(10px); }
-  to   { opacity: 1; transform: translateY(0); }
-}
 @keyframes fade-in {
   from { opacity: 0; }
   to   { opacity: 1; }
-}
-@keyframes dot-bounce {
-  from { opacity: 1; transform: translateY(0); }
-  to   { opacity: 0.2; transform: translateY(-4px); }
-}
-@keyframes gold-pulse {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(212,77,77,0.35); }
-  50%       { box-shadow: 0 0 0 4px rgba(212,77,77,0); }
 }
 
 /* ══════════════════════════════════════════════════════════ */
