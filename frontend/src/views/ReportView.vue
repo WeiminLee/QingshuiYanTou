@@ -4,7 +4,7 @@
     <div class="page-header">
       <router-link to="/" class="back-link">
         <el-icon><ArrowLeft /></el-icon>
-        返回首页
+        账目列表
       </router-link>
       <div v-if="taskId" class="task-status">
         <el-tag v-if="!isLoading && reportContent" type="success" size="small">分析完成</el-tag>
@@ -98,7 +98,7 @@
         <div class="report-divider">
           <svg width="48" height="12" viewBox="0 0 48 12">
             <line x1="0" y1="6" x2="20" y2="6" stroke="#d0ccc6" stroke-width="1"/>
-            <circle cx="24" cy="6" r="3" fill="none" stroke="#e8a317" stroke-width="1"/>
+            <circle cx="24" cy="6" r="3" fill="none" stroke="#c9943a" stroke-width="1"/>
             <line x1="28" y1="6" x2="48" y2="6" stroke="#d0ccc6" stroke-width="1"/>
           </svg>
         </div>
@@ -241,6 +241,7 @@ onMounted(() => {
 </script>
 
 <style scoped>
+/* ── Report Page — ledger paper style ─────────────── */
 .report-page {
   max-width: 900px;
   margin: 0 auto;
@@ -248,6 +249,7 @@ onMounted(() => {
   min-height: calc(100vh - 56px);
   display: flex;
   flex-direction: column;
+  background: var(--ledger-paper);
 }
 
 /* Header */
@@ -262,13 +264,13 @@ onMounted(() => {
   display: flex;
   align-items: center;
   gap: 6px;
-  color: #606266;
+  color: var(--text-main-2);
   text-decoration: none;
   font-size: 14px;
   transition: color 0.2s;
 }
 
-.back-link:hover { color: #409eff; }
+.back-link:hover { color: var(--ledger-gold); }
 
 .task-status {
   display: flex;
@@ -276,19 +278,23 @@ onMounted(() => {
   gap: 8px;
 }
 
-/* Question input */
+/* Question input — 账页卡片样式 */
 .question-section {
-  background: #fff;
-  border-radius: 12px;
+  background: var(--ledger-entry);
+  border: 1px solid var(--ledger-rule);
+  border-radius: 4px;
   padding: 32px;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.04);
 }
 
 .question-title {
+  font-family: var(--font-display);
   font-size: 18px;
-  font-weight: 600;
-  color: #303133;
+  font-weight: 700;
+  color: var(--ledger-ink);
   margin-bottom: 16px;
+  border-bottom: 1px solid var(--ledger-rule);
+  padding-bottom: 12px;
 }
 
 .question-input-wrapper {
@@ -317,8 +323,19 @@ onMounted(() => {
   flex-wrap: wrap;
 }
 
-.hint-label { font-size: 13px; color: #909399; }
-.quick-tag { cursor: pointer; }
+.hint-label { font-size: 13px; color: var(--text-main-3); }
+.quick-tag {
+  cursor: pointer;
+  background: var(--ledger-entry);
+  border: 1px solid var(--ledger-rule);
+  color: var(--text-main-2);
+  transition: all 0.2s;
+}
+.quick-tag:hover {
+  border-color: var(--ledger-gold);
+  color: var(--text-main);
+  transform: translateY(-1px);
+}
 
 /* Streaming section */
 .streaming-section {
@@ -347,22 +364,36 @@ onMounted(() => {
   opacity: 0.8;
 }
 
-.report-body { animation: fade-up 0.4s ease both; }
+.report-body { animation: fade-in 0.4s ease both; }
 
 /* report-body styles moved to App.vue */
 
+/* Compliance Stamp — 合规印章 */
 .compliance-stamp {
   display: flex;
   align-items: center;
-  gap: 9px;
+  justify-content: center;
+  gap: 10px;
   margin-top: 32px;
-  padding: 12px 16px;
-  background: #f0f9eb;
-  border: 1px solid #d4edda;
-  border-radius: 8px;
-  font-size: 11.5px;
-  color: #606260;
+  padding: 16px 20px;
+  background: var(--ledger-entry);
+  border: 2px solid var(--ledger-gold);
+  border-radius: 4px;
+  font-size: 11px;
+  color: var(--ledger-gold);
   line-height: 1.6;
+  text-align: center;
+  position: relative;
+  font-weight: 500;
+  letter-spacing: 0.5px;
+}
+.compliance-stamp::before {
+  content: '';
+  position: absolute;
+  inset: 4px;
+  border: 1px solid rgba(184,134,11,0.3);
+  border-radius: 2px;
+  pointer-events: none;
 }
 
 .report-actions {
@@ -372,16 +403,16 @@ onMounted(() => {
   gap: 12px;
 }
 
-/* Error */
+/* Error — ledger red styling */
 .error-card {
   display: flex;
   align-items: center;
   gap: 10px;
   padding: 14px 18px;
-  background: #fef2f2;
-  border: 1px solid rgba(212,77,77,0.2);
-  border-radius: 10px;
-  color: #d44d4d;
+  background: var(--ledger-entry);
+  border: 1px solid var(--ledger-red);
+  border-radius: 4px;
+  color: var(--ledger-red);
   font-size: 13px;
 }
 
@@ -390,19 +421,19 @@ onMounted(() => {
 .btn-retry {
   padding: 5px 14px;
   border-radius: 6px;
-  border: 1px solid #d44d4d;
+  border: 1px solid var(--ledger-red);
   background: transparent;
-  color: #d44d4d;
+  color: var(--ledger-red);
   font-size: 12px;
   cursor: pointer;
   transition: all 0.2s;
   white-space: nowrap;
 }
 
-.btn-retry:hover { background: #d44d4d; color: #fff; }
+.btn-retry:hover { background: var(--ledger-red); color: #fff; }
 
-@keyframes fade-up {
-  from { opacity: 0; transform: translateY(10px); }
-  to   { opacity: 1; transform: translateY(0); }
+@keyframes fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
 }
 </style>
