@@ -229,7 +229,16 @@ onMounted(renderInteractiveElements)
 }
 
 .markdown-body :deep(h1),
-.markdown-body :deep(h2),
+.markdown-body :deep(h2) {
+  margin-top: 16px;
+  margin-bottom: 8px;
+  font-weight: 600;
+  border-bottom: 1px solid var(--ledger-rule);
+  padding-bottom: 6px;
+}
+.markdown-body :deep(h1) {
+  border-bottom-width: 2px;
+}
 .markdown-body :deep(h3) {
   margin-top: 16px;
   margin-bottom: 8px;
@@ -241,32 +250,44 @@ onMounted(renderInteractiveElements)
 }
 
 .markdown-body :deep(code) {
-  background: #f5f5f5;
+  background: var(--ledger-entry);
   padding: 2px 6px;
   border-radius: 4px;
   font-size: 13px;
+  color: var(--ledger-gold);
+  border: 1px solid var(--ledger-rule);
 }
 
 .markdown-body :deep(pre) {
-  background: #1a1a2e;
+  background: var(--ledger-spine);
   padding: 12px;
-  border-radius: 8px;
+  border-radius: 4px;
   overflow-x: auto;
+  border: 1px solid rgba(184,134,11,0.2);
 }
 
 .markdown-body :deep(pre code) {
   background: transparent;
   padding: 0;
-  color: #e8a317;
+  color: #D8C89A;
 }
 
 .markdown-body :deep(a) {
-  color: #0052d9;
+  color: var(--ledger-blue);
   text-decoration: none;
 }
 
 .markdown-body :deep(a:hover) {
   text-decoration: underline;
+}
+
+.markdown-body :deep(blockquote) {
+  border-left: 3px solid var(--ledger-gold);
+  padding: 8px 14px;
+  background: var(--ledger-entry);
+  border-radius: 0 4px 4px 0;
+  margin: 14px 0;
+  color: var(--text-main-2);
 }
 
 .markdown-body :deep(ul),
@@ -287,47 +308,49 @@ onMounted(renderInteractiveElements)
 
 .markdown-body :deep(th),
 .markdown-body :deep(td) {
-  border: 1px solid #ddd;
+  border: 1px solid var(--ledger-rule);
   padding: 8px;
   text-align: left;
 }
 
 .markdown-body :deep(th) {
-  background: #f5f5f5;
+  background: var(--ledger-entry);
   font-weight: 600;
+  border-bottom: 2px solid var(--ledger-rule);
 }
 
 /* 引用标记样式 */
 .reference-tag {
-  color: #0052d9;
+  color: var(--ledger-blue);
   cursor: pointer;
   font-size: 12px;
-  background: #f0f2ff;
+  background: rgba(59,91,219,0.08);
   padding: 2px 6px;
   border-radius: 4px;
   margin: 0 2px;
+  border: 1px solid rgba(59,91,219,0.3);
   transition: background 0.2s;
 }
 
 .reference-tag:hover {
-  background: #d9e2ff;
+  background: rgba(59,91,219,0.15);
 }
 
 /* 股票ID标记样式 */
 .stock-tag {
-  color: #0052d9;
+  color: var(--ledger-blue);
   cursor: pointer;
   font-size: 12px;
-  background: #fff7e6;
+  background: rgba(59,91,219,0.08);
   padding: 2px 6px;
   border-radius: 4px;
   margin: 0 2px;
-  border: 1px solid #e8a317;
+  border: 1px solid var(--ledger-blue);
   transition: background 0.2s;
 }
 
 .stock-tag:hover {
-  background: #ffe7ba;
+  background: rgba(59,91,219,0.15);
 }
 
 /* 图片样式 */
@@ -357,7 +380,7 @@ onMounted(renderInteractiveElements)
   font-weight: 600;
 }
 .stock-id {
-  color: #666;
+  color: var(--ledger-gray);
   font-size: 12px;
 }
 .stock-price {
@@ -379,28 +402,29 @@ onMounted(renderInteractiveElements)
   margin-bottom: 4px;
 }
 .ref-source {
-  color: #666;
+  color: var(--ledger-gray);
   font-size: 12px;
   margin-bottom: 4px;
 }
 .ref-link {
-  color: #0052d9;
+  color: var(--ledger-blue);
   font-size: 12px;
 }
 
 /* 引用标记文本样式 */
 .ref-tag-text {
-  color: #0052d9;
+  color: var(--ledger-blue);
   cursor: pointer;
   font-size: 12px;
-  background: #f0f2ff;
+  background: rgba(59,91,219,0.08);
   padding: 2px 6px;
   border-radius: 4px;
   margin: 0 2px;
+  border: 1px solid rgba(59,91,219,0.3);
   transition: background 0.2s;
 }
 
 .ref-tag-text:hover {
-  background: #d9e2ff;
+  background: rgba(59,91,219,0.15);
 }
 </style>
