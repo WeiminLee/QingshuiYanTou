@@ -113,9 +113,9 @@ onUnmounted(() => {
 
 <style scoped>
 .thinking-panel {
-  border-radius: 10px;
-  border: 1px solid var(--border-light);
-  background: var(--bg-main-card);
+  border-radius: 4px;
+  border: 1px solid var(--ledger-rule);
+  background: var(--ledger-entry);
   overflow: hidden;
   transition: border-color 0.2s;
 }
@@ -131,29 +131,29 @@ onUnmounted(() => {
 }
 
 .thinking-header:hover {
-  background: var(--bg-main-raised);
+  background: var(--ledger-entry);
 }
 
 .thinking-icon {
   line-height: 1;
   flex-shrink: 0;
-  color: var(--text-main-2);
+  color: var(--ledger-gold);
 }
 
 .thinking-label {
   font-size: 13px;
   font-weight: 600;
-  color: var(--text-main);
+  color: var(--ledger-ink);
   flex: 1;
 }
 
 .thinking-elapsed {
   font-size: 11px;
   font-weight: 600;
-  color: var(--accent-blue-deep);
-  background: var(--accent-blue-dim);
+  color: var(--ledger-blue);
+  background: rgba(59,91,219,0.08);
   padding: 1px 8px;
-  border-radius: 8px;
+  border-radius: 4px;
   font-family: var(--font-mono);
   white-space: nowrap;
   letter-spacing: 0.02em;
@@ -162,7 +162,7 @@ onUnmounted(() => {
 .thinking-arrow {
   display: flex;
   align-items: center;
-  color: var(--text-main-3);
+  color: var(--ledger-gray);
   transition: transform 0.2s ease;
   transform: rotate(-90deg);
   flex-shrink: 0;
@@ -173,7 +173,7 @@ onUnmounted(() => {
 }
 
 .thinking-body {
-  border-top: 1px solid var(--border-light);
+  border-top: 1px solid var(--ledger-rule);
   padding: 10px 14px;
 }
 
@@ -191,7 +191,7 @@ onUnmounted(() => {
 }
 
 .thinking-content :deep(strong) {
-  color: var(--text-main);
+  color: var(--ledger-ink);
   font-weight: 600;
 }
 
@@ -218,7 +218,7 @@ onUnmounted(() => {
 }
 
 .thinking-header:focus-visible {
-  outline: 2px solid var(--accent-blue);
+  outline: 2px solid var(--ledger-blue);
   outline-offset: 2px;
   border-radius: inherit;
 }

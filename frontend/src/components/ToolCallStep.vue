@@ -90,14 +90,14 @@ function toggleExpand() {
   flex-direction: column;
   gap: 6px;
   padding: 10px 14px;
-  border-radius: 10px;
-  border: 1px solid var(--border-light);
-  background: var(--bg-main-card);
+  border-radius: 4px;
+  border: 1px solid var(--ledger-rule);
+  background: var(--ledger-entry);
   transition: border-color 0.2s;
 }
 
 .tool-call-step--running {
-  border-color: var(--accent-blue);
+  border-color: var(--ledger-blue);
 }
 
 .tool-call-step--done {
@@ -105,7 +105,7 @@ function toggleExpand() {
 }
 
 .tool-call-step--error {
-  border-color: var(--status-error);
+  border-color: var(--ledger-red);
 }
 
 .tool-call-header {
@@ -118,13 +118,13 @@ function toggleExpand() {
 .tool-icon {
   line-height: 1;
   flex-shrink: 0;
-  color: var(--text-main-2);
+  color: var(--ledger-gold);
 }
 
 .tool-name {
   font-size: 13px;
   font-weight: 600;
-  color: var(--text-main);
+  color: var(--ledger-ink);
   flex: 1;
 }
 
@@ -133,7 +133,7 @@ function toggleExpand() {
   color: var(--status-success);
   background: rgba(45,158,108,0.08);
   padding: 1px 6px;
-  border-radius: 8px;
+  border-radius: 4px;
   font-family: var(--font-mono);
   min-width: 40px;
   text-align: center;
@@ -145,13 +145,13 @@ function toggleExpand() {
   gap: 4px;
   font-size: 12px;
   padding: 2px 8px;
-  border-radius: 10px;
+  border-radius: 4px;
   font-weight: 500;
 }
 
 .badge-shimmer {
   display: inline-block;
-  background: linear-gradient(90deg, #909399 0%, #e0e0e0 40%, #909399 100%);
+  background: linear-gradient(90deg, var(--ledger-gray) 0%, #e0e0e0 40%, var(--ledger-gray) 100%);
   background-size: 200% 100%;
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
@@ -170,18 +170,18 @@ function toggleExpand() {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  background: rgba(59,111,212,0.1);
-  color: var(--accent-blue);
+  background: rgba(59,91,219,0.1);
+  color: var(--ledger-blue);
   padding: 2px 8px;
-  border-radius: 10px;
+  border-radius: 4px;
 }
 
 .spinner {
   display: inline-block;
   width: 11px;
   height: 11px;
-  border: 1.5px solid rgba(59,111,212,0.3);
-  border-top-color: var(--accent-blue);
+  border: 1.5px solid rgba(59,91,219,0.3);
+  border-top-color: var(--ledger-blue);
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
   flex-shrink: 0;
@@ -198,23 +198,23 @@ function toggleExpand() {
   background: rgba(45,158,108,0.1);
   color: var(--status-success);
   padding: 2px 8px;
-  border-radius: 10px;
+  border-radius: 4px;
 }
 
 .badge-error {
   display: inline-flex;
   align-items: center;
   gap: 3px;
-  background: rgba(212,77,77,0.1);
-  color: var(--status-error);
+  background: rgba(192,57,43,0.1);
+  color: var(--ledger-red);
   padding: 2px 8px;
-  border-radius: 10px;
+  border-radius: 4px;
 }
 
 .expand-arrow {
   display: flex;
   align-items: center;
-  color: var(--text-main-3);
+  color: var(--ledger-gray);
   transition: transform 0.2s ease;
   transform: rotate(-90deg);
   flex-shrink: 0;
@@ -229,8 +229,8 @@ function toggleExpand() {
   color: var(--text-main-2);
   line-height: 1.5;
   padding: 6px 10px;
-  background: var(--bg-main-raised);
-  border-radius: 6px;
+  background: var(--ledger-entry);
+  border-radius: 4px;
   white-space: pre-wrap;
   word-break: break-word;
   max-height: 80px;
@@ -239,13 +239,13 @@ function toggleExpand() {
 
 .tool-call-detail {
   padding: 8px 0 2px;
-  border-top: 1px solid var(--border-light);
+  border-top: 1px solid var(--ledger-rule);
 }
 
 .detail-label {
   font-size: 11px;
   font-weight: 600;
-  color: var(--text-main-3);
+  color: var(--ledger-gray);
   text-transform: uppercase;
   letter-spacing: 0.5px;
   margin-bottom: 4px;
@@ -260,8 +260,8 @@ function toggleExpand() {
   max-height: 200px;
   overflow-y: auto;
   padding: 6px 10px;
-  background: var(--bg-main-raised);
-  border-radius: 6px;
+  background: var(--ledger-entry);
+  border-radius: 4px;
 }
 
 .tool-args {
@@ -287,7 +287,7 @@ function toggleExpand() {
 }
 
 .tool-call-header:focus-visible {
-  outline: 2px solid var(--accent-blue);
+  outline: 2px solid var(--ledger-blue);
   outline-offset: 2px;
   border-radius: inherit;
 }
