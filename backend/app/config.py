@@ -56,15 +56,16 @@ class Settings(BaseSettings):
     neo4j_user: str = "neo4j"
     neo4j_password: str = ""
 
-    # 本地 Embedding 服务（已弃用，请使用下方 Tencent Cloud Hunyuan）
-    embedding_api_url: str = ""
+    # 本地 BGE-M3 Embedding 服务（http://0.0.0.0:8000/api/v1/embed）
+    embedding_api_url: str = "http://localhost:8000"
     embedding_api_key: str = ""
 
-    # Tencent Cloud Hunyuan Embedding API（Phase 06 - 替代本地服务）
+    # Tencent Cloud Hunyuan Embedding API（Phase 06 - 已弃用）
     hunyuan_api_key: str = ""
     hunyuan_model: str = "hunyuan-embedding"
     hunyuan_embedding_url: str = "https://api.hunyuan.cloud.tencent.com/v1/embeddings"
-    embedding_dimension: int = 2560
+    # BGE-M3 dense 向量维度
+    embedding_dimension: int = 1024
 
     # 向量数据库（Qdrant）
     qdrant_url: str = "http://localhost:6333"
@@ -91,6 +92,10 @@ class Settings(BaseSettings):
 
     # 钉钉通知
     dingtalk_webhook_url: str = ""
+
+    # minishare（备选数据源）
+    minishare_research_token: str = ""   # 研报授权码
+    minishare_irm_token: str = ""        # 互动易（董秘问答）授权码
 
     # 数据资产目录（永久存储）
     data_assets_root: Path = Path("/home/10241671/DataSets/Stocks")
