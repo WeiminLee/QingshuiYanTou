@@ -349,7 +349,7 @@ case "$MODE" in
             echo ""
             submit_and_watch \
                 "/api/v1/sync/minishare/reports/history" \
-                "start_date=${START_DATE}&end_date=${END_DATE}&download_pdf=true" \
+                "start_date=${START_DATE}&end_date=${END_DATE}&download_pdf=false" \
                 "研报批量回补 (minishare)"
         fi
 
