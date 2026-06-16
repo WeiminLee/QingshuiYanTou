@@ -23,10 +23,15 @@ from sqlalchemy.exc import IntegrityError
 from app.core.database import engine
 from app.core.mongodb import get_mongo_db
 from app.data_pipeline.announcement_filter import (
-    DOC_TYPE_SAVE,
-    classify_title,
-    get_doc_type,
+    DOC_TYPE_SAVE as ANN_DOC_TYPE_SAVE,
+    classify_title as classify_ann_title,
+    get_doc_type as get_ann_doc_type,
     should_download,
+)
+from app.data_pipeline.report_filter import (
+    classify_title as classify_report_title,
+    get_doc_type as get_report_doc_type,
+    should_save,
 )
 from app.data_pipeline.cninfo_client import CninfoClient
 from app.data_pipeline.data_source import DataSourceClient
@@ -283,6 +288,9 @@ class DataFetcher:
         candidates: list[dict[str, Any]] = []
         for report in reports:
             title = str(report.get("title") or "")
+            # 研报过滤：只保存产业链相关报告
+            if not should_save(title):
+                continue
             inst_csname = str(report.get("inst_csname") or "")
             author = str(report.get("author") or "")
             url = str(report.get("url") or "")
@@ -498,6 +506,9 @@ class DataFetcher:
             candidates: list[dict[str, Any]] = []
             for report in reports:
                 title = str(report.get("title") or "")
+                # 研报过滤：只保存产业链相关报告
+                if not should_save(title):
+                    continue
                 inst_csname = str(report.get("inst_csname") or "")
                 author = str(report.get("author") or "")
                 url = str(report.get("url") or "")
@@ -1012,11 +1023,20 @@ class DataFetcher:
         rec: dict[str, Any],
         ts_code: str,
     ) -> bool | None:
-        """保存 minishare 公告记录；True=成功，None=已存在，False=失败。"""
+        """保存 minishare 公告记录；True=成功，None=已存在，False=失败。
+
+        只保存命中关键词的公告（业绩报告、投资者关系、重大资产重组等），
+        其余静默跳过（不报错、不计入）。
+        """
         ann_date = rec.get("ann_date") or ""
         title = rec.get("title") or ""
         if not ann_date or not title:
-            return False
+            return None  # 静默跳过空标题
+
+        # 公告过滤：只保留需要下载的文档类型
+        doc_type, action = classify_ann_title(title)
+        if action != ANN_DOC_TYPE_SAVE:
+            return None  # 静默跳过不命中的公告
 
         try:
             # 转换日期格式 YYYYMMDD -> DATE
@@ -1026,9 +1046,9 @@ class DataFetcher:
                 await conn.execute(
                     text("""
                         INSERT INTO minishare_announcements
-                            (ann_date, ts_code, name, title, source_url, source_type)
+                            (ann_date, ts_code, name, title, type, ann_types, source_url, source_type)
                         VALUES
-                            (:ann_date, :ts_code, :name, :title, :source_url, :source_type)
+                            (:ann_date, :ts_code, :name, :title, :ann_type, :ann_types, :source_url, :source_type)
                         ON CONFLICT (ann_date, ts_code, title) DO NOTHING
                     """),
                     {
@@ -1036,6 +1056,8 @@ class DataFetcher:
                         "ts_code": ts_code or None,
                         "name": rec.get("name") or "",
                         "title": title,
+                        "ann_type": doc_type,
+                        "ann_types": doc_type,
                         "source_url": rec.get("url") or "",
                         "source_type": "minishare",
                     },
