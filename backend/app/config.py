@@ -100,6 +100,9 @@ class Settings(BaseSettings):
     # 数据资产目录（永久存储）
     data_assets_root: Path = Path("/home/10241671/DataSets/Stocks")
 
+    # minishare 外部数据存储路径（PDF/文件，与项目 storage 分离）
+    minishare_data_root: Path = Path("/home/lwm/qingshui_data")
+
     class Config:
         env_file = ".env"
         extra = "ignore"
