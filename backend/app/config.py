@@ -93,9 +93,11 @@ class Settings(BaseSettings):
     # 钉钉通知
     dingtalk_webhook_url: str = ""
 
-    # minishare（备选数据源）
-    minishare_research_token: str = ""   # 研报授权码
-    minishare_irm_token: str = ""        # 互动易（董秘问答）授权码
+    # minishare（备选数据源，授权码从 https://minidoc.pages.dev 获取）
+    # 研报授权码（用于 research_report 接口）
+    minishare_research_token: str = ""
+    # 互动易（董秘问答）授权码（用于 irm_qa_sh / irm_qa_sz 接口）
+    minishare_irm_token: str = ""
 
     # 数据资产目录（永久存储）
     data_assets_root: Path = Path("/home/10241671/DataSets/Stocks")
