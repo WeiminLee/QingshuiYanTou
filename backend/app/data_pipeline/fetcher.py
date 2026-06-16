@@ -1082,15 +1082,14 @@ class DataFetcher:
         """保存研报元数据；True=成功，None=已存在，False=失败。"""
         sql = """
         INSERT INTO research_report_meta (
-            trade_date, ts_code, file_name, title, author, inst_csname,
+            trade_date, ts_code, file_name, author, inst_csname,
             source_type, source_name, confidence_tier
         ) VALUES (
-            :trade_date, :ts_code, :file_name, :title, :author, :inst_csname,
+            :trade_date, :ts_code, :file_name, :author, :inst_csname,
             :source_type, :source_name, :confidence_tier
         )
         ON CONFLICT (trade_date, file_name) DO UPDATE SET
             ts_code = EXCLUDED.ts_code,
-            title = EXCLUDED.title,
             author = EXCLUDED.author,
             inst_csname = EXCLUDED.inst_csname
         """
@@ -1103,7 +1102,6 @@ class DataFetcher:
                         "trade_date": parsed_date,
                         "ts_code": ts_code or None,
                         "file_name": ann_id,
-                        "title": title,
                         "author": author or None,
                         "inst_csname": inst_csname or None,
                         "source_type": "research_report",
