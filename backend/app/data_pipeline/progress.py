@@ -453,6 +453,58 @@ class IngestionProgressTracker:
             )
 
 
+    async def save_checkpoint(
+        self,
+        last_success_watermark: str | None = None,
+        last_attempt_watermark: str | None = None,
+        last_success_at: datetime | None = None,
+        last_attempt_at: datetime | None = None,
+        last_status: str | None = None,
+        next_from_watermark: str | None = None,
+    ) -> None:
+        """逐日更新断点（不创建 run）。"""
+        await self.ensure_tables()
+        now = datetime.now(timezone.utc)
+        async with engine.begin() as conn:
+            await conn.execute(
+                text(
+                    """
+                    INSERT INTO ingestion_checkpoints (
+                        source, task_name, scope, watermark_type,
+                        last_success_watermark, last_attempt_watermark,
+                        last_success_at, last_attempt_at, last_status,
+                        next_from_watermark, updated_at
+                    ) VALUES (
+                        :source, :task_name, :scope, 'date',
+                        :last_success_watermark, :last_attempt_watermark,
+                        :last_success_at, :last_attempt_at, :last_status,
+                        :next_from_watermark, :updated_at
+                    )
+                    ON CONFLICT (source, task_name, scope) DO UPDATE SET
+                        last_success_watermark = COALESCE(:last_success_watermark, ingestion_checkpoints.last_success_watermark),
+                        last_attempt_watermark = COALESCE(:last_attempt_watermark, ingestion_checkpoints.last_attempt_watermark),
+                        last_success_at = COALESCE(:last_success_at, ingestion_checkpoints.last_success_at),
+                        last_attempt_at = COALESCE(:last_attempt_at, ingestion_checkpoints.last_attempt_at),
+                        last_status = COALESCE(:last_status, ingestion_checkpoints.last_status),
+                        next_from_watermark = COALESCE(:next_from_watermark, ingestion_checkpoints.next_from_watermark),
+                        updated_at = :updated_at
+                    """
+                ),
+                {
+                    "source": self.source,
+                    "task_name": self.task_name,
+                    "scope": self.scope,
+                    "last_success_watermark": last_success_watermark,
+                    "last_attempt_watermark": last_attempt_watermark or last_success_watermark,
+                    "last_success_at": last_success_at,
+                    "last_attempt_at": last_attempt_at or now,
+                    "last_status": last_status or "running",
+                    "next_from_watermark": next_from_watermark,
+                    "updated_at": now,
+                },
+            )
+
+
 def _json_dumps(value: dict[str, Any] | None) -> str | None:
     if value is None:
         return None

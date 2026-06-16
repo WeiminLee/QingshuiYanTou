@@ -403,6 +403,374 @@ class DataFetcher:
         )
         return {"total": len(records), "success": success, "skipped": skipped, "fail": fail, "source": "minishare"}
 
+    async def fetch_minishare_reports_history(
+        self,
+        start_date: str,
+        end_date: str,
+        download_pdf: bool = True,
+    ) -> dict[str, int]:
+        """从 minishare 批量回填历史研报（按日期遍历，断点续跑）。
+
+        断点机制：读取 ingestion_checkpoints.last_success_watermark，
+        从断点+1天继续。下次运行自动从上次完成的日期恢复。
+
+        Args:
+            start_date: 起始日期 YYYYMMDD
+            end_date: 结束日期 YYYYMMDD
+            download_pdf: 是否下载 PDF（默认 True）
+        """
+        task_id = generate_task_id()
+        set_task_id(task_id)
+
+        if not self.minishare_client.research_available:
+            logger.warning("minishare 研报 token 未配置，跳过")
+            return {"total_days": 0, "success": 0, "skipped": 0, "downloaded": 0, "fail": 0, "source": "minishare"}
+
+        tracker = IngestionProgressTracker(
+            source="minishare",
+            task_name="reports_history",
+            scope=f"{start_date}_{end_date}",
+        )
+        await tracker.ensure_tables()
+
+        # 读取 checkpoint，从断点继续
+        checkpoint = await tracker.get_checkpoint()
+        resume_start = start_date
+        if checkpoint and checkpoint.get("last_success_watermark"):
+            resume_date = checkpoint["last_success_watermark"]
+            resume_next = (datetime.strptime(resume_date, "%Y%m%d") + timedelta(days=1)).strftime("%Y%m%d")
+            if resume_next <= end_date:
+                resume_start = resume_next
+                logger.info(f"研报历史同步断点续跑: 从 {resume_start} 开始（已完成 {resume_date}）")
+
+        run_ctx = await tracker.start_run(
+            from_watermark=resume_start,
+            to_watermark=end_date,
+            metadata={"download_pdf": download_pdf, "source": "minishare"},
+        )
+
+        logger.info("开始 minishare 研报历史同步: %s~%s", resume_start, end_date)
+        await self.audit_logger.ainfo(
+            "fetcher",
+            f"minishare 研报历史同步: {resume_start}~{end_date}",
+            task_id=task_id,
+        )
+
+        total_success = 0
+        total_skipped = 0
+        total_fail = 0
+        total_downloaded = 0
+        total_days = 0
+        last_success_date = resume_start
+
+        for date_str, reports in self.minishare_client.iter_reports_by_date_range(resume_start, end_date):
+            total_days += 1
+
+            if not reports:
+                await tracker.save_checkpoint(
+                    last_success_watermark=date_str,
+                    last_success_at=datetime.now(timezone.utc),
+                    last_status="running",
+                )
+                await tracker.update_run(
+                    run_ctx,
+                    current_watermark=date_str,
+                    total_items=total_days,
+                    processed_items=total_days,
+                )
+                last_success_date = date_str
+                continue
+
+            # EXISTS 预查询
+            candidates: list[dict[str, Any]] = []
+            for report in reports:
+                title = str(report.get("title") or "")
+                inst_csname = str(report.get("inst_csname") or "")
+                author = str(report.get("author") or "")
+                url = str(report.get("url") or "")
+                ts_code_val = _norm_ts_code(report.get("ts_code"))
+
+                ann_id: str | None = None
+                if url:
+                    try:
+                        pdf_part = url.split("/")[-1].split("?")[0]
+                        if pdf_part:
+                            ann_id = f"ms_report_{pdf_part}"
+                    except Exception:
+                        ann_id = None
+                if not ann_id:
+                    ann_id = _stable_id("ms_report", date_str, title, inst_csname)
+
+                candidates.append({
+                    "ann_id": ann_id,
+                    "ts_code": ts_code_val,
+                    "title": title,
+                    "inst_csname": inst_csname,
+                    "author": author,
+                    "url": url,
+                })
+
+            candidate_ids = [c["ann_id"] for c in candidates]
+            existing: set[str] = set()
+            if candidate_ids:
+                try:
+                    async with engine.connect() as conn:
+                        rows = await conn.execute(
+                            text("SELECT file_name FROM research_report_meta WHERE file_name = ANY(:ids)"),
+                            {"ids": candidate_ids},
+                        )
+                        existing = {r[0] for r in rows.fetchall()}
+                except Exception as exc:
+                    logger.warning("研报预查询失败: %s", exc)
+
+            day_success = day_skipped = day_fail = day_downloaded = 0
+            for c in candidates:
+                if c["ann_id"] in existing:
+                    day_skipped += 1
+                    continue
+
+                # 下载 PDF 到外部存储
+                file_path = None
+                if download_pdf and c["url"]:
+                    safe_title = c["title"][:50].replace("/", "_").replace(" ", "")
+                    if not safe_title.lower().endswith(".pdf"):
+                        safe_title += ".pdf"
+                    filename = f"{c['ann_id']}_{safe_title}"
+                    file_path = await asyncio.to_thread(
+                        self.storage.download_report_external,
+                        url=c["url"],
+                        ts_code=c["ts_code"],
+                        inst_csname=c["inst_csname"],
+                        trade_date=date_str,
+                        filename=filename,
+                    )
+                    if file_path is not None:
+                        day_downloaded += 1
+
+                saved = await self._save_report(
+                    ann_id=c["ann_id"],
+                    ts_code=c["ts_code"],
+                    title=c["title"],
+                    trade_date=date_str,
+                    inst_csname=c["inst_csname"],
+                    author=c["author"],
+                    source_name="minishare",
+                )
+                if saved is True:
+                    day_success += 1
+                elif saved is None:
+                    day_skipped += 1
+                else:
+                    day_fail += 1
+
+            total_success += day_success
+            total_skipped += day_skipped
+            total_fail += day_fail
+            total_downloaded += day_downloaded
+            last_success_date = date_str
+
+            # 保存断点
+            await tracker.save_checkpoint(
+                last_success_watermark=date_str,
+                last_success_at=datetime.now(timezone.utc),
+                last_status="running",
+            )
+            await tracker.update_run(
+                run_ctx,
+                current_watermark=date_str,
+                total_items=total_days,
+                processed_items=total_days,
+                success_count=total_success,
+                skipped_count=total_skipped,
+                downloaded_count=total_downloaded,
+                fail_count=total_fail,
+            )
+
+            if total_days % 30 == 0:
+                await tracker.event(
+                    run_ctx,
+                    stage="batch_progress",
+                    message=f"研报历史同步进度: {date_str}",
+                    total_items=total_days,
+                    processed_items=total_days,
+                    success_count=total_success,
+                    skipped_count=total_skipped,
+                    downloaded_count=total_downloaded,
+                    fail_count=total_fail,
+                    item_id=date_str,
+                )
+
+        await tracker.finish_run(
+            run_ctx,
+            status=SUCCESS if total_fail == 0 else PARTIAL,
+            total_items=total_days,
+            processed_items=total_days,
+            success_count=total_success,
+            skipped_count=total_skipped,
+            downloaded_count=total_downloaded,
+            fail_count=total_fail,
+            current_watermark=last_success_date,
+            last_item_id=last_success_date,
+        )
+
+        logger.info(
+            "minishare 研报历史同步完成: %s~%s，日期 %d 天，入库 %d，跳过 %d，下载 %d，失败 %d",
+            resume_start, end_date, total_days, total_success, total_skipped, total_downloaded, total_fail,
+        )
+        return {
+            "total_days": total_days,
+            "success": total_success,
+            "skipped": total_skipped,
+            "downloaded": total_downloaded,
+            "fail": total_fail,
+            "source": "minishare",
+        }
+
+    async def fetch_minishare_irm_history(
+        self,
+        start_date: str,
+        end_date: str,
+    ) -> dict[str, int]:
+        """从 minishare 批量回填历史互动易（按日期遍历，断点续跑）。
+
+        Args:
+            start_date: 起始日期 YYYYMMDD
+            end_date: 结束日期 YYYYMMDD
+        """
+        task_id = generate_task_id()
+        set_task_id(task_id)
+
+        if not self.minishare_client.irm_available:
+            logger.warning("minishare 互动易 token 未配置，跳过")
+            return {"total_days": 0, "success": 0, "skipped": 0, "fail": 0, "source": "minishare"}
+
+        tracker = IngestionProgressTracker(
+            source="minishare_irm",
+            task_name="irm_history",
+            scope=f"{start_date}_{end_date}",
+        )
+        await tracker.ensure_tables()
+
+        # 读取 checkpoint
+        checkpoint = await tracker.get_checkpoint()
+        resume_start = start_date
+        if checkpoint and checkpoint.get("last_success_watermark"):
+            resume_date = checkpoint["last_success_watermark"]
+            resume_next = (datetime.strptime(resume_date, "%Y%m%d") + timedelta(days=1)).strftime("%Y%m%d")
+            if resume_next <= end_date:
+                resume_start = resume_next
+                logger.info(f"互动易历史同步断点续跑: 从 {resume_start} 开始（已完成 {resume_date}）")
+
+        run_ctx = await tracker.start_run(
+            from_watermark=resume_start,
+            to_watermark=end_date,
+            metadata={"source": "minishare"},
+        )
+
+        logger.info("开始 minishare 互动易历史同步: %s~%s", resume_start, end_date)
+        await self.audit_logger.ainfo(
+            "fetcher",
+            f"minishare 互动易历史同步: {resume_start}~{end_date}",
+            task_id=task_id,
+        )
+
+        total_success = 0
+        total_skipped = 0
+        total_fail = 0
+        total_days = 0
+        last_success_date = resume_start
+
+        for date_str, records in self.minishare_client.iter_irm_by_date_range(resume_start, end_date):
+            total_days += 1
+
+            if not records:
+                await tracker.save_checkpoint(
+                    last_success_watermark=date_str,
+                    last_success_at=datetime.now(timezone.utc),
+                    last_status="running",
+                )
+                await tracker.update_run(
+                    run_ctx,
+                    current_watermark=date_str,
+                    total_items=total_days,
+                    processed_items=total_days,
+                )
+                last_success_date = date_str
+                continue
+
+            day_success = day_skipped = day_fail = 0
+            for rec in records:
+                ts_code_raw = _norm_ts_code(rec.get("stock_code") or "")
+                if ts_code_raw and "." not in ts_code_raw:
+                    ts_code = _normalize_ts_code(ts_code_raw)
+                else:
+                    ts_code = ts_code_raw
+
+                ok = await self._save_irm_record(ts_code or "UNKNOWN", rec)
+                if ok is True:
+                    day_success += 1
+                elif ok is None:
+                    day_skipped += 1
+                else:
+                    day_fail += 1
+
+            total_success += day_success
+            total_skipped += day_skipped
+            total_fail += day_fail
+            last_success_date = date_str
+
+            await tracker.save_checkpoint(
+                last_success_watermark=date_str,
+                last_success_at=datetime.now(timezone.utc),
+                last_status="running",
+            )
+            await tracker.update_run(
+                run_ctx,
+                current_watermark=date_str,
+                total_items=total_days,
+                processed_items=total_days,
+                success_count=total_success,
+                skipped_count=total_skipped,
+                fail_count=total_fail,
+            )
+
+            if total_days % 30 == 0:
+                await tracker.event(
+                    run_ctx,
+                    stage="batch_progress",
+                    message=f"互动易历史同步进度: {date_str}",
+                    total_items=total_days,
+                    processed_items=total_days,
+                    success_count=total_success,
+                    skipped_count=total_skipped,
+                    fail_count=total_fail,
+                    item_id=date_str,
+                )
+
+        await tracker.finish_run(
+            run_ctx,
+            status=SUCCESS if total_fail == 0 else PARTIAL,
+            total_items=total_days,
+            processed_items=total_days,
+            success_count=total_success,
+            skipped_count=total_skipped,
+            fail_count=total_fail,
+            current_watermark=last_success_date,
+            last_item_id=last_success_date,
+        )
+
+        logger.info(
+            "minishare 互动易历史同步完成: %s~%s，日期 %d 天，入库 %d，跳过 %d，失败 %d",
+            resume_start, end_date, total_days, total_success, total_skipped, total_fail,
+        )
+        return {
+            "total_days": total_days,
+            "success": total_success,
+            "skipped": total_skipped,
+            "fail": total_fail,
+            "source": "minishare",
+        }
+
     async def _save_report(
         self,
         ann_id: str,
