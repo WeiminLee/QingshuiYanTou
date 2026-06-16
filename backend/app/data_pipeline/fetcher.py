@@ -29,6 +29,7 @@ from app.data_pipeline.announcement_filter import (
 )
 from app.data_pipeline.cninfo_client import CninfoClient
 from app.data_pipeline.data_source import DataSourceClient
+from app.data_pipeline.minishare_client import DataSourceClientMinishare
 from app.data_pipeline.file_storage import FileStorage
 from app.data_pipeline.progress import (
     FAILED,
@@ -88,6 +89,21 @@ def _norm_ts_code(value: Any) -> str:
     return text_val
 
 
+def _normalize_ts_code(code: str) -> str:
+    """标准化股票代码格式"""
+    if not code:
+        return ""
+    c = code.strip()
+    if "." not in c:
+        return f"{c}.SH" if c.startswith("6") else f"{c}.SZ"
+    prefix, num = c.split(".", 1)
+    if prefix.lower() in ("sh", "ss"):
+        return f"{num}.SH"
+    if prefix.lower() in ("sz",):
+        return f"{num}.SZ"
+    return c.upper()
+
+
 def _yyyymmdd_to_date(value: str | None) -> date | None:
     """YYYYMMDD → date；无效值返回 None。"""
     if not value or len(value) < 8 or not value[:8].isdigit():
@@ -121,6 +137,7 @@ class DataFetcher:
         self.storage = FileStorage()
         self.cninfo_client = CninfoClient()
         self.audit_logger = AsyncAuditLogger("data_pipeline")
+        self.minishare_client = DataSourceClientMinishare()
 
     # ---------- 研报 ----------
 
@@ -227,6 +244,165 @@ class DataFetcher:
         )
         return {"total": total, "success": success, "skipped": skipped, "fail": fail}
 
+    async def fetch_minishare_reports(
+        self,
+        trade_date: str | None = None,
+        ts_code: str | None = None,
+        start_date: str | None = None,
+        end_date: str | None = None,
+    ) -> dict[str, int]:
+        """从 minishare 获取研报并入库（备选通道）。"""
+        task_id = generate_task_id()
+        set_task_id(task_id)
+
+        if trade_date is None:
+            trade_date = (datetime.now() - timedelta(days=1)).strftime("%Y%m%d")
+
+        if not self.minishare_client.research_available:
+            logger.warning("minishare 研报 token 未配置，跳过")
+            return {"total": 0, "success": 0, "skipped": 0, "fail": 0, "source": "minishare"}
+
+        logger.info("开始从 minishare 获取研报: %s", trade_date)
+        await self.audit_logger.ainfo(
+            "fetcher",
+            f"开始从 minishare 获取研报: {trade_date}",
+            task_id=task_id,
+            trade_date=trade_date,
+        )
+
+        reports = await asyncio.to_thread(
+            self.minishare_client.get_reports,
+            trade_date=trade_date,
+            ts_code=ts_code,
+            start_date=start_date,
+            end_date=end_date,
+        )
+
+        # 复用 fetch_reports 的 EXISTS 预查询 + 入库逻辑
+        candidates: list[dict[str, Any]] = []
+        for report in reports:
+            title = str(report.get("title") or "")
+            inst_csname = str(report.get("inst_csname") or "")
+            author = str(report.get("author") or "")
+            url = str(report.get("url") or "")
+            ts_code_val = _norm_ts_code(report.get("ts_code"))
+
+            ann_id: str | None = None
+            if url:
+                try:
+                    pdf_part = url.split("/")[-1].split("?")[0]
+                    if pdf_part:
+                        ann_id = f"ms_report_{pdf_part}"
+                except Exception:
+                    ann_id = None
+            if not ann_id:
+                ann_id = _stable_id("ms_report", trade_date, title, inst_csname)
+
+            candidates.append({
+                "ann_id": ann_id,
+                "ts_code": ts_code_val,
+                "title": title,
+                "inst_csname": inst_csname,
+                "author": author,
+                "url": url,
+            })
+
+        candidate_ann_ids = [c["ann_id"] for c in candidates]
+        existing: set[str] = set()
+        if candidate_ann_ids:
+            try:
+                async with engine.connect() as conn:
+                    rows = await conn.execute(
+                        text("SELECT file_name FROM research_report_meta WHERE file_name = ANY(:ids)"),
+                        {"ids": candidate_ann_ids},
+                    )
+                    existing = {r[0] for r in rows.fetchall()}
+            except Exception as exc:
+                logger.warning("研报 EXISTS 预查询失败: %s", exc)
+
+        total = len(candidates)
+        success = skipped = fail = 0
+        for c in candidates:
+            if c["ann_id"] in existing:
+                skipped += 1
+                continue
+
+            saved = await self._save_report(
+                ann_id=c["ann_id"],
+                ts_code=c["ts_code"],
+                title=c["title"],
+                trade_date=trade_date,
+                inst_csname=c["inst_csname"],
+                author=c["author"],
+                source_name="minishare",
+            )
+            if saved is True:
+                success += 1
+            elif saved is None:
+                skipped += 1
+            else:
+                fail += 1
+
+        logger.info(
+            "minishare 研报获取完成: 总 %d，新增 %d，跳过 %d，失败 %d",
+            total, success, skipped, fail,
+        )
+        return {"total": total, "success": success, "skipped": skipped, "fail": fail, "source": "minishare"}
+
+    async def fetch_minishare_irm(
+        self,
+        trade_date: str | None = None,
+    ) -> dict[str, int]:
+        """从 minishare 获取互动易 Q&A 并入库（备选通道）。"""
+        task_id = generate_task_id()
+        set_task_id(task_id)
+
+        if trade_date is None:
+            trade_date = (datetime.now() - timedelta(days=1)).strftime("%Y%m%d")
+
+        if not self.minishare_client.irm_available:
+            logger.warning("minishare 互动易 token 未配置，跳过")
+            return {"total": 0, "success": 0, "skipped": 0, "fail": 0, "source": "minishare"}
+
+        logger.info("开始从 minishare 获取互动易: %s", trade_date)
+        await self.audit_logger.ainfo(
+            "fetcher",
+            f"开始从 minishare 获取互动易: {trade_date}",
+            task_id=task_id,
+            trade_date=trade_date,
+        )
+
+        records = await asyncio.to_thread(
+            self.minishare_client.get_irm,
+            trade_date=trade_date,
+        )
+
+        if not records:
+            logger.info("minishare 互动易数据为空")
+            return {"total": 0, "success": 0, "skipped": 0, "fail": 0, "source": "minishare"}
+
+        success = skipped = fail = 0
+        for rec in records:
+            # 复用 _save_irm_record 的逻辑（ts_code 从 stock_code 推断）
+            ts_code_raw = _norm_ts_code(rec.get("stock_code") or "")
+            if ts_code_raw and "." not in ts_code_raw:
+                ts_code = _normalize_ts_code(ts_code_raw)
+            else:
+                ts_code = ts_code_raw
+            ok = await self._save_irm_record(ts_code or "UNKNOWN", rec)
+            if ok is True:
+                success += 1
+            elif ok is None:
+                skipped += 1
+            else:
+                fail += 1
+
+        logger.info(
+            "minishare 互动易获取完成: 总 %d，新增 %d，跳过 %d，失败 %d",
+            len(records), success, skipped, fail,
+        )
+        return {"total": len(records), "success": success, "skipped": skipped, "fail": fail, "source": "minishare"}
+
     async def _save_report(
         self,
         ann_id: str,
@@ -235,6 +411,7 @@ class DataFetcher:
         trade_date: str,
         inst_csname: str,
         author: str,
+        source_name: str = "akshare",
     ) -> bool | None:
         """保存研报元数据；True=成功，None=已存在，False=失败。"""
         sql = """
@@ -264,7 +441,7 @@ class DataFetcher:
                         "author": author or None,
                         "inst_csname": inst_csname or None,
                         "source_type": "research_report",
-                        "source_name": "akshare",
+                        "source_name": source_name,
                         "confidence_tier": "Tier4",
                     },
                 )
