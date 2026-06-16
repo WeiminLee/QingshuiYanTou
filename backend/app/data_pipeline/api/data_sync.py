@@ -653,7 +653,6 @@ async def get_minishare_progress() -> dict:
     from sqlalchemy import text
     from app.core.database import engine
 
-    await engine.dispose()
     async with engine.connect() as conn:
         rows = await conn.execute(
             text(
@@ -687,7 +686,6 @@ async def get_minishare_task_status(run_id: str) -> dict:
     from sqlalchemy import text
     from app.core.database import engine
 
-    await engine.dispose()
     async with engine.connect() as conn:
         row = (
             await conn.execute(

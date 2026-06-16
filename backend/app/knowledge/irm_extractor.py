@@ -27,7 +27,8 @@ from app.knowledge.vector_client import (
 logger = logging.getLogger(__name__)
 
 ProgressCallback = Callable[..., Awaitable[None]]
-IRM_KG_INDEX_COLLECTION = "irm_kg_index"
+# Bug-5 修复：checkpoint 集合名与 fetcher.py 保持一致（"irm_checkpoint"）
+IRM_CHECKPOINT_COLLECTION = "irm_checkpoint"
 IRM_KG_SCHEMA_VERSION = CURRENT_KG_SCHEMA_VERSION
 IRM_KG_PARSER_VERSION = CURRENT_KG_PARSER_VERSION
 _IRM_KG_INDEXES_READY = False
@@ -81,7 +82,7 @@ def _irm_content_hash(rec: dict[str, Any]) -> str:
 async def _irm_checkpoint_col():
     global _IRM_KG_INDEXES_READY
     db = get_mongo_db()
-    col = db[IRM_KG_INDEX_COLLECTION]
+    col = db[IRM_CHECKPOINT_COLLECTION]
     if not _IRM_KG_INDEXES_READY:
         await col.create_index("record_key", unique=True)
         await col.create_index("cninfo_id")

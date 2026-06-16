@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
 from app.data_pipeline.api import stocks_router, data_router, information_router, monitor_router
+from app.data_pipeline.api.data_sync import router as data_sync_router
 from app.data_pipeline.scheduler import Scheduler as DataPipelineScheduler
 from app.reasoning.api import agent_router, stats_router
 from app.api.logs import router as logs_router
@@ -88,3 +89,5 @@ app.include_router(knowledge_package_router, prefix="/api/v1/knowledge", tags=["
 app.include_router(information_router, prefix="/api/v1/information", tags=["资讯"], dependencies=[Depends(verify_api_key_optional)])
 # 日志查询路由（读操作，可选认证）
 app.include_router(logs_router, prefix="/api/v1/logs", tags=["日志"])
+# 数据同步路由
+app.include_router(data_sync_router, prefix="/api/v1/sync", tags=["数据同步"], dependencies=[Depends(verify_api_key)])

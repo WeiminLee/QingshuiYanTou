@@ -156,19 +156,22 @@ class EmbeddingModelBase(ABC):
 
 class LocalEmbedding(EmbeddingModelBase):
     """
-    本地 embedding 服务（http://10.57.230.169:8000/v1/embeddings）。
+    本地 BGE-M3 embedding 服务 (http://0.0.0.0:8000)。
 
-    请求格式：POST /v1/embeddings  { "texts": ["...", "..."] }
-    返回格式：{ "embeddings": [[2560 floats], ...] }
+    API 格式：
+      - 端点：POST /api/v1/embed
+      - 请求：{ "texts": [...], "batch_size": 256, "max_length": 512 }
+      - 响应：{ "embeddings": [[dim floats], ...], "model": "BGE-M3", "shape": [n, dim] }
     """
 
     def __init__(
         self,
         api_url: Optional[str] = None,
         api_key: Optional[str] = None,
-        timeout: float = 30.0,
+        timeout: float = 120.0,
+        batch_size: int = 256,
+        max_length: int = 512,
     ):
-        # BUG-19 修复：从 settings 读取默认值
         if api_url is None:
             from app.config import settings
             api_url = settings.embedding_api_url or "http://localhost:8000"
@@ -176,9 +179,12 @@ class LocalEmbedding(EmbeddingModelBase):
             from app.config import settings
             api_key = settings.embedding_api_key or None
 
-        self._api_url = api_url.rstrip("/") + "/v1/embeddings"
+        # 新 API 格式：/api/v1/embed（不再是 /v1/embeddings）
+        self._api_url = api_url.rstrip("/") + "/api/v1/embed"
         self._api_key = api_key
         self._timeout = timeout
+        self._batch_size = batch_size
+        self._max_length = max_length
         self._async_client: Optional[httpx.AsyncClient] = None
         self._sync_client: Optional[httpx.Client] = None
         self._dim: Optional[int] = None
@@ -230,7 +236,11 @@ class LocalEmbedding(EmbeddingModelBase):
 
     async def aembed(self, texts: list[str]) -> list[list[float]]:
         client = await self._aget()
-        payload = {"texts": texts}
+        payload = {
+            "texts": texts,
+            "batch_size": self._batch_size,
+            "max_length": self._max_length,
+        }
         try:
             resp = await client.post(self._api_url, json=payload)
             resp.raise_for_status()
@@ -247,7 +257,11 @@ class LocalEmbedding(EmbeddingModelBase):
     def embed(self, text: str) -> list[float]:
         """同步接口：upsert_entity_vector 等同步函数需要"""
         client = self._get_sync()
-        payload = {"texts": [text]}
+        payload = {
+            "texts": [text],
+            "batch_size": self._batch_size,
+            "max_length": self._max_length,
+        }
         resp = client.post(self._api_url, json=payload)
         resp.raise_for_status()
         data = resp.json()
@@ -477,6 +491,23 @@ class VectorClient(ABC):
 
 # ── Qdrant 实现 ────────────────────────────────────────────────────────────
 
+def _build_qdrant_filter(filter_expr: str):
+    """
+    将 'ts_code == "600519.SH"' 格式的 filter_expr 字符串转为 Qdrant Filter 对象。
+
+    目前仅支持单字段等值过滤，用于 semantic_search_entities/chunks 的 ts_code 过滤。
+    复杂过滤场景（如多字段 AND/OR）需扩展此函数。
+    """
+    from qdrant_client.models import Filter, FieldCondition, MatchValue
+
+    # 解析格式: field_name == "value"
+    m = re.match(r'^\s*(\w+)\s*==\s*[\'"]([^\'"]+)[\'"]', filter_expr.strip())
+    if not m:
+        raise ValueError(f"不支持的过滤表达式格式: {filter_expr}")
+    field, value = m.group(1), m.group(2)
+    return Filter(must=[FieldCondition(key=field, match=MatchValue(value=value))])
+
+
 class QdrantClient(VectorClient):
     """Qdrant 向量库客户端"""
 
@@ -535,7 +566,7 @@ class QdrantClient(VectorClient):
         except Exception as e:
             logger.warning("Qdrant Collection 创建失败 [%s]: %s", name, e)
 
-    def upsert(self, collection: str, records: list[VectorRecord]) -> None:
+    def upsert(self, collection: str, records: list[VectorRecord], raise_on_error: bool = False) -> None:
         self._ensure_connected()
         if not records:
             return
@@ -559,6 +590,8 @@ class QdrantClient(VectorClient):
             logger.debug("Qdrant upsert 完成: %d 条", len(records))
         except Exception as e:
             logger.warning("Qdrant upsert 失败 [%s]: %s", collection, e)
+            if raise_on_error:
+                raise
 
     def search(
         self,
@@ -570,14 +603,25 @@ class QdrantClient(VectorClient):
         self._ensure_connected()
         try:
             import qdrant_client
+            from qdrant_client.models import Filter, FieldCondition, MatchValue
 
             client = qdrant_client.QdrantClient(url=self._url, api_key=self._api_key or None)
-            results = client.query_points(
+            query_kwargs: dict = dict(
                 collection_name=collection,
                 query=query_vector,
                 limit=top_k,
                 with_payload=True,
             )
+            # 将 filter_expr 字符串转为 Qdrant Filter 对象
+            # 支持 'ts_code == "600519.SH"' 格式
+            if filter_expr:
+                try:
+                    # qdrant-client 1.7+ 支持直接传入过滤表达式字符串
+                    # 但为了兼容性，使用 Filter 对象
+                    query_kwargs["query_filter"] = _build_qdrant_filter(filter_expr)
+                except Exception as filter_err:
+                    logger.debug("filter_expr 解析失败: %s — 忽略过滤", filter_err)
+            results = client.query_points(**query_kwargs)
             return [
                 SearchResult(id=str(r.id), score=r.score, payload=r.payload or {})
                 for r in results.points

@@ -159,7 +159,7 @@ h3 {
 button {
   margin: 10px 10px 10px 0;
   padding: 10px 20px;
-  background: #e8a317;
+  background: var(--accent-gold);
   color: white;
   border: none;
   border-radius: 8px;

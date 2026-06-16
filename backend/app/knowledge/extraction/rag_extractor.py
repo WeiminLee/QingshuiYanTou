@@ -386,6 +386,7 @@ def _parse_relates_v4(raw_text: str) -> list[dict]:
     relates: list[dict] = []
     current: dict | None = None
     rel_pattern = re.compile(r"^RELATES\s*:\s*(.+?)\s*→\s*(.+?)\s*$")
+    rel_inline_weight_pattern = re.compile(r"^RELATES\s*:\s*(.+?)\s*→\s*(.+?)\s*\(?\s*([\d.]+)\s*\)?\s*$")
     text_pattern = re.compile(r"^\s*关系描述\s*[:：]\s*['\"]?(.+?)['\"]?\s*$")
     weight_pattern = re.compile(r"^\s*置信度\s*[:：]\s*(\d+(?:\.\d+)?)\s*$")
     source_pattern = re.compile(r"^\s*来源\s*[:：]\s*['\"]?(.+?)['\"]?\s*$")
@@ -414,6 +415,23 @@ def _parse_relates_v4(raw_text: str) -> list[dict]:
                 "to_entity": match.group(2).strip(),
                 "text": "",
                 "weight": 1.0,
+                "source": "",
+            }
+            continue
+        # 内联权重格式: RELATES: A → B (0.7)
+        inline_match = rel_inline_weight_pattern.match(line)
+        if inline_match:
+            flush()
+            try:
+                weight_val = float(inline_match.group(3))
+                weight_val = max(0.0, min(1.0, weight_val))
+            except ValueError:
+                weight_val = 1.0
+            current = {
+                "from_entity": inline_match.group(1).strip(),
+                "to_entity": inline_match.group(2).strip(),
+                "text": "",
+                "weight": weight_val,
                 "source": "",
             }
             continue
@@ -762,13 +780,21 @@ class RAGExtractor:
         # 名称归一化（与 kg_extractor._normalize_name 保持一致）
         name = RAGExtractor._normalize_name_for_merge(name)
 
-        # entity_type 投票
+        # entity_type 投票（同票时按优先级决定：Company > Product > Metric）
         type_counter = Counter(
             e_type
             for e in instances
             if (e_type := str(e.get("entity_type") or "").strip())
         )
-        top_type = type_counter.most_common(1)[0][0] if type_counter else "Company"
+        if type_counter:
+            # 先取最高票数，再从同票类型中按优先级选
+            max_count = max(type_counter.values())
+            tied = [t for t, c in type_counter.items() if c == max_count]
+            # 优先级：Company > Product > Metric > 其他
+            priority = {"Company": 0, "Product": 1, "Metric": 2}
+            top_type = sorted(tied, key=lambda t: priority.get(t, 99))[0]
+        else:
+            top_type = "Company"
 
         # 保留所有原文描述（不做 LLM summarization）
         all_descriptions = [e.get("description", "") for e in instances if e.get("description")]
