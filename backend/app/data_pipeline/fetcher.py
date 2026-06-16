@@ -825,6 +825,10 @@ class DataFetcher:
             logger.warning("minishare 公告 token 未配置，跳过")
             return {"success": 0, "skipped": 0, "fail": 0, "source": "minishare"}
 
+        # 默认取昨天
+        if not ann_date and not ts_code:
+            ann_date = (datetime.now() - timedelta(days=1)).strftime("%Y%m%d")
+
         if ann_date:
             records = self.minishare_client.get_announcements(ann_date=ann_date)
         elif ts_code and start_date and end_date:
