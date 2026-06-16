@@ -5,7 +5,7 @@
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Any
 
 from app.knowledge.evidence import EvidenceInput, default_source_confidence
@@ -38,7 +38,16 @@ def build_announcement_evidence(
     ann_id = record.get("id") or ""
     title = (record.get("title") or "").strip()
     ts_code = (record.get("ts_code") or "").strip()
-    ann_date = record.get("ann_date")
+    ann_date_raw = record.get("ann_date")
+    # Convert date/dateime to ISO string for MongoDB
+    if ann_date_raw is None:
+        ann_date = None
+    elif isinstance(ann_date_raw, date):
+        ann_date = ann_date_raw.isoformat()
+    elif isinstance(ann_date_raw, datetime):
+        ann_date = ann_date_raw.isoformat()
+    else:
+        ann_date = str(ann_date_raw) if ann_date_raw else None
     ann_type = (record.get("type") or record.get("ann_types") or "")
     source_url = (record.get("source_url") or "")
     company_name = (record.get("name") or "").strip()

@@ -368,6 +368,24 @@ MIGRATIONS = [
     CREATE INDEX IF NOT EXISTS idx_ma_ts ON minishare_announcements(ts_code);
     CREATE INDEX IF NOT EXISTS idx_ma_date ON minishare_announcements(ann_date);
     """,
+
+    # 018 - evidence 追踪表
+    """
+    CREATE TABLE IF NOT EXISTS evidence_tracking (
+        id SERIAL PRIMARY KEY,
+        source_table VARCHAR(100) NOT NULL,
+        source_id INTEGER NOT NULL,
+        evidence_id VARCHAR(100) NOT NULL,
+        chunk_index INTEGER DEFAULT 0,
+        extraction_status VARCHAR(20) DEFAULT 'pending',
+        created_at TIMESTAMP DEFAULT now(),
+        updated_at TIMESTAMP DEFAULT now(),
+        UNIQUE(source_table, source_id, chunk_index),
+        UNIQUE(evidence_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_et_status ON evidence_tracking(extraction_status);
+    CREATE INDEX IF NOT EXISTS idx_et_source ON evidence_tracking(source_table, source_id);
+    """,
 ]
 
 

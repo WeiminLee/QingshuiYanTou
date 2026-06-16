@@ -72,6 +72,33 @@ TITLE_CLASSIFICATION: dict[str, tuple[str, str]] = {
     "专题":           ("special_topic",  DOC_TYPE_SAVE),
     "深度报告":       ("special_topic",  DOC_TYPE_SAVE),
     "深度研究":       ("special_topic",  DOC_TYPE_SAVE),
+
+    # ── 公司研报 ─────────────────────────────────────
+    # 首次覆盖 / 深度覆盖（公司级别）
+    "首次覆盖":       ("company",         DOC_TYPE_SAVE),
+    "深度覆盖":       ("company",         DOC_TYPE_SAVE),
+    "公司跟踪":       ("company",         DOC_TYPE_SAVE),
+    "公司研究":       ("company",         DOC_TYPE_SAVE),
+    "公司动态":       ("company",         DOC_TYPE_SAVE),
+    "公司信息":       ("company",         DOC_TYPE_SAVE),
+    # 季报/年报/半年报点评
+    "一季报":         ("company",         DOC_TYPE_SAVE),
+    "半年报":         ("company",         DOC_TYPE_SAVE),
+    "三季报":         ("company",         DOC_TYPE_SAVE),
+    "年报":           ("company",         DOC_TYPE_SAVE),
+    "业绩预告":       ("company",         DOC_TYPE_SAVE),
+    "业绩快报":       ("company",         DOC_TYPE_SAVE),
+    "业绩点评":       ("company",         DOC_TYPE_SAVE),
+    # 其他常见公司研报
+    "公司点评":       ("company",         DOC_TYPE_SAVE),
+    "公司深度":       ("company",         DOC_TYPE_SAVE),
+    "事件点评":       ("company",         DOC_TYPE_SAVE),
+    "重大事项":       ("company",         DOC_TYPE_SAVE),
+    "股权激励":       ("company",         DOC_TYPE_SAVE),
+    "收购":           ("company",         DOC_TYPE_SAVE),
+    "并购":           ("company",         DOC_TYPE_SAVE),
+    "调研":           ("company",         DOC_TYPE_SAVE),
+    "股东大会":       ("company",         DOC_TYPE_SAVE),
 }
 
 
