@@ -451,6 +451,113 @@ async def sync_minishare_irm(
         )
 
 
+# ── minishare 历史批量同步 ────────────────────────────────
+
+@router.post("/minishare/reports/history", response_model=SyncResponse)
+async def sync_minishare_reports_history(
+    start_date: str = Query(..., description="起始日期 YYYYMMDD，如 20250601"),
+    end_date: str = Query(..., description="结束日期 YYYYMMDD，如 20260616"),
+    download_pdf: bool = Query(default=True, description="是否下载 PDF"),
+) -> SyncResponse:
+    """
+    从 minishare 批量回填历史研报（断点续跑）
+
+    - 从 start_date 到 end_date 逐日遍历
+    - 使用 IngestionProgressTracker checkpoint，重复运行不会从头开始
+    - PDF 存到外部存储（/home/lwm/qingshui_data/reports/）
+    """
+    task_id = str(uuid.uuid4())[:8]
+    logger.info(f"[{task_id}] minishare 研报历史同步: {start_date}~{end_date}")
+
+    try:
+        fetcher = DataFetcher()
+        result = await fetcher.fetch_minishare_reports_history(
+            start_date=start_date,
+            end_date=end_date,
+            download_pdf=download_pdf,
+        )
+        return SyncResponse(
+            task_id=task_id,
+            status="completed",
+            message=f"minishare 研报历史同步完成: {result.get('total_days', 0)} 天，入库 {result.get('success', 0)} 条",
+            details=result,
+        )
+    except Exception as e:
+        logger.error(f"[{task_id}] minishare 研报历史同步失败: {e}")
+        return SyncResponse(
+            task_id=task_id,
+            status="failed",
+            message=f"minishare 研报历史同步失败: {str(e)}",
+            details={"error": str(e)},
+        )
+
+
+@router.post("/minishare/irm/history", response_model=SyncResponse)
+async def sync_minishare_irm_history(
+    start_date: str = Query(..., description="起始日期 YYYYMMDD，如 20250601"),
+    end_date: str = Query(..., description="结束日期 YYYYMMDD，如 20260616"),
+) -> SyncResponse:
+    """
+    从 minishare 批量回填历史互动易（断点续跑）
+
+    - 从 start_date 到 end_date 逐日遍历（上证 + 深证）
+    - 使用 IngestionProgressTracker checkpoint，重复运行不会从头开始
+    """
+    task_id = str(uuid.uuid4())[:8]
+    logger.info(f"[{task_id}] minishare 互动易历史同步: {start_date}~{end_date}")
+
+    try:
+        fetcher = DataFetcher()
+        result = await fetcher.fetch_minishare_irm_history(
+            start_date=start_date,
+            end_date=end_date,
+        )
+        return SyncResponse(
+            task_id=task_id,
+            status="completed",
+            message=f"minishare 互动易历史同步完成: {result.get('total_days', 0)} 天，入库 {result.get('success', 0)} 条",
+            details=result,
+        )
+    except Exception as e:
+        logger.error(f"[{task_id}] minishare 互动易历史同步失败: {e}")
+        return SyncResponse(
+            task_id=task_id,
+            status="failed",
+            message=f"minishare 互动易历史同步失败: {str(e)}",
+            details={"error": str(e)},
+        )
+
+
+@router.get("/minishare/progress", response_model=dict)
+async def get_minishare_progress() -> dict:
+    """
+    查询 minishare 数据同步进度（断点状态）
+
+    返回研报和互动易历史同步的 checkpoint 信息
+    """
+    from sqlalchemy import text
+    from app.core.database import engine
+
+    await engine.dispose()
+    async with engine.connect() as conn:
+        rows = await conn.execute(
+            text(
+                """
+                SELECT source, task_name, scope,
+                       last_success_watermark, last_success_at,
+                       last_status, updated_at
+                FROM ingestion_checkpoints
+                WHERE source IN ('minishare', 'minishare_irm')
+                ORDER BY updated_at DESC
+                LIMIT 20
+                """
+            )
+        )
+        checkpoints = [dict(row._mapping) for row in rows.fetchall()]
+
+    return {"checkpoints": checkpoints}
+
+
 # ── 数据状态查询 ──────────────────────────────────────────
 
 @router.get("/status", response_model=dict)
