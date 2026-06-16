@@ -10,6 +10,7 @@ import hashlib
 import logging
 import math
 import random
+import uuid
 from datetime import date, datetime, timedelta, timezone
 from functools import partial
 from pathlib import Path
@@ -408,6 +409,7 @@ class DataFetcher:
         start_date: str,
         end_date: str,
         download_pdf: bool = True,
+        task_id: str | None = None,
     ) -> dict[str, int]:
         """从 minishare 批量回填历史研报（按日期遍历，断点续跑）。
 
@@ -418,9 +420,10 @@ class DataFetcher:
             start_date: 起始日期 YYYYMMDD
             end_date: 结束日期 YYYYMMDD
             download_pdf: 是否下载 PDF（默认 True）
+            task_id: 可选，API 层传入的任务ID，用于关联 ingestion_runs 表
         """
-        task_id = generate_task_id()
-        set_task_id(task_id)
+        internal_task_id = task_id or generate_task_id()
+        set_task_id(internal_task_id)
 
         if not self.minishare_client.research_available:
             logger.warning("minishare 研报 token 未配置，跳过")
@@ -443,17 +446,27 @@ class DataFetcher:
                 resume_start = resume_next
                 logger.info(f"研报历史同步断点续跑: 从 {resume_start} 开始（已完成 {resume_date}）")
 
+        # 用传入的 task_id 作为 run_id（方便 API 查询）
+        run_uuid: uuid.UUID | None = None
+        if task_id:
+            try:
+                # 补全为完整 UUID（取前8字节拼接）
+                run_uuid = uuid.UUID(task_id)
+            except ValueError:
+                run_uuid = None
+
         run_ctx = await tracker.start_run(
             from_watermark=resume_start,
             to_watermark=end_date,
             metadata={"download_pdf": download_pdf, "source": "minishare"},
+            run_id=run_uuid,
         )
 
         logger.info("开始 minishare 研报历史同步: %s~%s", resume_start, end_date)
         await self.audit_logger.ainfo(
             "fetcher",
             f"minishare 研报历史同步: {resume_start}~{end_date}",
-            task_id=task_id,
+            task_id=internal_task_id,
         )
 
         total_success = 0
@@ -463,7 +476,7 @@ class DataFetcher:
         total_days = 0
         last_success_date = resume_start
 
-        for date_str, reports in self.minishare_client.iter_reports_by_date_range(resume_start, end_date):
+        async for date_str, reports in self.minishare_client.iter_reports_by_date_range_async(resume_start, end_date):
             total_days += 1
 
             if not reports:
@@ -600,18 +613,23 @@ class DataFetcher:
                     item_id=date_str,
                 )
 
-        await tracker.finish_run(
-            run_ctx,
-            status=SUCCESS if total_fail == 0 else PARTIAL,
-            total_items=total_days,
-            processed_items=total_days,
-            success_count=total_success,
-            skipped_count=total_skipped,
-            downloaded_count=total_downloaded,
-            fail_count=total_fail,
-            current_watermark=last_success_date,
-            last_item_id=last_success_date,
-        )
+        logger.info("minishare 研报历史同步: 正在保存完成状态...")
+        try:
+            await tracker.finish_run(
+                run_ctx,
+                status=SUCCESS if total_fail == 0 else PARTIAL,
+                total_items=total_days,
+                processed_items=total_days,
+                success_count=total_success,
+                skipped_count=total_skipped,
+                downloaded_count=total_downloaded,
+                fail_count=total_fail,
+                current_watermark=last_success_date,
+                last_item_id=last_success_date,
+            )
+            logger.info("minishare 研报历史同步: finish_run 完成")
+        except Exception as exc:
+            logger.error("minishare 研报历史同步 finish_run 失败: %s", exc, exc_info=True)
 
         logger.info(
             "minishare 研报历史同步完成: %s~%s，日期 %d 天，入库 %d，跳过 %d，下载 %d，失败 %d",
@@ -630,15 +648,17 @@ class DataFetcher:
         self,
         start_date: str,
         end_date: str,
+        task_id: str | None = None,
     ) -> dict[str, int]:
         """从 minishare 批量回填历史互动易（按日期遍历，断点续跑）。
 
         Args:
             start_date: 起始日期 YYYYMMDD
             end_date: 结束日期 YYYYMMDD
+            task_id: 可选，API 层传入的任务ID，用于关联 ingestion_runs 表
         """
-        task_id = generate_task_id()
-        set_task_id(task_id)
+        internal_task_id = task_id or generate_task_id()
+        set_task_id(internal_task_id)
 
         if not self.minishare_client.irm_available:
             logger.warning("minishare 互动易 token 未配置，跳过")
@@ -661,17 +681,26 @@ class DataFetcher:
                 resume_start = resume_next
                 logger.info(f"互动易历史同步断点续跑: 从 {resume_start} 开始（已完成 {resume_date}）")
 
+        # 用传入的 task_id 作为 run_id（方便 API 查询）
+        run_uuid: uuid.UUID | None = None
+        if task_id:
+            try:
+                run_uuid = uuid.UUID(task_id)
+            except ValueError:
+                run_uuid = None
+
         run_ctx = await tracker.start_run(
             from_watermark=resume_start,
             to_watermark=end_date,
             metadata={"source": "minishare"},
+            run_id=run_uuid,
         )
 
         logger.info("开始 minishare 互动易历史同步: %s~%s", resume_start, end_date)
         await self.audit_logger.ainfo(
             "fetcher",
             f"minishare 互动易历史同步: {resume_start}~{end_date}",
-            task_id=task_id,
+            task_id=internal_task_id,
         )
 
         total_success = 0
@@ -680,7 +709,7 @@ class DataFetcher:
         total_days = 0
         last_success_date = resume_start
 
-        for date_str, records in self.minishare_client.iter_irm_by_date_range(resume_start, end_date):
+        async for date_str, records in self.minishare_client.iter_irm_by_date_range_async(resume_start, end_date):
             total_days += 1
 
             if not records:

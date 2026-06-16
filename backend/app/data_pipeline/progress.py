@@ -162,9 +162,10 @@ class IngestionProgressTracker:
         from_watermark: str | None = None,
         to_watermark: str | None = None,
         metadata: dict[str, Any] | None = None,
+        run_id: uuid.UUID | None = None,
     ) -> IngestionRunContext:
         await self.ensure_tables()
-        run_id = uuid.uuid4()
+        run_id = run_id or uuid.uuid4()
         async with engine.begin() as conn:
             await conn.execute(
                 text(

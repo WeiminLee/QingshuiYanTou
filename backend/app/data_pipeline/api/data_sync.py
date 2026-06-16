@@ -458,37 +458,50 @@ async def sync_minishare_reports_history(
     start_date: str = Query(..., description="起始日期 YYYYMMDD，如 20250601"),
     end_date: str = Query(..., description="结束日期 YYYYMMDD，如 20260616"),
     download_pdf: bool = Query(default=True, description="是否下载 PDF"),
+    background_tasks: BackgroundTasks = None,
 ) -> SyncResponse:
     """
-    从 minishare 批量回填历史研报（断点续跑）
+    从 minishare 批量回填历史研报（断点续跑，异步执行）
 
     - 从 start_date 到 end_date 逐日遍历
     - 使用 IngestionProgressTracker checkpoint，重复运行不会从头开始
     - PDF 存到外部存储（/home/lwm/qingshui_data/reports/）
+    - 任务异步执行，立即返回 run_id，用 GET /minishare/tasks/{run_id} 查询进度
     """
-    task_id = str(uuid.uuid4())[:8]
-    logger.info(f"[{task_id}] minishare 研报历史同步: {start_date}~{end_date}")
+    task_id = str(uuid.uuid4())  # 完整 UUID 传给 fetcher
+    task_id_short = task_id[:8]  # 截取前 8 位用于响应显示
+    logger.info(f"[{task_id_short}] minishare 研报历史同步已提交: {start_date}~{end_date}")
 
-    try:
-        fetcher = DataFetcher()
-        result = await fetcher.fetch_minishare_reports_history(
-            start_date=start_date,
-            end_date=end_date,
-            download_pdf=download_pdf,
-        )
+    async def _run() -> None:
+        """后台执行体"""
+        from app.data_pipeline.fetcher import DataFetcher
+
+        try:
+            fetcher = DataFetcher()
+            result = await fetcher.fetch_minishare_reports_history(
+                start_date=start_date,
+                end_date=end_date,
+                download_pdf=download_pdf,
+                task_id=task_id,
+            )
+            logger.info(f"[{task_id_short}] minishare 研报历史同步完成: {result}")
+        except Exception as e:
+            logger.error(f"[{task_id_short}] minishare 研报历史同步失败: {e}", exc_info=True)
+
+    if background_tasks:
+        background_tasks.add_task(_run)
         return SyncResponse(
-            task_id=task_id,
+            task_id=task_id_short,
+            status="running",
+            message=f"研报历史同步任务已提交: {start_date}~{end_date}，用 GET /minishare/tasks/{task_id} 查询进度",
+        )
+    else:
+        # 无 BackgroundTasks 时同步执行（单元测试路径）
+        await _run()
+        return SyncResponse(
+            task_id=task_id_short,
             status="completed",
-            message=f"minishare 研报历史同步完成: {result.get('total_days', 0)} 天，入库 {result.get('success', 0)} 条",
-            details=result,
-        )
-    except Exception as e:
-        logger.error(f"[{task_id}] minishare 研报历史同步失败: {e}")
-        return SyncResponse(
-            task_id=task_id,
-            status="failed",
-            message=f"minishare 研报历史同步失败: {str(e)}",
-            details={"error": str(e)},
+            message=f"minishare 研报历史同步完成: {start_date}~{end_date}",
         )
 
 
@@ -496,35 +509,47 @@ async def sync_minishare_reports_history(
 async def sync_minishare_irm_history(
     start_date: str = Query(..., description="起始日期 YYYYMMDD，如 20250601"),
     end_date: str = Query(..., description="结束日期 YYYYMMDD，如 20260616"),
+    background_tasks: BackgroundTasks = None,
 ) -> SyncResponse:
     """
-    从 minishare 批量回填历史互动易（断点续跑）
+    从 minishare 批量回填历史互动易（断点续跑，异步执行）
 
     - 从 start_date 到 end_date 逐日遍历（上证 + 深证）
     - 使用 IngestionProgressTracker checkpoint，重复运行不会从头开始
+    - 任务异步执行，立即返回 run_id，用 GET /minishare/tasks/{run_id} 查询进度
     """
-    task_id = str(uuid.uuid4())[:8]
-    logger.info(f"[{task_id}] minishare 互动易历史同步: {start_date}~{end_date}")
+    task_id = str(uuid.uuid4())  # 完整 UUID 传给 fetcher
+    task_id_short = task_id[:8]  # 截取前 8 位用于响应显示
+    logger.info(f"[{task_id_short}] minishare 互动易历史同步已提交: {start_date}~{end_date}")
 
-    try:
-        fetcher = DataFetcher()
-        result = await fetcher.fetch_minishare_irm_history(
-            start_date=start_date,
-            end_date=end_date,
-        )
+    async def _run() -> None:
+        """后台执行体"""
+        from app.data_pipeline.fetcher import DataFetcher
+
+        try:
+            fetcher = DataFetcher()
+            result = await fetcher.fetch_minishare_irm_history(
+                start_date=start_date,
+                end_date=end_date,
+                task_id=task_id,
+            )
+            logger.info(f"[{task_id_short}] minishare 互动易历史同步完成: {result}")
+        except Exception as e:
+            logger.error(f"[{task_id_short}] minishare 互动易历史同步失败: {e}", exc_info=True)
+
+    if background_tasks:
+        background_tasks.add_task(_run)
         return SyncResponse(
-            task_id=task_id,
+            task_id=task_id_short,
+            status="running",
+            message=f"互动易历史同步任务已提交: {start_date}~{end_date}，用 GET /minishare/tasks/{task_id} 查询进度",
+        )
+    else:
+        await _run()
+        return SyncResponse(
+            task_id=task_id_short,
             status="completed",
-            message=f"minishare 互动易历史同步完成: {result.get('total_days', 0)} 天，入库 {result.get('success', 0)} 条",
-            details=result,
-        )
-    except Exception as e:
-        logger.error(f"[{task_id}] minishare 互动易历史同步失败: {e}")
-        return SyncResponse(
-            task_id=task_id,
-            status="failed",
-            message=f"minishare 互动易历史同步失败: {str(e)}",
-            details={"error": str(e)},
+            message=f"minishare 互动易历史同步完成: {start_date}~{end_date}",
         )
 
 
@@ -556,6 +581,108 @@ async def get_minishare_progress() -> dict:
         checkpoints = [dict(row._mapping) for row in rows.fetchall()]
 
     return {"checkpoints": checkpoints}
+
+
+@router.get("/minishare/tasks/{run_id}", response_model=dict)
+async def get_minishare_task_status(run_id: str) -> dict:
+    """
+    查询单次 minishare 同步任务的状态和进度
+
+    Args:
+        run_id: 任务ID（来自 POST 响应的 task_id）
+
+    Returns:
+        任务状态、当前进度（日期/总数）、入库统计
+    """
+    from sqlalchemy import text
+    from app.core.database import engine
+
+    await engine.dispose()
+    async with engine.connect() as conn:
+        row = (
+            await conn.execute(
+                text(
+                    """
+                    SELECT run_id, source, task_name, scope,
+                           status, started_at, completed_at,
+                           from_watermark, to_watermark,
+                           current_watermark,
+                           total_items, processed_items,
+                           success_count, skipped_count,
+                           downloaded_count, fail_count,
+                           last_error
+                    FROM ingestion_runs
+                    WHERE run_id::text = :run_id
+                    LIMIT 1
+                    """
+                ),
+                {"run_id": run_id},
+            )
+        ).mappings().first()
+
+    if not row:
+        return {
+            "run_id": run_id,
+            "status": "not_found",
+            "message": f"任务 {run_id} 不存在或已过期",
+        }
+
+    d = dict(row)
+    # 计算进度百分比
+    total = d.get("total_items") or 0
+    done = d.get("processed_items") or 0
+    pct = round(done / total * 100, 1) if total > 0 else 0
+
+    # 计算日期进度
+    from_wm = d.get("from_watermark") or ""
+    to_wm = d.get("to_watermark") or ""
+    cur_wm = d.get("current_watermark") or ""
+
+    from_dt = _parse_date(from_wm)
+    to_dt = _parse_date(to_wm)
+    cur_dt = _parse_date(cur_wm)
+
+    date_pct = 0
+    if from_dt and to_dt and cur_dt:
+        total_days = (to_dt - from_dt).days + 1
+        elapsed = (cur_dt - from_dt).days + 1
+        date_pct = round(elapsed / total_days * 100, 1) if total_days > 0 else 0
+
+    return {
+        "run_id": d["run_id"],
+        "source": d["source"],
+        "task_name": d["task_name"],
+        "scope": d["scope"],
+        "status": d["status"],
+        "started_at": d["started_at"],
+        "completed_at": d["completed_at"],
+        "from_watermark": from_wm,
+        "to_watermark": to_wm,
+        "current_watermark": cur_wm,
+        "progress": {
+            "days_pct": date_pct,
+            "items_pct": pct,
+            "total_days": total,
+            "processed_days": done,
+            "success": d.get("success_count") or 0,
+            "skipped": d.get("skipped_count") or 0,
+            "downloaded": d.get("downloaded_count") or 0,
+            "fail": d.get("fail_count") or 0,
+        },
+        "last_error": d.get("last_error"),
+    }
+
+
+def _parse_date(s: str):
+    """把 YYYYMMDD 字符串解析为 date 对象，失败返回 None"""
+    if not s or len(s) != 8:
+        return None
+    from datetime import date
+
+    try:
+        return date(int(s[:4]), int(s[4:6]), int(s[6:8]))
+    except Exception:
+        return None
 
 
 # ── 数据状态查询 ──────────────────────────────────────────

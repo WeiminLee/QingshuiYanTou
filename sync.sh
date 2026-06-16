@@ -19,8 +19,21 @@ set -e
 
 # ---- 配置 ---------------------------------------------------------------
 API_BASE="${API_BASE:-http://localhost:8080}"
-API_KEY="${API_KEY:-qingshui-secret}"
 BACKEND_DIR="$(cd "$(dirname "$0")/backend" && pwd)"
+
+# 从 .env 读取 API_KEY（默认 qingshui-secret）
+load_api_key() {
+    local env_file="${BACKEND_DIR}/.env"
+    if [ -f "$env_file" ]; then
+        local key=$(grep "^API_KEY=" "$env_file" | head -1 | cut -d'=' -f2- | tr -d '\r')
+        if [ -n "$key" ]; then
+            echo "$key"
+            return
+        fi
+    fi
+    echo "qingshui-secret"
+}
+API_KEY="${API_KEY:-$(load_api_key)}"
 
 # 颜色输出
 RED='\033[0;31m'
@@ -55,6 +68,8 @@ check_backend() {
 }
 
 # 通用 API 调用
+# 用法: api_call "POST" "/path" "query=val&body=val" "label"
+#   或:  api_call "GET"  "/path?query=val" ""       "label"
 api_call() {
     local method="$1"
     local path="$2"
@@ -62,46 +77,175 @@ api_call() {
     local label="$4"
 
     log_info "${label}..."
-    log_info "  POST ${API_BASE}${path}"
-    if [ -n "$data" ]; then
-        log_info "  data: ${data}"
-    fi
+    log_info "  ${method} ${API_BASE}${path}${data:+?${data}}"
 
-    RESPONSE=$(curl -s -X "${method}" "${API_BASE}${path}" \
-        -H "X-API-Key: ${API_KEY}" \
-        -H "Content-Type: application/x-www-form-urlencoded" \
-        ${data:+-d "$data"} \
-        --max-time 300)
+    if [ "$method" = "GET" ]; then
+        RESPONSE=$(curl -s "${API_BASE}${path}" \
+            -H "X-API-Key: ${API_KEY}" \
+            --max-time 300)
+    else
+        if [[ "$path" == *"?start_date="* ]] || [[ "$path" == *"?trade_date="* ]]; then
+            # query string already in URL (history endpoints)
+            RESPONSE=$(curl -s -X "$method" "${API_BASE}${path}" \
+                -H "X-API-Key: ${API_KEY}" \
+                --max-time 600)
+        else
+            # form body (simple POST)
+            RESPONSE=$(curl -s -X "$method" "${API_BASE}${path}" \
+                -H "X-API-Key: ${API_KEY}" \
+                -H "Content-Type: application/x-www-form-urlencoded" \
+                -d "$data" \
+                --max-time 300)
+        fi
+    fi
 
     if [ $? -ne 0 ]; then
         log_error "${label} 请求失败（网络错误）"
         return 1
     fi
 
+    # 解析 JSON 响应（只读一次）
     echo "$RESPONSE" | python3 -c "
 import sys, json
+raw = sys.stdin.read()
 try:
-    d = json.load(sys.stdin)
-    print(f\"  task_id : {d.get('task_id', '-')}\")
-    print(f\"  status  : {d.get('status', '-')}\")
-    print(f\"  message : {d.get('message', '-')}\")
+    d = json.loads(raw)
+    tid = d.get('task_id', '-')
+    status = d.get('status', '-')
+    msg = d.get('message', '-')
+    print(f'  task_id : {tid}')
+    print(f'  status  : {status}')
+    print(f'  message : {msg}')
     details = d.get('details', {})
     if details:
         for k, v in details.items():
             if k != 'error':
                 print(f'  {k}     : {v}')
-    if 'error' in details or 'error' in d:
-        print(f\"  error   : {details.get('error', d.get('error', ''))}\", file=sys.stderr)
+    err = details.get('error') or d.get('error')
+    if err:
+        print(f'  error   : {err}', file=sys.stderr)
 except:
-    print('  raw:', sys.stdin.read()[:200])
+    print('  raw:', raw[:300])
 " 2>&1
 
-    STATUS=$(echo "$RESPONSE" | python3 -c "import sys,json; print(json.load(sys.stdin).get('status','?'))" 2>/dev/null || echo "?")
+    STATUS=$(echo "$RESPONSE" | python3 -c "import sys,json; d=json.loads(sys.stdin.read()); print(d.get('status','?'))" 2>/dev/null || echo "?")
     if [ "$STATUS" = "completed" ] || [ "$STATUS" = "ok" ]; then
         log_ok "${label} 完成"
+    elif [ "$STATUS" = "failed" ]; then
+        log_error "${label} 失败"
     else
         log_warn "${label} 状态: ${STATUS}"
     fi
+}
+
+
+# ---- 轮询任务状态 -------------------------------------------------------
+# 用法: watch_task "full_uuid" "label"
+# 实时显示进度条，直到任务结束
+watch_task() {
+    local full_uuid="$1"
+    local label="$2"
+    local POLL_INTERVAL=3
+    local MAX_POLL=1200  # 最多轮询 20 分钟
+
+    local count=0
+    while [ $((count * POLL_INTERVAL)) -lt $MAX_POLL ]; do
+        count=$((count + 1))
+
+        RESP=$(curl -sf "${API_BASE}/api/v1/sync/minishare/tasks/${full_uuid}" \
+            -H "X-API-Key: ${API_KEY}" 2>/dev/null) || {
+            echo -e "\${YELLOW}[WAIT]\${NC}  查询失败，等待重试..."
+            sleep $POLL_INTERVAL
+            continue
+        }
+
+        # 解析 JSON
+        status=$(echo "$RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('status','?'))" 2>/dev/null || echo "?")
+        cur_wm=$(echo "$RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('current_watermark',''))" 2>/dev/null || echo "")
+        days_pct=$(echo "$RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('progress',{}).get('days_pct',0))" 2>/dev/null || echo "0")
+        success=$(echo "$RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('progress',{}).get('success',0))" 2>/dev/null || echo "0")
+        skipped=$(echo "$RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('progress',{}).get('skipped',0))" 2>/dev/null || echo "0")
+        fail=$(echo "$RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('progress',{}).get('fail',0))" 2>/dev/null || echo "0")
+        err=$(echo "$RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('last_error') or '')" 2>/dev/null || echo "")
+
+        # 进度条（50字符）
+        pct_int=${days_pct%.*}
+        filled=$((pct_int / 2))
+        empty=$((50 - filled))
+        bar=""
+        for i in $(seq 1 $filled); do bar="${bar}█"; done
+        for i in $(seq 1 $empty); do bar="${bar}░"; done
+
+        printf "\r\${CYAN}[%s]\${NC}  %-30s  [%s]  %3d%%  日期:%s  succ:%s skip:%s fail:%s  " \
+            "$status" "$label" "$bar" "$pct_int" "$cur_wm" "$success" "$skipped" "$fail"
+
+        if [ "$status" = "completed" ] || [ "$status" = "success" ] || [ "$status" = "partial" ] || [ "$status" = "failed" ]; then
+            echo ""
+            if [ "$status" = "failed" ]; then
+                [ -n "$err" ] && echo -e "\${RED}[ERROR]\${NC}  最后错误: ${err:0:120}"
+                log_error "$label 失败 (status=$status)"
+            else
+                log_ok "$label 完成 (status=$status)"
+            fi
+            return 0
+        fi
+
+        sleep $POLL_INTERVAL
+    done
+
+    echo ""
+    log_warn "$label 轮询超时（超过 ${MAX_POLL}s）"
+}
+
+# 提交异步任务并轮询
+# 用法: submit_and_watch "endpoint" "data" "label"
+submit_and_watch() {
+    local path="$1"
+    local data="$2"
+    local label="$3"
+
+    log_info "$label 提交任务..."
+    log_info "  POST ${API_BASE}${path}${data:+?${data}}"
+
+    RESP=$(curl -sf -X POST "${API_BASE}${path}${data:+?${data}}" \
+        -H "X-API-Key: ${API_KEY}" \
+        --max-time 30) || {
+        log_error "$label 提交失败（网络错误）"
+        return 1
+    }
+
+    task_id=$(echo "$RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('task_id',''))" 2>/dev/null || echo "")
+    status=$(echo "$RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('status',''))" 2>/dev/null || echo "")
+    message=$(echo "$RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('message',''))" 2>/dev/null || echo "")
+
+    echo "$RESP" | python3 << 'PYEOF2'
+import sys, json
+try:
+    d = json.loads(sys.stdin.read())
+    print("  task_id :", d.get("task_id","-"))
+    print("  status  :", d.get("status","-"))
+    print("  message :", d.get("message","-"))
+except:
+    pass
+PYEOF2
+
+    if [ "$status" = "completed" ] || [ "$status" = "ok" ]; then
+        log_ok "$label 完成"
+        return 0
+    elif [ "$status" = "failed" ]; then
+        log_error "$label 失败"
+        return 1
+    fi
+
+    # 从 message 中提取完整 UUID
+    full_uuid=$(echo "$message" | grep -oE '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' | head -1)
+    if [ -z "$full_uuid" ]; then
+        log_warn "$label 无法提取任务 UUID，跳过轮询"
+        return 0
+    fi
+
+    echo ""
+    watch_task "$full_uuid" "$label"
 }
 
 # =============================================================================
@@ -193,8 +337,10 @@ case "$MODE" in
         log_info "=== 历史批量回补: ${START_DATE} ~ ${END_DATE} ==="
 
         if [ "$TARGET" = "reports" ] || [ "$TARGET" = "both" ]; then
-            api_call "POST" "/api/v1/sync/minishare/reports/history" \
-                "start_date=${START_DATE}&end_date=${END_DATE}&source=research" \
+            echo ""
+            submit_and_watch \
+                "/api/v1/sync/minishare/reports/history" \
+                "start_date=${START_DATE}&end_date=${END_DATE}&download_pdf=true" \
                 "研报批量回补 (minishare)"
         fi
 
@@ -203,7 +349,8 @@ case "$MODE" in
         fi
 
         if [ "$TARGET" = "irm" ] || [ "$TARGET" = "both" ]; then
-            api_call "POST" "/api/v1/sync/minishare/irm/history" \
+            submit_and_watch \
+                "/api/v1/sync/minishare/irm/history" \
                 "start_date=${START_DATE}&end_date=${END_DATE}" \
                 "互动易批量回补 (minishare)"
         fi
