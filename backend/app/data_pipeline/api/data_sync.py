@@ -553,6 +553,96 @@ async def sync_minishare_irm_history(
         )
 
 
+# ── minishare 公告同步 ──────────────────────────────────
+
+@router.post("/minishare/announcements", response_model=SyncResponse)
+async def sync_minishare_announcements(
+    ann_date: Optional[str] = Query(default=None, description="公告日期 YYYYMMDD，默认为昨天"),
+    ts_code: Optional[str] = Query(default=None, description="股票代码，如 600519.SH"),
+    start_date: Optional[str] = Query(default=None, description="起始日期 YYYYMMDD（配合 ts_code 使用）"),
+    end_date: Optional[str] = Query(default=None, description="结束日期 YYYYMMDD（配合 ts_code 使用）"),
+) -> SyncResponse:
+    """
+    从 minishare 获取公告数据（备选通道）
+
+    - 按公告日全市场或按股票代码 + 日期范围
+    - 存入 minishare_announcements 表
+    """
+    task_id = str(uuid.uuid4())[:8]
+    logger.info(f"[{task_id}] minishare 公告同步: ann_date={ann_date}, ts_code={ts_code}")
+
+    try:
+        fetcher = DataFetcher()
+        result = await fetcher.fetch_minishare_announcements(
+            ann_date=ann_date,
+            ts_code=ts_code,
+            start_date=start_date,
+            end_date=end_date,
+        )
+        return SyncResponse(
+            task_id=task_id,
+            status="completed",
+            message=f"minishare 公告同步完成: 入库{result.get('success', 0)}条，跳过{result.get('skipped', 0)}条",
+            details=result,
+        )
+    except Exception as e:
+        logger.error(f"[{task_id}] minishare 公告同步失败: {e}")
+        return SyncResponse(
+            task_id=task_id,
+            status="failed",
+            message=f"minishare 公告同步失败: {str(e)}",
+            details={"error": str(e)},
+        )
+
+
+@router.post("/minishare/announcements/history", response_model=SyncResponse)
+async def sync_minishare_ann_history(
+    start_date: str = Query(..., description="起始日期 YYYYMMDD，如 20250601"),
+    end_date: str = Query(..., description="结束日期 YYYYMMDD，如 20260616"),
+    background_tasks: BackgroundTasks = None,
+) -> SyncResponse:
+    """
+    从 minishare 批量回填历史公告（断点续跑，异步执行）
+
+    - 从 start_date 到 end_date 逐日遍历
+    - 使用 IngestionProgressTracker checkpoint，重复运行不会从头开始
+    - 任务异步执行，立即返回 run_id，用 GET /minishare/tasks/{run_id} 查询进度
+    """
+    task_id = str(uuid.uuid4())  # 完整 UUID 传给 fetcher
+    task_id_short = task_id[:8]
+    logger.info(f"[{task_id_short}] minishare 公告历史同步已提交: {start_date}~{end_date}")
+
+    async def _run() -> None:
+        """后台执行体"""
+        from app.data_pipeline.fetcher import DataFetcher
+
+        try:
+            fetcher = DataFetcher()
+            result = await fetcher.fetch_minishare_ann_history(
+                start_date=start_date,
+                end_date=end_date,
+                task_id=task_id,
+            )
+            logger.info(f"[{task_id_short}] minishare 公告历史同步完成: {result}")
+        except Exception as e:
+            logger.error(f"[{task_id_short}] minishare 公告历史同步失败: {e}", exc_info=True)
+
+    if background_tasks:
+        background_tasks.add_task(_run)
+        return SyncResponse(
+            task_id=task_id_short,
+            status="running",
+            message=f"公告历史同步任务已提交: {start_date}~{end_date}，用 GET /minishare/tasks/{task_id} 查询进度",
+        )
+    else:
+        await _run()
+        return SyncResponse(
+            task_id=task_id_short,
+            status="completed",
+            message=f"minishare 公告历史同步完成: {start_date}~{end_date}",
+        )
+
+
 @router.get("/minishare/progress", response_model=dict)
 async def get_minishare_progress() -> dict:
     """

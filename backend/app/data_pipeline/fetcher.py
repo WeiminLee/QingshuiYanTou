@@ -783,6 +783,7 @@ class DataFetcher:
             processed_items=total_days,
             success_count=total_success,
             skipped_count=total_skipped,
+            downloaded_count=0,
             fail_count=total_fail,
             current_watermark=last_success_date,
             last_item_id=last_success_date,
@@ -799,6 +800,248 @@ class DataFetcher:
             "fail": total_fail,
             "source": "minishare",
         }
+
+    # ── 公告（minishare anns_d）───────────────────────────────
+
+    async def fetch_minishare_announcements(
+        self,
+        ann_date: str | None = None,
+        ts_code: str | None = None,
+        start_date: str | None = None,
+        end_date: str | None = None,
+    ) -> dict[str, int]:
+        """从 minishare 获取公告数据（单日全市场或按股票代码+日期范围）。
+
+        Args:
+            ann_date: 公告日期 YYYYMMDD（与 ts_code 二选一）
+            ts_code: 股票代码（配合 start_date/end_date）
+            start_date: 起始日期 YYYYMMDD
+            end_date: 结束日期 YYYYMMDD
+        """
+        task_id = generate_task_id()
+        set_task_id(task_id)
+
+        if not self.minishare_client.anns_available:
+            logger.warning("minishare 公告 token 未配置，跳过")
+            return {"success": 0, "skipped": 0, "fail": 0, "source": "minishare"}
+
+        if ann_date:
+            records = self.minishare_client.get_announcements(ann_date=ann_date)
+        elif ts_code and start_date and end_date:
+            records = self.minishare_client.get_announcements(
+                ts_code=ts_code, start_date=start_date, end_date=end_date,
+            )
+        else:
+            logger.warning("fetch_minishare_announcements 需要 ann_date 或 ts_code+日期范围")
+            return {"success": 0, "skipped": 0, "fail": 0, "source": "minishare"}
+
+        success = skipped = fail = 0
+        for rec in records:
+            ts_code_val = _normalize_ts_code(str(rec.get("ts_code") or ""))
+            ok = await self._save_minishare_ann(rec, ts_code_val)
+            if ok is True:
+                success += 1
+            elif ok is None:
+                skipped += 1
+            else:
+                fail += 1
+
+        logger.info(
+            "minishare 公告同步完成: %s，入库 %d，跳过 %d，失败 %d",
+            ann_date or f"{ts_code}({start_date}~{end_date})", success, skipped, fail,
+        )
+        return {"success": success, "skipped": skipped, "fail": fail, "source": "minishare"}
+
+    async def fetch_minishare_ann_history(
+        self,
+        start_date: str,
+        end_date: str,
+        task_id: str | None = None,
+    ) -> dict[str, int]:
+        """从 minishare 批量回填历史公告（按日期遍历，断点续跑）。
+
+        Args:
+            start_date: 起始日期 YYYYMMDD
+            end_date: 结束日期 YYYYMMDD
+            task_id: 可选，API 层传入的任务ID，用于关联 ingestion_runs 表
+        """
+        internal_task_id = task_id or generate_task_id()
+        set_task_id(internal_task_id)
+
+        if not self.minishare_client.anns_available:
+            logger.warning("minishare 公告 token 未配置，跳过")
+            return {"total_days": 0, "success": 0, "skipped": 0, "fail": 0, "source": "minishare"}
+
+        tracker = IngestionProgressTracker(
+            source="minishare_ann",
+            task_name="ann_history",
+            scope=f"{start_date}_{end_date}",
+        )
+        await tracker.ensure_tables()
+
+        # 读取 checkpoint
+        checkpoint = await tracker.get_checkpoint()
+        resume_start = start_date
+        if checkpoint and checkpoint.get("last_success_watermark"):
+            resume_date = checkpoint["last_success_watermark"]
+            resume_next = (datetime.strptime(resume_date, "%Y%m%d") + timedelta(days=1)).strftime("%Y%m%d")
+            if resume_next <= end_date:
+                resume_start = resume_next
+                logger.info(f"公告历史同步断点续跑: 从 {resume_start} 开始（已完成 {resume_date}）")
+
+        run_uuid: uuid.UUID | None = None
+        if task_id:
+            try:
+                run_uuid = uuid.UUID(task_id)
+            except ValueError:
+                run_uuid = None
+
+        run_ctx = await tracker.start_run(
+            from_watermark=resume_start,
+            to_watermark=end_date,
+            metadata={"source": "minishare"},
+            run_id=run_uuid,
+        )
+
+        logger.info("开始 minishare 公告历史同步: %s~%s", resume_start, end_date)
+        await self.audit_logger.ainfo(
+            "fetcher",
+            f"minishare 公告历史同步: {resume_start}~{end_date}",
+            task_id=internal_task_id,
+        )
+
+        total_success = 0
+        total_skipped = 0
+        total_fail = 0
+        total_days = 0
+        last_success_date = resume_start
+
+        async for date_str, records in self.minishare_client.iter_ann_by_date_range_async(resume_start, end_date):
+            total_days += 1
+
+            if not records:
+                await tracker.save_checkpoint(
+                    last_success_watermark=date_str,
+                    last_success_at=datetime.now(timezone.utc),
+                    last_status="running",
+                )
+                await tracker.update_run(
+                    run_ctx,
+                    current_watermark=date_str,
+                    total_items=total_days,
+                    processed_items=total_days,
+                )
+                last_success_date = date_str
+                continue
+
+            day_success = day_skipped = day_fail = 0
+            for rec in records:
+                ts_code_val = _normalize_ts_code(str(rec.get("ts_code") or ""))
+                ok = await self._save_minishare_ann(rec, ts_code_val)
+                if ok is True:
+                    day_success += 1
+                elif ok is None:
+                    day_skipped += 1
+                else:
+                    day_fail += 1
+
+            total_success += day_success
+            total_skipped += day_skipped
+            total_fail += day_fail
+            last_success_date = date_str
+
+            await tracker.save_checkpoint(
+                last_success_watermark=date_str,
+                last_success_at=datetime.now(timezone.utc),
+                last_status="running",
+            )
+            await tracker.update_run(
+                run_ctx,
+                current_watermark=date_str,
+                total_items=total_days,
+                processed_items=total_days,
+                success_count=total_success,
+                skipped_count=total_skipped,
+                fail_count=total_fail,
+            )
+
+            if total_days % 30 == 0:
+                await tracker.event(
+                    run_ctx,
+                    stage="batch_progress",
+                    message=f"公告历史同步进度: {date_str}",
+                    total_items=total_days,
+                    processed_items=total_days,
+                    success_count=total_success,
+                    skipped_count=total_skipped,
+                    fail_count=total_fail,
+                    item_id=date_str,
+                )
+
+        await tracker.finish_run(
+            run_ctx,
+            status=SUCCESS if total_fail == 0 else PARTIAL,
+            total_items=total_days,
+            processed_items=total_days,
+            success_count=total_success,
+            skipped_count=total_skipped,
+            downloaded_count=0,
+            fail_count=total_fail,
+            current_watermark=last_success_date,
+            last_item_id=last_success_date,
+        )
+
+        logger.info(
+            "minishare 公告历史同步完成: %s~%s，日期 %d 天，入库 %d，跳过 %d，失败 %d",
+            resume_start, end_date, total_days, total_success, total_skipped, total_fail,
+        )
+        return {
+            "total_days": total_days,
+            "success": total_success,
+            "skipped": total_skipped,
+            "fail": total_fail,
+            "source": "minishare",
+        }
+
+    async def _save_minishare_ann(
+        self,
+        rec: dict[str, Any],
+        ts_code: str,
+    ) -> bool | None:
+        """保存 minishare 公告记录；True=成功，None=已存在，False=失败。"""
+        ann_date = rec.get("ann_date") or ""
+        title = rec.get("title") or ""
+        if not ann_date or not title:
+            return False
+
+        try:
+            # 转换日期格式 YYYYMMDD -> DATE
+            date_val = datetime.strptime(ann_date, "%Y%m%d").date() if ann_date else None
+
+            async with engine.begin() as conn:
+                await conn.execute(
+                    text("""
+                        INSERT INTO minishare_announcements
+                            (ann_date, ts_code, name, title, source_url, source_type)
+                        VALUES
+                            (:ann_date, :ts_code, :name, :title, :source_url, :source_type)
+                        ON CONFLICT (ann_date, ts_code, title) DO NOTHING
+                    """),
+                    {
+                        "ann_date": date_val,
+                        "ts_code": ts_code or None,
+                        "name": rec.get("name") or "",
+                        "title": title,
+                        "source_url": rec.get("url") or "",
+                        "source_type": "minishare",
+                    },
+                )
+            return True
+        except IntegrityError:
+            return None
+        except Exception as e:
+            logger.warning("保存公告失败: %s", e)
+            return False
 
     async def _save_report(
         self,

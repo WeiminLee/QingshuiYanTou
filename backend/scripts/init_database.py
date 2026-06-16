@@ -346,6 +346,28 @@ MIGRATIONS = [
         downloaded_at TIMESTAMP DEFAULT now()
     );
     """,
+
+    # 017 - minishare 公告表
+    """
+    CREATE TABLE IF NOT EXISTS minishare_announcements (
+        id SERIAL PRIMARY KEY,
+        ann_date DATE NOT NULL,
+        ts_code VARCHAR(20),
+        name VARCHAR(100),
+        title VARCHAR(500),
+        type VARCHAR(200),
+        ann_types VARCHAR(200),
+        content TEXT,
+        source_url VARCHAR(1000),
+        file_path VARCHAR(1000),
+        pdf_url VARCHAR(1000),
+        source_type VARCHAR(50) DEFAULT 'minishare',
+        created_at TIMESTAMP DEFAULT now(),
+        UNIQUE(ann_date, ts_code, title)
+    );
+    CREATE INDEX IF NOT EXISTS idx_ma_ts ON minishare_announcements(ts_code);
+    CREATE INDEX IF NOT EXISTS idx_ma_date ON minishare_announcements(ann_date);
+    """,
 ]
 
 

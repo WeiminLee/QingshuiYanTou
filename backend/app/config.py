@@ -98,6 +98,8 @@ class Settings(BaseSettings):
     minishare_research_token: str = ""
     # 互动易（董秘问答）授权码（用于 irm_qa_sh / irm_qa_sz 接口）
     minishare_irm_token: str = ""
+    # 公告授权码（用于 anns_d 接口）
+    minishare_anns_token: str = ""
 
     # 数据资产目录（永久存储）
     data_assets_root: Path = Path("/home/10241671/DataSets/Stocks")

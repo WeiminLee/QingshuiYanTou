@@ -90,6 +90,8 @@ class DataSourceClientMinishare:
         else:
             self._irm_api = ms.pro_api(irm_token)
 
+        self._anns_api = None  # 延迟初始化
+
     @property
     def research_available(self) -> bool:
         return self._research_api is not None
@@ -97,6 +99,21 @@ class DataSourceClientMinishare:
     @property
     def irm_available(self) -> bool:
         return self._irm_api is not None
+
+    @property
+    def anns_available(self) -> bool:
+        return bool(settings.minishare_anns_token)
+
+    def _ensure_anns_api(self) -> Any:
+        """延迟初始化 anns API"""
+        anns_token = settings.minishare_anns_token
+        if not anns_token:
+            logger.warning("MINISHARE_ANNS_TOKEN 未配置，公告数据源不可用")
+            self._anns_api = None
+            return None
+        if self._anns_api is None:
+            self._anns_api = ms.pro_api(anns_token)
+        return self._anns_api
 
     def get_reports(
         self,
@@ -446,4 +463,154 @@ class DataSourceClientMinishare:
                 logger.warning(f"minishare 深证互动易 {date_str} 失败: {e}")
 
             yield date_str, records
+            current += timedelta(days=1)
+
+    # ── 公告（anns_d）──────────────────────────────────────
+
+    def get_announcements(
+        self,
+        ann_date: Optional[str] = None,
+        ts_code: Optional[str] = None,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+        limit: int = 5000,
+    ) -> list[dict[str, Any]]:
+        """获取公告数据（minishare anns_d）。
+
+        Args:
+            ann_date: 按公告日期 YYYYMMDD（与 ts_code 二选一）
+            ts_code: 按股票代码（配合 start_date/end_date）
+            start_date: 起始日期 YYYYMMDD
+            end_date: 结束日期 YYYYMMDD
+            limit: 最大返回条数
+        """
+        api = self._ensure_anns_api()
+        if api is None:
+            logger.warning("公告数据源未配置 token")
+            return []
+
+        try:
+            if ann_date:
+                df = api.anns_d(ann_date=ann_date, limit=limit, offset=0)
+            elif ts_code:
+                df = api.anns_d(ts_code=ts_code, start_date=start_date, end_date=end_date, limit=limit, offset=0)
+            else:
+                logger.warning("get_announcements 需要 ann_date 或 ts_code 参数")
+                return []
+
+            if df is None or len(df) == 0:
+                logger.info("minishare 公告数据为空")
+                return []
+
+            records = []
+            for _, row in df.iterrows():
+                ann_date_val = _safe_str(row.get("ann_date"))
+                if not ann_date_val:
+                    continue
+                ts_code_val = _normalize_ts_code(str(row.get("ts_code") or ""))
+                records.append({
+                    "ann_date": ann_date_val,
+                    "ts_code": ts_code_val,
+                    "name": _safe_str(row.get("name")),
+                    "title": _safe_str(row.get("title")),
+                    "url": _safe_str(row.get("url")),
+                })
+
+            logger.info(f"minishare 获取公告数据: {len(records)} 条")
+            return records[:limit]
+        except Exception as e:
+            logger.error(f"minishare 获取公告数据失败: {e}")
+            return []
+
+    def iter_ann_by_date_range(
+        self,
+        start_date: str,
+        end_date: str,
+    ):
+        """按日期范围遍历公告数据（生成器）。
+
+        Args:
+            start_date: 起始日期 YYYYMMDD
+            end_date: 结束日期 YYYYMMDD
+
+        Yields:
+            tuple(date_str, list[dict]): 每天的公告记录列表
+        """
+        api = self._ensure_anns_api()
+        if api is None:
+            return
+
+        from datetime import datetime, timedelta
+
+        current = datetime.strptime(start_date, "%Y%m%d")
+        end = datetime.strptime(end_date, "%Y%m%d")
+        while current <= end:
+            date_str = current.strftime("%Y%m%d")
+            try:
+                df = api.anns_d(ann_date=date_str, limit=5000, offset=0)
+                if df is not None and len(df) > 0:
+                    records = []
+                    for _, row in df.iterrows():
+                        ann_date_val = _safe_str(row.get("ann_date"))
+                        if not ann_date_val:
+                            continue
+                        ts_code_val = _normalize_ts_code(str(row.get("ts_code") or ""))
+                        records.append({
+                            "ann_date": ann_date_val,
+                            "ts_code": ts_code_val,
+                            "name": _safe_str(row.get("name")),
+                            "title": _safe_str(row.get("title")),
+                            "url": _safe_str(row.get("url")),
+                        })
+                    yield date_str, records
+                else:
+                    yield date_str, []
+            except Exception as e:
+                logger.warning(f"minishare 公告 {date_str} 失败: {e}")
+                yield date_str, []
+            current += timedelta(days=1)
+
+    async def iter_ann_by_date_range_async(
+        self,
+        start_date: str,
+        end_date: str,
+    ):
+        """async 版本的 iter_ann_by_date_range。
+
+        每个日期的 API 调用通过 asyncio.to_thread 放到线程池执行，
+        避免阻塞 FastAPI 事件循环。
+        """
+        import asyncio
+        from datetime import datetime, timedelta
+
+        api = self._ensure_anns_api()
+        if api is None:
+            return
+
+        current = datetime.strptime(start_date, "%Y%m%d")
+        end = datetime.strptime(end_date, "%Y%m%d")
+        while current <= end:
+            date_str = current.strftime("%Y%m%d")
+            try:
+                df = await asyncio.to_thread(api.anns_d, ann_date=date_str, limit=5000, offset=0)
+            except Exception as e:
+                logger.warning(f"minishare 公告 {date_str} 失败: {e}")
+                df = None
+            if df is not None and len(df) > 0:
+                records = []
+                for _, row in df.iterrows():
+                    ann_date_val = _safe_str(row.get("ann_date"))
+                    if not ann_date_val:
+                        continue
+                    ts_code_val = _normalize_ts_code(str(row.get("ts_code") or ""))
+                    records.append({
+                        "ann_date": ann_date_val,
+                        "ts_code": ts_code_val,
+                        "name": _safe_str(row.get("name")),
+                        "title": _safe_str(row.get("title")),
+                        "url": _safe_str(row.get("url")),
+                    })
+                yield date_str, records
+            else:
+                yield date_str, []
             current += timedelta(days=1)

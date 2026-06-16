@@ -6,9 +6,11 @@
 #   ./sync.sh daily                  # 每日增量同步（昨天数据）
 #   ./sync.sh daily --irm-only       # 仅同步互动易
 #   ./sync.sh daily --reports-only   # 仅同步研报
+#   ./sync.sh daily --ann-only       # 仅同步公告
 #   ./sync.sh history                # 历史批量回补（从上次断点继续）
 #   ./sync.sh history --reports-only  # 仅回补研报
 #   ./sync.sh history --irm-only      # 仅回补互动易
+#   ./sync.sh history --ann-only      # 仅回补公告
 #   ./sync.sh history 20250601 20260616  # 指定日期范围回补
 #   ./sync.sh progress               # 查看回补进度
 #   ./sync.sh status                 # 查看数据状态
@@ -279,11 +281,17 @@ case "$MODE" in
                 log_info "=== 每日增量同步：研报 ==="
                 api_call "POST" "/api/v1/sync/minishare/reports" "" "minishare 研报"
                 ;;
+            --ann-only)
+                log_info "=== 每日增量同步：公告 ==="
+                api_call "POST" "/api/v1/sync/minishare/announcements" "" "minishare 公告"
+                ;;
             "")
-                log_info "=== 每日增量同步：研报 + 互动易 ==="
+                log_info "=== 每日增量同步：研报 + 互动易 + 公告 ==="
                 api_call "POST" "/api/v1/sync/minishare/reports" "" "minishare 研报"
                 echo ""
                 api_call "POST" "/api/v1/sync/minishare/irm" "" "minishare 互动易"
+                echo ""
+                api_call "POST" "/api/v1/sync/minishare/announcements" "" "minishare 公告"
                 ;;
             *)
                 log_error "未知选项: $OPT"
@@ -318,6 +326,7 @@ case "$MODE" in
         case "$OPT" in
             --irm-only)       TARGET="irm" ;;
             --reports-only)   TARGET="reports" ;;
+            --ann-only)       TARGET="ann" ;;
             "")               TARGET="both" ;;
             *)
                 log_error "未知选项: $OPT"
@@ -353,6 +362,16 @@ case "$MODE" in
                 "/api/v1/sync/minishare/irm/history" \
                 "start_date=${START_DATE}&end_date=${END_DATE}" \
                 "互动易批量回补 (minishare)"
+        fi
+
+        if [ "$TARGET" = "ann" ] || [ "$TARGET" = "both" ]; then
+            if [ "$TARGET" = "both" ]; then
+                echo ""
+            fi
+            submit_and_watch \
+                "/api/v1/sync/minishare/announcements/history" \
+                "start_date=${START_DATE}&end_date=${END_DATE}" \
+                "公告批量回补 (minishare)"
         fi
         ;;
 
