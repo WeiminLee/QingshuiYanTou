@@ -94,9 +94,15 @@ class FileStorage:
         self.reports_dir = reports_dir or (storage_base / "reports")
         self.notices_dir = notices_dir or (storage_base / "notices")
 
+        # minishare 外部存储路径（研报/互动易 PDF，与项目 storage 分离）
+        self.external_reports_dir = Path(settings.minishare_data_root) / "reports"
+        self.external_notices_dir = Path(settings.minishare_data_root) / "irm"
+
         # 确保目录存在
         self.reports_dir.mkdir(parents=True, exist_ok=True)
         self.notices_dir.mkdir(parents=True, exist_ok=True)
+        self.external_reports_dir.mkdir(parents=True, exist_ok=True)
+        self.external_notices_dir.mkdir(parents=True, exist_ok=True)
 
     def _get_notice_path(self, ts_code: str, pub_date: str, filename: str) -> Path:
         """公告存储路径：storage/notices/{ts_code}/{YYYY-MM}/
@@ -283,6 +289,86 @@ class FileStorage:
             return file_path
         except Exception as e:
             logger.error(f"研报下载失败 [{url}]: {e}")
+            return None
+
+    def _get_external_report_path(
+        self,
+        ts_code: str,
+        inst_csname: str,
+        trade_date: str,
+        filename: str,
+    ) -> tuple[Optional[Path], str | None]:
+        """研报外部存储路径：minishare_data_root/reports/{ts_code}/{YYYY-MM}/"""
+        safe_ts_code = _sanitize_ts_code(ts_code)
+        safe_filename = _sanitize_filename(filename)
+        if trade_date and len(trade_date) >= 6:
+            year_month = f"{trade_date[:4]}-{trade_date[4:6]}"
+        else:
+            year_month = "unknown"
+
+        storage_dir = self.external_reports_dir / safe_ts_code / year_month
+        storage_dir.mkdir(parents=True, exist_ok=True)
+        return storage_dir / safe_filename, REPORT_PATH_STOCK
+
+    def save_report_external(
+        self,
+        content: bytes,
+        ts_code: str,
+        inst_csname: str,
+        trade_date: str,
+        filename: str,
+    ) -> Optional[Path]:
+        """保存研报 PDF 到外部存储"""
+        if not content[:5] == b"%PDF-":
+            logger.warning("内容不是 PDF，放弃保存")
+            return None
+        try:
+            file_path, storage_type = self._get_external_report_path(
+                ts_code, inst_csname, trade_date, filename
+            )
+            if file_path is None:
+                logger.debug(f"研报外部存储跳过（无 ts_code）: {filename}")
+                return None
+            file_path.write_bytes(content)
+            logger.info(f"研报外部保存成功: {file_path}")
+            return file_path
+        except Exception as e:
+            logger.error(f"研报外部保存失败: {e}")
+            return None
+
+    def download_report_external(
+        self,
+        url: str,
+        ts_code: str,
+        inst_csname: str,
+        trade_date: str,
+        filename: str,
+    ) -> Optional[Path]:
+        """下载并保存研报 PDF 到外部存储（存在则跳过）"""
+        try:
+            file_path, storage_type = self._get_external_report_path(
+                ts_code, inst_csname, trade_date, filename
+            )
+            if file_path is None:
+                logger.debug(f"研报外部下载跳过（无 ts_code）: {filename}")
+                return None
+            if file_path.exists():
+                logger.debug(f"研报已存在，跳过下载: {file_path}")
+                return file_path
+            get_cninfo_pdf_limiter().wait_and_acquire()
+            response = requests.get(url, timeout=30, headers=HTTP_HEADERS)
+            response.raise_for_status()
+
+            content = response.content
+            if not content[:5] == b"%PDF-":
+                logger.warning(f"下载内容不是 PDF [{url[:80]}]")
+                return None
+
+            file_path.write_bytes(content)
+            logger.info(f"研报外部下载成功: {file_path}")
+            return file_path
+        except Exception as e:
+            logger.error(f"研报外部下载失败 [{url}]: {e}")
             return None
 
     def file_exists(self, file_path: Path) -> bool:
