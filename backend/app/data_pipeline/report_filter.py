@@ -10,57 +10,68 @@ DOC_TYPE_SAVE = "save"
 DOC_TYPE_SKIP = "skip"
 
 
-# ── 产业链关键词分类表 ───────────────────────────────────────────
-# 更具体的关键词必须排在更通用的之前，避免被截胡。
+# ── 产业链 / 供应链（最核心） ───────────────────────────
 TITLE_CLASSIFICATION: dict[str, tuple[str, str]] = {
-    # ── 产业链 / 供应链（最核心） ───────────────────────────
+    # ── 产业链 / 供应链 ────────────────────────────────
     "产业链":         ("industry_chain",  DOC_TYPE_SAVE),
     "供应链":         ("industry_chain",  DOC_TYPE_SAVE),
-    "产业供应链":     ("industry_chain",  DOC_TYPE_SAVE),
     "上下游":         ("industry_chain",  DOC_TYPE_SAVE),
-    "产业链研究":     ("industry_chain",  DOC_TYPE_SAVE),
-    "供应链研究":     ("industry_chain",  DOC_TYPE_SAVE),
-    "产业链深度":     ("industry_chain",  DOC_TYPE_SAVE),
-    "供应链专题":     ("industry_chain",  DOC_TYPE_SAVE),
 
-    # ── 行业报告 ───────────────────────────────────────────
-    "行业报告":       ("industry",        DOC_TYPE_SAVE),
+    # ── 行业报告（细分先于通用） ─────────────────────
     "行业深度":      ("industry",        DOC_TYPE_SAVE),
-    "行业专题":      ("industry",        DOC_TYPE_SAVE),
-    "行业研究":      ("industry",        DOC_TYPE_SAVE),
-    "行业策略":      ("industry",        DOC_TYPE_SAVE),
+    "行业报告":       ("industry",        DOC_TYPE_SAVE),
     "行业跟踪":      ("industry",        DOC_TYPE_SAVE),
     "行业动态":      ("industry",        DOC_TYPE_SAVE),
-    "行业点评":      ("industry",        DOC_TYPE_SAVE),
-    "行业周报":      ("industry",        DOC_TYPE_SAVE),
+    "行业专题":      ("industry",        DOC_TYPE_SAVE),
     "行业月报":      ("industry",        DOC_TYPE_SAVE),
+    "行业周报":      ("industry",        DOC_TYPE_SAVE),
     "行业季报":      ("industry",        DOC_TYPE_SAVE),
-    "行业年报":      ("industry",        DOC_TYPE_SAVE),
-    "行业综述":      ("industry",        DOC_TYPE_SAVE),
+    "行业策略":      ("industry",        DOC_TYPE_SAVE),
+    "行业研究":      ("industry",        DOC_TYPE_SAVE),
     "行业分析":      ("industry",        DOC_TYPE_SAVE),
+    "行业点评":      ("industry",        DOC_TYPE_SAVE),
     "行业趋势":      ("industry",        DOC_TYPE_SAVE),
     "行业展望":      ("industry",        DOC_TYPE_SAVE),
-    "行业概览":      ("industry",        DOC_TYPE_SAVE),
     "行业图谱":      ("industry",        DOC_TYPE_SAVE),
-    "行业地图":      ("industry",        DOC_TYPE_SAVE),
 
-    # ── 产业研究报告 ────────────────────────────────────────
+    # ── 产业报告 ────────────────────────────────────
     "产业报告":       ("industry",        DOC_TYPE_SAVE),
     "产业研究":      ("industry",        DOC_TYPE_SAVE),
     "产业深度":      ("industry",        DOC_TYPE_SAVE),
     "产业专题":      ("industry",        DOC_TYPE_SAVE),
-    "产业分析":      ("industry",        DOC_TYPE_SAVE),
-    "产业趋势":      ("industry",        DOC_TYPE_SAVE),
 
-    # ── 大宗商品 / 原材料 ──────────────────────────────────
+    # ── 大宗商品 ────────────────────────────────────
+    "碳酸锂":         ("commodity",       DOC_TYPE_SAVE),
+    "黄金":           ("commodity",       DOC_TYPE_SAVE),
+    "原油":           ("commodity",       DOC_TYPE_SAVE),
     "大宗商品":       ("commodity",       DOC_TYPE_SAVE),
-    "原材料":        ("commodity",       DOC_TYPE_SAVE),
+    "铜":             ("commodity",       DOC_TYPE_SAVE),
+    "铝":             ("commodity",       DOC_TYPE_SAVE),
+    "锂":             ("commodity",       DOC_TYPE_SAVE),
+    "稀土":           ("commodity",       DOC_TYPE_SAVE),
+    "煤炭":           ("commodity",       DOC_TYPE_SAVE),
+    "钢铁":           ("commodity",       DOC_TYPE_SAVE),
+    "水泥":           ("commodity",       DOC_TYPE_SAVE),
+    "玻璃":           ("commodity",       DOC_TYPE_SAVE),
 
-    # ── 专题 / 深度报告 ───────────────────────────────────
-    "专题报告":       ("special_topic",  DOC_TYPE_SAVE),
+    # ── 宏观 / 债券 ──────────────────────────────────
+    "宏观":           ("macro",           DOC_TYPE_SAVE),
+    "利率":           ("macro",           DOC_TYPE_SAVE),
+    "流动性":         ("macro",           DOC_TYPE_SAVE),
+    "社融":           ("macro",           DOC_TYPE_SAVE),
+    "通胀":           ("macro",           DOC_TYPE_SAVE),
+    "CPI":            ("macro",           DOC_TYPE_SAVE),
+    "PPI":            ("macro",           DOC_TYPE_SAVE),
+    "固收":           ("macro",           DOC_TYPE_SAVE),
+    "债券":           ("macro",           DOC_TYPE_SAVE),
+    "货币政策":       ("macro",           DOC_TYPE_SAVE),
+    "财政":           ("macro",           DOC_TYPE_SAVE),
+    "外贸":           ("macro",           DOC_TYPE_SAVE),
+
+    # ── 专题 / 深度报告 ───────────────────────────────
+    "专题":           ("special_topic",  DOC_TYPE_SAVE),
     "深度报告":       ("special_topic",  DOC_TYPE_SAVE),
     "深度研究":       ("special_topic",  DOC_TYPE_SAVE),
-    "专题研究":       ("special_topic",  DOC_TYPE_SAVE),
 }
 
 
