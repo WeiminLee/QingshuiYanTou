@@ -358,60 +358,6 @@ class DataFetcher:
         )
         return {"total": total, "success": success, "skipped": skipped, "fail": fail, "source": "minishare"}
 
-    async def fetch_minishare_irm(
-        self,
-        trade_date: str | None = None,
-    ) -> dict[str, int]:
-        """从 minishare 获取互动易 Q&A 并入库（备选通道）。"""
-        task_id = generate_task_id()
-        set_task_id(task_id)
-
-        if trade_date is None:
-            trade_date = (datetime.now() - timedelta(days=1)).strftime("%Y%m%d")
-
-        if not self.minishare_client.irm_available:
-            logger.warning("minishare 互动易 token 未配置，跳过")
-            return {"total": 0, "success": 0, "skipped": 0, "fail": 0, "source": "minishare"}
-
-        logger.info("开始从 minishare 获取互动易: %s", trade_date)
-        await self.audit_logger.ainfo(
-            "fetcher",
-            f"开始从 minishare 获取互动易: {trade_date}",
-            task_id=task_id,
-            trade_date=trade_date,
-        )
-
-        records = await asyncio.to_thread(
-            self.minishare_client.get_irm,
-            trade_date=trade_date,
-        )
-
-        if not records:
-            logger.info("minishare 互动易数据为空")
-            return {"total": 0, "success": 0, "skipped": 0, "fail": 0, "source": "minishare"}
-
-        success = skipped = fail = 0
-        for rec in records:
-            # 复用 _save_irm_record 的逻辑（ts_code 从 stock_code 推断）
-            ts_code_raw = _norm_ts_code(rec.get("stock_code") or "")
-            if ts_code_raw and "." not in ts_code_raw:
-                ts_code = _normalize_ts_code(ts_code_raw)
-            else:
-                ts_code = ts_code_raw
-            ok = await self._save_irm_record(ts_code or "UNKNOWN", rec)
-            if ok is True:
-                success += 1
-            elif ok is None:
-                skipped += 1
-            else:
-                fail += 1
-
-        logger.info(
-            "minishare 互动易获取完成: 总 %d，新增 %d，跳过 %d，失败 %d",
-            len(records), success, skipped, fail,
-        )
-        return {"total": len(records), "success": success, "skipped": skipped, "fail": fail, "source": "minishare"}
-
     async def fetch_minishare_reports_history(
         self,
         start_date: str,
@@ -655,163 +601,6 @@ class DataFetcher:
             "source": "minishare",
         }
 
-    async def fetch_minishare_irm_history(
-        self,
-        start_date: str,
-        end_date: str,
-        task_id: str | None = None,
-    ) -> dict[str, int]:
-        """从 minishare 批量回填历史互动易（按日期遍历，断点续跑）。
-
-        Args:
-            start_date: 起始日期 YYYYMMDD
-            end_date: 结束日期 YYYYMMDD
-            task_id: 可选，API 层传入的任务ID，用于关联 ingestion_runs 表
-        """
-        internal_task_id = task_id or generate_task_id()
-        set_task_id(internal_task_id)
-
-        if not self.minishare_client.irm_available:
-            logger.warning("minishare 互动易 token 未配置，跳过")
-            return {"total_days": 0, "success": 0, "skipped": 0, "fail": 0, "source": "minishare"}
-
-        tracker = IngestionProgressTracker(
-            source="minishare_irm",
-            task_name="irm_history",
-            scope=f"{start_date}_{end_date}",
-        )
-        await tracker.ensure_tables()
-
-        # 读取 checkpoint
-        checkpoint = await tracker.get_checkpoint()
-        resume_start = start_date
-        if checkpoint and checkpoint.get("last_success_watermark"):
-            resume_date = checkpoint["last_success_watermark"]
-            resume_next = (datetime.strptime(resume_date, "%Y%m%d") + timedelta(days=1)).strftime("%Y%m%d")
-            if resume_next <= end_date:
-                resume_start = resume_next
-                logger.info(f"互动易历史同步断点续跑: 从 {resume_start} 开始（已完成 {resume_date}）")
-
-        # 用传入的 task_id 作为 run_id（方便 API 查询）
-        run_uuid: uuid.UUID | None = None
-        if task_id:
-            try:
-                run_uuid = uuid.UUID(task_id)
-            except ValueError:
-                run_uuid = None
-
-        run_ctx = await tracker.start_run(
-            from_watermark=resume_start,
-            to_watermark=end_date,
-            metadata={"source": "minishare"},
-            run_id=run_uuid,
-        )
-
-        logger.info("开始 minishare 互动易历史同步: %s~%s", resume_start, end_date)
-        await self.audit_logger.ainfo(
-            "fetcher",
-            f"minishare 互动易历史同步: {resume_start}~{end_date}",
-            task_id=internal_task_id,
-        )
-
-        total_success = 0
-        total_skipped = 0
-        total_fail = 0
-        total_days = 0
-        last_success_date = resume_start
-
-        async for date_str, records in self.minishare_client.iter_irm_by_date_range_async(resume_start, end_date):
-            total_days += 1
-
-            if not records:
-                await tracker.save_checkpoint(
-                    last_success_watermark=date_str,
-                    last_success_at=datetime.now(timezone.utc),
-                    last_status="running",
-                )
-                await tracker.update_run(
-                    run_ctx,
-                    current_watermark=date_str,
-                    total_items=total_days,
-                    processed_items=total_days,
-                )
-                last_success_date = date_str
-                continue
-
-            day_success = day_skipped = day_fail = 0
-            for rec in records:
-                ts_code_raw = _norm_ts_code(rec.get("stock_code") or "")
-                if ts_code_raw and "." not in ts_code_raw:
-                    ts_code = _normalize_ts_code(ts_code_raw)
-                else:
-                    ts_code = ts_code_raw
-
-                ok = await self._save_irm_record(ts_code or "UNKNOWN", rec)
-                if ok is True:
-                    day_success += 1
-                elif ok is None:
-                    day_skipped += 1
-                else:
-                    day_fail += 1
-
-            total_success += day_success
-            total_skipped += day_skipped
-            total_fail += day_fail
-            last_success_date = date_str
-
-            await tracker.save_checkpoint(
-                last_success_watermark=date_str,
-                last_success_at=datetime.now(timezone.utc),
-                last_status="running",
-            )
-            await tracker.update_run(
-                run_ctx,
-                current_watermark=date_str,
-                total_items=total_days,
-                processed_items=total_days,
-                success_count=total_success,
-                skipped_count=total_skipped,
-                fail_count=total_fail,
-            )
-
-            if total_days % 30 == 0:
-                await tracker.event(
-                    run_ctx,
-                    stage="batch_progress",
-                    message=f"互动易历史同步进度: {date_str}",
-                    total_items=total_days,
-                    processed_items=total_days,
-                    success_count=total_success,
-                    skipped_count=total_skipped,
-                    fail_count=total_fail,
-                    item_id=date_str,
-                )
-
-        await tracker.finish_run(
-            run_ctx,
-            status=SUCCESS if total_fail == 0 else PARTIAL,
-            total_items=total_days,
-            processed_items=total_days,
-            success_count=total_success,
-            skipped_count=total_skipped,
-            downloaded_count=0,
-            fail_count=total_fail,
-            current_watermark=last_success_date,
-            last_item_id=last_success_date,
-        )
-
-        logger.info(
-            "minishare 互动易历史同步完成: %s~%s，日期 %d 天，入库 %d，跳过 %d，失败 %d",
-            resume_start, end_date, total_days, total_success, total_skipped, total_fail,
-        )
-        return {
-            "total_days": total_days,
-            "success": total_success,
-            "skipped": total_skipped,
-            "fail": total_fail,
-            "source": "minishare",
-        }
-
     # ── 公告（minishare anns_d）───────────────────────────────
 
     async def fetch_minishare_announcements(
@@ -852,6 +641,12 @@ class DataFetcher:
 
         success = skipped = fail = 0
         for rec in records:
+            title = str(rec.get("title") or "")
+            # 公告过滤：只保存命中关键词的公告
+            _, action = classify_ann_title(title)
+            if action != ANN_DOC_TYPE_SAVE:
+                skipped += 1
+                continue
             ts_code_val = _normalize_ts_code(str(rec.get("ts_code") or ""))
             ok = await self._save_minishare_ann(rec, ts_code_val)
             if ok is True:
@@ -951,6 +746,12 @@ class DataFetcher:
 
             day_success = day_skipped = day_fail = 0
             for rec in records:
+                title = str(rec.get("title") or "")
+                # 公告过滤：只保存命中关键词的公告
+                _, action = classify_ann_title(title)
+                if action != ANN_DOC_TYPE_SAVE:
+                    day_skipped += 1
+                    continue
                 ts_code_val = _normalize_ts_code(str(rec.get("ts_code") or ""))
                 ok = await self._save_minishare_ann(rec, ts_code_val)
                 if ok is True:
@@ -1381,13 +1182,24 @@ class DataFetcher:
 
         # 解析中文日期格式: "2026年05月08日 09:00" -> date
         # P1 修复：使用北京时间，避免凌晨抓取时日期错位
+        from datetime import date as date_type
+        import re
         ann_date_obj = datetime.now(SH_TZ).date()
+        parsed = False
         if question_time:
-            import re
             m = re.match(r"(\d{4})年(\d{1,2})月(\d{1,2})日", question_time)
             if m:
-                from datetime import date as date_type
                 ann_date_obj = date_type(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+                parsed = True
+            else:
+                m2 = re.match(r"(\d{4})[-/](\d{1,2})[-/](\d{1,2})", question_time)
+                if m2:
+                    ann_date_obj = date_type(int(m2.group(1)), int(m2.group(2)), int(m2.group(3)))
+                    parsed = True
+        if not parsed:
+            trade_date_str = str(rec.get("trade_date") or "").strip()
+            if len(trade_date_str) == 8 and trade_date_str.isdigit():
+                ann_date_obj = date_type(int(trade_date_str[:4]), int(trade_date_str[4:6]), int(trade_date_str[6:8]))
 
         sql = """
         INSERT INTO announcements (

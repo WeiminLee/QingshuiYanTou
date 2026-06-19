@@ -3,7 +3,7 @@ DataSourceClientMinishare — minishare 备选数据源
 
 数据源：
 - 研报: pro.research_report(trade_date=) / pro.research_report(ts_code=, start_date=, end_date=)
-- 互动易: pro.irm_qa_sh(trade_date=) / pro.irm_qa_sz(trade_date=)
+- 公告: pro.anns_d(ann_date=) / pro.anns_d(ts_code=, start_date=, end_date=)
 """
 from __future__ import annotations
 
@@ -14,6 +14,7 @@ import minishare as ms
 import pandas as pd
 
 from app.config import settings
+from app.data_pipeline.rate_limiter import get_minishare_async_limiter
 
 logger = logging.getLogger(__name__)
 
@@ -76,7 +77,6 @@ class DataSourceClientMinishare:
 
     def __init__(self) -> None:
         research_token = settings.minishare_research_token
-        irm_token = settings.minishare_irm_token
 
         if not research_token:
             logger.warning("MINISHARE_RESEARCH_TOKEN 未配置，研报数据源不可用")
@@ -84,21 +84,11 @@ class DataSourceClientMinishare:
         else:
             self._research_api = ms.pro_api(research_token)
 
-        if not irm_token:
-            logger.warning("MINISHARE_IRM_TOKEN 未配置，互动易数据源不可用")
-            self._irm_api = None
-        else:
-            self._irm_api = ms.pro_api(irm_token)
-
         self._anns_api = None  # 延迟初始化
 
     @property
     def research_available(self) -> bool:
         return self._research_api is not None
-
-    @property
-    def irm_available(self) -> bool:
-        return self._irm_api is not None
 
     @property
     def anns_available(self) -> bool:
@@ -176,62 +166,6 @@ class DataSourceClientMinishare:
         except Exception as e:
             logger.error(f"minishare 获取研报数据失败: {e}")
             return []
-
-    def get_irm(self, trade_date: str) -> list[dict[str, Any]]:
-        """获取互动易 Q&A（minishare，深交所 + 上交所）。
-
-        Args:
-            trade_date: 日期 YYYYMMDD，如 '20260512'
-        """
-        if not self.irm_available:
-            logger.warning("互动易数据源未配置 token")
-            return []
-
-        records: list[dict[str, Any]] = []
-
-        # 上证
-        try:
-            df_sh = self._irm_api.irm_qa_sh(trade_date=trade_date)
-            if df_sh is not None and len(df_sh) > 0:
-                for _, row in df_sh.iterrows():
-                    answer = _safe_str(row.get("answer") or row.get("回答"))
-                    if not answer:
-                        continue
-                    records.append({
-                        "stock_code": _safe_str(row.get("stock_code") or row.get("股票代码")),
-                        "stock_name": _safe_str(row.get("stock_name") or row.get("公司简称")),
-                        "question": _safe_str(row.get("question") or row.get("问题")),
-                        "answer": answer,
-                        "question_time": _safe_str_full(row.get("question_time") or row.get("提问时间")),
-                        "answer_time": _safe_str_full(row.get("answer_time") or row.get("回答时间")),
-                        "exchange": "SH",
-                    })
-                logger.info(f"minishare 上证互动易: {len(df_sh)} 条")
-        except Exception as e:
-            logger.warning(f"minishare 上证互动易失败: {e}")
-
-        # 深证
-        try:
-            df_sz = self._irm_api.irm_qa_sz(trade_date=trade_date)
-            if df_sz is not None and len(df_sz) > 0:
-                for _, row in df_sz.iterrows():
-                    answer = _safe_str(row.get("answer") or row.get("回答内容"))
-                    if not answer:
-                        continue
-                    records.append({
-                        "stock_code": _safe_str(row.get("stock_code") or row.get("股票代码")),
-                        "stock_name": _safe_str(row.get("stock_name") or row.get("公司简称")),
-                        "question": _safe_str(row.get("question") or row.get("问题")),
-                        "answer": answer,
-                        "question_time": _safe_str_full(row.get("question_time") or row.get("提问时间")),
-                        "answer_time": _safe_str_full(row.get("answer_time") or row.get("更新时间")),
-                        "exchange": "SZ",
-                    })
-                logger.info(f"minishare 深证互动易: {len(df_sz)} 条")
-        except Exception as e:
-            logger.warning(f"minishare 深证互动易失败: {e}")
-
-        return records
 
     def iter_reports_by_date_range(
         self,
@@ -333,136 +267,53 @@ class DataSourceClientMinishare:
                 yield date_str, []
             current += timedelta(days=1)
 
-    def iter_irm_by_date_range(
+    async def iter_reports_by_date_range_async(
         self,
         start_date: str,
         end_date: str,
     ):
-        """按日期范围遍历互动易 Q&A（生成器，上证 + 深证）。
+        """async 版本的 iter_reports_by_date_range。
 
-        Args:
-            start_date: 起始日期 YYYYMMDD
-            end_date: 结束日期 YYYYMMDD
-
-        Yields:
-            tuple(date_str, list[dict]): 每天的互动易记录列表
-        """
-        if not self.irm_available:
-            return
-
-        from datetime import datetime, timedelta
-
-        current = datetime.strptime(start_date, "%Y%m%d")
-        end = datetime.strptime(end_date, "%Y%m%d")
-        while current <= end:
-            date_str = current.strftime("%Y%m%d")
-            records: list[dict[str, Any]] = []
-
-            # 上证
-            try:
-                df_sh = self._irm_api.irm_qa_sh(trade_date=date_str)
-                if df_sh is not None and len(df_sh) > 0:
-                    for _, row in df_sh.iterrows():
-                        answer = _safe_str(row.get("answer") or row.get("回答"))
-                        if not answer:
-                            continue
-                        records.append({
-                            "stock_code": _safe_str(row.get("stock_code") or row.get("股票代码")),
-                            "stock_name": _safe_str(row.get("stock_name") or row.get("公司简称")),
-                            "question": _safe_str(row.get("question") or row.get("问题")),
-                            "answer": answer,
-                            "question_time": _safe_str_full(row.get("question_time") or row.get("提问时间")),
-                            "answer_time": _safe_str_full(row.get("answer_time") or row.get("回答时间")),
-                            "exchange": "SH",
-                        })
-            except Exception as e:
-                logger.warning(f"minishare 上证互动易 {date_str} 失败: {e}")
-
-            # 深证
-            try:
-                df_sz = self._irm_api.irm_qa_sz(trade_date=date_str)
-                if df_sz is not None and len(df_sz) > 0:
-                    for _, row in df_sz.iterrows():
-                        answer = _safe_str(row.get("answer") or row.get("回答内容"))
-                        if not answer:
-                            continue
-                        records.append({
-                            "stock_code": _safe_str(row.get("stock_code") or row.get("股票代码")),
-                            "stock_name": _safe_str(row.get("stock_name") or row.get("公司简称")),
-                            "question": _safe_str(row.get("question") or row.get("问题")),
-                            "answer": answer,
-                            "question_time": _safe_str_full(row.get("question_time") or row.get("提问时间")),
-                            "answer_time": _safe_str_full(row.get("answer_time") or row.get("更新时间")),
-                            "exchange": "SZ",
-                        })
-            except Exception as e:
-                logger.warning(f"minishare 深证互动易 {date_str} 失败: {e}")
-
-            yield date_str, records
-            current += timedelta(days=1)
-
-    async def iter_irm_by_date_range_async(
-        self,
-        start_date: str,
-        end_date: str,
-    ):
-        """async 版本的 iter_irm_by_date_range。
-
-        每个日期的两个 API 调用（上证 + 深证）通过 asyncio.to_thread 放到线程池执行。
+        每个日期的 API 调用通过 asyncio.to_thread 放到线程池执行，
+        避免阻塞 FastAPI 事件循环。
         """
         import asyncio
         from datetime import datetime, timedelta
 
-        if not self.irm_available:
+        if not self.research_available:
             return
 
         current = datetime.strptime(start_date, "%Y%m%d")
         end = datetime.strptime(end_date, "%Y%m%d")
         while current <= end:
             date_str = current.strftime("%Y%m%d")
-            records: list[dict[str, Any]] = []
-
-            # 上证
+            # 网络请求放到线程池，遇到限流/网络错误时当天返回空记录
             try:
-                df_sh = await asyncio.to_thread(self._irm_api.irm_qa_sh, trade_date=date_str)
-                if df_sh is not None and len(df_sh) > 0:
-                    for _, row in df_sh.iterrows():
-                        answer = _safe_str(row.get("answer") or row.get("回答"))
-                        if not answer:
-                            continue
-                        records.append({
-                            "stock_code": _safe_str(row.get("stock_code") or row.get("股票代码")),
-                            "stock_name": _safe_str(row.get("stock_name") or row.get("公司简称")),
-                            "question": _safe_str(row.get("question") or row.get("问题")),
-                            "answer": answer,
-                            "question_time": _safe_str_full(row.get("question_time") or row.get("提问时间")),
-                            "answer_time": _safe_str_full(row.get("answer_time") or row.get("回答时间")),
-                            "exchange": "SH",
-                        })
+                df = await asyncio.to_thread(self._research_api.research_report, trade_date=date_str)
             except Exception as e:
-                logger.warning(f"minishare 上证互动易 {date_str} 失败: {e}")
-
-            # 深证
-            try:
-                df_sz = await asyncio.to_thread(self._irm_api.irm_qa_sz, trade_date=date_str)
-                if df_sz is not None and len(df_sz) > 0:
-                    for _, row in df_sz.iterrows():
-                        answer = _safe_str(row.get("answer") or row.get("回答内容"))
-                        if not answer:
-                            continue
-                        records.append({
-                            "stock_code": _safe_str(row.get("stock_code") or row.get("股票代码")),
-                            "stock_name": _safe_str(row.get("stock_name") or row.get("公司简称")),
-                            "question": _safe_str(row.get("question") or row.get("问题")),
-                            "answer": answer,
-                            "question_time": _safe_str_full(row.get("question_time") or row.get("提问时间")),
-                            "answer_time": _safe_str_full(row.get("answer_time") or row.get("更新时间")),
-                            "exchange": "SZ",
-                        })
-            except Exception as e:
-                logger.warning(f"minishare 深证互动易 {date_str} 失败: {e}")
-
-            yield date_str, records
+                logger.warning(f"minishare 研报 {date_str} 失败: {e}")
+                df = None
+            if df is not None and len(df) > 0:
+                records = []
+                for _, row in df.iterrows():
+                    pub_date = _safe_str(row.get("trade_date") or row.get("日期"))
+                    if not pub_date:
+                        continue
+                    ts_code_val = _normalize_ts_code(str(row.get("ts_code") or row.get("股票代码") or ""))
+                    records.append({
+                        "trade_date": pub_date,
+                        "ts_code": ts_code_val,
+                        "name": _safe_str(row.get("name") or row.get("股票简称")),
+                        "title": _safe_str(row.get("title") or row.get("报告名称")),
+                        "inst_csname": _safe_str(row.get("inst_csname") or row.get("机构")),
+                        "author": _safe_str(row.get("author") or row.get("作者")),
+                        "org_code": "",
+                        "url": _safe_str(row.get("url") or row.get("链接")),
+                        "file_name": "",
+                    })
+                yield date_str, records
+            else:
+                yield date_str, []
             current += timedelta(days=1)
 
     # ── 公告（anns_d）──────────────────────────────────────
@@ -589,8 +440,10 @@ class DataSourceClientMinishare:
 
         current = datetime.strptime(start_date, "%Y%m%d")
         end = datetime.strptime(end_date, "%Y%m%d")
+        ann_limiter = get_minishare_async_limiter("anns_d")
         while current <= end:
             date_str = current.strftime("%Y%m%d")
+            await ann_limiter.wait_and_acquire()
             try:
                 df = await asyncio.to_thread(api.anns_d, ann_date=date_str, limit=5000, offset=0)
             except Exception as e:
