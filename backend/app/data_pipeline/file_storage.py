@@ -8,6 +8,7 @@ import re
 import requests
 from pathlib import Path
 from typing import Optional
+from urllib.parse import urlparse, parse_qs
 
 import logging
 
@@ -210,6 +211,33 @@ class FileStorage:
             logger.error(f"文件保存失败: {e}")
             return None
 
+    @staticmethod
+    def _resolve_pdf_url(url: str) -> str | None:
+        if not url or not url.strip():
+            return None
+        url = url.strip()
+        # 情况 A: finalpage PDF 链接
+        if 'finalpage' in url and re.search(r'\.pdf$', url, re.IGNORECASE):
+            return url.replace('http://', 'https://')
+        # 情况 B: 详情页
+        parsed = urlparse(url)
+        qs = parse_qs(parsed.query)
+        announce_id = qs.get('announcementId', [None])[0]
+        announce_time = qs.get('announceTime', [None])[0]
+        if announce_id and announce_time:
+            try:
+                resp = requests.post(
+                    'http://www.cninfo.com.cn/new/announcement/bulletin_detail',
+                    params={'announceId': announce_id, 'announceTime': announce_time, 'flag': 'true'},
+                    headers=HTTP_HEADERS, timeout=15)
+                if resp.ok:
+                    file_url = resp.json().get('fileUrl')
+                    if file_url:
+                        return file_url
+            except Exception as e:
+                logger.warning("公告详情页 URL 解析失败: %s", e)
+        return None
+
     def download_notice(
         self,
         url: str,
@@ -218,19 +246,23 @@ class FileStorage:
         pub_date: str | None = None,
     ) -> Optional[Path]:
         """下载并保存公告 PDF"""
+        resolved_url = self._resolve_pdf_url(url)
+        if not resolved_url:
+            logger.warning("公告 URL 无法解析为 PDF 地址，跳过 [%s]", url[:80])
+            return None
         try:
             get_cninfo_pdf_limiter().wait_and_acquire()
-            response = requests.get(url, timeout=30, headers=HTTP_HEADERS)
+            response = requests.get(resolved_url, timeout=30, headers=HTTP_HEADERS)
             response.raise_for_status()
 
             content = response.content
             if not content[:5] == b"%PDF-":
-                logger.warning(f"下载内容不是 PDF，可能是 HTML 错误页 [{url[:80]}]")
+                logger.warning(f"下载内容不是 PDF，可能是 HTML 错误页 [{resolved_url[:80]}]")
                 return None
 
             return self.save_notice(content, ts_code, filename, pub_date)
         except Exception as e:
-            logger.error(f"公告下载失败 [{url}]: {e}")
+            logger.error(f"公告下载失败 [{resolved_url}]: {e}")
             return None
 
     def save_report(
