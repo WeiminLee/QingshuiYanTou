@@ -89,20 +89,22 @@ class FileStorage:
     ):
         from app.config import settings
 
-        # 使用配置中的存储路径
-        storage_base = Path(settings.storage_dir) if hasattr(settings, "storage_dir") else Path(__file__).resolve().parent.parent.parent / "storage"
+        # 外部存储根路径（与项目代码分离）
+        self._data_root = Path(settings.minishare_data_root)
 
-        self.reports_dir = reports_dir or (storage_base / "reports")
-        self.notices_dir = notices_dir or (storage_base / "notices")
+        # 研报存储（外部路径）
+        self.reports_dir = reports_dir or (self._data_root / "reports")
 
-        # minishare 外部存储路径（研报/互动易 PDF，与项目 storage 分离）
-        self.external_reports_dir = Path(settings.minishare_data_root) / "reports"
-        self.external_notices_dir = Path(settings.minishare_data_root) / "irm"
+        # 公告存储（外部路径，与研报保持一致）
+        # 使用 minishare_data_root / "notices" 而非项目内 storage/notices
+        self.notices_dir = notices_dir or (self._data_root / "notices")
+
+        # 旧版 IRM 外部路径（保留向后兼容）
+        self.external_notices_dir = self._data_root / "irm"
 
         # 确保目录存在
         self.reports_dir.mkdir(parents=True, exist_ok=True)
         self.notices_dir.mkdir(parents=True, exist_ok=True)
-        self.external_reports_dir.mkdir(parents=True, exist_ok=True)
         self.external_notices_dir.mkdir(parents=True, exist_ok=True)
 
     def _get_notice_path(self, ts_code: str, pub_date: str, filename: str) -> Path:
@@ -216,26 +218,31 @@ class FileStorage:
         if not url or not url.strip():
             return None
         url = url.strip()
-        # 情况 A: finalpage PDF 链接
-        if 'finalpage' in url and re.search(r'\.pdf$', url, re.IGNORECASE):
+
+        # 情况 A: 已经是 PDF 链接（.pdf 结尾的各种域名都支持）
+        if re.search(r'\.pdf$', url, re.IGNORECASE):
             return url.replace('http://', 'https://')
-        # 情况 B: 详情页
-        parsed = urlparse(url)
-        qs = parse_qs(parsed.query)
-        announce_id = qs.get('announcementId', [None])[0]
-        announce_time = qs.get('announceTime', [None])[0]
-        if announce_id and announce_time:
-            try:
-                resp = requests.post(
-                    'http://www.cninfo.com.cn/new/announcement/bulletin_detail',
-                    params={'announceId': announce_id, 'announceTime': announce_time, 'flag': 'true'},
-                    headers=HTTP_HEADERS, timeout=15)
-                if resp.ok:
-                    file_url = resp.json().get('fileUrl')
-                    if file_url:
-                        return file_url
-            except Exception as e:
-                logger.warning("公告详情页 URL 解析失败: %s", e)
+
+        # 情况 B: 详情页 URL → 提取 announcementId → 调 API 获取 PDF 地址
+        if 'detail' in url and 'cninfo' in url:
+            parsed = urlparse(url)
+            qs = parse_qs(parsed.query)
+            announce_id = qs.get('announcementId', [None])[0]
+            if announce_id:
+                try:
+                    resp = requests.post(
+                        'http://www.cninfo.com.cn/new/announcement/bulletin_detail',
+                        params={'announceId': announce_id, 'flag': 'true'},
+                        headers=HTTP_HEADERS,
+                        timeout=15,
+                    )
+                    if resp.ok:
+                        file_url = resp.json().get('fileUrl')
+                        if file_url:
+                            return file_url
+                except Exception as e:
+                    logger.warning("公告详情页 URL 解析失败 [%s]: %s", announce_id, e)
+
         return None
 
     def download_notice(
