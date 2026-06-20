@@ -1,6 +1,8 @@
 # ── 节点类型常量 ────────────────────────────────────────
-# V1.2 Schema: 3 类实体（Company / Product / Metric）
-# 旧类型 Tech / Industry / Capacity / Event 已删除（2026-04-20 V1.2 迁移）
+# V1.3 Schema: 3 类实体（Company / Product / Metric）
+# 设计原则：克制扩展，最小 Schema，业务逻辑外置
+# 其他类型（Category/Application/Technology/Project）归入属性，不作为独立实体
+# 参考：docs/知识图谱设计.md - 四条铁律
 
 from __future__ import annotations
 
@@ -16,18 +18,36 @@ from app.core.neo4j_client import run, run_write, run_single, write_transaction
 logger = logging.getLogger(__name__)
 
 # ── 节点类型常量 ────────────────────────────────────────
-# V1.2 Schema: 3 类实体（Company / Product / Metric）
+# V1.3 Schema: 3 类实体（克制扩展原则）
 
-ENTITY_TYPES = frozenset({"Company", "Product", "Metric"})
-ENTITY_TYPES_V4 = frozenset({
-    "Company",
-    "Product",
-    "Category",
-    "Application",
-    "Technology",
-    "Metric",
-    "Project",
+ENTITY_TYPES = frozenset({
+    "Company", "Product", "Metric"
 })
+
+# ── entity_type 校验函数 ──────────────────────────────────────────────
+# 安全修复：防止 Cypher 注入攻击，entity_type 必须在白名单内
+
+def validate_entity_type(entity_type: str) -> str:
+    """
+    校验 entity_type 是否在白名单内，防止 Cypher 注入。
+
+    Args:
+        entity_type: 实体类型字符串
+
+    Returns:
+        校验通过的 entity_type
+
+    Raises:
+        ValueError: entity_type 不在白名单内
+    """
+    if entity_type not in ENTITY_TYPES:
+        raise ValueError(f"无效 entity_type: {entity_type}，有效值: {ENTITY_TYPES}")
+    return entity_type
+
+
+def is_valid_entity_type(entity_type: str) -> bool:
+    """检查 entity_type 是否有效（不抛异常）"""
+    return entity_type in ENTITY_TYPES
 
 
 # ── ID 生成 ──────────────────────────────────────────────
@@ -43,68 +63,45 @@ def _safe_metric_name(value: str) -> str:
     return value.replace("/", "_").replace(":", "_")
 
 
-def generate_entity_id_v4(
-    entity_type: str,
-    name: str,
-    ts_code: Optional[str] = None,
-    metric_name: Optional[str] = None,
-    period: Optional[str] = None,
-    event_date: Optional[str] = None,
-) -> str:
-    """
-    Schema V4 ID 格式：
-      Company → C:{ts_code}           例：C:600519.SH
-      Product → P:{md5[:16]}          例：P:A3F2B8C1D4E5F6A7
-      Category → CAT:{md5[:16]}
-      Application → APP:{md5[:16]}
-      Technology → TECH:{md5[:16]}
-      Metric  → M:{ts_code}:{metric}:{period}
-      Project → J:{ts_code}:{md5[:16]}
-    """
-    if entity_type == "Company":
-        if not ts_code:
-            raise ValueError("Company 类型必须提供 ts_code")
-        return f"C:{ts_code}"
-    if entity_type == "Product":
-        return f"P:{_short_hash(name)}"
-    if entity_type == "Category":
-        return f"CAT:{_short_hash(name)}"
-    if entity_type == "Application":
-        return f"APP:{_short_hash(name)}"
-    if entity_type == "Technology":
-        return f"TECH:{_short_hash(name)}"
-    if entity_type == "Metric":
-        metric = metric_name or name
-        if not ts_code or not metric:
-            raise ValueError("Metric 类型必须提供 ts_code 和 metric_name/name")
-        safe_metric = _safe_metric_name(metric)
-        if period:
-            safe_period = _safe_metric_name(period)
-            return f"M:{ts_code}:{safe_metric}:{safe_period}"
-        return f"M:{ts_code}:{safe_metric}"
-    if entity_type == "Project":
-        if not ts_code:
-            raise ValueError("Project 类型必须提供 ts_code")
-        return f"J:{ts_code}:{_short_hash(name)}"
-    raise ValueError(f"未知 entity_type: {entity_type}，V4 有效值: {ENTITY_TYPES_V4}")
-
-
 def generate_entity_id(
     entity_type: str,
     name: str,
     ts_code: Optional[str] = None,
     metric_name: Optional[str] = None,
-    event_date: Optional[str] = None,
+    period: Optional[str] = None,
 ) -> str:
-    """Backward-compatible wrapper for legacy callers."""
-    return generate_entity_id_v4(
-        entity_type=entity_type,
-        name=name,
-        ts_code=ts_code,
-        metric_name=metric_name,
-        period=None,
-        event_date=event_date,
-    )
+    """
+    唯一ID规则（V1.3 Schema - 3 类实体）：
+      Company → C:{ts_code}（上市）/ CO:{md5(name)[:12]}（非上市）
+      Product → P:{md5(name)[:16]}
+      Metric  → M:{ts_code}:{metric_name}:{period}（无period则省略最后一段）
+
+    其他类型（Category/Application/Technology/Project）不作为独立实体，
+    应归入 Company/Product 节点的 properties 属性中。
+    """
+    if entity_type == "Company":
+        if ts_code:
+            return f"C:{ts_code}"
+        # 非上市公司用名称哈希
+        return f"CO:{_short_hash(name, length=12)}"
+    if entity_type == "Product":
+        return f"P:{_short_hash(name)}"
+    if entity_type == "Metric":
+        metric = metric_name or name
+        if not metric:
+            raise ValueError("Metric 类型必须提供 metric_name/name")
+        safe_metric = _safe_metric_name(metric)
+        if period:
+            safe_period = _safe_metric_name(period)
+            if ts_code:
+                return f"M:{ts_code}:{safe_metric}:{safe_period}"
+            # 无 ts_code 时用名称哈希作为标识符（回退机制）
+            return f"M:{_short_hash(name, length=8)}:{safe_metric}:{safe_period}"
+        if ts_code:
+            return f"M:{ts_code}:{safe_metric}"
+        # 无 ts_code 且无 period 时用名称哈希
+        return f"M:{_short_hash(name, length=8)}:{safe_metric}"
+    raise ValueError(f"未知 entity_type: {entity_type}，有效值: {ENTITY_TYPES}")
 
 
 # ── 节点 → dict 互转 ──────────────────────────────────
@@ -133,21 +130,156 @@ def upsert_entity(
     evidence_url: Optional[str] = None,
     valid_from: Optional[date] = None,
     valid_to: Optional[date] = None,
-    parser_version: str = "v1.2",
+    parser_version: str = "v1.3",
 ) -> tuple[dict, bool]:
     """
-    Upsert 单条实体节点（Schema V4-compatible）。
+    Upsert 单条实体节点（原子性 MERGE 模式 - 防止竞态条件）。
 
-    - 节点不存在：创建（含全部属性）
-    - 节点已存在：SET n += properties（properties 覆盖旧值，
-      元数据字段 source_type / source_name / evidence_url 首次写入不覆盖）
+    安全修复：
+    - 使用 MERGE + ON CREATE SET + ON MATCH SET 原子操作
+    - entity_type 校验防止 Cypher 注入
+    - 避免查改分离导致的重复节点问题
 
     Returns:
         (节点 dict, 是否为新插入)
     """
-    if entity_type not in ENTITY_TYPES_V4:
-        raise ValueError(f"无效 entity_type: {entity_type}，V4 有效值: {ENTITY_TYPES_V4}")
+    # 安全校验：entity_type 必须在白名单内
+    validate_entity_type(entity_type)
 
+    if valid_from is None:
+        valid_from = date.today()
+
+    now = datetime.now().isoformat()
+    valid_from_str = str(valid_from)
+    valid_to_str = str(valid_to) if valid_to else None
+
+    # 准备属性
+    props = {
+        "entity_id": entity_id,
+        "name": name,
+        "confidence": confidence,
+        "source_type": source_type,
+        "source_name": source_name,
+        "evidence_url": evidence_url,
+        "valid_from": valid_from_str,
+        "valid_to": valid_to_str,
+        "parser_version": parser_version,
+        "created_at": now,
+        "updated_at": now,
+    }
+    if ts_code:
+        props["ts_code"] = ts_code
+        # Company 节点：自动从 StockNameResolver 解析 aliases
+        if entity_type == "Company":
+            try:
+                from app.knowledge.stock_name_resolver import get_stock_name_resolver
+                all_names = get_stock_name_resolver().get_aliases(ts_code)
+                aliases = [n for n in all_names if n and n != name]
+                if aliases:
+                    props["aliases"] = aliases
+            except Exception as e:
+                logger.warning("解析 Company aliases 失败 [%s]: %s", entity_id, e)
+
+    # 合并额外 properties（但不覆盖核心字段）
+    extra_props = dict(properties or {})
+
+    # 原子性 MERGE Cypher（单事务）
+    # 关键：使用 MERGE 确保 no race condition，ON CREATE/ON MATCH 处理两种情况
+    cypher = f"""
+    MERGE (n:{entity_type} {{entity_id: $entity_id}})
+    ON CREATE SET
+        n.name           = $name,
+        n.confidence     = $confidence,
+        n.source_type    = $source_type,
+        n.source_name    = $source_name,
+        n.evidence_url   = $evidence_url,
+        n.valid_from     = $valid_from,
+        n.valid_to       = $valid_to,
+        n.parser_version = $parser_version,
+        n.ts_code        = $ts_code,
+        n.aliases        = $aliases,
+        n.created_at     = $created_at,
+        n.updated_at     = $updated_at
+    ON MATCH SET
+        n.name           = $name,
+        n.confidence     = CASE WHEN n.confidence < $confidence THEN $confidence ELSE n.confidence END,
+        n.updated_at     = $updated_at,
+        n.valid_to       = COALESCE(n.valid_to, $valid_to)
+    WITH n
+    WHERE n.source_type IS NULL AND $source_type IS NOT NULL
+      SET n.source_type = $source_type
+    WITH n
+    WHERE n.source_name IS NULL AND $source_name IS NOT NULL
+      SET n.source_name = $source_name
+    WITH n
+    WHERE n.evidence_url IS NULL AND $evidence_url IS NOT NULL
+      SET n.evidence_url = $evidence_url
+    WITH n, $extra_props AS extra
+    WHERE extra IS NOT NULL AND size(extra) > 0
+      SET n += extra
+    RETURN n, n.created_at = $created_at AS is_new
+    """
+
+    try:
+        result = run_single(cypher, {
+            "entity_id": entity_id,
+            "name": name,
+            "confidence": confidence,
+            "source_type": source_type,
+            "source_name": source_name,
+            "evidence_url": evidence_url,
+            "valid_from": valid_from_str,
+            "valid_to": valid_to_str,
+            "parser_version": parser_version,
+            "ts_code": ts_code or "",
+            "aliases": props.get("aliases", []),
+            "created_at": now,
+            "updated_at": now,
+            "extra_props": extra_props,
+        })
+
+        if result:
+            node = result["n"]
+            is_new = bool(result.get("is_new", False))
+            node_dict = dict(node)
+            node_dict["entity_id"] = node.get("entity_id")
+            node_dict["entity_type"] = entity_type
+            if is_new:
+                logger.debug("新增实体: %s", entity_id)
+            else:
+                logger.debug("更新实体: %s", entity_id)
+            return node_dict, is_new
+    except Exception as e:
+        logger.warning("MERGE upsert 失败 [%s]: %s", entity_id, e)
+        # 降级：回退到旧的非原子模式（作为兜底）
+        return _upsert_entity_legacy(
+            entity_id, entity_type, name, ts_code, properties,
+            confidence, source_type, source_name, evidence_url,
+            valid_from, valid_to, parser_version
+        )
+
+    # 兜底返回
+    return props, True
+
+
+def _upsert_entity_legacy(
+    entity_id: str,
+    entity_type: str,
+    name: str = "",
+    ts_code: Optional[str] = None,
+    properties: Optional[dict] = None,
+    confidence: float = 0.80,
+    source_type: Optional[str] = None,
+    source_name: Optional[str] = None,
+    evidence_url: Optional[str] = None,
+    valid_from: Optional[date] = None,
+    valid_to: Optional[date] = None,
+    parser_version: str = "v1.3",
+) -> tuple[dict, bool]:
+    """
+    Legacy non-atomic upsert（仅作为 MERGE 失败时的降级方案）。
+    注意：此函数存在竞态条件风险，仅用于兜底。
+    """
     if valid_from is None:
         valid_from = date.today()
 
@@ -160,20 +292,15 @@ def upsert_entity(
 
     if existing:
         existing_node = existing["n"]
-        existing_labels = list(existing_node.labels)
-        label = existing_labels[0] if existing_labels else entity_type
-
         merged = dict(existing_node)
         if properties:
             merged.update(properties)
-
         if not merged.get("source_type") and source_type:
             merged["source_type"] = source_type
         if not merged.get("source_name") and source_name:
             merged["source_name"] = source_name
         if not merged.get("evidence_url") and evidence_url:
             merged["evidence_url"] = evidence_url
-
         merged["confidence"] = max(float(merged.get("confidence") or 0), confidence)
         merged["updated_at"] = now
 
@@ -181,7 +308,7 @@ def upsert_entity(
             f"MATCH (n) WHERE n.entity_id = $entity_id SET n += $props",
             {"entity_id": entity_id, "props": merged},
         )
-        logger.debug("更新实体: %s", entity_id)
+        logger.debug("Legacy 更新实体: %s", entity_id)
         return merged, False
 
     # 创建新节点
@@ -200,7 +327,6 @@ def upsert_entity(
     }
     if ts_code:
         props["ts_code"] = ts_code
-        # Company 节点：自动从 StockNameResolver 解析 aliases，便于全文索引匹配
         if entity_type == "Company":
             try:
                 from app.knowledge.stock_name_resolver import get_stock_name_resolver
@@ -217,7 +343,7 @@ def upsert_entity(
         f"CREATE (n:{entity_type} $props) RETURN n",
         {"props": props},
     )
-    logger.debug("新增实体: %s", entity_id)
+    logger.debug("Legacy 新增实体: %s", entity_id)
     return props, True
 
 
@@ -237,7 +363,7 @@ def batch_upsert_entities(entities: list[dict]) -> tuple[int, int]:
 
 def batch_upsert_entities_unwind(entities: list[dict]) -> dict:
     """
-    UNWIND 单事务批量 upsert 实体节点（V1.2 Schema）。
+    UNWIND 单事务批量 upsert 实体节点（V1.3 Schema - 7类实体）。
 
     使用 UNWIND + MERGE 在单事务中完成全部写入，目标 1000 实体 < 5s。
 
@@ -257,8 +383,15 @@ def batch_upsert_entities_unwind(entities: list[dict]) -> dict:
     start = time.monotonic()
     failed = 0
 
-    # 过滤无效记录
-    valid_entities = [e for e in entities if e.get("entity_id") and e.get("entity_type")]
+    # 过滤无效记录（entity_id/entity_type 缺失 + entity_type 不在白名单）
+    # 安全修复：防止非法 entity_type 进入 Cypher
+    valid_entities = [
+        e for e in entities
+        if e.get("entity_id") and e.get("entity_type") and is_valid_entity_type(e["entity_type"])
+    ]
+    invalid_type_count = len(entities) - len([e for e in entities if not e.get("entity_id") or not e.get("entity_type")]) - len(valid_entities)
+    if invalid_type_count > 0:
+        logger.warning("batch_upsert 过滤 %d 条非法 entity_type 记录", invalid_type_count)
 
     if not valid_entities:
         elapsed = time.monotonic() - start
@@ -280,7 +413,7 @@ def batch_upsert_entities_unwind(entities: list[dict]) -> dict:
             "evidence_url": ent.get("evidence_url"),
             "valid_from": ent.get("valid_from") or default_valid_from,
             "valid_to": str(ent["valid_to"]) if ent.get("valid_to") else None,
-            "parser_version": ent.get("parser_version", "v1.2"),
+            "parser_version": ent.get("parser_version", "v1.3"),
             "created_at": now,
             "updated_at": now,
         }
@@ -376,8 +509,8 @@ def query_entities(
     offset: int = 0,
 ) -> list[dict]:
     """条件查询实体"""
-    if entity_type and entity_type not in ENTITY_TYPES_V4:
-        raise ValueError(f"无效 entity_type: {entity_type}，V4 有效值: {ENTITY_TYPES_V4}")
+    if entity_type and entity_type not in ENTITY_TYPES:
+        raise ValueError(f"无效 entity_type: {entity_type}，有效值: {ENTITY_TYPES}")
 
     labels = f":{entity_type}" if entity_type else ""
     where_parts = []

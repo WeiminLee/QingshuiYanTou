@@ -673,7 +673,7 @@ class RAGExtractor:
     def __init__(
         self,
         examples: Optional[list[str]] = None,
-        max_gleanings: int = 1,  # RAGFlow 同款默认值，启用 gleaning 循环提升实体召回
+        max_gleanings: int = 2,  # 默认 2 轮 gleaning 循环提升实体召回（与 RAGFlow 最佳实践同步）
         max_concurrency: int = 1,
         language: str = "Chinese",
     ):
@@ -951,7 +951,7 @@ def extract_sync(
     text: str,
     chunks: Optional[list["Chunk"]] = None,
     examples: Optional[list[str]] = None,
-    max_gleanings: int = 1,  # BUG-1/K1 修复：默认启用 gleaning 循环
+    max_gleanings: int = 2,  # 默认 2 轮 gleaning 循环提升实体召回
     max_tokens: int = 512,
     overlap_tokens: int = 0,
     callback: Optional[Callable[[str, float], None]] = None,
@@ -960,15 +960,38 @@ def extract_sync(
 ) -> tuple[list[dict], list[dict]]:
     """
     同步入口函数（用于 FastAPI 同步路由或脚本调用）。
-    内部用 asyncio.run() 执行异步抽取。
 
-    注意：从 async 上下文调用时，应使用 extract_async 或 asyncio.to_thread(extract_sync, ...)。
+    安全修复：
+    - 添加 async 上下文检测，防止 asyncio.run 嵌套崩溃
+    - 在 async 上下文中使用 ThreadPoolExecutor 避免嵌套 event loop
+
+    注意：从 async 上下文调用时，建议使用 extract_async 或 asyncio.to_thread(extract_sync, ...)。
     """
     extractor = RAGExtractor(
         examples=examples,
         max_gleanings=max_gleanings,
         max_concurrency=4,
     )
+
+    # 检测是否在 async 上下文中
+    try:
+        loop = asyncio.get_running_loop()
+        # 在 async 上下文中，使用 ThreadPoolExecutor 避免嵌套 asyncio.run
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            future = pool.submit(
+                asyncio.run,
+                extractor.extract(
+                    text, chunks=chunks, max_tokens=max_tokens,
+                    overlap_tokens=overlap_tokens, callback=callback,
+                    source_file=source_file, source_type=source_type
+                )
+            )
+            return future.result()
+    except RuntimeError:
+        # 无运行中的事件循环，可以直接使用 asyncio.run
+        pass
+
     return asyncio.run(
         extractor.extract(text, chunks=chunks, max_tokens=max_tokens,
                          overlap_tokens=overlap_tokens, callback=callback,
@@ -980,7 +1003,7 @@ async def extract_async(
     text: str,
     chunks: Optional[list["Chunk"]] = None,
     examples: Optional[list[str]] = None,
-    max_gleanings: int = 1,  # BUG-1/K1 修复：默认启用 gleaning 循环
+    max_gleanings: int = 2,  # 默认 2 轮 gleaning 循环提升实体召回
     max_tokens: int = 512,
     overlap_tokens: int = 0,
     callback: Optional[Callable[[str, float], None]] = None,

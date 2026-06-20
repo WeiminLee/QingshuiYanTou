@@ -10,7 +10,7 @@ from typing import Any
 
 from app.core.metadata import CURRENT_KG_PARSER_VERSION, CURRENT_KG_SCHEMA_VERSION
 from app.core.mongodb import get_mongo_db
-from app.knowledge.entity_service import generate_entity_id_v4, upsert_entity
+from app.knowledge.entity_service import generate_entity_id, upsert_entity
 from app.knowledge.evidence_builders import build_irm_evidence
 from app.knowledge.evidence_service import EvidenceService
 from app.knowledge.extraction.rag_extractor import extract_async as rag_extract_async
@@ -48,10 +48,10 @@ async def _emit(progress_callback: ProgressCallback | None, stage: str, message:
 
 
 def _entity_id(name: str, entity_type: str, ts_code: str) -> str:
-    return generate_entity_id_v4(
+    return generate_entity_id(
         entity_type=entity_type,
         name=name,
-        ts_code=ts_code if entity_type in {"Company", "Metric", "Project"} else None,
+        ts_code=ts_code if entity_type in {"Company", "Metric"} else None,
         metric_name=name if entity_type == "Metric" else None,
         period="IRM" if entity_type == "Metric" else None,
     )
@@ -81,15 +81,31 @@ def _irm_content_hash(rec: dict[str, Any]) -> str:
 
 async def _irm_checkpoint_col():
     global _IRM_KG_INDEXES_READY
+    if _IRM_KG_INDEXES_READY:
+        return get_mongo_db()[IRM_CHECKPOINT_COLLECTION]
     db = get_mongo_db()
     col = db[IRM_CHECKPOINT_COLLECTION]
-    if not _IRM_KG_INDEXES_READY:
-        await col.create_index("record_key", unique=True)
+    try:
+        await col.create_index("record_key", unique=True, sparse=True)
+    except Exception:  # index may already exist
+        pass
+    try:
         await col.create_index("cninfo_id")
+    except Exception:
+        pass
+    try:
         await col.create_index("ts_code")
+    except Exception:
+        pass
+    try:
         await col.create_index("status")
+    except Exception:
+        pass
+    try:
         await col.create_index("updated_at")
-        _IRM_KG_INDEXES_READY = True
+    except Exception:
+        pass
+    _IRM_KG_INDEXES_READY = True
     return col
 
 
@@ -169,7 +185,7 @@ async def _mark_irm_failed(record_key: str, error: str) -> None:
 
 async def upsert_irm_company(ts_code: str, name: str) -> tuple[dict, bool]:
     return upsert_entity(
-        entity_id=generate_entity_id_v4("Company", name, ts_code=ts_code),
+        entity_id=generate_entity_id("Company", name, ts_code=ts_code),
         entity_type="Company",
         name=name,
         ts_code=ts_code,
@@ -181,7 +197,7 @@ async def upsert_irm_company(ts_code: str, name: str) -> tuple[dict, bool]:
 
 async def upsert_irm_product(name: str, company_id: str) -> tuple[dict, bool]:
     node, is_new = upsert_entity(
-        entity_id=generate_entity_id_v4("Product", name),
+        entity_id=generate_entity_id("Product", name),
         entity_type="Product",
         name=name,
         source_type="irm",
@@ -193,17 +209,17 @@ async def upsert_irm_product(name: str, company_id: str) -> tuple[dict, bool]:
 
 
 async def upsert_irm_application(name: str) -> tuple[dict, bool]:
-    return upsert_entity(generate_entity_id_v4("Application", name), "Application", name, source_type="irm", source_name="互动易", parser_version=IRM_KG_PARSER_VERSION)
+    return upsert_entity(generate_entity_id("Product", name), "Product", name, source_type="irm", source_name="互动易", parser_version=IRM_KG_PARSER_VERSION)
 
 
 async def upsert_irm_technology(name: str) -> tuple[dict, bool]:
-    return upsert_entity(generate_entity_id_v4("Technology", name), "Technology", name, source_type="irm", source_name="互动易", parser_version=IRM_KG_PARSER_VERSION)
+    return upsert_entity(generate_entity_id("Product", name), "Product", name, source_type="irm", source_name="互动易", parser_version=IRM_KG_PARSER_VERSION)
 
 
 async def upsert_irm_metric(name: str, value: Any = None, period: str = "IRM") -> tuple[dict, bool]:
     props = {"value": value, "period": period}
     return upsert_entity(
-        generate_entity_id_v4("Metric", name, ts_code="IRM", metric_name=name, period=period),
+        generate_entity_id("Metric", name, ts_code="IRM", metric_name=name, period=period),
         "Metric",
         name,
         ts_code="IRM",
@@ -327,7 +343,7 @@ async def extract_irm_qa(
     for entity in entities:
         name = str(entity.get("entity_name") or "").strip()
         entity_type = str(entity.get("entity_type") or "").strip()
-        if not name or entity_type not in {"Company", "Product", "Application", "Technology", "Metric", "Category", "Project"}:
+        if not name or entity_type not in {"Company", "Product", "Metric"}:
             continue
         try:
             eid = _entity_id(name, entity_type, ts_code)
@@ -335,7 +351,7 @@ async def extract_irm_qa(
                 entity_id=eid,
                 entity_type=entity_type,
                 name=name,
-                ts_code=ts_code if entity_type in {"Company", "Metric", "Project"} else None,
+                ts_code=ts_code if entity_type in {"Company", "Metric"} else None,
                 properties={"description": entity.get("description", ""), "source_text": text[:500]},
                 source_type="irm",
                 source_name="互动易",

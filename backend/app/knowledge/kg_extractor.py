@@ -39,7 +39,8 @@ from sqlalchemy import text as sql_text
 from app.core.database import engine
 from app.core.file_security import PathTraversalError, validate_file_path
 from app.knowledge.entity_service import (
-    generate_entity_id_v4,
+    ENTITY_TYPES,
+    generate_entity_id,
     upsert_entity,
     upsert_company,
 )
@@ -114,8 +115,8 @@ def _entity_id_from_name(
     ts_code: str | None = None,
     period: str | None = None,
 ) -> str:
-    """Generate a Schema V4 entity id from extracted entity fields."""
-    return generate_entity_id_v4(
+    """Generate a 实体ID from extracted entity fields."""
+    return generate_entity_id(
         entity_type=entity_type,
         name=name,
         ts_code=ts_code,
@@ -129,13 +130,18 @@ def _build_name_to_id_map(
     ts_code: str,
     disambiguation_context: str | None = None,
 ) -> dict[str, str]:
-    """Build lookup for extracted names to deterministic V4 IDs."""
+    """Build lookup for extracted names to 统一规则ID."""
     lookup: dict[str, str] = {}
     for entity in entities:
         name = str(entity.get("entity_name") or "").strip()
         if not name:
             continue
         entity_type = str(entity.get("entity_type") or "Company").strip()
+        # 过滤非3类实体
+        if entity_type not in ENTITY_TYPES:
+            logger.debug(f"过滤非法实体类型: {entity_type}, 名称: {name}")
+            continue
+
         metric = entity.get("metric") if isinstance(entity.get("metric"), dict) else {}
         period = metric.get("period") if metric else None
         try:
@@ -144,14 +150,14 @@ def _build_name_to_id_map(
             if entity_type == "Company":
                 entity_id = f"CO:{hashlib.md5(name.encode('utf-8')).hexdigest()[:12]}"
             else:
-                entity_id = generate_entity_id_v4("Product", name)
+                entity_id = generate_entity_id("Product", name)
         lookup[name] = entity_id
         lookup[name.lower()] = entity_id
     return lookup
 
 
 def _validate_metric(entity: dict) -> bool:
-    """Schema V4 allows fuzzy metric mentions when a period is present."""
+    """Schema规则允许 fuzzy metric mentions when a period is present."""
     metric = entity.get("metric") if isinstance(entity.get("metric"), dict) else {}
     if not metric:
         return True
@@ -266,14 +272,29 @@ def _infer_period_from_announcement(text: str, source_name: str) -> tuple[str, s
     return f"{year}A", "actual"
 
 
-def _normalize_relation_weight(value: Any, default: float = 0.5) -> float:
-    """Normalize LLM relation weights to Neo4j's 0-1 range."""
+def _normalize_relation_weight(value: Any, default: float = 0.7) -> float:
+    """
+    Normalize LLM relation weights to Neo4j's 0-1 range.
+
+    归一化规则（与 Prompt 置信度定义同步）：
+    - Prompt 定义：1.0=直接陈述，0.7=LLM推断（已归一化）
+    - 兼容旧版本：如果输入 > 1.0，视为 1-10 范围并除以 10
+    - 默认值：0.7（中等置信度，LLM推断级别）
+
+    Args:
+        value: LLM 输出的权重值（期望 0-1，兼容 1-10）
+        default: 缺失时的默认值（默认 0.7）
+
+    Returns:
+        归一化后的权重（0.0-1.0）
+    """
     try:
         raw_weight = float(value)
     except (TypeError, ValueError):
         raw_weight = default
     if not math.isfinite(raw_weight):
         raw_weight = default
+    # 兼容性处理：> 1.0 视为旧版本 1-10 范围
     normalized = min(1.0, raw_weight / 10.0) if raw_weight > 1.0 else raw_weight
     return max(0.0, min(1.0, normalized))
 
@@ -462,17 +483,19 @@ def extract_text(
     )
 
     # ── 文档 Chunk 向量写入 ───────────────────────────────────────
-    # BUG-12 修复：添加失败计数器，避免静默失败
+    # BUG-12 修复：添加失败计数器 + 详细失败记录（用于补偿）
     chunks_written = 0
     chunks_failed = 0
+    failed_vectors: list[dict] = []  # 记录失败的向量，用于后续补偿
     for ch in chunks:
         try:
             chunk_text = ch.content if hasattr(ch, "content") else ch.get("content", "")
             if not chunk_text:
                 continue
             chunk_id_val = ch.chunk_id if hasattr(ch, "chunk_id") else ch.get("chunk_id", 0)
+            chunk_id_str = f"{ts_code}:{source_name}:{chunk_id_val}"
             upsert_chunk_vector(
-                chunk_id=f"{ts_code}:{source_name}:{chunk_id_val}",
+                chunk_id=chunk_id_str,
                 content=chunk_text,
                 heading=getattr(ch, "heading", "") or "",
                 source=source_name,
@@ -481,6 +504,15 @@ def extract_text(
             chunks_written += 1
         except Exception as ch_ex:
             chunks_failed += 1
+            # 记录失败的向量详细信息，用于补偿
+            failed_vectors.append({
+                "chunk_id": f"{ts_code}:{source_name}:{getattr(ch, 'chunk_id', 0)}",
+                "ts_code": ts_code,
+                "source_name": source_name,
+                "content_snippet": (ch.content[:100] if hasattr(ch, 'content') else str(ch)[:100]) if ch else "",
+                "heading": getattr(ch, "heading", "") or "",
+                "error": str(ch_ex)[:200],
+            })
             logger.warning(
                 "Chunk 向量写入失败 [%s:%d]: %s (已成功: %d, 已失败: %d)",
                 source_name, getattr(ch, "chunk_id", 0), ch_ex, chunks_written, chunks_failed
@@ -501,6 +533,11 @@ def extract_text(
     for e in merged_entities:
         name = e.get("entity_name", "").strip()
         e_type = e.get("entity_type", "Company")
+        # 过滤非法实体类型
+        if e_type not in ENTITY_TYPES:
+            logger.debug(f"抽取结果过滤非法实体: type={e_type}, name={name}")
+            continue
+
         description = e.get("description", "")
         metric = e.get("metric") if isinstance(e.get("metric"), dict) else {}
         props = {
@@ -547,7 +584,7 @@ def extract_text(
                     entity_id=entity_id,
                     entity_type=e_type,
                     name=name,
-                    ts_code=ts_code if e_type in {"Metric", "Project"} else None,
+                    ts_code=ts_code if e_type in {"Metric"} else None,
                     properties=props,
                     source_type=source_type,
                     source_name=source_name,
@@ -590,7 +627,7 @@ def extract_text(
             logger.debug("关系跳过（节点不存在）: %s → %s", src_name, tgt_name)
             continue
 
-        v4_weight = _normalize_relation_weight(r.get("weight", 5.0))
+        v4_weight = _normalize_relation_weight(r.get("weight"))
 
         try:
             _, is_new = upsert_relates_v4(
@@ -718,6 +755,8 @@ def extract_text(
         "relations": written_rels,
         "chunks_processed": len(chunks),
         "chunks_vector_written": chunks_written,
+        "chunks_vector_failed": chunks_failed,
+        "failed_vectors": failed_vectors,  # 详细失败记录，用于补偿
         "company_signals": company_signals,
         "inferred_state": current_state.value if current_state else None,
         "state_transitions": state_transitions,
@@ -828,17 +867,19 @@ async def extract_text_async(
     )
 
     # ── Chunk 向量（复用同一批 chunks，与 LLM 抽取的 chunk_id 完全对齐）──
-    # BUG-12 修复：添加失败计数器
+    # BUG-12 修复：添加失败计数器 + 详细失败记录（用于补偿）
     chunks_written = 0
     chunks_failed = 0
+    failed_vectors: list[dict] = []  # 记录失败的向量，用于后续补偿
     for ch in chunks:
         try:
             chunk_text = ch.content if hasattr(ch, "content") else ch.get("content", "")
             if not chunk_text:
                 continue
             chunk_id_val = ch.chunk_id if hasattr(ch, "chunk_id") else ch.get("chunk_id", 0)
+            chunk_id_str = f"{ts_code}:{source_name}:{chunk_id_val}"
             upsert_chunk_vector(
-                chunk_id=f"{ts_code}:{source_name}:{chunk_id_val}",
+                chunk_id=chunk_id_str,
                 content=chunk_text,
                 heading=getattr(ch, "heading", "") or "",
                 source=source_name,
@@ -847,6 +888,15 @@ async def extract_text_async(
             chunks_written += 1
         except Exception as ch_ex:
             chunks_failed += 1
+            # 记录失败的向量详细信息，用于补偿
+            failed_vectors.append({
+                "chunk_id": f"{ts_code}:{source_name}:{getattr(ch, 'chunk_id', 0)}",
+                "ts_code": ts_code,
+                "source_name": source_name,
+                "content_snippet": (ch.content[:100] if hasattr(ch, 'content') else str(ch)[:100]) if ch else "",
+                "heading": getattr(ch, "heading", "") or "",
+                "error": str(ch_ex)[:200],
+            })
             logger.warning(
                 "Chunk 向量写入失败 [%s:%d]: %s",
                 source_name, getattr(ch, "chunk_id", 0), ch_ex
@@ -860,10 +910,16 @@ async def extract_text_async(
     entities_created = entities_updated = 0
     entity_ids: list[str] = []
 
+
     for e in merged_entities:
         name = e.get("entity_name", "").strip()
         e_type = e.get("entity_type", "Company")
         description = e.get("description", "")
+        # 过滤非法实体类型
+        if e_type not in ENTITY_TYPES:
+            logger.debug(f"抽取结果过滤非法实体: type={e_type}, name={name}")
+            continue
+
         metric = e.get("metric") if isinstance(e.get("metric"), dict) else {}
         props = {
             "original_name": name,
@@ -911,7 +967,7 @@ async def extract_text_async(
                     entity_id=entity_id,
                     entity_type=e_type,
                     name=name,
-                    ts_code=ts_code if e_type in {"Metric", "Project"} else None,
+                    ts_code=ts_code if e_type in {"Metric"} else None,
                     properties=props,
                     source_type=source_type,
                     source_name=source_name,
@@ -1060,6 +1116,8 @@ async def extract_text_async(
         "chunks_total": chunks_total,
         "chunk_budget_applied": chunk_budget_applied,
         "chunks_vector_written": chunks_written,
+        "chunks_vector_failed": chunks_failed,
+        "failed_vectors": failed_vectors,  # 详细失败记录，用于补偿
         "company_signals": company_signals,
         "inferred_state": current_state.value if current_state else None,
         "state_transitions": state_transitions,
@@ -1112,6 +1170,11 @@ async def extract_evidence_async(
     for e in merged_entities:
         name = str(e.get("entity_name") or "").strip()
         e_type = str(e.get("entity_type") or "Company")
+        # 过滤非法实体类型
+        if e_type not in ENTITY_TYPES:
+            logger.debug(f"抽取结果过滤非法实体: type={e_type}, name={name}")
+            continue
+
         description = e.get("description", "")
         metric = e.get("metric") if isinstance(e.get("metric"), dict) else {}
         props = {
@@ -1156,7 +1219,7 @@ async def extract_evidence_async(
                     entity_id=entity_id,
                     entity_type=e_type,
                     name=name,
-                    ts_code=ts_code if e_type in {"Metric", "Project"} else None,
+                    ts_code=ts_code if e_type in {"Metric"} else None,
                     properties=props,
                     source_type=source_type,
                     source_name=source_name,

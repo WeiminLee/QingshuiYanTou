@@ -20,6 +20,8 @@ from datetime import date, datetime, timedelta
 from typing import Any, Optional
 
 from app.core.neo4j_client import run, run_write, run_single, write_transaction
+from app.knowledge.entity_service import ENTITY_TYPES
+run, run_write, run_single, write_transaction
 from app.knowledge.relation_types import RELATIONSHIP_TYPES, RELATIONSHIP_DESCRIPTIONS
 
 logger = logging.getLogger(__name__)
@@ -591,6 +593,7 @@ def batch_upsert_relations_unwind(relations: list[dict]) -> dict:
     ON MATCH SET
         r.updated_at = row.now,
         r.weight = CASE WHEN r.weight < row.weight THEN row.weight ELSE r.weight END,
+        r.direction = COALESCE(r.direction, row.direction),
         r.source_type = COALESCE(r.source_type, row.source_type),
         r.source_name = COALESCE(r.source_name, row.source_name)
     WITH r, row
@@ -790,7 +793,7 @@ def upsert_relates_v4(
     evidence_ids: list[str] | None = None,
 ) -> tuple[dict, bool]:
     """
-    Upsert 统一 RELATES 关系（Schema V4 核心函数）。
+    Upsert 统一 RELATES 关系（3类实体Schema核心函数）。
 
     Schema 变更：
     - 所有预定义关系类型废除 → 统一为 RELATES(text + weight)
@@ -800,12 +803,16 @@ def upsert_relates_v4(
     MERGE 依据：(from_entity, to_entity, valid_from)
     同一实体对同一 valid_from 只产生一条关系，多个来源文本追加到 descriptions[]。
 
-    Args:
-        from_entity: 起始节点 entity_id
-        to_entity: 目标节点 entity_id
-        text: 自然语言关系陈述
-        weight: 置信度（1.0=直接陈述，<0.5=LLM推断）
-        source_chunk: 来源 chunk 标识（如章节名）
+    # 校验关系两端实体类型都是合法的3类实体
+    def _validate_entity_type(entity_id: str) -> bool:
+        if entity_id.startswith("C:") or entity_id.startswith("CO:"):
+            return True
+        if entity_id.startswith("P:"):
+            return True
+        if entity_id.startswith("M:"):
+            return True
+        return False
+    if not _validate_entity_type(from_entity) or not _validate_entity_type(to_entity):
         source_file: 来源文件名
         source_type: 来源类型（research_report / announcement 等）
         source_name: 来源名称
@@ -827,6 +834,18 @@ def upsert_relates_v4(
     # Neo4j 不支持 list[dict]，只能存 primitive types
     source_label = source_file or "unknown"
     new_desc_str = f"[{source_label}]{direction}: {text}"
+
+    # 校验关系两端实体类型都是合法的3类实体
+    def _validate_entity_type(entity_id: str) -> bool:
+        if entity_id.startswith("C:") or entity_id.startswith("CO:"):
+            return True
+        if entity_id.startswith("P:"):
+            return True
+        if entity_id.startswith("M:"):
+            return True
+        return False
+    if not _validate_entity_type(from_entity) or not _validate_entity_type(to_entity):
+        raise ValueError(f"关系包含非法实体类型: src={from_entity}, tgt={to_entity}，仅允许Company/Product/Metric")
 
     # 查重：同一实体对 + 同一 valid_from
     existing = run_single(
@@ -872,6 +891,10 @@ def upsert_relates_v4(
         # weight 取多个来源的最大值（高置信优先）
         old_weight = float(merged.get("weight") or 0)
         merged["weight"] = max(old_weight, weight)
+
+        # direction 保留首次写入的值（后续不覆盖）
+        if direction and not merged.get("direction"):
+            merged["direction"] = direction
 
         # 元数据首次写入不覆盖
         for field, val in [("source_type", source_type), ("source_name", source_name),
