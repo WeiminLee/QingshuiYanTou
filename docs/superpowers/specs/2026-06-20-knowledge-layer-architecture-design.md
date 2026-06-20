@@ -245,8 +245,10 @@ knowledge/
 | `ENTITY_TYPES_V4` 定义 | 5 | 改为 `ENTITY_TYPES`（3 类） |
 | Prompt 实体类型段落 | 12 | 删除 Category/Application/Technology/Project 行 |
 | `announcement_v4` source_type | 3 | 统一为 `announcement` |
-| 函数名含 `_v4` 后缀 | ~10 | `upsert_relates_v4` → `upsert_relates`，`_parse_relates_v4` → `_parse_relates` |
-| schema_version 字段 | 2 | 统一为 `"v1.3"` |
+| 函数名含 `_v4` 后缀 | ~10 | knowledge/ 目录下清理 `upsert_relates_v4` → `upsert_relates`，`_parse_relates_v4` → `_parse_relates` |
+| schema_version 字段 | 2 | scripts/ 目录下 MongoDB 更新字段改为 `"v1.3"` |
+
+**注意**：V4 清理主要为 knowledge/ 核心模块（抽取引擎、服务层），`scripts/` 目录下的清理（如 `sync_*.py`）在后续独立任务中处理。
 
 ### 3.4 核心抽取流程
 
