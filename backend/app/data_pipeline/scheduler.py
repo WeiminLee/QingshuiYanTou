@@ -168,7 +168,8 @@ async def _run_irm_job() -> None:
     notify_task_start("互动易同步")
 
     try:
-        result = await DataFetcher().fetch_irm()
+        # 优先使用 minishare 接口
+        result = await DataFetcher().fetch_minishare_irm()
         await record_task_result(
             "irm",
             TaskStatus.SUCCESS if result.get("fail", 0) == 0 else TaskStatus.PARTIAL,
@@ -192,8 +193,8 @@ async def _run_irm_job() -> None:
 async def _run_cninfo_job() -> None:
     """巨潮公告每日同步任务（Phase 03 plan 03-03，D-05 23:00 触发）。
 
-    流程：``DataFetcher().fetch_announcements()`` 默认抓昨天的全市场公告，
-    入库时按 ``cninfo_id`` 去重；命中关键词的公告在线下载 PDF（D-06 1 file/sec）。
+    优先使用 minishare 接口回补；只抓昨天的全市场公告，
+    入库时按 cninfo_id 去重；命中关键词的公告在线下载 PDF。
     """
     from app.data_pipeline.monitor import record_task_start, record_task_result, TaskStatus, init_monitor
     from app.data_pipeline.fetcher import DataFetcher
@@ -204,7 +205,8 @@ async def _run_cninfo_job() -> None:
     notify_task_start("巨潮公告同步")
 
     try:
-        result = await DataFetcher().fetch_announcements()
+        # 优先使用 minishare 接口
+        result = await DataFetcher().fetch_minishare_announcements()
         await record_task_result(
             "cninfo",
             TaskStatus.SUCCESS if result.get("fail", 0) == 0 else TaskStatus.PARTIAL,

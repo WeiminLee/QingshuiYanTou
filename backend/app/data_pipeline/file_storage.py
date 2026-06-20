@@ -4,6 +4,7 @@ FileStorage - 文件存储模块
 管理 PDF 文件的本地存储。
 迁移自 data_access_mvp/src/utils/file_storage.py
 """
+import asyncio
 import re
 import requests
 from pathlib import Path
@@ -267,6 +268,49 @@ class FileStorage:
                 logger.warning(f"下载内容不是 PDF，可能是 HTML 错误页 [{resolved_url[:80]}]")
                 return None
 
+            return self.save_notice(content, ts_code, filename, pub_date)
+        except Exception as e:
+            logger.error(f"公告下载失败 [{resolved_url}]: {e}")
+            return None
+
+    async def _resolve_pdf_url_async(self, url: str) -> str | None:
+        """异步版本 URL 解析——纯文本判断走同步，API 调用走线程池。"""
+        if not url or not url.strip():
+            return None
+        url = url.strip()
+        # 直接 PDF 链接，无需 API 调用
+        if re.search(r'\.pdf$', url, re.IGNORECASE):
+            return url.replace('http://', 'https://')
+        # 详情页需要调 API，投递到线程池
+        if 'detail' in url and 'cninfo' in url:
+            return await asyncio.to_thread(self._resolve_pdf_url, url)
+        return None
+
+    async def download_notice_async(
+        self,
+        url: str,
+        ts_code: str,
+        filename: str,
+        pub_date: str | None = None,
+    ) -> Optional[Path]:
+        """异步下载并保存公告 PDF。
+
+        通过 asyncio.to_thread 将同步 HTTP 请求放入线程池，
+        避免阻塞事件循环。调用方负责限速。
+        """
+        resolved_url = await self._resolve_pdf_url_async(url)
+        if not resolved_url:
+            logger.warning("公告 URL 无法解析为 PDF 地址，跳过 [%s]", url[:80])
+            return None
+        try:
+            response = await asyncio.to_thread(
+                requests.get, resolved_url, timeout=30, headers=HTTP_HEADERS
+            )
+            response.raise_for_status()
+            content = response.content
+            if not content[:5] == b"%PDF-":
+                logger.warning(f"下载内容不是 PDF [{resolved_url[:80]}]")
+                return None
             return self.save_notice(content, ts_code, filename, pub_date)
         except Exception as e:
             logger.error(f"公告下载失败 [{resolved_url}]: {e}")

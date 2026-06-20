@@ -236,3 +236,157 @@ class ToolCall:
         self.arguments = arguments
         self.id = id
 
+
+# ── 带重试机制的 LLM 调用 ──────────────────────────────────────────────
+
+# 默认 LLM 重试策略
+# 参考 hermes-agent 的 ExponentialBackoff 模式
+DEFAULT_LLM_RETRY_EXCEPTIONS = (
+    httpx.ConnectError,
+    httpx.TimeoutException,
+    httpx.HTTPStatusError,  # 5xx 错误
+)
+
+
+async def chat_async_with_retry(
+    prompt: str,
+    model: str | None = None,
+    temperature: float = 0.1,
+    timeout: int = 180,
+    max_attempts: int = 3,
+    base_delay: float = 2.0,
+    max_delay: float = 60.0,
+) -> str:
+    """
+    带重试机制的异步 LLM 调用。
+
+    重试策略：
+    - 指数退避 + 解相关抖动
+    - max_attempts=3（总共最多 3 次）
+    - base_delay=2.0s, max_delay=60.0s
+    - 仅重试连接/超时/5xx 错误
+
+    Args:
+        prompt: 输入文本
+        model: 模型名称
+        temperature: 温度参数
+        timeout: 单次调用超时
+        max_attempts: 最大尝试次数
+        base_delay: 首次重试延迟
+        max_delay: 最大延迟
+
+    Returns:
+        LLM 返回的文本
+
+    Raises:
+        最后一次失败的异常（超过 max_attempts）
+    """
+    from app.reasoning.langchain_agent.retry import ExponentialBackoff
+
+    retry_strategy = ExponentialBackoff(
+        max_attempts=max_attempts,
+        base_delay=base_delay,
+        max_delay=max_delay,
+        jitter=True,
+        retryable_exceptions=DEFAULT_LLM_RETRY_EXCEPTIONS,
+    )
+
+    async def _call():
+        return await chat_async(prompt, model=model, temperature=temperature, timeout=timeout)
+
+    return await retry_strategy.execute(_call)
+
+
+def chat_with_retry(
+    prompt: str,
+    model: str | None = None,
+    temperature: float = 0.1,
+    timeout: int = 180,
+    max_attempts: int = 3,
+    base_delay: float = 2.0,
+    max_delay: float = 60.0,
+) -> str:
+    """
+    带重试机制的同步 LLM 调用。
+
+    重试策略：
+    - 指数退避 + 解相关抖动
+    - max_attempts=3（总共最多 3 次）
+    - base_delay=2.0s, max_delay=60.0s
+    - 仅重试连接/超时/5xx 错误
+
+    Args:
+        prompt: 输入文本
+        model: 模型名称
+        temperature: 温度参数
+        timeout: 单次调用超时
+        max_attempts: 最大尝试次数
+        base_delay: 首次重试延迟
+        max_delay: 最大延迟
+
+    Returns:
+        LLM 返回的文本
+
+    Raises:
+        最后一次失败的异常（超过 max_attempts）
+    """
+    import asyncio
+
+    try:
+        loop = asyncio.get_running_loop()
+        # 在 async 上下文中，使用 asyncio.run 在线程池中执行
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            future = pool.submit(
+                asyncio.run,
+                chat_async_with_retry(
+                    prompt, model=model, temperature=temperature, timeout=timeout,
+                    max_attempts=max_attempts, base_delay=base_delay, max_delay=max_delay
+                )
+            )
+            return future.result()
+    except RuntimeError:
+        # 无运行中的事件循环
+        pass
+
+    return asyncio.run(
+        chat_async_with_retry(
+            prompt, model=model, temperature=temperature, timeout=timeout,
+            max_attempts=max_attempts, base_delay=base_delay, max_delay=max_delay
+        )
+    )
+
+
+def chat_json_with_retry(
+    prompt: str,
+    model: str | None = None,
+    temperature: float = 0.1,
+    timeout: int = 180,
+    max_attempts: int = 3,
+) -> dict:
+    """
+    带重试机制的 JSON LLM 调用。
+
+    Args:
+        同 chat_with_retry
+
+    Returns:
+        解析后的 JSON dict
+
+    Raises:
+        ValueError: JSON 解析失败
+        其他异常: LLM 调用失败
+    """
+    text = chat_with_retry(
+        prompt, model=model, temperature=temperature, timeout=timeout,
+        max_attempts=max_attempts
+    )
+    text = _strip_thinking_tags(text)
+
+    for extract_fn in [_extract_json_from_code_block, _extract_json_naked]:
+        result = extract_fn(text)
+        if result is not None:
+            return result
+
+    raise ValueError(f"LLM 返回非 JSON 内容: {text[:300]}")
+

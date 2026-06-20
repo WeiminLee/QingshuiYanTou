@@ -246,6 +246,29 @@ def get_cninfo_pdf_limiter() -> RateLimiter:
     return _cninfo_pdf_limiter
 
 
+# ── 巨潮 PDF 下载限速器（异步） ─────────────────────────────────
+# PDF 下载异步版本，每秒 5 个文件，用于历史回补场景
+_cninfo_pdf_async_limiter: AsyncRateLimiter | None = None
+
+
+def get_cninfo_pdf_async_limiter() -> AsyncRateLimiter:
+    """获取全局巨潮 PDF 下载异步限速器（每秒 5 个文件）。
+
+    用于公告历史回补的高并发异步 PDF 下载场景。
+    单例模式，所有协程共享同一滑动窗口。
+    """
+    global _cninfo_pdf_async_limiter
+    if _cninfo_pdf_async_limiter is None:
+        with _limiter_init_lock:
+            if _cninfo_pdf_async_limiter is None:
+                _cninfo_pdf_async_limiter = AsyncRateLimiter(
+                    max_requests=5,
+                    window_seconds=1.0,
+                    name="巨潮PDF下载-async",
+                )
+    return _cninfo_pdf_async_limiter
+
+
 # ── 巨潮 API 限速器（异步） ──────────────────────────────────────
 # Phase 03 plan 03-01 / D-06：API 查询 1 req/sec
 # CninfoClient.query_announcements 在 async 上下文中通过此限速器节流，
@@ -272,3 +295,35 @@ def get_cninfo_api_limiter() -> AsyncRateLimiter:
                     name="cninfo-api",
                 )
     return _cninfo_api_limiter
+
+
+# ── minishare 接口限速器 ─────────────────────────────────────────
+# minishare 各接口独立限制：每分钟最多 100 次请求（observed 429 messages）。
+# 我们对每个 endpoint 独立维护一个滑动窗口限速器，最大 80/min 留 20% 余量。
+_minishare_async_limiters: dict[str, AsyncRateLimiter] = {}
+
+
+def get_minishare_async_limiter(endpoint: str) -> AsyncRateLimiter:
+    """获取按 endpoint 隔离的 minishare 异步限速器（默认 80 req/min）。
+
+    Args:
+        endpoint: minishare 接口名，如 ``anns_d`` / ``irm_qa_sh`` / ``irm_qa_sz`` /
+                  ``research_report``。
+
+    Notes:
+        服务端硬上限是 100 req/min/endpoint，这里取 80/min 留出余量，
+        重试和并发突发不会立即触发 429。
+    """
+    global _minishare_async_limiters
+    limiter = _minishare_async_limiters.get(endpoint)
+    if limiter is None:
+        with _limiter_init_lock:
+            limiter = _minishare_async_limiters.get(endpoint)
+            if limiter is None:
+                limiter = AsyncRateLimiter(
+                    max_requests=80,
+                    window_seconds=60.0,
+                    name=f"minishare:{endpoint}",
+                )
+                _minishare_async_limiters[endpoint] = limiter
+    return limiter
