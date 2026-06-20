@@ -17,7 +17,7 @@ from typing import Optional
 
 from app.core.llm_client import chat
 from app.knowledge.extraction.rag_prompts import (
-    ANNOUNCEMENT_EXTRACTION_PROMPT,
+    EXTRACTION_PROMPT_V13,
     TUPLE_DELIMITER,
     RECORD_DELIMITER,
 )
@@ -95,7 +95,7 @@ class LightExtractor:
 
         参考 RAGFlow pack_user_ass_to_openai_messages。
         """
-        prompt = ANNOUNCEMENT_EXTRACTION_PROMPT.format(input_text=text)
+        prompt = EXTRACTION_PROMPT_V13.format(input_text=text)
         return [
             {
                 "role": "user",

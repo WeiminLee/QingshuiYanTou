@@ -33,10 +33,9 @@ from app.knowledge.extraction.rag_prompts import (
     COMPLETION_DELIMITER,
     GRAPH_FIELD_SEP,
     ENTITY_TYPES,
-    ENTITY_TYPES_V4,
     DEFAULT_ENTITY_TYPES,
     EXTRACTION_PROMPT,
-    ANNOUNCEMENT_EXTRACTION_PROMPT,
+    EXTRACTION_PROMPT_V13,
     ANNOUNCEMENT_SOURCE_TYPES,
     CONTINUE_PROMPT,
     SUMMARIZE_PROMPT,
@@ -196,7 +195,7 @@ def _parse_chunk_output(raw_text: str) -> tuple[dict, dict]:
         r"^Relation\s*:\s*(.+?)\s*→\s*(.+?)\s*:\s*(.+?)\s*\|\s*([\w]+)\s*(?:\|(\d+(?:\.\d+)?))?\s*$"
     )
     # 合法的 entity_type（V2 白名单）
-    VALID_ENTITY_TYPES_V2 = frozenset(ENTITY_TYPES_V4)
+    VALID_ENTITY_TYPES_V2 = frozenset(ENTITY_TYPES)
 
     current_entity: tuple = None   # (name, e_type)
     current_section_type: str | None = None
