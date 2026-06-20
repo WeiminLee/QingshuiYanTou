@@ -45,7 +45,7 @@ from app.knowledge.entity_service import (
     upsert_company,
 )
 from app.knowledge.relation_service import (
-    upsert_relates_v4, infer_relation_type,
+    upsert_relates, infer_relation_type,
 )
 from app.knowledge.contradiction import (
     detect_contradiction, write_contradiction,
@@ -634,7 +634,7 @@ def extract_text(
         relation_subtype = infer_relation_type(rel_desc)
 
         try:
-            _, is_new = upsert_relates_v4(
+            _, is_new = upsert_relates(
                 from_entity=src_eid,
                 to_entity=tgt_eid,
                 text=rel_desc,
@@ -1025,7 +1025,7 @@ async def extract_text_async(
         relation_subtype = infer_relation_type(rel_desc)
 
         try:
-            _, is_new = upsert_relates_v4(
+            _, is_new = upsert_relates(
                 from_entity=src_eid,
                 to_entity=tgt_eid,
                 text=rel_desc,
@@ -1269,7 +1269,7 @@ async def extract_evidence_async(
         v2_weight = _normalize_relation_weight(r.get("weight", 5.0))
         relation_subtype = infer_relation_type(rel_desc)
         try:
-            _, is_new = upsert_relates_v4(
+            _, is_new = upsert_relates(
                 from_entity=src_eid,
                 to_entity=tgt_eid,
                 text=rel_desc,

@@ -81,3 +81,10 @@ def test_no_announcement_v4_source_type():
     prompt = get_extraction_prompt("announcement_v4")
     # Should still get V1.3 prompt, not a V4-specific one
     assert "Category（分类）" not in prompt
+
+
+def test_relation_service_no_v4_function_names():
+    """relation_service must not have upsert_relates_v4."""
+    from app.knowledge import relation_service
+    assert not hasattr(relation_service, "upsert_relates_v4")
+    assert hasattr(relation_service, "upsert_relates")

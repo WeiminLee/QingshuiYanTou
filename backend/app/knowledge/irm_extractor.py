@@ -14,7 +14,7 @@ from app.knowledge.entity_service import generate_entity_id, upsert_entity
 from app.knowledge.evidence_builders import build_irm_evidence
 from app.knowledge.evidence_service import EvidenceService
 from app.knowledge.extraction.rag_extractor import extract_async as rag_extract_async
-from app.knowledge.relation_service import upsert_relates_v4
+from app.knowledge.relation_service import upsert_relates
 from app.knowledge.vector_client import (
     COLLECTION_QA,
     VectorRecord,
@@ -204,7 +204,7 @@ async def upsert_irm_product(name: str, company_id: str) -> tuple[dict, bool]:
         source_name="互动易",
         parser_version=IRM_KG_PARSER_VERSION,
     )
-    upsert_relates_v4(company_id, node["entity_id"], f"互动易提及公司与产品 {name} 相关", source_type="irm", source_name="互动易")
+    upsert_relates(company_id, node["entity_id"], f"互动易提及公司与产品 {name} 相关", source_type="irm", source_name="互动易")
     return node, is_new
 
 
@@ -372,7 +372,7 @@ async def extract_irm_qa(
                 entity_vector_fail += 1
             if entity_type != "Company":
                 text_desc = f"互动易问答提及 {name}"
-                upsert_relates_v4(company_id, node["entity_id"], text_desc, source_type="irm", source_name=source_name)
+                upsert_relates(company_id, node["entity_id"], text_desc, source_type="irm", source_name=source_name)
                 mention_relations += 1
                 if upsert_relation_vector(
                     relation_key=f"{source_name}|{company_id}|{node['entity_id']}|mention",
@@ -413,7 +413,7 @@ async def extract_irm_qa(
         tgt = entity_ids.get(str(rel.get("tgt_id") or "").strip())
         if not src or not tgt:
             continue
-        _, is_new = upsert_relates_v4(
+        _, is_new = upsert_relates(
             src,
             tgt,
             str(rel.get("description") or ""),

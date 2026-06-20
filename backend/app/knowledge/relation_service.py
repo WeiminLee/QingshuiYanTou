@@ -760,34 +760,6 @@ def upsert_relates(
     valid_from: date | None = None,
     valid_to: date | None = None,
     direction: str = "neutral",
-) -> tuple[dict, bool]:
-    return upsert_relates_v4(
-        from_entity=from_entity,
-        to_entity=to_entity,
-        text=text,
-        weight=weight,
-        source_chunk=source_chunk,
-        source_file=source_file,
-        source_type=source_type,
-        source_name=source_name,
-        valid_from=valid_from,
-        valid_to=valid_to,
-        direction=direction,
-    )
-
-
-def upsert_relates_v4(
-    from_entity: str,
-    to_entity: str,
-    text: str,
-    weight: float = 1.0,
-    source_chunk: str | None = None,
-    source_file: str | None = None,
-    source_type: str = "unknown",
-    source_name: str = "unknown",
-    valid_from: date | None = None,
-    valid_to: date | None = None,
-    direction: str = "neutral",
     llm_client: Any | None = None,
     evidence_id: str | None = None,
     evidence_ids: list[str] | None = None,
