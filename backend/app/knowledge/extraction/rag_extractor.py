@@ -43,6 +43,11 @@ from app.knowledge.extraction.rag_prompts import (
 )
 
 logger = logging.getLogger(__name__)
+
+# 合法的 entity_type 白名单（模块级常量）
+VALID_ENTITY_TYPES = frozenset(ENTITY_TYPES)
+
+
 def _merge_descriptions_raw(descriptions: list[str]) -> str:
     """
     保留原文的多源合并（不做 LLM summarization）。
@@ -158,7 +163,7 @@ def _is_noise_entity_name(name: str) -> bool:
     return False
 
 
-def _parse_chunk_output(raw_text: str) -> tuple[dict, dict]:
+def _parse_entity_relation_blocks(raw_text: str) -> tuple[dict, dict]:
     """
     解析单个 chunk 的 LLM 输出。
 
@@ -194,8 +199,8 @@ def _parse_chunk_output(raw_text: str) -> tuple[dict, dict]:
     v1_rel_pattern = re.compile(
         r"^Relation\s*:\s*(.+?)\s*→\s*(.+?)\s*:\s*(.+?)\s*\|\s*([\w]+)\s*(?:\|(\d+(?:\.\d+)?))?\s*$"
     )
-    # 合法的 entity_type（V2 白名单）
-    VALID_ENTITY_TYPES_V2 = frozenset(ENTITY_TYPES)
+    # 合法的 entity_type（白名单）
+    valid_entity_types = VALID_ENTITY_TYPES
 
     current_entity: tuple = None   # (name, e_type)
     current_section_type: str | None = None
@@ -210,7 +215,7 @@ def _parse_chunk_output(raw_text: str) -> tuple[dict, dict]:
         tuple_parts = _parse_tuple_record(line_stripped)
         if len(tuple_parts) >= 4:
             name, maybe_type, desc = tuple_parts[0], tuple_parts[1], tuple_parts[2]
-            if maybe_type in VALID_ENTITY_TYPES_V2 and not _is_noise_entity_name(name):
+            if maybe_type in valid_entity_types and not _is_noise_entity_name(name):
                 nodes[name].append({
                     "entity_name": name,
                     "entity_type": maybe_type,
@@ -242,7 +247,7 @@ def _parse_chunk_output(raw_text: str) -> tuple[dict, dict]:
                 continue
 
         section = line_stripped.rstrip(":：").strip()
-        if section in VALID_ENTITY_TYPES_V2:
+        if section in valid_entity_types:
             current_section_type = section
             current_entity = None
             current_rel = None
@@ -276,7 +281,7 @@ def _parse_chunk_output(raw_text: str) -> tuple[dict, dict]:
         em = v2_entity_pattern.match(line_stripped)
         if em:
             name, e_type = em.group(1).strip(), em.group(2).strip()
-            if name and e_type and e_type in VALID_ENTITY_TYPES_V2 and not _is_noise_entity_name(name):
+            if name and e_type and e_type in valid_entity_types and not _is_noise_entity_name(name):
                 current_entity = (name, e_type)
                 nodes[name].append({
                     "entity_name": name,
@@ -370,7 +375,7 @@ def _parse_chunk_output(raw_text: str) -> tuple[dict, dict]:
         if v1em:
             name, e_type = v1em.group(1).strip(), v1em.group(2).strip()
             desc = (v1em.group(3) or "").strip()
-            if name and e_type and e_type in VALID_ENTITY_TYPES_V2 and not _is_noise_entity_name(name):
+            if name and e_type and e_type in valid_entity_types and not _is_noise_entity_name(name):
                 nodes[name].append({
                     "entity_name": name,
                     "entity_type": e_type,
@@ -380,8 +385,8 @@ def _parse_chunk_output(raw_text: str) -> tuple[dict, dict]:
     return dict(nodes), dict(edges)
 
 
-def _parse_relates_v4(raw_text: str) -> list[dict]:
-    """Parse Schema V4 RELATES blocks."""
+def _parse_relates(raw_text: str) -> list[dict]:
+    """Parse RELATES blocks."""
     relates: list[dict] = []
     current: dict | None = None
     rel_pattern = re.compile(r"^RELATES\s*:\s*(.+?)\s*→\s*(.+?)\s*$")
@@ -461,8 +466,8 @@ def _parse_relates_v4(raw_text: str) -> list[dict]:
     return relates
 
 
-def _parse_metrics_v4(raw_text: str) -> list[dict]:
-    """Parse METRIC blocks from V4 output."""
+def _parse_metrics(raw_text: str) -> list[dict]:
+    """Parse METRIC blocks."""
     metrics: list[dict] = []
     current: dict | None = None
     metric_pattern = re.compile(r"^METRIC\s*:\s*(.+?)\s*$")
@@ -493,10 +498,11 @@ def _parse_metrics_v4(raw_text: str) -> list[dict]:
     return metrics
 
 
-def _parse_chunk_output_v4(raw_text: str) -> tuple[dict, dict]:
-    nodes, edges = _parse_chunk_output(raw_text)
+def _parse_chunk_output(raw_text: str) -> tuple[dict, dict]:
+    """Parse chunk output with RELATES and METRIC blocks."""
+    nodes, edges = _parse_entity_relation_blocks(raw_text)
 
-    for rel in _parse_relates_v4(raw_text):
+    for rel in _parse_relates(raw_text):
         key = (rel["from_entity"], rel["to_entity"])
         edges.setdefault(key, []).append({
             "src_id": rel["from_entity"],
@@ -509,7 +515,7 @@ def _parse_chunk_output_v4(raw_text: str) -> tuple[dict, dict]:
             "stmt_type": rel.get("stmt_type", "Fact"),
         })
 
-    for metric in _parse_metrics_v4(raw_text):
+    for metric in _parse_metrics(raw_text):
         name = metric["name"]
         nodes.setdefault(name, []).append({
             "entity_name": name,
@@ -628,7 +634,7 @@ async def _extract_single_chunk(
 
     # 初始抽取
     raw = await _call(initial_prompt)
-    nodes, edges = _parse_chunk_output_v4(raw)
+    nodes, edges = _parse_chunk_output(raw)
 
     # gleaning 循环：只追加 CONTINUE_PROMPT，不发历史
     for _ in range(max_gleanings):
@@ -640,7 +646,7 @@ async def _extract_single_chunk(
         if not continuation.strip():
             break
 
-        more_nodes, more_edges = _parse_chunk_output_v4(continuation)
+        more_nodes, more_edges = _parse_chunk_output(continuation)
         if not more_nodes and not more_edges:
             break  # 没有新内容，提前终止
 

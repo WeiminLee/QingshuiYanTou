@@ -88,3 +88,20 @@ def test_relation_service_no_v4_function_names():
     from app.knowledge import relation_service
     assert not hasattr(relation_service, "upsert_relates_v4")
     assert hasattr(relation_service, "upsert_relates")
+
+
+def test_rag_extractor_no_v4_function_names():
+    """rag_extractor must not have _v4 suffixed function names."""
+    from app.knowledge.extraction import rag_extractor
+    assert not hasattr(rag_extractor, "_parse_relates_v4")
+    assert not hasattr(rag_extractor, "_parse_metrics_v4")
+    assert not hasattr(rag_extractor, "_parse_chunk_output_v4")
+    assert hasattr(rag_extractor, "_parse_relates")
+    assert hasattr(rag_extractor, "_parse_metrics")
+    assert hasattr(rag_extractor, "_parse_chunk_output")
+
+
+def test_rag_extractor_valid_entity_types_is_v13():
+    """VALID_ENTITY_TYPES must only contain 3 types."""
+    from app.knowledge.extraction.rag_extractor import VALID_ENTITY_TYPES
+    assert VALID_ENTITY_TYPES == frozenset({"Company", "Product", "Metric"})
