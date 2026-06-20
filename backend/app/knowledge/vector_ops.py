@@ -266,3 +266,152 @@ async def reindex_missing_vectors(batch_size: int = 100) -> int:
         logger.error(f"[BatchReindex] Failed: {e}")
 
     return total_reindexed
+
+
+# ── 向量补偿机制 ───────────────────────────────────────────────────────
+
+async def retry_failed_vectors(
+    failed_vectors: list[dict],
+    max_retries: int = 2,
+) -> dict:
+    """
+    重试失败的向量写入（用于 KG 抽取后补偿）。
+
+    Args:
+        failed_vectors: kg_extractor 返回的 failed_vectors 列表
+            每项包含: chunk_id, ts_code, source_name, content_snippet, heading, error
+        max_retries: 每个向量的最大重试次数
+
+    Returns:
+        {
+            "retried": int,       # 尝试重试的数量
+            "success": int,       # 成功数量
+            "still_failed": int,  # 仍然失败的数量
+            "details": list[dict] # 详细结果
+        }
+    """
+    retried = success = still_failed = 0
+    details: list[dict] = []
+
+    for fv in failed_vectors:
+        chunk_id = fv.get("chunk_id", "")
+        if not chunk_id:
+            continue
+
+        retried += 1
+
+        # 重试逻辑：多次尝试写入
+        for attempt in range(1, max_retries + 1):
+            try:
+                # 由于 failed_vectors 只有 content_snippet，无法完全重建
+                # 仅记录需要补偿，实际补偿需从 MongoDB Evidence 或 Neo4j 重新获取内容
+                client = get_vector_client()
+                embedder = get_embedding_model()
+
+                # 尝试从 snippet 创建向量（数据可能不完整）
+                content = fv.get("content_snippet", "")
+                if not content:
+                    raise ValueError("content_snippet 为空，无法重建向量")
+
+                vec = embedder.embed(content)
+                point_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, chunk_id))
+                record = VectorRecord(
+                    id=point_id,
+                    vector=vec,
+                    payload={
+                        "chunk_id": chunk_id,
+                        "content": content,
+                        "heading": fv.get("heading", ""),
+                        "source": fv.get("source_name", ""),
+                        "ts_code": fv.get("ts_code", ""),
+                        "retried": True,
+                    },
+                )
+                client.upsert(COLLECTION_CHUNKS, [record])
+
+                success += 1
+                details.append({
+                    "chunk_id": chunk_id,
+                    "status": "success",
+                    "attempts": attempt,
+                })
+                break
+
+            except Exception as e:
+                if attempt >= max_retries:
+                    still_failed += 1
+                    details.append({
+                        "chunk_id": chunk_id,
+                        "status": "failed",
+                        "error": str(e)[:200],
+                        "attempts": attempt,
+                    })
+                    logger.warning("向量重试失败 [%s]: %s", chunk_id, e)
+                else:
+                    await asyncio.sleep(2 * attempt)  # 简单退避
+
+    logger.info("向量补偿完成: retried=%d, success=%d, still_failed=%d",
+                retried, success, still_failed)
+
+    return {
+        "retried": retried,
+        "success": success,
+        "still_failed": still_failed,
+        "details": details,
+    }
+
+
+def enqueue_vector_retry_jobs(
+    failed_vectors: list[dict],
+) -> int:
+    """
+    将失败的向量记录到 MongoDB，等待后续补偿。
+
+    Args:
+        failed_vectors: kg_extractor 返回的 failed_vectors 列表
+
+    Returns:
+        入队的数量
+    """
+    if not failed_vectors:
+        return 0
+
+    try:
+        from app.core.mongodb import get_mongo_db
+        from datetime import datetime, timezone
+
+        db = get_mongo_db()
+        col = db["kg_vector_retry_queue"]
+
+        now = datetime.now(timezone.utc)
+        enqueued = 0
+
+        for fv in failed_vectors:
+            try:
+                doc = {
+                    "chunk_id": fv.get("chunk_id"),
+                    "ts_code": fv.get("ts_code"),
+                    "source_name": fv.get("source_name"),
+                    "content_snippet": fv.get("content_snippet", ""),
+                    "heading": fv.get("heading", ""),
+                    "original_error": fv.get("error", ""),
+                    "status": "pending",
+                    "retry_count": 0,
+                    "created_at": now,
+                    "updated_at": now,
+                }
+                col.update_one(
+                    {"chunk_id": doc["chunk_id"]},
+                    {"$setOnInsert": doc},
+                    upsert=True,
+                )
+                enqueued += 1
+            except Exception as e:
+                logger.warning("入队失败 [%s]: %s", fv.get("chunk_id"), e)
+
+        logger.info("向量补偿队列入队: %d 条", enqueued)
+        return enqueued
+
+    except Exception as e:
+        logger.error("向量补偿入队失败: %s", e)
+        return 0

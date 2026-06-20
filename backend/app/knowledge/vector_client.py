@@ -1,13 +1,5 @@
 from __future__ import annotations
 
-# Qdrant 部署在 localhost，不应走全局 SOCKS 代理
-# httpx 在 import 时读取代理环境变量，必须在所有 qdrant_client 导入前清空
-import os as _qdrant_no_proxy_os
-_SAVED_PROXIES = {}  # 暂存原始代理值，get_proxies() 恢复
-for _k in ("HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "all_proxy", "ALL_PROXY"):
-    _SAVED_PROXIES[_k] = _qdrant_no_proxy_os.environ.get(_k, "")
-    _qdrant_no_proxy_os.environ[_k] = ""
-
 """
 向量数据库客户端抽象层（Qdrant）
 
@@ -20,6 +12,11 @@ Collection 设计：
   relations   — 关系描述向量（from_entity + to_entity + relation_description）
   doc_chunks  — 文档分块向量（content + heading + source）
   qa_flash    — 研报摘要向量（question + answer + source）
+
+代理配置说明（2026-06-17 修复）：
+  Qdrant 部署在 localhost，不走全局代理。
+  使用 httpx 客户端配置代替全局环境变量清除，
+  避免影响其他模块的 HTTP 请求。
 """
 
 import hashlib
@@ -33,10 +30,6 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
-
-def get_proxies() -> dict:
-    """返回原始代理配置，供 requests/httpx 恢复访问外网"""
-    return _SAVED_PROXIES.copy()
 
 # ── 全局配置 ──────────────────────────────────────────────────────────────
 
@@ -70,15 +63,23 @@ def get_embedding_model() -> "EmbeddingModelBase":
     """获取全局 Embedding 模型（懒加载）。
 
     优先级：
-    1. Hunyuan API key（生产环境 - D-06）
-    2. Local embedding service URL（遗留回退）
+    1. 本地 Embedding 服务（.env 配置 EMBEDDING_API_URL）
+    2. Hunyuan API key（备用）
     3. PlaceholderEmbedding（仅开发环境）
     """
     global _embedding_model
     if _embedding_model is None:
         from app.config import settings
 
-        # 优先级 1: Hunyuan (D-06)
+        # 优先级 1: 本地 Embedding 服务
+        emb_url = getattr(settings, "embedding_api_url", None) or ""
+        emb_key = getattr(settings, "embedding_api_key", "") or ""
+        if emb_url:
+            _embedding_model = LocalEmbedding(api_url=emb_url, api_key=emb_key)
+            logger.info(f"Embedding 模型: LocalEmbedding ({emb_url})")
+            return _embedding_model
+
+        # 优先级 2: Hunyuan (备用)
         sf_key = getattr(settings, "hunyuan_api_key", None) or ""
         if sf_key:
             _embedding_model = HunyuanEmbedding(
@@ -90,17 +91,9 @@ def get_embedding_model() -> "EmbeddingModelBase":
             logger.info(f"Embedding 模型: Hunyuan ({_embedding_model._model})")
             return _embedding_model
 
-        # 优先级 2: Local embedding service（遗留）
-        emb_url = getattr(settings, "embedding_api_url", None) or ""
-        emb_key = getattr(settings, "embedding_api_key", "") or ""
-        if emb_url:
-            _embedding_model = LocalEmbedding(api_url=emb_url, api_key=emb_key)
-            logger.info(f"Embedding 模型: LocalEmbedding ({emb_url})")
-            return _embedding_model
-
         # 优先级 3: Placeholder（仅开发环境）
         _embedding_model = PlaceholderEmbedding()
-        logger.warning("Embedding 模型: PlaceholderEmbedding（请在 .env 配置 HUNYUAN_API_KEY 用于生产）")
+        logger.warning("Embedding 模型: PlaceholderEmbedding（请在 .env 配置 EMBEDDING_API_URL 用于生产）")
     return _embedding_model
 
 
@@ -521,9 +514,23 @@ class QdrantClient(VectorClient):
         self._api_key = api_key
         self._collection_name = collection_name
         self._connected = False
-        import os as _os
-        for _k in ("NO_PROXY", "no_proxy", "NOPROXY"):
-            _os.environ[_k] = "localhost,127.0.0.1,::1"
+
+    def _create_qdrant_client(self) -> Any:
+        """创建 Qdrant 客户端，配置不使用代理（localhost 不走全局代理）"""
+        import qdrant_client
+        try:
+            import httpx
+            # 创建不使用代理的 httpx 客户端
+            # Qdrant 部署在 localhost，不需要走全局 SOCKS/HTTP 代理
+            http_client = httpx.Client(proxy=None, trust_env=False)
+            return qdrant_client.QdrantClient(
+                url=self._url,
+                api_key=self._api_key or None,
+                http_client=http_client,
+            )
+        except ImportError:
+            # httpx 不可用时，使用默认配置
+            return qdrant_client.QdrantClient(url=self._url, api_key=self._api_key or None)
 
     def connect(self) -> None:
         self._connected = True
@@ -545,10 +552,9 @@ class QdrantClient(VectorClient):
     ) -> None:
         self._ensure_connected()
         try:
-            import qdrant_client
             from qdrant_client.models import Distance, VectorParams
 
-            client = qdrant_client.QdrantClient(url=self._url, api_key=self._api_key or None)
+            client = self._create_qdrant_client()
             if client.collection_exists(name):
                 logger.info("Qdrant Collection 已存在: %s", name)
                 return
@@ -571,10 +577,9 @@ class QdrantClient(VectorClient):
         if not records:
             return
         try:
-            import qdrant_client
             from qdrant_client.models import PointStruct, Distance, VectorParams
 
-            client = qdrant_client.QdrantClient(url=self._url, api_key=self._api_key or None)
+            client = self._create_qdrant_client()
             if not client.collection_exists(collection):
                 dim = len(records[0].vector)
                 client.create_collection(
@@ -602,10 +607,9 @@ class QdrantClient(VectorClient):
     ) -> list[SearchResult]:
         self._ensure_connected()
         try:
-            import qdrant_client
             from qdrant_client.models import Filter, FieldCondition, MatchValue
 
-            client = qdrant_client.QdrantClient(url=self._url, api_key=self._api_key or None)
+            client = self._create_qdrant_client()
             query_kwargs: dict = dict(
                 collection_name=collection,
                 query=query_vector,
@@ -633,8 +637,7 @@ class QdrantClient(VectorClient):
     def delete_collection(self, name: str) -> None:
         self._ensure_connected()
         try:
-            import qdrant_client
-            client = qdrant_client.QdrantClient(url=self._url, api_key=self._api_key or None)
+            client = self._create_qdrant_client()
             client.delete_collection(collection_name=name)
             logger.info("Qdrant Collection 已删除: %s", name)
         except Exception as e:
@@ -687,7 +690,20 @@ def upsert_entity_vector(
     ts_code: str = "",
     collection: str = COLLECTION_ENTITIES,
 ) -> bool:
-    """将实体描述写入向量库"""
+    """将实体描述写入向量库
+
+    安全修复：entity_type 必须在白名单内，否则跳过并返回 False
+    """
+    # entity_type 校验（防止非法值写入向量库）
+    if entity_type:
+        try:
+            from app.knowledge.entity_service import is_valid_entity_type
+            if not is_valid_entity_type(entity_type):
+                logger.warning("upsert_entity_vector 跳过非法 entity_type: %s", entity_type)
+                return False
+        except ImportError:
+            pass  # 模块不可用时降级处理，不校验
+
     try:
         client = get_vector_client()
         embedder = get_embedding_model()
