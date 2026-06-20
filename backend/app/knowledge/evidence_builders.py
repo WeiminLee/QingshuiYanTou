@@ -13,6 +13,17 @@ def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _to_iso_date(value: Any) -> str | None:
+    """Convert date/datetime to ISO string for MongoDB storage."""
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if hasattr(value, "isoformat"):
+        return value.isoformat()
+    return str(value)
+
+
 def _as_str(value: Any) -> str:
     return str(value or "").strip()
 
@@ -66,7 +77,7 @@ def build_text_evidence(
             source_id=source_id,
             text_excerpt=getattr(chunk, "content", str(chunk)),
             subject_hint=dict(subject_hint or {}),
-            publish_date=publish_date,
+            publish_date=_to_iso_date(publish_date),
             observed_at=observed_at or _utc_now(),
             source_ref=ref,
             confidence=default_source_confidence(source_type),
@@ -107,7 +118,7 @@ def build_file_evidence(
         source_id=source_id,
         subject_hint=subject_hint,
         source_ref=source_ref,
-        publish_date=file_info.get("publish_date") or file_info.get("ann_date"),
+        publish_date=_to_iso_date(file_info.get("publish_date") or file_info.get("ann_date")),
         observed_at=_utc_now(),
         chunk_max_tokens=chunk_max_tokens,
         max_chunks=max_chunks,
@@ -121,6 +132,7 @@ def build_irm_evidence(record: dict[str, Any]) -> EvidenceInput:
     answer = _as_str(record.get("answer") or record.get("type"))
     ts_code = _as_str(record.get("ts_code"))
     company_name = _as_str(record.get("company_name") or record.get("name"))
+    ann_date = _to_iso_date(record.get("ann_date"))
     record_key = irm_record_key(record)
     text = f"问题：{question}\n回答：{answer}"
     return EvidenceInput(
@@ -129,12 +141,12 @@ def build_irm_evidence(record: dict[str, Any]) -> EvidenceInput:
         source_id=cninfo_id or record_key,
         text_excerpt=text,
         subject_hint={"ts_code": ts_code, "company_name": company_name},
-        publish_date=record.get("ann_date"),
+        publish_date=ann_date,
         observed_at=_utc_now(),
         source_ref={
             "cninfo_id": cninfo_id,
             "ts_code": ts_code,
-            "ann_date": record.get("ann_date"),
+            "ann_date": ann_date,
             "record_key": record_key,
         },
         confidence=default_source_confidence("irm"),

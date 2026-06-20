@@ -7,6 +7,7 @@ source text stored in MongoDB's kg_evidence collection.
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import logging
 from typing import Annotated
 
