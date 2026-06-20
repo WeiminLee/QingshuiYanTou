@@ -70,3 +70,84 @@ class TestResolvePdfUrl:
         assert FileStorage._resolve_pdf_url("") is None
         assert FileStorage._resolve_pdf_url("   ") is None
         assert FileStorage._resolve_pdf_url(None) is None
+
+
+class TestDownloadNoticeAsync:
+    """download_notice_async 测试"""
+
+    @patch("app.data_pipeline.file_storage.asyncio.to_thread")
+    def test_download_notice_async_direct_pdf(self, mock_to_thread):
+        """直接 PDF 链接 -> 下载成功 -> 返回 path"""
+        mock_to_thread.return_value = type(
+            "Resp", (),
+            {
+                "raise_for_status": lambda self: None,
+                "content": b"%PDF-1.4 fake content",
+            },
+        )()
+        storage = FileStorage()
+        # mock save_notice 以避免写入磁盘
+        with patch.object(storage, "save_notice") as mock_save:
+            mock_save.return_value = "/fake/path.pdf"
+            import asyncio
+            result = asyncio.run(
+                storage.download_notice_async(
+                    url="https://www.cninfo.com.cn/finalpage/2024-01-01/12345678.PDF",
+                    ts_code="000001.SZ",
+                    filename="test.pdf",
+                    pub_date="20240101",
+                )
+            )
+            assert result == "/fake/path.pdf"
+            mock_save.assert_called_once()
+
+    @patch("app.data_pipeline.file_storage.FileStorage._resolve_pdf_url_async")
+    def test_download_notice_async_resolve_fail(self, mock_resolve):
+        """URL 解析失败返回 None"""
+        mock_resolve.return_value = None
+        storage = FileStorage()
+        import asyncio
+        result = asyncio.run(
+            storage.download_notice_async(
+                url="http://example.com/unknown",
+                ts_code="000001.SZ",
+                filename="test.pdf",
+            )
+        )
+        assert result is None
+
+    @patch("app.data_pipeline.file_storage.asyncio.to_thread")
+    def test_download_notice_async_not_pdf(self, mock_to_thread):
+        """下载内容不是 PDF 返回 None"""
+        mock_to_thread.return_value = type(
+            "Resp", (),
+            {
+                "raise_for_status": lambda self: None,
+                "content": b"<html>error page</html>",
+            },
+        )()
+        storage = FileStorage()
+        import asyncio
+        result = asyncio.run(
+            storage.download_notice_async(
+                url="https://www.cninfo.com.cn/finalpage/2024-01-01/12345678.PDF",
+                ts_code="000001.SZ",
+                filename="test.pdf",
+            )
+        )
+        assert result is None
+
+    @patch("app.data_pipeline.file_storage.asyncio.to_thread")
+    def test_download_notice_async_network_error(self, mock_to_thread):
+        """网络异常返回 None"""
+        mock_to_thread.side_effect = Exception("Connection refused")
+        storage = FileStorage()
+        import asyncio
+        result = asyncio.run(
+            storage.download_notice_async(
+                url="https://www.cninfo.com.cn/finalpage/2024-01-01/12345678.PDF",
+                ts_code="000001.SZ",
+                filename="test.pdf",
+            )
+        )
+        assert result is None

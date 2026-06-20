@@ -27,6 +27,7 @@ from sqlalchemy import text
 
 from app.core.database import engine
 from app.data_pipeline.cninfo_client import CninfoClient
+from app.data_pipeline.announcement_filter import classify_title, DOC_TYPE_SAVE
 
 
 # 每批天数（控制内存使用）
@@ -121,13 +122,20 @@ async def sync_single_day(client: CninfoClient, target_date: str) -> dict:
                 if not cninfo_id:
                     continue
 
+                title = CninfoClient.get_title(ann)
+                # 公告过滤：只保存命中关键词的公告
+                _, action = classify_title(title)
+                if action != DOC_TYPE_SAVE:
+                    skipped += 1
+                    continue
+
                 ann_date_str = CninfoClient.get_ann_date(ann) or target_date
                 ts_code = CninfoClient.get_ts_code(ann)
                 name = str(ann.get("secName", "") or "")
-                title = CninfoClient.get_title(ann)
                 pdf_url = CninfoClient.get_pdf_url(ann)
 
-                ok = await save_announcement(cninfo_id, ann_date_str, ts_code, name, title, pdf_url)
+                doc_type, _ = classify_title(title)
+                ok = await save_announcement(cninfo_id, ann_date_str, ts_code, name, title, pdf_url, doc_type)
                 if ok:
                     saved += 1
                 else:

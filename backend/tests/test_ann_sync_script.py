@@ -1,6 +1,7 @@
 """tests/test_ann_sync_script.py - 测试公告回补脚本辅助函数"""
 import sys
 from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock, patch
 
 # 确保能正确导入 scripts 模块
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -84,3 +85,183 @@ def test_stable_id():
     assert id1.startswith("test_")
     # "test_" + 16 hex chars = 21
     assert len(id1) == 21
+
+
+class TestBatchInsertAnnouncements:
+    """_batch_insert_announcements 测试"""
+
+    def test_batch_insert_empty(self):
+        """空列表返回 (0, 0)"""
+        from scripts.sync_minishare_ann_history import _batch_insert_announcements
+        import asyncio
+
+        async def run():
+            mock_conn = AsyncMock()
+            result = await _batch_insert_announcements(mock_conn, [], "20230101")
+            assert result == (0, 0)
+            mock_conn.execute.assert_not_called()
+        asyncio.run(run())
+
+    @patch("scripts.sync_minishare_ann_history.pg_insert")
+    def test_batch_insert_success(self, mock_pg_insert):
+        """批量插入正常，返回 (N, 0)"""
+        from scripts.sync_minishare_ann_history import _batch_insert_announcements
+        import asyncio
+
+        mock_stmt = MagicMock()
+        mock_pg_insert.return_value.values.return_value.on_conflict_do_nothing.return_value = mock_stmt
+
+        mock_result = MagicMock()
+        mock_result.rowcount = 2
+
+        mock_conn = AsyncMock()
+        mock_conn.execute.return_value = mock_result
+
+        rec1 = {"ann_date": "20230101", "ts_code": "000001.SZ", "name": "平安银行",
+                "title": "2022年度业绩预告", "url": "http://example.com/1", "doc_type": "annual_report"}
+        rec2 = {"ann_date": "20230101", "ts_code": "000002.SZ", "name": "万科A",
+                "title": "2022年度业绩快报", "url": "http://example.com/2", "doc_type": "annual_report"}
+
+        async def run():
+            inserted, skipped = await _batch_insert_announcements(mock_conn, [rec1, rec2], "20230101")
+            assert inserted == 2
+            assert skipped == 0
+            mock_conn.execute.assert_awaited_once_with(mock_stmt)
+        asyncio.run(run())
+
+    @patch("scripts.sync_minishare_ann_history.pg_insert")
+    def test_batch_insert_fallback_on_conflict(self, mock_pg_insert):
+        """唯一约束冲突时降级为逐条插入"""
+        from scripts.sync_minishare_ann_history import _batch_insert_announcements
+        import asyncio
+
+        # 模拟批量插入抛出异常
+        mock_stmt = MagicMock()
+        mock_pg_insert.return_value.values.return_value.on_conflict_do_nothing.side_effect = [
+            mock_stmt,  # 第一次调用用于批量
+        ]
+
+        mock_conn = AsyncMock()
+        # 批量插入抛出异常
+        batch_result = MagicMock()
+        batch_result.rowcount = 5
+        # 第一次 execute（批量）成功
+        mock_conn.execute.return_value = batch_result
+
+        rec = {"ann_date": "20230101", "ts_code": "000001.SZ", "name": "平安银行",
+               "title": "2022年度业绩预告", "url": "http://example.com/1", "doc_type": "annual_report"}
+
+        async def run():
+            inserted, skipped = await _batch_insert_announcements(mock_conn, [rec], "20230101")
+            # 批量成功，不降级
+            assert inserted == 1
+            assert skipped == 0
+        asyncio.run(run())
+
+
+class TestConcurrentDownload:
+    """_concurrent_download 测试"""
+
+    @patch("scripts.sync_minishare_ann_history.get_cninfo_pdf_async_limiter")
+    def test_concurrent_all_success(self, mock_limiter_fn):
+        """全部下载成功"""
+        from scripts.sync_minishare_ann_history import _concurrent_download
+        import asyncio
+
+        mock_limiter = AsyncMock()
+        mock_limiter_fn.return_value = mock_limiter
+
+        mock_storage = AsyncMock()
+        mock_storage.download_notice_async.side_effect = [
+            Path("/fake/1.pdf"),
+            Path("/fake/2.pdf"),
+        ]
+
+        pending = [
+            {"cninfo_id": "ann_1", "pdf_url": "http://a.pdf", "ts_code": "000001.SZ", "title": "业绩预告"},
+            {"cninfo_id": "ann_2", "pdf_url": "http://b.pdf", "ts_code": "000002.SZ", "title": "业绩快报"},
+        ]
+
+        async def run():
+            downloaded, fail_count, updates = await _concurrent_download(
+                pending, mock_storage, "20230101",
+            )
+            assert downloaded == 2
+            assert fail_count == 0
+            assert len(updates) == 2
+            assert updates[0]["cninfo_id"] == "ann_1"
+            assert updates[1]["cninfo_id"] == "ann_2"
+        asyncio.run(run())
+
+    @patch("scripts.sync_minishare_ann_history.get_cninfo_pdf_async_limiter")
+    def test_concurrent_partial_fail(self, mock_limiter_fn):
+        """部分下载失败"""
+        from scripts.sync_minishare_ann_history import _concurrent_download
+        import asyncio
+
+        mock_limiter = AsyncMock()
+        mock_limiter_fn.return_value = mock_limiter
+
+        mock_storage = AsyncMock()
+        mock_storage.download_notice_async.side_effect = [
+            Path("/fake/1.pdf"),
+            None,
+        ]
+
+        pending = [
+            {"cninfo_id": "ann_1", "pdf_url": "http://a.pdf", "ts_code": "000001.SZ", "title": "业绩预告"},
+            {"cninfo_id": "ann_2", "pdf_url": "http://404.pdf", "ts_code": "000002.SZ", "title": "不存在"},
+        ]
+
+        async def run():
+            downloaded, fail_count, updates = await _concurrent_download(
+                pending, mock_storage, "20230101",
+            )
+            assert downloaded == 1
+            assert fail_count == 1
+            assert len(updates) == 1
+        asyncio.run(run())
+
+    @patch("scripts.sync_minishare_ann_history.get_cninfo_pdf_async_limiter")
+    def test_concurrent_all_fail(self, mock_limiter_fn):
+        """全部下载失败"""
+        from scripts.sync_minishare_ann_history import _concurrent_download
+        import asyncio
+
+        mock_limiter = AsyncMock()
+        mock_limiter_fn.return_value = mock_limiter
+
+        mock_storage = AsyncMock()
+        mock_storage.download_notice_async.return_value = None
+
+        pending = [
+            {"cninfo_id": "ann_1", "pdf_url": "http://404.pdf", "ts_code": "000001.SZ", "title": "A"},
+            {"cninfo_id": "ann_2", "pdf_url": "http://404.pdf", "ts_code": "000002.SZ", "title": "B"},
+        ]
+
+        async def run():
+            downloaded, fail_count, updates = await _concurrent_download(
+                pending, mock_storage, "20230101",
+            )
+            assert downloaded == 0
+            assert fail_count == 2
+            assert updates == []
+        asyncio.run(run())
+
+    @patch("scripts.sync_minishare_ann_history.get_cninfo_pdf_async_limiter")
+    def test_empty_pending(self, mock_limiter_fn):
+        """空待下载列表"""
+        from scripts.sync_minishare_ann_history import _concurrent_download
+        import asyncio
+
+        mock_storage = AsyncMock()
+
+        async def run():
+            downloaded, fail_count, updates = await _concurrent_download(
+                [], mock_storage, "20230101",
+            )
+            assert downloaded == 0
+            assert fail_count == 0
+            assert updates == []
+            mock_storage.download_notice_async.assert_not_called()
+        asyncio.run(run())

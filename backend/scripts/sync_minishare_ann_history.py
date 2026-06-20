@@ -37,6 +37,7 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from sqlalchemy import text
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.core.database import engine
 from app.data_pipeline.announcement_filter import (
@@ -45,12 +46,14 @@ from app.data_pipeline.announcement_filter import (
 )
 from app.data_pipeline.file_storage import FileStorage
 from app.data_pipeline.minishare_client import DataSourceClientMinishare
+from app.data_pipeline.rate_limiter import get_cninfo_pdf_async_limiter, get_minishare_async_limiter
 from app.data_pipeline.progress import (
     FAILED,
     PARTIAL,
     SUCCESS,
     IngestionProgressTracker,
 )
+from app.models.models import Announcement
 
 logging.basicConfig(
     level=logging.INFO,
@@ -103,6 +106,166 @@ def format_duration(seconds: int) -> str:
 # ── 核心同步逻辑 ────────────────────────────────────────
 
 
+async def _batch_insert_announcements(
+    conn,
+    records: list[dict],
+    date_str: str,
+) -> tuple[int, int]:
+    """批量 INSERT 公告元数据，file_path = NULL，不下载 PDF。
+
+    Returns:
+        (inserted_count, skipped_by_conflict_count)
+    """
+    if not records:
+        return 0, 0
+
+    from urllib.parse import parse_qs, urlparse
+
+    values = []
+    for rec in records:
+        ann_date_str = str(rec.get("ann_date") or date_str)
+        try:
+            parsed_date = datetime.strptime(ann_date_str, "%Y%m%d").date()
+        except ValueError:
+            continue
+        ann_url = str(rec.get("url") or "")
+        ann_id_suffix = ""
+        if ann_url and 'announcementId=' in ann_url:
+            parsed_url = urlparse(ann_url)
+            qs = parse_qs(parsed_url.query)
+            ann_id_suffix = qs.get('announcementId', [None])[0] or ""
+        cninfo_id = generate_cninfo_id(
+            str(rec.get("ts_code") or ""),
+            ann_date_str,
+            str(rec.get("title") or ""),
+            ann_id_suffix,
+        )
+        values.append({
+            "ann_date": parsed_date,
+            "ts_code": str(rec.get("ts_code") or ""),
+            "name": str(rec.get("name") or ""),
+            "title": str(rec.get("title") or "")[:500],
+            "type": None,
+            "cninfo_id": cninfo_id,
+            "announcement_type": rec.get("doc_type", "other"),
+            "source_type": "minishare",
+            "source_name": "minishare_anns",
+            "confidence_tier": "Tier1",
+            "file_path": None,
+            "pdf_url": ann_url or None,
+        })
+
+    stmt = pg_insert(Announcement.__table__).values(values)
+    # 使用 (ts_code, ann_date, title) 唯一约束去重，而非 cninfo_id
+    # 因为 minishare 同一标题 + 同一天可能有多条不同 announcementId 的记录，
+    # 但 (ts_code, ann_date, title) 约束更严格且已存在
+    stmt = stmt.on_conflict_do_nothing(
+        index_elements=["ts_code", "ann_date", "title"]
+    )
+    try:
+        result = await conn.execute(stmt)
+        inserted = result.rowcount if result.rowcount else 0
+        skipped = len(values) - inserted
+        return inserted, skipped
+    except Exception:
+        # 极端情况下某些冲突导致整批失败，降级为逐条插入
+        inserted = skipped = 0
+        for v in values:
+            try:
+                r = await conn.execute(
+                    pg_insert(Announcement.__table__).values([v]).on_conflict_do_nothing(
+                        index_elements=["ts_code", "ann_date", "title"]
+                    )
+                )
+                if r.rowcount and r.rowcount > 0:
+                    inserted += 1
+                else:
+                    skipped += 1
+            except Exception:
+                skipped += 1
+        return inserted, skipped
+
+
+async def _get_pending_downloads(conn, date_str: str) -> list[dict]:
+    """查询当天需要下载 PDF 的记录（file_path IS NULL 且有关键词类型）。"""
+    result = await conn.execute(
+        text("""
+            SELECT cninfo_id, ts_code, name, title, pdf_url
+            FROM announcements
+            WHERE ann_date = :ann_date
+              AND file_path IS NULL
+              AND pdf_url IS NOT NULL
+              AND announcement_type IN (
+                  'half_report', 'quarter_report', 'annual_report',
+                  'research_survey', 'ma_activity', 'investment'
+              )
+        """),
+        {"ann_date": datetime.strptime(date_str, "%Y%m%d").date()},
+    )
+    return [dict(row) for row in result.mappings()]
+
+
+async def _concurrent_download(
+    pending: list[dict],
+    storage: FileStorage,
+    date_str: str,
+) -> tuple[int, int, list[dict]]:
+    """异步并发下载 PDF。
+
+    Returns:
+        (downloaded_count, fail_count, updates_list)
+        updates_list 每项: {"cninfo_id": str, "file_path": Path}
+    """
+    if not pending:
+        return 0, 0, []
+
+    pdf_limiter = get_cninfo_pdf_async_limiter()
+    sem = asyncio.Semaphore(5)
+
+    async def _download_one(item: dict) -> dict | None:
+        cninfo_id = item["cninfo_id"]
+        safe_title = (item.get("title") or "")[:60] or "untitled"
+        filename = f"{cninfo_id}_{safe_title}.pdf"
+
+        async with sem:
+            await pdf_limiter.wait_and_acquire()
+            try:
+                file_path = await storage.download_notice_async(
+                    url=item["pdf_url"],
+                    ts_code=item.get("ts_code") or "_invalid",
+                    filename=filename,
+                    pub_date=date_str,
+                )
+            except Exception as e:
+                logger.warning("下载异常 [%s]: %s", cninfo_id, e)
+                return None
+
+            if file_path is not None:
+                return {"cninfo_id": cninfo_id, "file_path": file_path}
+            return None
+
+    tasks = [_download_one(item) for item in pending]
+    results = await asyncio.gather(*tasks, return_exceptions=False)
+
+    updates = [r for r in results if r is not None]
+    downloaded = len(updates)
+    fail_count = len(pending) - downloaded
+    return downloaded, fail_count, updates
+
+
+async def _batch_update_file_paths(conn, updates: list[dict]) -> int:
+    """逐条回写 file_path（批量中对少量记录，逐条足够快）。"""
+    count = 0
+    for u in updates:
+        r = await conn.execute(
+            text("UPDATE announcements SET file_path = :fp WHERE cninfo_id = :cid"),
+            {"fp": str(u["file_path"]), "cid": u["cninfo_id"]},
+        )
+        if r.rowcount:
+            count += 1
+    return count
+
+
 async def sync_day(
     date_str: str,
     minishare_client: DataSourceClientMinishare,
@@ -110,18 +273,15 @@ async def sync_day(
     tracker: IngestionProgressTracker,
     run_ctx: Any,
 ) -> dict[str, int]:
-    """同步单天公告数据。
+    """两阶段同步单天公告数据：先批量 INSERT 元数据，再并发下载 PDF。
 
     Returns:
         {"success", "skipped_by_filter", "skipped_dup", "downloaded", "fail"}
     """
-    from app.data_pipeline.rate_limiter import get_minishare_async_limiter
-    from sqlalchemy.exc import IntegrityError
-    from urllib.parse import parse_qs, urlparse
 
     ann_limiter = get_minishare_async_limiter("anns_d")
 
-    # 1. 从 minishare 获取当天全量公告
+    # 1. 获取当天全量公告
     await ann_limiter.wait_and_acquire()
     records = await asyncio.to_thread(
         minishare_client.get_announcements,
@@ -130,94 +290,56 @@ async def sync_day(
     if not records:
         return {"success": 0, "skipped_by_filter": 0, "skipped_dup": 0, "downloaded": 0, "fail": 0}
 
-    success = skipped_filter = skipped_dup = downloaded = fail = 0
-
+    # 2. 关键词过滤
+    batch_records = []
+    filter_skipped = 0
     for rec in records:
         title = str(rec.get("title") or "").strip()
         if not title:
-            skipped_filter += 1
+            filter_skipped += 1
             continue
-
-        # 2. 关键词过滤
         doc_type, action = classify_ann_title(title)
         if action != ANN_DOC_TYPE_SAVE:
-            skipped_filter += 1
+            filter_skipped += 1
             continue
+        rec["doc_type"] = doc_type
+        batch_records.append(rec)
 
-        ts_code = str(rec.get("ts_code") or "").strip()
-        ann_date_str = str(rec.get("ann_date") or date_str)
-        ann_url = str(rec.get("url") or "")
-        name = str(rec.get("name") or "")
+    # 3. 阶段一：批量 INSERT 元数据（不下载 PDF）
+    inserted = 0
+    skipped_dup = 0
+    if batch_records:
+        async with engine.begin() as conn:
+            inserted, skipped_dup = await _batch_insert_announcements(
+                conn, batch_records, date_str,
+            )
 
-        # 3. 生成 cninfo_id
-        # 从 URL 中提取 announcementId 作为稳定 ID 来源
-        ann_id_suffix = ""
-        if ann_url and 'announcementId=' in ann_url:
-            parsed = urlparse(ann_url)
-            qs = parse_qs(parsed.query)
-            ann_id_suffix = qs.get('announcementId', [None])[0] or ""
-        cninfo_id = generate_cninfo_id(ts_code, ann_date_str, title, ann_id_suffix)
+    # 每天总交易日志量
+    n_records = len(records)
+    n_filtered = len(batch_records)
 
-        # 4. 下载 PDF（URL 归一化）
-        file_path: Path | None = None
-        if ann_url:
-            file_path = storage.download_notice(ann_url, ts_code or "_invalid",
-                                                 f"{cninfo_id}_{title[:60]}.pdf",
-                                                 ann_date_str)
-            if file_path is not None:
-                downloaded += 1
+    # 4. 阶段二：查询待下载记录 + 并发下载 PDF
+    downloaded = 0
+    fail_download = 0
+    if inserted > 0 or skipped_dup > 0:
+        async with engine.connect() as conn:
+            pending = await _get_pending_downloads(conn, date_str)
 
-        # 5. 入库 announcements 表
-        try:
-            parsed_date = datetime.strptime(ann_date_str, "%Y%m%d").date() if ann_date_str else None
-
-            async with engine.begin() as conn:
-                result = await conn.execute(
-                    text("""
-                        INSERT INTO announcements (
-                            ann_date, ts_code, name, title, type,
-                            cninfo_id, announcement_type,
-                            source_type, source_name, confidence_tier,
-                            file_path, pdf_url
-                        ) VALUES (
-                            :ann_date, :ts_code, :name, :title, :type,
-                            :cninfo_id, :announcement_type,
-                            :source_type, :source_name, :confidence_tier,
-                            :file_path, :pdf_url
-                        )
-                        ON CONFLICT (cninfo_id) DO NOTHING
-                    """),
-                    {
-                        "ann_date": parsed_date,
-                        "ts_code": ts_code or None,
-                        "name": name or None,
-                        "title": title[:500],
-                        "type": None,
-                        "cninfo_id": cninfo_id,
-                        "announcement_type": doc_type,
-                        "source_type": "minishare",
-                        "source_name": "minishare_anns",
-                        "confidence_tier": "Tier1",
-                        "file_path": str(file_path) if file_path else None,
-                        "pdf_url": ann_url or None,
-                    },
-                )
-            if result.rowcount and result.rowcount > 0:
-                success += 1
-            else:
-                skipped_dup += 1
-        except IntegrityError:
-            skipped_dup += 1
-        except Exception as e:
-            logger.warning("公告入库失败 [%s]: %s", cninfo_id, e)
-            fail += 1
+        if pending:
+            downloaded, fail_download, updates = await _concurrent_download(
+                pending, storage, date_str,
+            )
+            # 回写 file_path
+            if updates:
+                async with engine.begin() as conn:
+                    await _batch_update_file_paths(conn, updates)
 
     return {
-        "success": success,
-        "skipped_by_filter": skipped_filter,
+        "success": inserted,
+        "skipped_by_filter": filter_skipped,
         "skipped_dup": skipped_dup,
         "downloaded": downloaded,
-        "fail": fail,
+        "fail": fail_download,
     }
 
 
