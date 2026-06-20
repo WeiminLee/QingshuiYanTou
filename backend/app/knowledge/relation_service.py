@@ -791,6 +791,8 @@ def upsert_relates_v4(
     llm_client: Any | None = None,
     evidence_id: str | None = None,
     evidence_ids: list[str] | None = None,
+    stmt_type: str = "Fact",
+    relation_subtype: str | None = None,
 ) -> tuple[dict, bool]:
     """
     Upsert 统一 RELATES 关系（3类实体Schema核心函数）。
@@ -799,26 +801,26 @@ def upsert_relates_v4(
     - 所有预定义关系类型废除 → 统一为 RELATES(text + weight)
     - weight = 1.0：chunk 中直接陈述，LLM 仅转述
     - weight < 0.5：LLM 推断，存在不确定性
+    - stmt_type: Fact(客观事实) / Claim(管理层主张) / Estimate(预测推测)
+    - relation_subtype: 由 infer_relation_type() 推断的语义子类型
 
     MERGE 依据：(from_entity, to_entity, valid_from)
     同一实体对同一 valid_from 只产生一条关系，多个来源文本追加到 descriptions[]。
 
-    # 校验关系两端实体类型都是合法的3类实体
-    def _validate_entity_type(entity_id: str) -> bool:
-        if entity_id.startswith("C:") or entity_id.startswith("CO:"):
-            return True
-        if entity_id.startswith("P:"):
-            return True
-        if entity_id.startswith("M:"):
-            return True
-        return False
-    if not _validate_entity_type(from_entity) or not _validate_entity_type(to_entity):
+    Args:
+        from_entity: 起始节点 entity_id
+        to_entity: 目标节点 entity_id
+        text: 自然语言关系陈述
+        weight: 置信度（1.0=直接陈述，<0.5=LLM推断）
+        source_chunk: 来源 chunk 标识（如章节名）
         source_file: 来源文件名
         source_type: 来源类型（research_report / announcement 等）
         source_name: 来源名称
         valid_from: 关系生效日期（默认今天）
         valid_to: 关系失效日期（None=至今有效）
         direction: 方向（positive/negative/neutral），写入 text 补充说明
+        stmt_type: 陈述类型（Fact/Claim/Estimate，默认 Fact）
+        relation_subtype: 语义子类型（如 SUPPLIES_TO/PRODUCES 等，由 infer_relation_type 推断）
 
     Returns:
         (关系 dict, 是否新插入)
@@ -896,6 +898,16 @@ def upsert_relates_v4(
         if direction and not merged.get("direction"):
             merged["direction"] = direction
 
+        # stmt_type: keep the highest-confidence type (Fact > Claim > Estimate)
+        _stmt_rank = {"Fact": 3, "Claim": 2, "Estimate": 1}
+        old_stmt = merged.get("stmt_type", "Fact")
+        if _stmt_rank.get(stmt_type, 0) > _stmt_rank.get(old_stmt, 0):
+            merged["stmt_type"] = stmt_type
+
+        # relation_subtype: first-write-wins (same as direction)
+        if relation_subtype and not merged.get("relation_subtype"):
+            merged["relation_subtype"] = relation_subtype
+
         # 元数据首次写入不覆盖
         for field, val in [("source_type", source_type), ("source_name", source_name),
                            ("source_chunk", source_chunk), ("source_file", source_file)]:
@@ -953,6 +965,8 @@ def upsert_relates_v4(
         "valid_to": valid_to_str,
         "evidence_id": evidence_id or "",
         "evidence_ids": list(dict.fromkeys(evidence_ids or [])),
+        "stmt_type": stmt_type,
+        "relation_subtype": relation_subtype or "",
         "state_history": _serialize_state_history(
             _default_state_history(text, valid_from_str, valid_to_str)
         ),

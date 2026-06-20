@@ -389,6 +389,7 @@ def _parse_relates_v4(raw_text: str) -> list[dict]:
     rel_inline_weight_pattern = re.compile(r"^RELATES\s*:\s*(.+?)\s*→\s*(.+?)\s*\(?\s*([\d.]+)\s*\)?\s*$")
     text_pattern = re.compile(r"^\s*关系描述\s*[:：]\s*['\"]?(.+?)['\"]?\s*$")
     weight_pattern = re.compile(r"^\s*置信度\s*[:：]\s*(\d+(?:\.\d+)?)\s*$")
+    stmt_type_pattern = re.compile(r"^\s*陈述类型\s*[:：]\s*(Fact|Claim|Estimate)\s*$", re.IGNORECASE)
     source_pattern = re.compile(r"^\s*来源\s*[:：]\s*['\"]?(.+?)['\"]?\s*$")
 
     def flush() -> None:
@@ -415,6 +416,7 @@ def _parse_relates_v4(raw_text: str) -> list[dict]:
                 "to_entity": match.group(2).strip(),
                 "text": "",
                 "weight": 1.0,
+                "stmt_type": "Fact",
                 "source": "",
             }
             continue
@@ -432,6 +434,7 @@ def _parse_relates_v4(raw_text: str) -> list[dict]:
                 "to_entity": inline_match.group(2).strip(),
                 "text": "",
                 "weight": weight_val,
+                "stmt_type": "Fact",
                 "source": "",
             }
             continue
@@ -451,6 +454,10 @@ def _parse_relates_v4(raw_text: str) -> list[dict]:
         source_match = source_pattern.match(line)
         if source_match:
             current["source"] = source_match.group(1).strip()
+            continue
+        stmt_match = stmt_type_pattern.match(line)
+        if stmt_match:
+            current["stmt_type"] = stmt_match.group(1).capitalize()
     flush()
     return relates
 
@@ -500,6 +507,7 @@ def _parse_chunk_output_v4(raw_text: str) -> tuple[dict, dict]:
             "direction": "neutral",
             "weight": rel.get("weight", 1.0),
             "source": rel.get("source", ""),
+            "stmt_type": rel.get("stmt_type", "Fact"),
         })
 
     for metric in _parse_metrics_v4(raw_text):

@@ -612,13 +612,14 @@ def extract_text(
         except Exception as ex:
             logger.warning("实体入库失败 [%s %s]: %s", e_type, name, ex)
 
-    # 关系入库（结构化类型 + direction）
+    # 关系入库（结构化类型 + direction + stmt_type + relation_subtype）
     for r in merged_relations:
         src_name = r.get("src_id", "").strip()
         tgt_name = r.get("tgt_id", "").strip()
         rel_desc = r.get("description", "").strip()
         direction = r.get("direction", "neutral")
         has_conflict = r.get("has_direction_conflict", False)
+        stmt_type = r.get("stmt_type", "Fact")
 
         src_eid = lookup.get(src_name) or lookup.get(src_name.lower())
         tgt_eid = lookup.get(tgt_name) or lookup.get(tgt_name.lower())
@@ -628,6 +629,9 @@ def extract_text(
             continue
 
         v4_weight = _normalize_relation_weight(r.get("weight"))
+
+        # Infer relation_subtype from description text
+        relation_subtype = infer_relation_type(rel_desc)
 
         try:
             _, is_new = upsert_relates_v4(
@@ -640,6 +644,8 @@ def extract_text(
                 source_name=source_name,
                 direction=direction,
                 valid_from=today,
+                stmt_type=stmt_type,
+                relation_subtype=relation_subtype,
             )
             if is_new:
                 relations_created += 1
@@ -1005,6 +1011,7 @@ async def extract_text_async(
         rel_desc = r.get("description", "").strip()
         direction = r.get("direction", "neutral")
         has_conflict = r.get("has_direction_conflict", False)
+        stmt_type = r.get("stmt_type", "Fact")
 
         src_eid = lookup.get(src_name) or lookup.get(src_name.lower())
         tgt_eid = lookup.get(tgt_name) or lookup.get(tgt_name.lower())
@@ -1013,6 +1020,9 @@ async def extract_text_async(
 
         # 从 weight 字段计算 V2 weight（V1 输出是 1-10，V2 需要 0-1 映射）
         v2_weight = _normalize_relation_weight(r.get("weight", 5.0))
+
+        # Infer relation_subtype from description text
+        relation_subtype = infer_relation_type(rel_desc)
 
         try:
             _, is_new = upsert_relates_v4(
@@ -1025,6 +1035,8 @@ async def extract_text_async(
                 source_name=source_name,
                 direction=direction,
                 valid_from=today,
+                stmt_type=stmt_type,
+                relation_subtype=relation_subtype,
             )
             if is_new:
                 relations_created += 1
@@ -1249,11 +1261,13 @@ async def extract_evidence_async(
         src_name = str(r.get("src_id") or "").strip()
         tgt_name = str(r.get("tgt_id") or "").strip()
         rel_desc = str(r.get("description") or "").strip()
+        stmt_type = r.get("stmt_type", "Fact")
         src_eid = lookup.get(src_name) or lookup.get(src_name.lower())
         tgt_eid = lookup.get(tgt_name) or lookup.get(tgt_name.lower())
         if not src_eid or not tgt_eid:
             continue
         v2_weight = _normalize_relation_weight(r.get("weight", 5.0))
+        relation_subtype = infer_relation_type(rel_desc)
         try:
             _, is_new = upsert_relates_v4(
                 from_entity=src_eid,
@@ -1264,6 +1278,8 @@ async def extract_evidence_async(
                 source_type=source_type,
                 source_name=source_name,
                 valid_from=today,
+                stmt_type=stmt_type,
+                relation_subtype=relation_subtype,
             )
             if is_new:
                 relations_created += 1
