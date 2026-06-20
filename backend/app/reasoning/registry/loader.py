@@ -84,6 +84,12 @@ def _build_default_config() -> list[ToolConfig]:
             description="知识图谱智能搜索：根据自然语言查询，自动选择实体搜索、关系搜索或路径搜索策略，返回相关性排序的结果",
         ),
         ToolConfig(
+            name="fetch_evidence",
+            group=ToolGroup.KNOWLEDGE,
+            use="app.reasoning.tools.knowledge:fetch_evidence",
+            description="追溯知识图谱结论的原始证据（L1原子层），传入evidence_id获取公告/研报/互动易原文",
+        ),
+        ToolConfig(
             name="get_research_report",
             group=ToolGroup.KNOWLEDGE,
             use="app.reasoning.tools.knowledge.research_report:get_research_report",
