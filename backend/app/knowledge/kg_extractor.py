@@ -628,7 +628,7 @@ def extract_text(
             logger.debug("关系跳过（节点不存在）: %s → %s", src_name, tgt_name)
             continue
 
-        v4_weight = _normalize_relation_weight(r.get("weight"))
+        rel_weight = _normalize_relation_weight(r.get("weight"))
 
         # Infer relation_subtype from description text
         relation_subtype = infer_relation_type(rel_desc)
@@ -638,7 +638,7 @@ def extract_text(
                 from_entity=src_eid,
                 to_entity=tgt_eid,
                 text=rel_desc,
-                weight=v4_weight,
+                weight=rel_weight,
                 source_file=source_file,
                 source_type=source_type,
                 source_name=source_name,
