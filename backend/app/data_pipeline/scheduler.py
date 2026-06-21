@@ -169,7 +169,7 @@ async def _run_irm_job() -> None:
 
     try:
         # 优先使用 minishare 接口
-        result = await DataFetcher().fetch_minishare_irm()
+        result = await DataFetcher().fetch_irm()
         await record_task_result(
             "irm",
             TaskStatus.SUCCESS if result.get("fail", 0) == 0 else TaskStatus.PARTIAL,

@@ -434,7 +434,7 @@ async def sync_minishare_irm(
 
     try:
         fetcher = DataFetcher()
-        result = await fetcher.fetch_minishare_irm(trade_date=trade_date)
+        result = await fetcher.fetch_irm()
         return SyncResponse(
             task_id=task_id,
             status="completed",
@@ -528,11 +528,7 @@ async def sync_minishare_irm_history(
 
         try:
             fetcher = DataFetcher()
-            result = await fetcher.fetch_minishare_irm_history(
-                start_date=start_date,
-                end_date=end_date,
-                task_id=task_id,
-            )
+            result = await fetcher.fetch_irm()
             logger.info(f"[{task_id_short}] minishare 互动易历史同步完成: {result}")
         except Exception as e:
             logger.error(f"[{task_id_short}] minishare 互动易历史同步失败: {e}", exc_info=True)
