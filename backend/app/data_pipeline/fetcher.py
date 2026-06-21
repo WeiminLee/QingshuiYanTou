@@ -640,6 +640,9 @@ class DataFetcher:
             return {"success": 0, "skipped": 0, "fail": 0, "source": "minishare"}
 
         success = skipped = fail = 0
+        # 白名单过滤：scope=tech_mvp 时仅处理白名单股票公告
+        from app.data_pipeline.backfill_config import load_backfill_settings
+        bf_cfg = load_backfill_settings()
         for rec in records:
             title = str(rec.get("title") or "")
             # 公告过滤：只保存命中关键词的公告
@@ -648,6 +651,9 @@ class DataFetcher:
                 skipped += 1
                 continue
             ts_code_val = _normalize_ts_code(str(rec.get("ts_code") or ""))
+            if bf_cfg.scope == "tech_mvp" and ts_code_val not in bf_cfg.ts_codes:
+                skipped += 1
+                continue
             ok = await self._save_minishare_ann(rec, ts_code_val)
             if ok is True:
                 success += 1
@@ -745,6 +751,9 @@ class DataFetcher:
                 continue
 
             day_success = day_skipped = day_fail = 0
+            # 白名单过滤：scope=tech_mvp 时仅处理白名单股票公告
+            from app.data_pipeline.backfill_config import load_backfill_settings
+            bf_cfg = load_backfill_settings()
             for rec in records:
                 title = str(rec.get("title") or "")
                 # 公告过滤：只保存命中关键词的公告
@@ -753,6 +762,9 @@ class DataFetcher:
                     day_skipped += 1
                     continue
                 ts_code_val = _normalize_ts_code(str(rec.get("ts_code") or ""))
+                if bf_cfg.scope == "tech_mvp" and ts_code_val not in bf_cfg.ts_codes:
+                    day_skipped += 1
+                    continue
                 ok = await self._save_minishare_ann(rec, ts_code_val)
                 if ok is True:
                     day_success += 1
@@ -1341,12 +1353,19 @@ class DataFetcher:
             )
             return {"total": 0, "success": 0, "skipped": 0, "downloaded": 0, "fail": 0}
 
+        # ── 白名单过滤 ──
+        from app.data_pipeline.backfill_config import load_backfill_settings
+        bf_cfg = load_backfill_settings()
+
         # ── 预查询：批量过滤已入库 cninfo_id ──
         candidate_ids: list[str] = []
         prepared: list[dict[str, Any]] = []
         for ann in announcements:
             cninfo_id = CninfoClient.get_announcement_id(ann)
             if not cninfo_id:
+                continue
+            ts_code_raw = CninfoClient.get_ts_code(ann)
+            if bf_cfg.scope == "tech_mvp" and ts_code_raw not in bf_cfg.ts_codes:
                 continue
             candidate_ids.append(cninfo_id)
             prepared.append({
