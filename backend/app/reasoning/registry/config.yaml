@@ -37,20 +37,35 @@ tools:
 
   # ── knowledge ──────────────────────────────────────────────────────────────
 
+  # resolve + expand: 新一代图谱导航（resolve→expand 模式）
+  - name: resolve
+    group: knowledge
+    use: app.reasoning.tools.knowledge:resolve
+    description: 锚定自然语言查询到图谱实体，返回 entity_id/name/type/score。图谱导航第一步。
+
+  - name: expand
+    group: knowledge
+    use: app.reasoning.tools.knowledge:expand
+    description: 受控展开图谱子图，select 可选 properties/relations/metrics/products/companies/upstream/downstream/peers/divergence
+
+  # neo4j_traverse / neo4j_entity_info 已被 resolve+expand 替代，禁用
   - name: neo4j_traverse
     group: knowledge
     use: app.reasoning.tools.knowledge.neo4j:neo4j_traverse
-    description: 查询知识图谱中实体间的关系（1-hop 或 2-hop 传导链），支持 V2 RELATES 边
+    description: "[已弃用] 请使用 resolve + expand(select=['relations']) 替代"
+    enabled: false
 
   - name: neo4j_entity_info
     group: knowledge
     use: app.reasoning.tools.knowledge.neo4j:neo4j_entity_info
-    description: 查询知识图谱中实体的详细属性（行业状态、信号、置信度、别名等）
+    description: "[已弃用] 请使用 resolve + expand(select=['properties']) 替代"
+    enabled: false
 
+  # 以下旧工具保留：resolve/expand 无法替代的功能
   - name: neo4j_path
     group: knowledge
     use: app.reasoning.tools.knowledge.neo4j:neo4j_path
-    description: 查询两个实体之间的传导路径（供应链、产业链等）
+    description: 查询两个实体之间的传导路径（最短路径），用于任意两点间产业链分析
 
   - name: neo4j_industry_state
     group: knowledge
@@ -60,7 +75,7 @@ tools:
   - name: neo4j_kg_search
     group: knowledge
     use: app.reasoning.tools.knowledge.neo4j:neo4j_kg_search
-    description: 知识图谱智能搜索：根据自然语言查询，自动选择实体搜索、关系搜索或路径搜索策略，返回相关性排序的结果
+    description: 知识图谱智能搜索：自动选择实体/关系/路径搜索策略，返回相关性排序的结果
 
   - name: fetch_evidence
     group: knowledge

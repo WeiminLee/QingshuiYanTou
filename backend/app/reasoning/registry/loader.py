@@ -53,23 +53,40 @@ def _build_default_config() -> list[ToolConfig]:
             description="获取市场宽度指标，包括上涨下跌家数、涨停炸板数量、市场情绪等",
         ),
         # ── knowledge ────────────────────────────────
+        # resolve + expand: 新一代图谱导航（resolve→expand 模式）
+        ToolConfig(
+            name="resolve",
+            group=ToolGroup.KNOWLEDGE,
+            use="app.reasoning.tools.knowledge:resolve",
+            description="锚定自然语言查询到图谱实体，返回 {entity_id, name, type, score}。图谱导航第一步。",
+        ),
+        ToolConfig(
+            name="expand",
+            group=ToolGroup.KNOWLEDGE,
+            use="app.reasoning.tools.knowledge:expand",
+            description="受控展开图谱子图，select 可选 properties/relations/metrics/products/companies/upstream/downstream/peers/divergence",
+        ),
+        # neo4j_traverse / neo4j_entity_info 已被 resolve+expand 替代，禁用
         ToolConfig(
             name="neo4j_traverse",
             group=ToolGroup.KNOWLEDGE,
             use="app.reasoning.tools.knowledge.neo4j:neo4j_traverse",
-            description="查询知识图谱中实体间的关系（1-hop 或 2-hop 传导链），支持 V2 RELATES 边",
+            description="[已弃用] 请使用 resolve + expand(select=['relations']) 替代",
+            enabled=False,
         ),
         ToolConfig(
             name="neo4j_entity_info",
             group=ToolGroup.KNOWLEDGE,
             use="app.reasoning.tools.knowledge.neo4j:neo4j_entity_info",
-            description="查询知识图谱中实体的详细属性（行业状态、信号、置信度、别名等）",
+            description="[已弃用] 请使用 resolve + expand(select=['properties']) 替代",
+            enabled=False,
         ),
+        # 以下旧工具保留：resolve/expand 无法替代的功能
         ToolConfig(
             name="neo4j_path",
             group=ToolGroup.KNOWLEDGE,
             use="app.reasoning.tools.knowledge.neo4j:neo4j_path",
-            description="查询两个实体之间的传导路径（供应链、产业链等）",
+            description="查询两个实体之间的传导路径（最短路径），用于任意两点间产业链分析",
         ),
         ToolConfig(
             name="neo4j_industry_state",
@@ -81,7 +98,7 @@ def _build_default_config() -> list[ToolConfig]:
             name="neo4j_kg_search",
             group=ToolGroup.KNOWLEDGE,
             use="app.reasoning.tools.knowledge.neo4j:neo4j_kg_search",
-            description="知识图谱智能搜索：根据自然语言查询，自动选择实体搜索、关系搜索或路径搜索策略，返回相关性排序的结果",
+            description="知识图谱智能搜索：自动选择实体/关系/路径搜索策略，返回相关性排序的结果",
         ),
         ToolConfig(
             name="fetch_evidence",

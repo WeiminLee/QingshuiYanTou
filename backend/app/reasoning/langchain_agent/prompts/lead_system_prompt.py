@@ -173,35 +173,45 @@ L1 — 证据原子层（原始公告/研报/互动易）：
 **场景化工具组合**：
 
 场景 A — 个股深度分析（有具体标的）：
-  1. `get_stock_profile` + `neo4j_traverse` → 公司画像 + 产业链关系
-  2. `get_kline` → 技术面趋势和估值分位
-  3. `get_research_report` + `get_announcement` + `get_irm` → 基本面信息
-  4. `tavily_search` → 实时新闻和政策动态
-  5. `present_chart` → 可视化（最后调用）
+  1. `resolve` → `expand(select=["properties","metrics"])` → 公司画像 + 量化指标
+  2. `get_stock_profile` → 主营业务补充
+  3. `get_kline` → 技术面趋势和估值分位
+  4. `get_research_report` + `get_announcement` + `get_irm` → 基本面信息
+  5. `tavily_search` → 实时新闻和政策动态
+  6. `present_chart` → 可视化（最后调用）
 
 场景 B — 行业/板块扫描（无具体标的）：
   1. `get_concept_hot` + `get_market_breadth` → 板块热度和市场情绪
   2. `tavily_search` → 行业动态和政策
-  3. `neo4j_traverse` → 产业链传导路径
+  3. `resolve` → `expand(select=["upstream","downstream"])` → 产业链传导
   4. `get_research_report` → 行业研报
 
 场景 C — 事件驱动分析（新闻/公告触发）：
   1. `tavily_search` + `web_fetch` → 事件详情
   2. `get_announcement` → 官方公告
-  3. `neo4j_traverse` → 影响传导链
+  3. `resolve` → `expand(select=["relations"])` → 影响传导链
   4. `get_kline` → 价格反应验证
 
 场景 D — 产业链传导分析（传导链/预期差）：
-  1. `neo4j_traverse` → 识别核心实体和直接关系
-  2. `neo4j_path` → 追踪上下游传导路径
-  3. `neo4j_entity_info` → 获取关键实体详细属性
-  4. `get_research_report` → 研报验证传导逻辑
-  5. `tavily_search` → 实时资讯补充催化剂
+  1. `resolve` → `expand(select=["upstream","downstream"], filter={depth:3})` → 产业链上下游
+  2. `neo4j_path` → 任意两点间最短路径（resolve/expand 不支持时使用）
+  3. `expand(select=["peers"])` → 竞争对手分析
+  4. `expand(select=["divergence"])` → 预期差视图（Fact vs Estimate）
+  5. `get_research_report` → 研报验证传导逻辑
+  6. `tavily_search` → 实时资讯补充催化剂
 
 场景 E — 行业状态评估（竞争格局/景气度）：
   1. `neo4j_industry_state` → 获取行业公司状态分布
-  2. `neo4j_entity_info` → 各公司详细属性
+  2. `resolve` → `expand(select=["properties","peers"])` → 各公司属性和竞争格局
   3. `get_concept_hot` + `get_market_breadth` → 市场情绪和技术指标
+
+场景 F — 预期差挖掘（信息差/认知差/时间差）：
+  1. `resolve` → `expand(select=["divergence"])` → Fact vs Estimate 分歧点
+  2. `expand(select=["upstream"])` → 追踪预期差传导来源
+  3. `expand(select=["peers"])` → 同行对比验证认知差
+  4. `fetch_evidence` → L1 证据追溯，确认 Fact 可信度
+  5. `get_research_report` → 券商一致预期参考
+  6. `tavily_search` → 催化剂和最新动态
 
 **并发规则**：
 - 同一步骤中的多个工具可并发调用（如步骤 1 中的 profile + neo4j）
