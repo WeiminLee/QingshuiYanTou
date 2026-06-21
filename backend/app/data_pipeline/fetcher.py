@@ -936,10 +936,21 @@ class DataFetcher:
         set_task_id(task_id)
         await self._ensure_irm_checkpoint_index()
 
+        # 默认范围由 backfill_config 决定（scope=tech_mvp 时仅白名单股票）
+        from app.data_pipeline.backfill_config import load_backfill_settings
+        bf_cfg = load_backfill_settings()
         requested_scope = "all_market" if ts_codes is None else ",".join(ts_codes[:5])
         if ts_codes is None:
             all_stocks = self.data_source.get_stocks_basic(list_status="L")
             ts_codes = [s["ts_code"] for s in all_stocks]
+            if bf_cfg.scope == "tech_mvp" and bf_cfg.ts_codes:
+                before = len(ts_codes)
+                ts_codes = [c for c in ts_codes if c in bf_cfg.ts_codes]
+                logger.info(
+                    "fetch_irm: backfill scope=tech_mvp, %d/%d 命中白名单",
+                    len(ts_codes), before,
+                )
+                requested_scope = f"tech_mvp({len(ts_codes)})"
         elif len(ts_codes) > 5:
             requested_scope = f"{len(ts_codes)}_companies"
 
@@ -2107,6 +2118,16 @@ class DataFetcher:
         """
         all_stocks = await asyncio.to_thread(self.data_source.get_stocks_basic, "L")
         ts_codes = [s["ts_code"] for s in all_stocks if s.get("ts_code")]
+        # 白名单过滤：scope=tech_mvp 时仅保留白名单股票
+        from app.data_pipeline.backfill_config import load_backfill_settings
+        bf_cfg = load_backfill_settings()
+        if bf_cfg.scope == "tech_mvp" and bf_cfg.ts_codes:
+            before = len(ts_codes)
+            ts_codes = [c for c in ts_codes if c in bf_cfg.ts_codes]
+            logger.info(
+                "fetch_all_stocks_kline: backfill scope=tech_mvp, %d/%d 命中白名单",
+                len(ts_codes), before,
+            )
         total = len(ts_codes)
         if total == 0:
             logger.warning("get_stocks_basic 返回空，全市场 K 线跳过")
