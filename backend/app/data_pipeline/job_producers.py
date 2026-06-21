@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from datetime import datetime, timedelta
 
 import pytz
@@ -12,6 +13,8 @@ from app.data_pipeline.job_queue import (
     JOB_IRM_COMPANY,
     IngestionJobQueue,
 )
+
+logger = logging.getLogger(__name__)
 
 
 SH_TZ = pytz.timezone("Asia/Shanghai")
@@ -71,6 +74,17 @@ async def enqueue_irm_company_jobs(
     data_source = data_source or DataSourceClient()
 
     stocks = await asyncio.to_thread(data_source.get_stocks_basic, "L")
+
+    # 白名单过滤：scope=tech_mvp 时仅入队白名单股票
+    from app.data_pipeline.backfill_config import load_backfill_settings
+    bf_cfg = load_backfill_settings()
+    if bf_cfg.scope == "tech_mvp" and bf_cfg.ts_codes:
+        before = len(stocks)
+        stocks = [s for s in stocks if str(s.get("ts_code", "")) in bf_cfg.ts_codes]
+        logger.info(
+            "enqueue_irm_company_jobs: backfill scope=tech_mvp, %d/%d 命中白名单",
+            len(stocks), before,
+        )
 
     count = 0
     for stock in stocks:
