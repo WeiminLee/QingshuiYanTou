@@ -131,6 +131,13 @@ async def sync_single_day(client: CninfoClient, target_date: str) -> dict:
 
                 ann_date_str = CninfoClient.get_ann_date(ann) or target_date
                 ts_code = CninfoClient.get_ts_code(ann)
+
+                # 白名单过滤：scope=tech_mvp 时仅保存白名单股票公告
+                from app.data_pipeline.backfill_config import is_in_scope
+                if not is_in_scope(ts_code):
+                    skipped += 1
+                    continue
+
                 name = str(ann.get("secName", "") or "")
                 pdf_url = CninfoClient.get_pdf_url(ann)
 

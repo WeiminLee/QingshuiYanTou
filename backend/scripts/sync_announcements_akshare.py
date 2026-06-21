@@ -173,6 +173,14 @@ async def main(batch_size: int = 50, start_date: str | None = None, end_date: st
     ts_codes = [(s["ts_code"], s["ts_code"].split(".")[0]) for s in stocks if s.get("ts_code")]
     print(f"获取到 {len(ts_codes)} 只股票")
 
+    # 白名单过滤：scope=tech_mvp 时仅同步白名单股票公告
+    from app.data_pipeline.backfill_config import load_backfill_settings
+    bf_cfg = load_backfill_settings()
+    if bf_cfg.scope == "tech_mvp" and bf_cfg.ts_codes:
+        before = len(ts_codes)
+        ts_codes = [(tc, sym) for tc, sym in ts_codes if tc in bf_cfg.ts_codes]
+        print(f"backfill scope=tech_mvp, {len(ts_codes)}/{before} 命中白名单")
+
     # 获取已有公告数
     existing = await get_existing_count()
     print(f"当前已入库 (akshare): {existing} 条")

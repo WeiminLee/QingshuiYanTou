@@ -342,7 +342,18 @@ async def sync_by_stock(
     if ts_codes is None:
         stock_list = get_stock_list(exchange)
         ts_codes = [s["ts_code"] for s in stock_list]
-        logger.info(f"将同步 {len(ts_codes)} 只股票")
+        # 白名单过滤：scope=tech_mvp 时仅同步白名单股票
+        from app.data_pipeline.backfill_config import load_backfill_settings
+        bf_cfg = load_backfill_settings()
+        if bf_cfg.scope == "tech_mvp" and bf_cfg.ts_codes:
+            before = len(ts_codes)
+            ts_codes = [c for c in ts_codes if c in bf_cfg.ts_codes]
+            logger.info(
+                "sync_by_stock: backfill scope=tech_mvp, %d/%d 命中白名单",
+                len(ts_codes), before,
+            )
+        else:
+            logger.info(f"将同步 {len(ts_codes)} 只股票")
     else:
         ts_codes = [_normalize_ts_code(c) for c in ts_codes]
         logger.info(f"将同步 {len(ts_codes)} 只指定股票")
