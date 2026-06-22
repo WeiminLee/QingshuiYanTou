@@ -122,12 +122,17 @@ run_step3() {
     echo "[Step 3] 完成"
 }
 
-# Step 4: IRM 互动易（全量）
+# Step 4: IRM 互动易（CSV导入历史 + minishare回补增量）
 run_step4() {
     echo ""
     echo "[Step 4] IRM 互动易同步..."
     echo "----------------------------------------"
-    python scripts/sync_irm_history.py --exchange ALL 2>&1 | tee -a "$LOG_FILE"
+    # Step 4a: CSV 导入历史数据
+    echo "[Step 4a] CSV 导入历史数据..."
+    python -m scripts.import_irm_csv --scope "$SCOPE" 2>&1 | tee -a "$LOG_FILE"
+    # Step 4b: minishare 回补增量
+    echo "[Step 4b] minishare 回补增量..."
+    python -m scripts.sync_minishare_irm_history --scope "$SCOPE" 2>&1 | tee -a "$LOG_FILE"
     echo "[Step 4] 完成"
 }
 
@@ -190,7 +195,7 @@ async def check_irm():
     whitelist = set(Path('$WHITELIST').read_text().strip().splitlines())
     async with engine.connect() as conn:
         result = await conn.execute(text(
-            \"SELECT DISTINCT ts_code FROM announcements WHERE source_type LIKE 'irm%'\"
+            \"SELECT DISTINCT ts_code FROM announcements WHERE announcement_type LIKE 'irm:%'\"
         ))
         covered = set(row[0] for row in result.fetchall())
     covered_whitelist = whitelist & covered
