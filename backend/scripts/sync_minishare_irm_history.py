@@ -85,9 +85,11 @@ def _parse_trade_date(trade_date) -> datetime.date | None:
         return None
 
 
-def _generate_cninfo_id(ts_code: str, trade_date, row_hash: str) -> str:
+def _generate_cninfo_id(ts_code: str, trade_date, question: str) -> str:
     """生成唯一 cninfo_id。"""
-    hash_part = row_hash[:24] if row_hash else "unknown"
+    # minishare API 没有 row_hash，用 question 前 24 字符的 MD5 模拟
+    q_part = question[:24] if question else "unknown"
+    hash_part = hashlib.md5(q_part.encode()).hexdigest()[:24]
     return f"irm_ms_{ts_code}_{trade_date}_{hash_part}"
 
 
@@ -135,12 +137,18 @@ async def _batch_insert(records: list[dict]) -> tuple[int, int]:
 
 
 def _fetch_day_irm(minishare_pro, trade_date: str) -> list[dict]:
-    """拉取单天的 IRM 数据（SZ + SH）。"""
+    """拉取单天的 IRM 数据（SZ + SH），支持分页。"""
     records = []
+    page_size = 1000  # minishare 每页最大返回条数
+
     for api_name, source_tag in [("irm_qa_sz", "irm_qa_sz"), ("irm_qa_sh", "irm_qa_sh")]:
-        try:
-            df = getattr(minishare_pro, api_name)(trade_date=trade_date)
-            if df is not None and not df.empty:
+        offset = 0
+        while True:
+            try:
+                df = getattr(minishare_pro, api_name)(trade_date=trade_date, offset=offset)
+                if df is None or df.empty:
+                    break
+
                 for _, row in df.iterrows():
                     records.append({
                         "source": source_tag,
@@ -153,8 +161,17 @@ def _fetch_day_irm(minishare_pro, trade_date: str) -> list[dict]:
                         "a": str(row.get("a", "")).strip(),
                         "row_hash": str(row.get("row_hash", "")).strip(),
                     })
-        except Exception as e:
-            logger.warning(f"{api_name} {trade_date} 失败: {e}")
+
+                # 如果返回数据少于 page_size，说明已经是最后一页
+                if len(df) < page_size:
+                    break
+
+                offset += page_size
+
+            except Exception as e:
+                logger.warning(f"{api_name} {trade_date} offset={offset} 失败: {e}")
+                break
+
     return records
 
 
@@ -212,9 +229,9 @@ async def sync_day(
         if ann_date is None:
             continue
 
-        # cninfo_id
-        row_hash = rec.get("row_hash", "")
-        cninfo_id = _generate_cninfo_id(ts_code, rec["trade_date"], row_hash)
+        # cninfo_id - 用 question 内容生成唯一 ID
+        question = rec["q"]
+        cninfo_id = _generate_cninfo_id(ts_code, rec["trade_date"], question)
 
         source_name = "上证e互动" if exchange == "SH" else "深证互动易"
 
