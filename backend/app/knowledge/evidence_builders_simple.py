@@ -1,36 +1,74 @@
 """Evidence builders for announcements (chapter-chunked) and IRM (unchunked).
 
-公告: 下载 PDF → 按章节分块 → 每个章节一个 EvidenceInput
+公告: 读取本地 PDF → 按章节分块 → 每个章节一个 EvidenceInput
 互动易: 每条 Q&A → 一个 EvidenceInput（不分块）
 """
 from __future__ import annotations
 
+import os
 from datetime import date, datetime, timezone
 from typing import Any
 
 from app.knowledge.evidence import EvidenceInput, default_source_confidence
 from app.knowledge.ingestion.announcement_parser import (
-    download_announcement_pdf,
     parse_pdf_text,
     split_by_chapters,
 )
+
+logger = __import__("logging").getLogger(__name__)
 
 
 def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+# 旧路径前缀 → 新路径前缀
+PATH_PREFIX_MAP = {
+    "/home/lwm/qingshui_data": "/run/media/lwm/0E27099B0E27099B/qingshui_data"
+}
+
+
+def _map_file_path(file_path: str | None) -> str | None:
+    """将旧路径映射到新路径"""
+    if not file_path:
+        return None
+    for old_prefix, new_prefix in PATH_PREFIX_MAP.items():
+        if file_path.startswith(old_prefix):
+            return file_path.replace(old_prefix, new_prefix)
+    return file_path
+
+
+def _file_exists(file_path: str | None) -> bool:
+    """检查文件是否存在"""
+    return bool(file_path and os.path.exists(file_path))
+
+
+def _split_pdf_chapters(file_path: str) -> list[dict] | None:
+    """解析本地 PDF 并按章节切分，返回章节列表"""
+    try:
+        with open(file_path, "rb") as f:
+            content = f.read()
+        text = parse_pdf_text(content)
+        if not text.strip():
+            return None
+        return split_by_chapters(text)
+    except Exception as e:
+        logger.warning(f"PDF 解析失败 [{file_path}]: {e}")
+        return None
+
+
 def build_announcement_evidence(
     record: dict[str, Any],
-    download_pdf: bool = True,
 ) -> list[EvidenceInput]:
-    """从 minishare_announcements 记录构建 EvidenceInput 列表。
+    """从 announcements 记录构建 EvidenceInput 列表。
 
-    每个章节作为一个独立的 Evidence，通过 chunk_index 区分。
+    每个章节作为一个独立的 Evidence，通过 chapter_index 区分。
+
+    本地 PDF 路径：file_path（需映射到新路径）
+    如果本地有 PDF 则解析章节；否则回退到 title-only。
 
     Args:
-        record: 数据库行（含 id, ann_date, ts_code, name, title, type, source_url 等）
-        download_pdf: 是否下载 PDF（默认 True，失败时回退到 title-only）
+        record: 数据库行（含 id, ann_date, ts_code, name, title, announcement_type, pdf_url, file_path 等）
 
     Returns:
         list[EvidenceInput]: 每个章节一个 EvidenceInput
@@ -39,7 +77,7 @@ def build_announcement_evidence(
     title = (record.get("title") or "").strip()
     ts_code = (record.get("ts_code") or "").strip()
     ann_date_raw = record.get("ann_date")
-    # Convert date/dateime to ISO string for MongoDB
+    # Convert date/datetime to ISO string for MongoDB
     if ann_date_raw is None:
         ann_date = None
     elif isinstance(ann_date_raw, date):
@@ -48,20 +86,21 @@ def build_announcement_evidence(
         ann_date = ann_date_raw.isoformat()
     else:
         ann_date = str(ann_date_raw) if ann_date_raw else None
-    ann_type = (record.get("type") or record.get("ann_types") or "")
-    source_url = (record.get("source_url") or "")
+    ann_type = (record.get("announcement_type") or "").strip()
+    pdf_url = (record.get("pdf_url") or "").strip()
     company_name = (record.get("name") or "").strip()
 
     source_id = str(ann_id)
-    chapters: list[dict] = []
 
-    # 尝试下载 PDF 并按章节分块
-    if download_pdf and source_url:
-        pdf_content = download_announcement_pdf(source_url)
-        if pdf_content:
-            full_text = parse_pdf_text(pdf_content)
-            if full_text.strip():
-                chapters = split_by_chapters(full_text)
+    # 映射本地 PDF 路径
+    raw_path = record.get("file_path")
+    local_pdf = _map_file_path(raw_path)
+    has_local_pdf = _file_exists(local_pdf)
+
+    # 解析章节
+    chapters: list[dict] = []
+    if has_local_pdf:
+        chapters = _split_pdf_chapters(local_pdf) or []
 
     # 回退：PDF 不可用时只用 title
     if not chapters:
@@ -84,50 +123,74 @@ def build_announcement_evidence(
             publish_date=ann_date,
             observed_at=_utc_now(),
             source_ref={
-                "source_table": "minishare_announcements",
-                "source_id": ann_id,
+                "source_table": "announcements",
+                "ann_id": ann_id,
                 "ann_date": ann_date,
-                "source_url": source_url,
+                "local_pdf": local_pdf if has_local_pdf else None,
+                "pdf_url": pdf_url,
+                "chapter_index": i,
                 "chapter_heading": ch["heading"],
             },
             confidence=default_source_confidence("announcement"),
-            metadata={"title": title, "chapter_count": len(chapters)},
+            metadata={"title": title, "chapter_count": len(chapters), "has_pdf": has_local_pdf},
         ))
 
     return evidence_list
 
 
-def build_irm_evidence(
-    record: dict[str, Any],
-) -> EvidenceInput:
+def build_irm_evidence(record: dict[str, Any]) -> EvidenceInput:
     """从 announcements (irm:*) 记录构建 EvidenceInput。
 
     每条互动易 Q&A 作为一个 Evidence，不分块。
+
+    IRM 数据结构：
+    - title: 问题内容
+    - content: 回答内容
     """
     ann_id = record.get("id") or ""
-    question = (record.get("title") or "").strip()  # IRM stores question in title
+    question = (record.get("title") or "").strip()
+    answer = (record.get("content") or "").strip()
     ts_code = (record.get("ts_code") or "").strip()
-    ann_date = record.get("ann_date")
-    ann_type = (record.get("announcement_type") or "")
+    ann_date_raw = record.get("ann_date")
+    if ann_date_raw is None:
+        ann_date = None
+    elif isinstance(ann_date_raw, date):
+        ann_date = ann_date_raw.isoformat()
+    elif isinstance(ann_date_raw, datetime):
+        ann_date = ann_date_raw.isoformat()
+    else:
+        ann_date = str(ann_date_raw) if ann_date_raw else None
+    ann_type = (record.get("announcement_type") or "").strip()
     company_name = (record.get("name") or "").strip()
+
+    # 构造 text_excerpt
+    if answer:
+        text_excerpt = f"问：{question}\n答：{answer}"
+    else:
+        text_excerpt = question
 
     return EvidenceInput(
         source_type="irm",
         source_name=f"互动易:{ts_code}" if ts_code else "互动易",
         source_id=str(ann_id),
-        text_excerpt=f"问题：{question}",
+        text_excerpt=text_excerpt,
         subject_hint={
             "ts_code": ts_code,
             "name": company_name,
+            "irm_type": ann_type,
         },
         publish_date=ann_date,
         observed_at=_utc_now(),
         source_ref={
             "source_table": "announcements",
-            "source_id": ann_id,
+            "ann_id": ann_id,
             "ann_date": ann_date,
             "ann_type": ann_type,
         },
         confidence=default_source_confidence("irm"),
-        metadata={},
+        metadata={
+            "question": question,
+            "answer": answer,
+            "irm_type": ann_type,
+        },
     )
