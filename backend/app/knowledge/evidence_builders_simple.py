@@ -10,10 +10,8 @@ from datetime import date, datetime, timezone
 from typing import Any
 
 from app.knowledge.evidence import EvidenceInput, default_source_confidence
-from app.knowledge.ingestion.announcement_parser import (
-    parse_pdf_text,
-    split_by_chapters,
-)
+from app.knowledge.ingestion.pdf_parser import extract_text_from_pdf
+from app.knowledge.ingestion.chunker import SmartChunker
 
 logger = __import__("logging").getLogger(__name__)
 
@@ -44,14 +42,25 @@ def _file_exists(file_path: str | None) -> bool:
 
 
 def _split_pdf_chapters(file_path: str) -> list[dict] | None:
-    """解析本地 PDF 并按章节切分，返回章节列表"""
+    """解析本地 PDF 并按章节切分，返回分块列表"""
     try:
-        with open(file_path, "rb") as f:
-            content = f.read()
-        text = parse_pdf_text(content)
+        # 使用 SmartChunker 进行智能分块
+        chunker = SmartChunker(max_tokens=4096)
+        text = extract_text_from_pdf(file_path)
         if not text.strip():
             return None
-        return split_by_chapters(text)
+
+        chunks = chunker.chunk(text)
+
+        return [
+            {
+                "heading": c.heading,
+                "body": c.text,
+                "tokens": c.tokens,
+                "source": c.source,
+            }
+            for c in chunks
+        ]
     except Exception as e:
         logger.warning(f"PDF 解析失败 [{file_path}]: {e}")
         return None
