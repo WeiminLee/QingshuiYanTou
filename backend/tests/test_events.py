@@ -36,3 +36,28 @@ class TestStableEventId:
         eid1 = stable_event_id("新闻A")
         eid2 = stable_event_id("新闻B")
         assert eid1 != eid2
+
+
+class TestFindEventsTool:
+    def test_format_output(self):
+        from app.reasoning.tools.market_data.events.events import _format_event_list
+        events = [
+            {"event_id": "EV:abc", "title": "测试事件", "summary": "摘要", "source": "cls", "publish_at": "2026-06-25 08:30"},
+        ]
+        result = _format_event_list(events, "测试")
+        assert "测试事件" in result
+
+
+class TestEventDetailTool:
+    def test_format_detail(self):
+        from app.reasoning.tools.market_data.events.events import _format_event_detail
+        event = {
+            "event_id": "EV:abc",
+            "title": "测试事件",
+            "content": "全文内容",
+            "source": "cls",
+            "publish_at": "2026-06-25 08:30",
+        }
+        result = _format_event_detail(event)
+        assert "EV:abc" in result
+        assert "全文内容" in result
