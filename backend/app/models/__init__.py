@@ -18,6 +18,9 @@ from .models import (
     Watchlist,
     MonitorRule,
     Alert,
+    # Sub-Project 1: 用户与持仓
+    User,
+    PortfolioPosition,
     # 分析
     AnalysisReport,
     # 资讯
@@ -41,6 +44,7 @@ __all__ = [
     "Concept", "StockConcept", "ThsConcept", "ThsConceptMember",
     "ConceptLimit", "ConceptLimitDetail",
     "Watchlist", "MonitorRule", "Alert",
+    "User", "PortfolioPosition",
     "AnalysisReport",
     "Announcement", "ResearchReportMeta",
     "StockPool", "CompanyProfile",
