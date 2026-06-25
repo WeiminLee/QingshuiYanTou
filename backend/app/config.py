@@ -80,6 +80,17 @@ class Settings(BaseSettings):
     cors_origins: str = "http://localhost:3000,http://localhost:8080"  # CORS 允许的 origins，逗号分隔
     enable_api_scheduler: bool = True  # 多 worker 部署时应关闭，改用独立 scheduler 进程
 
+    # Sub-Project 1: 用户与持仓基础
+    master_password: str = Field(default="", description="主密码（启动校验长度>=8）")
+    account_token_secret_salt: str = Field(
+        default="dev-salt-do-not-use-in-prod",
+        description="JWT 签名盐；生产请用环境变量覆盖",
+    )
+    users_yaml_path: Path = Field(
+        default=Path(__file__).resolve().parent.parent / "users.yaml",
+        description="用户列表 yaml 路径",
+    )
+
     # Agent runtime hardening
     agent_journal_enabled: bool = True
     agent_journal_max_events: int = 500
