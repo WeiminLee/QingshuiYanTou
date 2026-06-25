@@ -12,6 +12,7 @@ load_dotenv()
 import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from app.core.database import Base
+from app.models.event import Event  # noqa: E402, F401
 from app.models.models import (  # noqa: E402, F401
     Stock, DailyData, Watchlist,
     MonitorRule, Alert, AnalysisReport,
