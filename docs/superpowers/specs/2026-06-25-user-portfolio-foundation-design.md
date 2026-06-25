@@ -50,7 +50,9 @@
 
 ## 4. 包结构
 
-新增独立子包 `app/account/`，与 `app/data_pipeline/`、`app/knowledge/`、`app/reasoning/` 平级：
+新增独立子包 `app/account/`，与 `app/data_pipeline/`、`app/knowledge/`、`app/reasoning/` 平级。
+
+源码包：
 
 ```
 backend/app/account/
@@ -60,7 +62,7 @@ backend/app/account/
 ├── schemas.py                 # Pydantic 请求/响应模型
 ├── services/
 │   ├── __init__.py
-│   ├── user_service.py        # 用户加载/yaml 同步
+│   ├── user_service.py        # 用户加载 / yaml 同步
 │   ├── auth_service.py        # 主密码校验、token 签发/校验
 │   └── portfolio_service.py   # 持仓增删查
 ├── api/
@@ -69,12 +71,21 @@ backend/app/account/
 │   ├── users.py               # /api/v1/users
 │   └── portfolio.py           # /api/v1/portfolio
 ├── deps.py                    # FastAPI Depends: get_current_user, verify_master_token
-└── tests/
-    ├── __init__.py
-    ├── conftest.py
-    ├── test_auth.py
-    ├── test_user_service.py
-    └── test_portfolio.py
+└── stocks_search.py           # 复用 Tushare stock_basic 提供的轻量搜索
+```
+
+测试包（**遵循项目现有约定：测试在 `backend/tests/<package>/`，而非嵌在 app 包内**）：
+
+```
+backend/tests/account/
+├── __init__.py
+├── conftest.py                # fixtures: 临时 yaml、临时 env、DB session
+├── test_auth_service.py
+├── test_user_service.py
+├── test_portfolio_service.py
+├── test_auth_api.py
+├── test_portfolio_api.py
+└── test_stocks_search.py
 ```
 
 ## 5. 数据模型
@@ -104,9 +115,11 @@ backend/app/account/
 
 ### 5.2 迁移
 
-新增 alembic 迁移：`YYYY_add_account_tables.py`
+新增 alembic 迁移，**遵循 `alembic/versions/` 现有命名规范**（`NNN_<slug>.py`）：
 
-- 创建 `users`、`portfolio_positions` 两张表
+- 下次序号为 `023`（当前最新为 `022_add_ingestion_jobs.py`）
+- 文件名：`023_add_account_tables.py`
+- 升级内容：创建 `users`、`portfolio_positions` 两张表 + 索引
 - 不需要数据回填（新表，初始为空）
 
 ## 6. 鉴权设计
@@ -119,12 +132,15 @@ backend/app/account/
 | `master_token` | 用户态接口（持仓、用户切换、未来的预警/订阅） | 新增 | HttpOnly+Secure+SameSite=Lax Cookie `master_token` |
 | `user_id` | 当前激活身份 | 新增 | 普通 Cookie `user_id`（不敏感） |
 
+`main.py` 中现有 `verify_api_key` 依赖**保持不动**；新增 `verify_master_token` / `get_current_user` 依赖在 `app/account/deps.py`，按需挂在路由上。CORS 配置**复用现有 `app.add_middleware(CORSMiddleware, ...)`**，无需改动。
+
 ### 6.2 Token 设计
 
 - 算法：HS256 JWT
 - Payload：`{ "exp": ..., "iat": ..., "type": "master" }`
-- 签名密钥：启动时由 `MASTER_PASSWORD` + 服务端 salt 派生（不存 DB）
-- 过期：永不过期（自部署场景，做"软过期"机制留待 v2）
+- 签名密钥：启动时由 `MASTER_PASSWORD` + 服务端常量 salt 派生（不存 DB）
+- 过期：**不设过期**（自部署场景；后续可加"软过期"机制而不破坏接口）
+- 算法实现：直接用 `PyJWT`（已在 requirements 中或可加），不引入额外栈
 
 ### 6.3 依赖注入
 
@@ -149,9 +165,9 @@ async def verify_master_token(request: Request) -> None:
 
 | 路由 | 方法 | 鉴权 | 请求 | 响应 |
 |------|------|------|------|------|
-| `/api/v1/auth/login` | POST | 无 | `{password: str}` | `{ok: true}` + Set-Cookie |
+| `/api/v1/auth/login` | POST | 无 | `{password: str}` | `{ok: true}` + Set-Cookie `master_token` |
 | `/api/v1/auth/logout` | POST | master_token | — | `{ok: true}` + 清 cookie |
-| `/api/v1/auth/switch-user` | POST | master_token | `{user_id: str}` | `{ok: true, current_user: User}` + Set-Cookie |
+| `/api/v1/auth/switch-user` | POST | master_token | `{user_id: str}` | `{ok: true, current_user: User}` + Set-Cookie `user_id` |
 | `/api/v1/auth/whoami` | GET | master_token | — | `{user: User\|null, users: [User]}`（前端启动时调用，决定展示登录页 or 切换器） |
 | `/api/v1/users` | GET | master_token | — | `[{user_id, display_name}, ...]` |
 | `/api/v1/portfolio` | GET | master_token + current_user | — | `[{ts_code, stock_name, created_at}, ...]` |
@@ -172,8 +188,11 @@ async def verify_master_token(request: Request) -> None:
 ### 8.1 `backend/.env`（新增）
 
 ```bash
+# 必填，启动时校验（长度 >= 8）
 MASTER_PASSWORD=your-strong-password
-ACCOUNT_TOKEN_SECRET_SALT=auto-generated-if-missing  # 可选，默认走固定 dev salt
+
+# 可选，token 签名盐；缺省走 dev salt（仅开发环境）
+ACCOUNT_TOKEN_SECRET_SALT=optional-random-string
 ```
 
 ### 8.2 `backend/users.yaml`（新增）
@@ -188,11 +207,12 @@ users:
 
 ### 8.3 启动行为
 
-- 应用 `lifespan` 中：
-  1. 校验 `MASTER_PASSWORD` 必填且长度 ≥ 8
-  2. 派生 token 签名密钥
-  3. 调用 `user_service.sync_from_yaml()` 把 yaml 用户 upsert 到 DB
-- 启动日志打印：`已同步 N 个用户: [lwm, partner_a]`
+应用 `lifespan` 中新增步骤（在 StockNameResolver 预热之后）：
+
+1. 校验 `MASTER_PASSWORD` 必填且长度 ≥ 8，否则启动失败并打印明确错误
+2. 派生 token 签名密钥
+3. 调用 `user_service.sync_from_yaml()` 把 yaml 用户 upsert 到 DB（新增/更新；yaml 中已不存在的用户置 `is_active=false`，不真删以保留外键完整性）
+4. 启动日志打印：`已同步 N 个用户: [lwm, partner_a]`
 
 ## 9. 前端集成（Vue 3）
 
@@ -200,7 +220,7 @@ users:
 
 | 路径 | 组件 | 说明 |
 |------|------|------|
-| `/login` | `LoginView.vue` | 主密码输入页（仅一个输入框 + 登录按钮） |
+| `/login` | `LoginView.vue` | 主密码输入页（一个输入框 + 登录按钮） |
 | `/portfolio` | `PortfolioView.vue` | 我的持仓（需登录 + 选中身份） |
 | `/select-identity` | `SelectIdentityView.vue` | 选中身份页（已登录但未选身份时出现） |
 | `/` | 重定向 | 未登录 → `/login`；已登录未选身份 → `/select-identity`；已选身份 → `/portfolio` |
@@ -211,7 +231,7 @@ users:
 ┌─────────────────────────────────────────────────┐
 │  我的持仓                       [切换身份: 老王 ▾] │
 ├─────────────────────────────────────────────────┤
-│  [🔍 搜索股票代码或名称...]      [+]              │
+│  [搜索股票代码或名称...]      [+]                │
 ├─────────────────────────────────────────────────┤
 │  600519.SH  贵州茅台        2026-01-15  [删除]   │
 │  300750.SZ  宁德时代        2026-03-20  [删除]   │
@@ -221,7 +241,7 @@ users:
 
 - 搜索框：输入 ≥ 1 字符触发 `/api/v1/stocks/search`，下拉显示前 10 条
 - 选中候选 → 调 `/api/v1/portfolio POST`
-- 列表每行调 `GET /api/v1/portfolio`（首次进入时拉一次）
+- 列表首次进入时拉一次 `GET /api/v1/portfolio`
 - 删除按钮 → 二次确认弹窗 → 调 `DELETE`
 
 ### 9.3 全局鉴权守卫
@@ -229,6 +249,10 @@ users:
 - 路由 `beforeEach`：未登录访问受保护页 → 跳 `/login`
 - 已登录但未选身份 → 跳 `/select-identity`
 - 任何 401 响应 → 清 cookie + 跳 `/login`
+
+### 9.4 股票搜索数据源
+
+`/api/v1/stocks/search` **复用现有 Tushare `stock_basic` 表**（`stock_basic` 同步任务已在线运行），做模糊匹配 `ts_code` / `name`。`limit` 上限 20，不做高亮（简单 `LIKE` 或 `ILIKE`）。
 
 ## 10. 数据隔离
 
@@ -242,10 +266,10 @@ users:
 
 | 类型 | 覆盖 |
 |------|------|
-| 单元 | `test_auth_service`（token 签发/校验/过期）、`test_user_service`（yaml 解析/同步）、`test_portfolio_service`（CRUD + 隔离） |
+| 单元 | `test_auth_service`（token 签发/校验）、`test_user_service`（yaml 解析/同步）、`test_portfolio_service`（CRUD + 隔离） |
 | 集成 | `test_auth_api`（login/logout/switch-user/whoami）、`test_portfolio_api`（增删查 + 401/403/404/409/422） |
 | 前端 | vitest 单测：登录页校验、路由守卫、持仓列表渲染 |
-| 手动 | docker compose up 后 5 分钟 smoke：登录 → 选身份 → 加 2 只股票 → 删除 1 只 → 切到另一用户 → 看不到 → 登出 |
+| 手动 smoke | docker compose up 后 5 分钟跑完：登录 → 选身份 → 加 2 只股票 → 删除 1 只 → 切到另一用户 → 看不到 → 登出 |
 
 ## 12. 风险与缓解
 
