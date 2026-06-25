@@ -1,5 +1,4 @@
 import pytest
-from datetime import datetime, timezone
 
 from app.data_pipeline.services.news_service import (
     auto_tag,

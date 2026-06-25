@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 from datetime import datetime, timezone
 from typing import Any
@@ -9,7 +10,6 @@ import tushare as ts
 
 from app.config import settings
 from app.core.database import engine
-from app.models.event import Event
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +25,7 @@ def _get_ts_pro():
 
 
 def stable_event_id(title: str) -> str:
-    raw = (title or "").strip()[:16]
+    raw = (title or "").strip()
     return f"EV:{hashlib.sha256(raw.encode()).hexdigest()[:16]}"
 
 
@@ -107,7 +107,7 @@ class NewsService:
                     "source": "cls",
                     "url": str(row.get("url") or ""),
                     "publish_at": publish_at,
-                    "metadata": str(metadata).replace("'", '"'),
+                    "metadata": json.dumps(metadata, ensure_ascii=False),
                 })
                 if result.rowcount > 0:
                     inserted += 1
@@ -121,6 +121,8 @@ class NewsService:
 
 def _parse_datetime(val: Any) -> datetime:
     if isinstance(val, datetime):
+        if val.tzinfo is None:
+            val = val.replace(tzinfo=timezone.utc)
         return val
     if isinstance(val, str):
         for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y/%m/%d %H:%M:%S", "%Y-%m-%d"):
