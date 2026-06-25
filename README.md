@@ -341,6 +341,41 @@ pnpm test
 - Evidence chunk 写入 Qdrant
 - 针对 Evidence service、builders、worker 的测试覆盖
 
+## 用户与持仓（Sub-Project 1）
+
+系统支持多用户身份管理。每个用户可以维护自己的"持仓"列表（类似同花顺持仓栏的极简版）。
+
+### 启用
+
+1. 在 `backend/.env` 中设置 `MASTER_PASSWORD`（长度 ≥ 8）
+2. 在 `backend/users.yaml` 中列出用户：
+   ```yaml
+   users:
+     - user_id: lwm
+       display_name: 老王
+   ```
+3. 重启后端。启动日志会打印"已同步 N 个用户"
+
+### 使用
+
+- 访问 `http://<host>:5173/login`，输入主密码
+- 多个用户时选择身份，单个用户时直接进持仓
+- 持仓页支持搜索/添加/删除；用户之间严格隔离
+
+### API（用户态，cookie 鉴权）
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | `/api/v1/auth/login` | 登录（设 master_token cookie） |
+| POST | `/api/v1/auth/switch-user` | 切换身份（设 user_id cookie） |
+| GET | `/api/v1/auth/whoami` | 当前身份 + 可用用户 |
+| POST | `/api/v1/auth/logout` | 登出 |
+| GET | `/api/v1/users` | 可选身份列表 |
+| GET | `/api/v1/account/portfolio` | 持仓列表 |
+| POST | `/api/v1/account/portfolio` | 添加持仓 |
+| DELETE | `/api/v1/account/portfolio/{ts_code}` | 删除持仓 |
+| GET | `/api/v1/account/stocks/search` | 股票搜索 |
+
 后续可继续扩展：
 
 - 更细粒度 job 类型，例如 `entity_relation`、`structured_fact`、`metric`。
