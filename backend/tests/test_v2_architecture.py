@@ -8,7 +8,9 @@ V2 架构验证测试
 - Canvas 类型定义保留（被 tools/ 和 prompts/ 引用）
 - V1 死代码已删除
 """
+
 import os
+
 import pytest
 
 
@@ -19,13 +21,14 @@ class TestV2ArchitectureImports:
         """Canvas 类型定义（若存在）保留供 prompts/ 引用；V1 canvas 已删除则跳过"""
         try:
             from app.reasoning.canvas import (
+                CanvasConfig,
                 CanvasState,
                 ChunkRef,
                 DocAgg,
-                CanvasConfig,
-                NodeStatus,
                 NodeResult,
+                NodeStatus,
             )
+
             assert CanvasState is not None
             assert ChunkRef is not None
             assert DocAgg is not None
@@ -38,17 +41,20 @@ class TestV2ArchitectureImports:
 
     def test_v2_client_importable(self):
         """V2 Agent 入口可导入"""
-        from app.reasoning.langchain_agent.client import run_lead_agent, LangChainAgentClient
+        from app.reasoning.langchain_agent.client import LangChainAgentClient, run_lead_agent
+
         assert run_lead_agent is not None
         assert LangChainAgentClient is not None
 
     def test_v2_middlewares_importable(self):
         """V2 中间件可导入"""
+        from app.reasoning.langchain_agent.middlewares.manual_agent_loop import ManualAgentLoop
+
         from app.reasoning.langchain_agent.middlewares.clarification import ClarificationMiddleware
+        from app.reasoning.langchain_agent.middlewares.context_compressor import ContextCompressor
         from app.reasoning.langchain_agent.middlewares.loop_detection import LoopDetectionMiddleware
         from app.reasoning.langchain_agent.middlewares.subagent_limit import SubagentLimitMiddleware
-        from app.reasoning.langchain_agent.middlewares.context_compressor import ContextCompressor
-        from app.reasoning.langchain_agent.middlewares.manual_agent_loop import ManualAgentLoop
+
         assert ClarificationMiddleware is not None
         assert LoopDetectionMiddleware is not None
         assert SubagentLimitMiddleware is not None
@@ -58,31 +64,36 @@ class TestV2ArchitectureImports:
     def test_registry_importable(self):
         """工具注册表可导入"""
         from app.reasoning.registry.registry import get_registry
+
         assert get_registry is not None
 
     def test_tools_module_importable(self):
         """tools/ 模块可导入（V1 兼容，但有 Canvas 引用）"""
         from app.reasoning.tools import get_tool_class, list_registered_tools
+
         assert get_tool_class is not None
         assert list_registered_tools is not None
 
     def test_harness_budget_importable(self):
         """Harness budget 模块可导入（V2 引用）"""
-        from app.reasoning.harness.budget import BudgetEnforcer, BudgetConfig
+        from app.reasoning.harness.budget import BudgetConfig, BudgetEnforcer
+
         assert BudgetEnforcer is not None
         assert BudgetConfig is not None
 
     def test_harness_memory_importable(self):
         """Harness memory 模块可导入（V2 引用）"""
         from app.reasoning.harness.memory import MemoryManager, increment_kg_anchor
+
         assert MemoryManager is not None
         assert increment_kg_anchor is not None
 
     def test_output_layer_importable(self):
         """Layer 4 决策输出层可导入"""
-        from app.reasoning.output.report import AnalysisReport
-        from app.reasoning.output.confidence import source_type_to_tier, merge_confidence
         from app.reasoning.output.compliance import scan_content
+        from app.reasoning.output.confidence import merge_confidence, source_type_to_tier
+        from app.reasoning.output.report import AnalysisReport
+
         assert AnalysisReport is not None
         assert source_type_to_tier is not None
         assert merge_confidence is not None
@@ -91,9 +102,10 @@ class TestV2ArchitectureImports:
     def test_api_endpoints_importable(self):
         """API 端点可导入"""
         from app.reasoning.api import agent
-        assert hasattr(agent, 'stream_report')
-        assert hasattr(agent, 'chat')
-        assert hasattr(agent, 'invoke')
+
+        assert hasattr(agent, "stream_report")
+        assert hasattr(agent, "chat")
+        assert hasattr(agent, "invoke")
 
 
 class TestToolRegistry:
@@ -102,14 +114,36 @@ class TestToolRegistry:
     def test_registry_has_11_builtin_tools(self):
         """内嵌默认配置应包含 11 个工具（含 write_todos）"""
         from app.reasoning.registry.loader import _build_default_config
+
         configs = _build_default_config()
-        assert len(configs) == 11, f"Expected 11 built-in tools, got {len(configs)}"
+        assert len(configs) == 25, f"Expected 25 built-in tools, got {len(configs)}"
         names = [c.name for c in configs]
         expected = {
-            "get_kline", "get_concept_hot", "get_market_breadth",
-            "neo4j_traverse", "get_research_report", "get_announcement",
-            "tavily_search", "get_stock_profile", "get_irm", "present_chart",
+            "get_kline",
+            "get_concept_hot",
+            "get_market_breadth",
+            "neo4j_traverse",
+            "neo4j_entity_info",
+            "neo4j_path",
+            "neo4j_industry_state",
+            "neo4j_kg_search",
+            "fetch_evidence",
+            "resolve",
+            "expand",
+            "get_research_report",
+            "get_announcement",
+            "tavily_search",
+            "get_stock_profile",
+            "get_irm",
+            "present_chart",
             "write_todos",
+            "ask_clarification",
+            "web_fetch",
+            "ls",
+            "read_file",
+            "write_file",
+            "find_events",
+            "get_event_detail",
         }
         assert set(names) == expected
 
@@ -117,6 +151,7 @@ class TestToolRegistry:
         """内嵌默认配置中的所有工具均可通过 resolve_variable 解析"""
         from app.reasoning.registry.loader import _build_default_config
         from app.reasoning.registry.resolve_variable import resolve_variable
+
         configs = _build_default_config()
         for cfg in configs:
             resolved = resolve_variable(cfg.use)
@@ -124,8 +159,10 @@ class TestToolRegistry:
 
     def test_yaml_config_has_16_tools(self):
         """YAML 配置文件应包含 16 个工具（含新增的 web_fetch/ls/read_file/write_file/ask_clarification）"""
-        from app.reasoning.registry.loader import _CONFIG_PATH, load_tools_from_config
         import yaml
+
+        from app.reasoning.registry.loader import _CONFIG_PATH
+
         if not _CONFIG_PATH.exists():
             pytest.skip("config.yaml not present")
         with open(_CONFIG_PATH, encoding="utf-8") as f:
@@ -134,7 +171,7 @@ class TestToolRegistry:
         expected_new = {"web_fetch", "ls", "read_file", "write_file", "ask_clarification"}
         missing = expected_new - names
         assert not missing, f"New tools missing from config.yaml: {missing}"
-        assert len(names) == 16, f"Expected 16 tools in YAML, got {len(names)}"
+        assert len(names) == 25, f"Expected 25 tools in YAML, got {len(names)}"
 
 
 class TestV2MiddlewaresChain:
@@ -143,23 +180,26 @@ class TestV2MiddlewaresChain:
     def test_clarification_middleware_has_check_question(self):
         """ClarificationMiddleware 有 check_question 方法"""
         from app.reasoning.langchain_agent.middlewares.clarification import ClarificationMiddleware
+
         mw = ClarificationMiddleware()
-        assert hasattr(mw, 'check_question')
+        assert hasattr(mw, "check_question")
         assert callable(mw.check_question)
 
     def test_loop_detection_middleware_has_detect_loop(self):
         """LoopDetectionMiddleware 有循环检测方法"""
         from app.reasoning.langchain_agent.middlewares.loop_detection import LoopDetectionMiddleware
+
         mw = LoopDetectionMiddleware()
         # 检测实际方法名（detect 或 check）
-        has_detect = any(
-            attr in dir(mw) for attr in ('detect_loop', 'check', 'detect', 'should_stop')
+        has_detect = any(attr in dir(mw) for attr in ("detect_loop", "check", "detect", "should_stop"))
+        assert has_detect, (
+            f"LoopDetectionMiddleware has no detection method. Methods: {[m for m in dir(mw) if not m.startswith('_')]}"
         )
-        assert has_detect, f"LoopDetectionMiddleware has no detection method. Methods: {[m for m in dir(mw) if not m.startswith('_')]}"
 
     def test_context_compressor_instantiable(self):
         """ContextCompressor 可正常实例化"""
         from app.reasoning.langchain_agent.middlewares.context_compressor import ContextCompressor
+
         # 实例化（不接受参数，或接受默认参数）
         comp = ContextCompressor()
         assert comp is not None
@@ -174,6 +214,7 @@ class TestP1FrontendSSEReportView:
         修复后：应在 connectSSE 中处理 tool_called 和 tool_result 事件。
         """
         import os
+
         REPORT_VIEW = "/home/10241671/code/LocalProjects/QingShuiTouYan/frontend/src/views/ReportView.vue"
         assert os.path.exists(REPORT_VIEW), f"ReportView.vue not found at {REPORT_VIEW}"
 
@@ -186,7 +227,6 @@ class TestP1FrontendSSEReportView:
 
     def test_report_view_uses_streaming_renderer(self):
         """ReportView.vue 应使用 useStreamingRenderer 渲染 CoT 步骤"""
-        import os
         REPORT_VIEW = "/home/10241671/code/LocalProjects/QingShuiTouYan/frontend/src/views/ReportView.vue"
         content = open(REPORT_VIEW).read()
         assert "useStreamingRenderer" in content, (
@@ -203,13 +243,12 @@ class TestP2MemoryLayerActivation:
         _load_memory_context() 异常时返回空字符串（不阻断 Agent）。
         """
         import asyncio
+
         from app.reasoning.langchain_agent.client import _load_memory_context
 
         # 传入不存在的 thread_id，任何错误都应返回空字符串
         result = asyncio.run(_load_memory_context("nonexistent-thread-xyz"))
-        assert result == "", (
-            "_load_memory_context should return empty string on error, got: " + repr(result)
-        )
+        assert result == "", "_load_memory_context should return empty string on error, got: " + repr(result)
 
     def test_harness_config_defaults_to_disabled(self):
         """HarnessConfig 默认关闭所有能力（向后兼容）"""
@@ -223,6 +262,7 @@ class TestP2MemoryLayerActivation:
     def test_mongodb_url_configured(self):
         """MONGODB_URL 环境变量已配置"""
         import os
+
         env_path = os.path.join(
             os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
             "..",
@@ -235,6 +275,7 @@ class TestP2MemoryLayerActivation:
             # 检查 settings 是否可正常导入（会触发 MONGODB_URL 验证）
             try:
                 from app.config import settings
+
                 assert hasattr(settings, "mongodb_url")
                 assert settings.mongodb_url, "mongodb_url should not be empty"
             except RuntimeError as e:
@@ -254,6 +295,7 @@ class TestP0ManualAgentLoopBugFix:
         """
         import ast
         import inspect
+
         from app.reasoning.langchain_agent import client as client_module
 
         source = inspect.getsource(client_module.run_lead_agent)
@@ -262,7 +304,7 @@ class TestP0ManualAgentLoopBugFix:
         class ManualLoopVisitor(ast.NodeVisitor):
             def __init__(self):
                 self.found_manual_loop = False
-                self.model_from_ensure = False          # agent, model = _ensure_agent(...)
+                self.model_from_ensure = False  # agent, model = _ensure_agent(...)
                 self.duplicate_create_inside_loop = False  # model = _create_chat_model(...) 在 if 块内
 
             def visit_Assign(self, node):
@@ -304,12 +346,9 @@ class TestP0ManualAgentLoopBugFix:
         visitor.visit(tree)
 
         assert visitor.found_manual_loop, "use_manual_loop 分支未找到"
-        assert visitor.model_from_ensure, (
-            "_ensure_agent() 应返回 (agent, model) 元组并在调用处解包"
-        )
+        assert visitor.model_from_ensure, "_ensure_agent() 应返回 (agent, model) 元组并在调用处解包"
         assert not visitor.duplicate_create_inside_loop, (
-            "P0 BUG: if use_manual_loop: 块内不应再次调用 _create_chat_model()。"
-            "model 已从 _ensure_agent() 获取。"
+            "P0 BUG: if use_manual_loop: 块内不应再次调用 _create_chat_model()。model 已从 _ensure_agent() 获取。"
         )
 
 
@@ -320,8 +359,7 @@ class TestDeadCodeRemoved:
         """V1 middlewares/ 目录应已删除（被 langchain_agent/middlewares/ 替代）"""
         backend_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         v1_path = os.path.join(backend_root, "app", "reasoning", "middlewares")
-        assert not os.path.exists(v1_path), \
-            f"V1 middlewares/ directory still exists at {v1_path}"
+        assert not os.path.exists(v1_path), f"V1 middlewares/ directory still exists at {v1_path}"
 
     def test_langchain_agent_tools_todo_only(self):
         """langchain_agent/tools/ 目录只允许包含 todo.py（通过 YAML registry 加载）；V1 旧工具应已删除"""
@@ -359,11 +397,7 @@ class TestDeadCodeRemoved:
         # Canvas 类作为类型定义保留（被 tools/ 和 prompts/ 引用）
         assert Canvas is not None
         # 验证 _reflection_step 等 V1 业务方法不存在
-        assert not hasattr(Canvas, '_reflection_step'), \
-            "Canvas._reflection_step should be removed (dead code)"
-        assert not hasattr(Canvas, 'execute_tool'), \
-            "Canvas.execute_tool should be removed (dead code)"
-        assert not hasattr(Canvas, 'fill_report_sections'), \
-            "Canvas.fill_report_sections should be removed (dead code)"
-        assert not hasattr(Canvas, 'apply_compliance'), \
-            "Canvas.apply_compliance should be removed (dead code)"
+        assert not hasattr(Canvas, "_reflection_step"), "Canvas._reflection_step should be removed (dead code)"
+        assert not hasattr(Canvas, "execute_tool"), "Canvas.execute_tool should be removed (dead code)"
+        assert not hasattr(Canvas, "fill_report_sections"), "Canvas.fill_report_sections should be removed (dead code)"
+        assert not hasattr(Canvas, "apply_compliance"), "Canvas.apply_compliance should be removed (dead code)"
