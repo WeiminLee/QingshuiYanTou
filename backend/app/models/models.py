@@ -716,7 +716,7 @@ class PortfolioPosition(Base):
         UniqueConstraint("user_id", "ts_code", name="uq_portfolio_user_ts_code"),
     )
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True, autoincrement=True)
     user_id: Mapped[str] = mapped_column(
         String(64), ForeignKey("users.user_id"), nullable=False, index=True
     )
