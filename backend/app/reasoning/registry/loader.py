@@ -10,13 +10,14 @@ YAML 配置加载器（DeerFlow 风格）
 - 传入 ToolConfig 列表直接使用
 - 环境变量插值：$VAR / ${VAR}
 """
+
 from __future__ import annotations
 
 import logging
 from pathlib import Path
 
 from app.reasoning.registry.config import ToolConfig, ToolConfigList, ToolGroup
-from app.reasoning.registry.registry import ToolRegistry, get_registry
+from app.reasoning.registry.registry import get_registry
 from app.reasoning.registry.resolve_variable import resolve_variable
 
 logger = logging.getLogger(__name__)
@@ -51,6 +52,19 @@ def _build_default_config() -> list[ToolConfig]:
             group=ToolGroup.MARKET_DATA,
             use="app.reasoning.tools.market_data.market_breadth:get_market_breadth",
             description="获取市场宽度指标，包括上涨下跌家数、涨停炸板数量、市场情绪等",
+        ),
+        # ── events ────────────────────────────────────
+        ToolConfig(
+            name="find_events",
+            group=ToolGroup.MARKET_DATA,
+            use="app.reasoning.tools.market_data.events:find_events",
+            description="搜索财联社事件库，按关键词或板块标签查找新闻事件",
+        ),
+        ToolConfig(
+            name="get_event_detail",
+            group=ToolGroup.MARKET_DATA,
+            use="app.reasoning.tools.market_data.events:get_event_detail",
+            description="获取事件原始全文内容",
         ),
         # ── knowledge ────────────────────────────────
         # resolve + expand: 新一代图谱导航（resolve→expand 模式）

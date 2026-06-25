@@ -8,10 +8,10 @@ Lead Agent System Prompt — V2 Optimized
 4. 输出格式：对齐 AnalysisReport 结构化字段
 5. 新增：并发规则、错误恢复、统一引用格式
 """
+
 from __future__ import annotations
 
 from datetime import datetime
-
 
 # ════════════════════════════════════════════════════════════════════════════
 #  SUBAGENT SECTION
@@ -177,20 +177,22 @@ L1 — 证据原子层（原始公告/研报/互动易）：
   2. `get_stock_profile` → 主营业务补充
   3. `get_kline` → 技术面趋势和估值分位
   4. `get_research_report` + `get_announcement` + `get_irm` → 基本面信息
-  5. `tavily_search` → 实时新闻和政策动态
+   5. `find_events` + `tavily_search` → 实时新闻和政策动态（国内事件优先 find_events）
   6. `present_chart` → 可视化（最后调用）
 
 场景 B — 行业/板块扫描（无具体标的）：
   1. `get_concept_hot` + `get_market_breadth` → 板块热度和市场情绪
-  2. `tavily_search` → 行业动态和政策
+   2. `find_events` + `tavily_search` → 行业动态和政策
   3. `resolve` → `expand(select=["upstream","downstream"])` → 产业链传导
   4. `get_research_report` → 行业研报
 
 场景 C — 事件驱动分析（新闻/公告触发）：
-  1. `tavily_search` + `web_fetch` → 事件详情
-  2. `get_announcement` → 官方公告
-  3. `resolve` → `expand(select=["relations"])` → 影响传导链
-  4. `get_kline` → 价格反应验证
+   1. `find_events` → 财联社事件搜索（查国内 A 股相关新闻）
+   2. `get_event_detail` → 获取感兴趣事件的全文
+   3. `tavily_search` + `web_fetch` → 补充外部视角
+   4. `get_announcement` → 官方公告
+   5. `resolve` → `expand(select=["relations"])` → 影响传导链
+   6. `get_kline` → 价格反应验证
 
 场景 D — 产业链传导分析（传导链/预期差）：
   1. `resolve` → `expand(select=["upstream","downstream"], filter={depth:3})` → 产业链上下游
@@ -409,8 +411,8 @@ def apply_prompt_template(
 async def get_memory_context_async(thread_id: str, analyst_id: str = "default") -> str:
     """从 MongoDB 加载对话记忆，格式化为 system prompt 注入文本。"""
     try:
-        from app.reasoning.middlewares.memory import get_memory_data, format_memory_for_injection
         from app.config import settings
+        from app.reasoning.middlewares.memory import format_memory_for_injection, get_memory_data
 
         if not getattr(settings, "memory_enabled", False):
             return ""

@@ -35,6 +35,18 @@ tools:
     use: app.reasoning.tools.market_data.market_breadth:get_market_breadth
     description: 获取市场宽度指标，包括上涨下跌家数、涨停炸板数量、市场情绪等
 
+  # ── events (财联社新闻) ──────────────────────────────────────────
+
+  - name: find_events
+    group: market_data
+    use: app.reasoning.tools.market_data.events:find_events
+    description: 搜索财联社事件库，按关键词或板块标签查找新闻事件，支持按时间范围过滤
+
+  - name: get_event_detail
+    group: market_data
+    use: app.reasoning.tools.market_data.events:get_event_detail
+    description: 获取事件原始全文内容。在 find_events 找到感兴趣的事件后调用
+
   # ── knowledge ──────────────────────────────────────────────────────────────
 
   # resolve + expand: 新一代图谱导航（resolve→expand 模式）
