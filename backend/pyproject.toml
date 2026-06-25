@@ -1,0 +1,31 @@
+[project]
+name = "qingshui-backend"
+version = "1.0.0"
+requires-python = ">=3.13"
+
+[tool.ruff]
+target-version = "py313"
+line-length = 120
+exclude = [".venv", "alembic"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP", "YTT"]
+ignore = [
+    "E402",   # module-import-not-at-top-of-file — 部分模块需要条件导入
+    "E501",   # line-too-long — URL/字符串无法折行，120 已放宽容限
+    "E741",   # ambiguous-variable-name — 允许 i/j/k 等单字母变量
+    "N802",   # invalid-function-name — 允许非小写函数名
+    "N806",   # non-lowercase-variable-in-function — 常量命名风格
+    "N812",   # lowercase-imported-as-non-lowercase — import alias 惯用法
+    "N814",   # camelcase-imported-as-constant — 同 N812
+    "UP031",  # printf-string-formatting — % 格式化兼容旧代码
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["F841", "N812", "N814"]
+"scripts/*" = ["F841", "UP042"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
