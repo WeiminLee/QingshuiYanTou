@@ -1,12 +1,17 @@
 """
-智能多策略分块模块
+智能多策略分块模块 v2
 
-分块策略（三级融合）:
-1. 章节检测：按标题层级分割
-2. Token 切分：章节超过 4096 tokens 时按句子边界切分
-3. 小章节合并：章节小于 512 tokens 时合并到 ~2048
+分块策略:
+1. 段落分组：按段落（连续非空行）组织文本
+2. 章节检测：按标题层级识别章节
+3. 智能合并：小章节合并到 ~2000 tokens
+4. 无效过滤：过滤无效章节和过短内容
 
-参考 RAGFlow rag/nlp/__init__.py 的分块模式
+关键改进:
+- 按段落累加而非逐行
+- 过滤无效章节（表格行、纯数字标题）
+- 增大 token 限制，减少强制切分
+- 合并相邻同类型内容
 """
 from __future__ import annotations
 
@@ -19,9 +24,9 @@ logger = logging.getLogger(__name__)
 
 # ── 分块参数常量 ────────────────────────────────────────────────
 
-MAX_CHUNK_TOKENS = 4096      # 单块最大 token 数
-MIN_CHUNK_TOKENS = 512       # 小于此值考虑合并
-MERGE_TARGET_TOKENS = 2048   # 合并目标大小
+MAX_CHUNK_TOKENS = 6000      # 单块最大 token 数（增大减少强制切分）
+MIN_CHUNK_TOKENS = 200       # 小于此值考虑合并
+MERGE_TARGET_TOKENS = 2000   # 合并目标大小
 
 # ── Token 计算 ─────────────────────────────────────────────────
 
@@ -46,31 +51,97 @@ except ImportError:
         return int(chinese * 1.5 + other * 0.25)
 
 
-# ── 章节检测正则 ───────────────────────────────────────────────
+# ── 辅助函数 ───────────────────────────────────────────────────
 
-# 中文序号标题
-# 匹配: "一、公司简介", "一.公司简介", "第一节 业务", "第一章 总则"
-# 包括独立存在的 "第一节", "第一章" 等
-# 分隔符支持: 、 . 章节条
-_CHAPTER_PATTERN_CN = re.compile(
-    r'^([一二三四五六七八九十百零]+)\s*([章节条、\.])\s*(.{0,60})',
-    re.MULTILINE
-)
+def _is_table_line(line: str) -> bool:
+    """判断是否表格行"""
+    if '|' in line:
+        return True
+    # 包含大量数字或百分比的行（表格单元格）
+    if len(line) > 20 and len(re.findall(r'[\d%,]', line)) > len(line) * 0.3:
+        return True
+    return False
 
-# 阿拉伯数字编号标题 (1. 1.1 1.1.1)
-# 匹配: "1. 公司概况", "1.1 业务", "1.1.1 产品"
-_NUMBER_PATTERN = re.compile(
-    r'^(\d+(?:\.\d+)*)\s*([\.、])\s*(.{0,60})',
-    re.MULTILINE
-)
 
-# Markdown 标题 (# ## ###)
-_MARKDOWN_PATTERN = re.compile(
-    r'^(#{1,6})\s+(.{2,60})',
-    re.MULTILINE
-)
+def _is_prose_line(line: str) -> bool:
+    """判断是否正文段落（不应作为标题）"""
+    stripped = line.strip()
+    if not stripped:
+        return False
+    # 如果包含句号、逗号等正文特征，可能是正文
+    if '，' in stripped or '。' in stripped:
+        return True
+    # 如果不是以标题特征开头，且有正文特征，可能是正文
+    if not re.match(r'^[第#一二三四五六七八九十\d]+', stripped):
+        if len(stripped) > 15:
+            return True
+    return False
 
-# 句子边界（用于切分）
+
+def _is_truncated_paragraph(para: str, prev_body: str) -> bool:
+    """
+    判断当前段落是否是被截断的文本（应该合并到上一段）
+
+    特征：
+    1. 段落很短（<50 字符）
+    2. 上一段的最后一行以中文字符结尾（没有句号）
+    3. 当前段落不以标题特征开头
+    """
+    if not para.strip() or len(para) > 100:
+        return False
+
+    # 如果上一段以句号/逗号结尾，不是截断
+    if prev_body:
+        last_chars = prev_body.strip()[-3:] if len(prev_body) >= 3 else prev_body.strip()
+        if any(c in last_chars for c in '。！？，；'):
+            return False
+
+    # 当前段落不以标题特征开头
+    first_line = para.split('\n')[0].strip()
+    if re.match(r'^[第#一二三四五六七八九十\d]', first_line):
+        return False
+    if re.match(r'^\d+[\.、]\s', first_line):
+        return False
+
+    return True
+
+
+def _is_valid_heading(heading: str) -> bool:
+    """判断标题是否有效"""
+    if not heading:
+        return False
+    if _is_table_line(heading):
+        return False
+    # 纯数字/百分比
+    if re.match(r'^[\d\s%\.%,]+$', heading):
+        return False
+    # 过短
+    if len(heading) < 3:
+        return False
+    # 投资者关系表格
+    if '投资者关系活动' in heading:
+        return False
+    return True
+
+
+def _is_valid_chunk(text: str, heading: str) -> bool:
+    """判断 chunk 是否有效"""
+    if not text.strip():
+        return False
+    # 纯表格（无标题时）
+    if not heading:
+        first_line = text.strip().split('\n')[0] if text else ""
+        if first_line.startswith('|'):
+            return False
+    return True
+
+
+# ── Markdown 标题正则 ──────────────────────────────────────────
+
+_MARKDOWN_PATTERN = re.compile(r'^(#{1,6})\s+(.{2,60})', re.MULTILINE)
+
+# ── 句子边界 ───────────────────────────────────────────────────
+
 _SENTENCE_DELIMITERS = r'[。！？；\n]'
 
 
@@ -93,102 +164,163 @@ class Chunk:
     text: str
     heading: str = ""
     tokens: int = 0
-    source: str = "auto"  # "chapter" | "split" | "merge"
+    source: str = "auto"  # "chapter" | "split" | "merge" | "filtered"
 
     def __post_init__(self):
         if self.tokens == 0:
             self.tokens = count_tokens(self.text)
 
 
+def _match_heading(line: str) -> tuple[Optional[str], int]:
+    """
+    尝试匹配标题模式
+
+    严格匹配规则：
+    1. 标题不能包含句号/逗号等正文标点
+    2. 标题长度限制在合理范围
+    """
+    line = line.strip()
+    if not line or len(line) < 2:
+        return None, 0
+
+    # 跳过表格行
+    if _is_table_line(line):
+        return None, 0
+
+    # Markdown 标题
+    m = _MARKDOWN_PATTERN.match(line)
+    if m:
+        return m.group(2).strip(), len(m.group(1))
+
+    # 中文序号标题（严格匹配）
+    # 匹配: "一、公司简介", "一.公司简介", "第一节 业务", "第一章 总则"
+    # 标题部分在遇到句号、逗号、冒号等正文标点时结束
+    m = re.match(r'^([一二三四五六七八九十百零]+)\s*([章节条、\.])\s*([^\n，。、；：]*?)[\s　]*$', line)
+    if m:
+        prefix = m.group(1)
+        separator = m.group(2)
+        title = m.group(3).strip()
+        level = 2 if '节' in separator else 1
+        if not title:
+            title = f"第{prefix}{separator}"
+        return title, level
+
+    # 阿拉伯数字标题（严格匹配）
+    # 匹配: "1. 公司概况", "1.1 主要业务"
+    # 标题部分在遇到正文标点时结束
+    m = re.match(r'^(\d+(?:\.\d+)*)\s*[\.、]\s*([^\n，。、；：]+)[\s　]*$', line)
+    if m:
+        prefix = m.group(1)
+        title = m.group(2).strip()
+        level = prefix.count('.') + 1
+        if not title:
+            return None, 0  # 只有 "1." 而没有标题，不作为章节
+        # 标题不能太长（正文被误识别）
+        if len(title) > 30:
+            return None, 0
+        return title, level
+
+    # 正文段落，不是标题
+    if _is_prose_line(line):
+        return None, 0
+
+    return None, 0
+
+
+def _group_into_paragraphs(text: str) -> list[str]:
+    """将文本按段落（连续非空行）分组"""
+    raw_lines = text.split('\n')
+    paragraphs: list[str] = []
+    current_lines: list[str] = []
+
+    for line in raw_lines:
+        if line.strip():
+            current_lines.append(line)
+        else:
+            if current_lines:
+                paragraphs.append('\n'.join(current_lines))
+                current_lines = []
+    if current_lines:
+        paragraphs.append('\n'.join(current_lines))
+
+    return paragraphs
+
+
 def split_by_chapters(text: str) -> list[Chapter]:
     """
-    策略1: 按标题层级检测并分割章节
+    按标题层级检测并分割章节
 
     支持的标题格式:
-    - 中文序号: "一、公司简介", "第一节 业务概述", "第一条 总则"
-    - 阿拉伯数字: "1. 公司概况", "1.1 主要业务", "1.1.1 产品介绍"
+    - 中文序号: "一、公司简介", "第一节 业务概述", "一条 总则"
+    - 阿拉伯数字: "1. 公司概况", "1.1 主要业务"
     - Markdown: "# 标题", "## 副标题"
 
+    特殊处理:
+    - 修复 PDF 列宽导致的截断标题（追加到上一段）
+
     Returns:
-        list[Chapter]: 章节列表，包含 heading、body、level、tokens
+        list[Chapter]: 章节列表
     """
     if not text or not text.strip():
         return []
 
-    lines = text.split('\n')
+    # 按段落分组
+    paragraphs = _group_into_paragraphs(text)
+
     chapters: list[Chapter] = []
-    current_body_lines: list[str] = []
+    current_body_paragraphs: list[str] = []
     current_heading = ""
     current_level = 1
 
     def _flush_chapter(heading: str, level: int):
         """将当前内容 flush 为一个章节"""
-        nonlocal current_body_lines
-        body = "\n".join(current_body_lines).strip()
-        if body:
-            chapters.append(Chapter(
-                heading=heading,
-                body=body,
-                level=level,
-            ))
-        current_body_lines = []
+        nonlocal current_body_paragraphs
+        if current_body_paragraphs:
+            body = "\n\n".join(current_body_paragraphs).strip()
+            if body:
+                chapters.append(Chapter(
+                    heading=heading,
+                    body=body,
+                    level=level,
+                ))
+            current_body_paragraphs = []
 
-    def _match_heading(line: str) -> tuple[Optional[str], int]:
-        """尝试匹配标题模式，返回 (heading, level) 或 (None, 0)"""
-        line = line.strip()
-        if not line or len(line) < 3:
-            return None, 0
+    prev_body = ""  # 用于检测截断段落
 
-        # Markdown 标题
-        m = _MARKDOWN_PATTERN.match(line)
-        if m:
-            level = len(m.group(1))  # # 的数量
-            return m.group(2).strip(), level
-
-        # 中文序号标题
-        m = _CHAPTER_PATTERN_CN.match(line)
-        if m:
-            prefix = m.group(1)
-            separator = m.group(2)
-            title = m.group(3) or ""
-            # 判断是章还是节
-            if '节' in separator:
-                level = 2
-            else:
-                level = 1
-            # 如果标题为空，使用 "第X节" 格式
-            if not title.strip():
-                title = f"第{prefix}{separator}"
-            return title.strip(), level
-
-        # 阿拉伯数字标题
-        m = _NUMBER_PATTERN.match(line)
-        if m:
-            prefix = m.group(1)
-            separator = m.group(2)
-            title = m.group(3) or ""
-            level = prefix.count('.') + 1
-            # 如果标题为空，使用 "1.1" 格式
-            if not title.strip():
-                title = prefix
-            return title.strip(), level
-
-        return None, 0
-
-    for line in lines:
-        heading, level = _match_heading(line)
+    for para in paragraphs:
+        # 只在段落开头检测标题
+        lines = para.split('\n')
+        first_line = lines[0] if lines else ""
+        heading, level = _match_heading(first_line)
 
         if heading:
             # 遇到新标题，先 flush 之前的内容
-            if current_heading or current_body_lines:
+            if current_heading or current_body_paragraphs:
                 _flush_chapter(current_heading, current_level)
             current_heading = heading
             current_level = level
+            # 标题后的内容作为正文
+            if len(lines) > 1:
+                body_lines = lines[1:]
+                body = "\n".join(body_lines).strip()
+                current_body_paragraphs.append(body)
+                prev_body = body
+            else:
+                prev_body = ""
+        elif _is_truncated_paragraph(para, prev_body):
+            # 被截断的段落，追加到上一段
+            if current_body_paragraphs and current_heading:
+                current_body_paragraphs[-1] += "\n" + para
+                prev_body = current_body_paragraphs[-1]
+            else:
+                current_body_paragraphs.append(para)
+                prev_body = para
         else:
-            current_body_lines.append(line)
+            current_body_paragraphs.append(para)
+            prev_body = para
 
     # 处理最后一个章节
-    if current_heading or current_body_lines:
+    if current_heading or current_body_paragraphs:
         _flush_chapter(current_heading, current_level)
 
     # 如果没有检测到任何标题，将全文作为一个章节
@@ -202,42 +334,34 @@ def split_by_chapters(text: str) -> list[Chapter]:
     return chapters
 
 
-def _split_by_sentences(text: str, max_tokens: int) -> list[str]:
+def _split_oversized_chapter(chapter: Chapter, max_tokens: int) -> list[Chunk]:
     """
-    按句子边界切分文本
+    切分过大的章节
 
-    策略: 按句子边界切分，确保不截断完整句子。
-
-    Returns:
-        list[str]: 句子块列表
+    策略: 按段落累加，保持语义完整
     """
-    # 先按换行分割（保留段落结构）
-    paragraphs = text.split('\n')
+    paragraphs = _group_into_paragraphs(chapter.body)
 
-    chunks: list[str] = []
-    current_chunk = ""
+    chunks: list[Chunk] = []
+    current_para = ""
     current_tokens = 0
 
     for para in paragraphs:
-        para = para.strip()
-        if not para:
-            # 空行作为分隔符
-            if current_chunk:
-                chunks.append(current_chunk.strip())
-                current_chunk = ""
-                current_tokens = 0
-            continue
-
         para_tokens = count_tokens(para)
 
+        # 如果单个段落就超过 max_tokens，按句子切分
         if para_tokens > max_tokens:
-            # 段落过长，按句子切分
-            if current_chunk:
-                chunks.append(current_chunk.strip())
-                current_chunk = ""
+            if current_para:
+                chunks.append(Chunk(
+                    text=current_para,
+                    heading=chapter.heading,
+                    tokens=count_tokens(current_para),
+                    source="split",
+                ))
+                current_para = ""
                 current_tokens = 0
 
-            # 按句子边界分割
+            # 按句子边界切分超长段落
             sentences = re.split(f'({_SENTENCE_DELIMITERS}+)', para)
             for i in range(0, len(sentences), 2):
                 sentence = sentences[i]
@@ -246,39 +370,60 @@ def _split_by_sentences(text: str, max_tokens: int) -> list[str]:
 
                 sent_tokens = count_tokens(full_sentence)
                 if sent_tokens > max_tokens:
-                    # 单个句子超过限制，保留原样
+                    # 超长句子保留原样
                     if full_sentence.strip():
-                        chunks.append(full_sentence.strip())
+                        chunks.append(Chunk(
+                            text=full_sentence.strip(),
+                            heading=chapter.heading,
+                            tokens=sent_tokens,
+                            source="split",
+                        ))
                 else:
-                    current_chunk += full_sentence
+                    current_para += full_sentence
                     current_tokens += sent_tokens
                     if current_tokens >= max_tokens:
-                        chunks.append(current_chunk.strip())
-                        current_chunk = ""
+                        chunks.append(Chunk(
+                            text=current_para.strip(),
+                            heading=chapter.heading,
+                            tokens=current_tokens,
+                            source="split",
+                        ))
+                        current_para = ""
                         current_tokens = 0
         else:
-            # 段落大小合适，累加
+            # 普通段落累加
             if current_tokens + para_tokens > max_tokens:
-                if current_chunk:
-                    chunks.append(current_chunk.strip())
-                current_chunk = para
+                if current_para:
+                    chunks.append(Chunk(
+                        text=current_para.strip(),
+                        heading=chapter.heading,
+                        tokens=current_tokens,
+                        source="split",
+                    ))
+                current_para = para
                 current_tokens = para_tokens
             else:
-                if current_chunk:
-                    current_chunk += "\n" + para
+                if current_para:
+                    current_para += "\n\n" + para
                 else:
-                    current_chunk = para
+                    current_para = para
                 current_tokens += para_tokens
 
-    if current_chunk.strip():
-        chunks.append(current_chunk.strip())
+    # 处理剩余内容
+    if current_para.strip():
+        chunks.append(Chunk(
+            text=current_para.strip(),
+            heading=chapter.heading,
+            tokens=count_tokens(current_para.strip()),
+            source="split",
+        ))
 
     return chunks
 
 
 def merge_small_chunks(chapters: list[Chapter], target_tokens: int = MERGE_TARGET_TOKENS) -> list[Chapter]:
     """
-    策略3: 合并相邻小章节
+    合并相邻小章节
 
     将多个小章节合并，直到达到 target_tokens 大小。
     只合并 level 相同或相邻的章节。
@@ -298,7 +443,6 @@ def merge_small_chunks(chapters: list[Chapter], target_tokens: int = MERGE_TARGE
         if len(buffer) == 1:
             merged.append(buffer[0])
         else:
-            # 合并多个小章节
             combined_body = "\n\n".join(c.body for c in buffer)
             first_heading = buffer[0].heading
             min_level = min(c.level for c in buffer)
@@ -332,19 +476,19 @@ def merge_small_chunks(chapters: list[Chapter], target_tokens: int = MERGE_TARGE
 
 def chunk_text(text: str, max_tokens: int = MAX_CHUNK_TOKENS) -> list[Chunk]:
     """
-    智能多策略分块主函数
+    智能多策略分块主函数 v2
 
     流程:
     1. 章节检测
-    2. 小章节合并（先合并，再切分）
-    3. Token 切分（对仍然过大的章节）
+    2. 小章节合并
+    3. 过大的章节按段落切分
 
     Args:
         text: 输入文本
         max_tokens: 单块最大 token 数
 
     Returns:
-        list[Chunk]: 分块结果列表
+        list[Chunk]: 分块结果
     """
     if not text or not text.strip():
         return []
@@ -352,15 +496,14 @@ def chunk_text(text: str, max_tokens: int = MAX_CHUNK_TOKENS) -> list[Chunk]:
     # 策略1: 章节检测
     chapters = split_by_chapters(text)
 
-    # 策略3: 小章节合并
+    # 策略2: 小章节合并
     chapters = merge_small_chunks(chapters)
 
-    # 策略2: Token 切分（对仍然过大的章节）
+    # 策略3: 过大的章节按段落切分
     result_chunks: list[Chunk] = []
 
     for chapter in chapters:
         if chapter.tokens <= max_tokens:
-            # 章节大小合适
             result_chunks.append(Chunk(
                 text=f"{chapter.heading}\n\n{chapter.body}" if chapter.heading else chapter.body,
                 heading=chapter.heading,
@@ -368,26 +511,35 @@ def chunk_text(text: str, max_tokens: int = MAX_CHUNK_TOKENS) -> list[Chunk]:
                 source="chapter",
             ))
         else:
-            # 章节过长，按句子切分
-            full_text = f"{chapter.heading}\n\n{chapter.body}" if chapter.heading else chapter.body
-            sub_chunks = _split_by_sentences(full_text, max_tokens)
-
-            for i, sub_text in enumerate(sub_chunks):
-                result_chunks.append(Chunk(
-                    text=sub_text,
-                    heading=f"{chapter.heading} (第{i+1}段)" if chapter.heading else "",
-                    tokens=count_tokens(sub_text),
-                    source="split",
-                ))
+            sub_chunks = _split_oversized_chapter(chapter, max_tokens)
+            result_chunks.extend(sub_chunks)
 
     return result_chunks
 
 
+def filter_invalid_chunks(chunks: list[Chunk]) -> list[Chunk]:
+    """过滤无效 chunks"""
+    result = []
+    for chunk in chunks:
+        if _is_valid_chunk(chunk.text, chunk.heading):
+            # 过滤纯表格内容（无标题时）
+            if not chunk.heading:
+                first_line = chunk.text.strip().split('\n')[0] if chunk.text else ""
+                if first_line.startswith('|'):
+                    continue
+            result.append(chunk)
+    return result
+
+
 class SmartChunker:
     """
-    智能分块器类
+    智能分块器 v2
 
-    提供可配置的接口，支持自定义参数。
+    改进:
+    - 按段落累加，保持语义完整
+    - 过滤无效章节（表格行、纯数字标题）
+    - 增大 token 限制（6000）
+    - 小章节合并到 ~2000 tokens
     """
 
     def __init__(
@@ -395,14 +547,19 @@ class SmartChunker:
         max_tokens: int = MAX_CHUNK_TOKENS,
         min_tokens: int = MIN_CHUNK_TOKENS,
         merge_target: int = MERGE_TARGET_TOKENS,
+        filter_invalid: bool = True,
     ):
         self.max_tokens = max_tokens
         self.min_tokens = min_tokens
         self.merge_target = merge_target
+        self.filter_invalid = filter_invalid
 
     def chunk(self, text: str) -> list[Chunk]:
         """对文本进行智能分块"""
-        return chunk_text(text, self.max_tokens)
+        chunks = chunk_text(text, self.max_tokens)
+        if self.filter_invalid:
+            chunks = filter_invalid_chunks(chunks)
+        return chunks
 
     def chunk_with_metadata(self, text: str, metadata: dict) -> list[dict]:
         """
