@@ -45,6 +45,16 @@ async def lifespan(app: FastAPI):
     await resolver.warm_cache()
     print(f"StockNameResolver 已加载: {resolver.size()} 条名称映射")
 
+    # Sub-Project 1: 校验主密码 + 同步 users.yaml
+    from app.account import config as account_cfg
+    from app.account.services import user_service
+    from app.core.database import async_session
+
+    account_cfg.validate_master_password()
+    async with async_session() as s:
+        n = await user_service.sync_from_yaml(s)
+        print(f"已同步 {n} 个用户: {[u.user_id for u in (await user_service.list_active(s))]}")
+
     yield
 
     if _data_scheduler is not None:
