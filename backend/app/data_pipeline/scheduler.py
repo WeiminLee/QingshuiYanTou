@@ -6,12 +6,13 @@ Scheduler - 定时任务调度器（APScheduler 版）
 - 时间统一为 Asia/Shanghai；任务以 cron 风格触发。
 - 失败重试通过 tenacity 风格的简易退避在任务内做（每个任务 1 次重试足够，避免错过下一个窗口）。
 """
+
 from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Awaitable, Callable
 from datetime import datetime, time
-from typing import Awaitable, Callable
 
 import pytz
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -42,6 +43,7 @@ def _is_trading_hours() -> bool:
     t = now.time()
     return any(start <= t <= end for start, end in TRADING_HOURS)
 
+
 REPORT_FETCH_HOUR = 3
 KLINE_FETCH_HOUR = 17
 KLINE_FETCH_MINUTE = 30
@@ -55,12 +57,9 @@ CNINFO_FETCH_HOUR = 23
 PDF_ROTATION_WEEKDAY = "sun"
 PDF_ROTATION_HOUR = 2
 
-MONITORED_INDICES = [
-    "sh.000001",  # 上证指数
-    "sz.399001",  # 深证成指
-    "sz.399006",  # 创业板指
-    "sh.000300",  # 沪深300
-]
+NEWS_FETCH_MINUTE = "*/5"  # 每 5 分钟
+NEWS_FETCH_HISTORY_DAYS = 7  # 首次全量拉取历史天数
+
 
 MAX_ATTEMPTS = 3  # Phase 31 E 修复：总执行次数（= 1 原始 + 2 次重试）
 RETRY_BASE_DELAY = 30  # 秒
@@ -83,21 +82,36 @@ async def _run_with_retry(
                 delay = RETRY_BASE_DELAY * (2 ** (attempt - 1))
                 logger.warning(
                     "[%s] 第 %d/%d 次失败: %s，%ds 后重试",
-                    task_name, attempt, MAX_ATTEMPTS, exc, delay,
+                    task_name,
+                    attempt,
+                    MAX_ATTEMPTS,
+                    exc,
+                    delay,
                 )
                 await asyncio.sleep(delay)
             else:
                 logger.error(
                     "[%s] %d 次尝试全部失败: %s",
-                    task_name, MAX_ATTEMPTS, exc,
+                    task_name,
+                    MAX_ATTEMPTS,
+                    exc,
                 )
     return False
 
 
 async def _run_report_job() -> None:
-    from app.data_pipeline.monitor import record_task_start, record_task_result, TaskStatus, init_monitor
+    from app.data_pipeline.dingtalk import (
+        notify_task_failed,
+        notify_task_start,
+        notify_task_success,
+    )
     from app.data_pipeline.fetcher import DataFetcher
-    from app.data_pipeline.dingtalk import notify_task_start, notify_task_success, notify_task_failed
+    from app.data_pipeline.monitor import (
+        TaskStatus,
+        init_monitor,
+        record_task_result,
+        record_task_start,
+    )
 
     await init_monitor()
     await record_task_start("reports")
@@ -129,9 +143,18 @@ async def _run_concept_job() -> None:
     if not _is_trading_hours():
         logger.debug("非交易时段，跳过概念热度同步")
         return
-    from app.data_pipeline.monitor import record_task_start, record_task_result, TaskStatus, init_monitor
+    from app.data_pipeline.dingtalk import (
+        notify_task_failed,
+        notify_task_start,
+        notify_task_success,
+    )
     from app.data_pipeline.fetcher import fetch_concept as _fetch_concept_fn
-    from app.data_pipeline.dingtalk import notify_task_start, notify_task_success, notify_task_failed
+    from app.data_pipeline.monitor import (
+        TaskStatus,
+        init_monitor,
+        record_task_result,
+        record_task_start,
+    )
 
     await init_monitor()
     await record_task_start("concept")
@@ -159,9 +182,18 @@ async def _run_concept_job() -> None:
 
 
 async def _run_irm_job() -> None:
-    from app.data_pipeline.monitor import record_task_start, record_task_result, TaskStatus, init_monitor
+    from app.data_pipeline.dingtalk import (
+        notify_task_failed,
+        notify_task_start,
+        notify_task_success,
+    )
     from app.data_pipeline.fetcher import DataFetcher
-    from app.data_pipeline.dingtalk import notify_task_start, notify_task_success, notify_task_failed
+    from app.data_pipeline.monitor import (
+        TaskStatus,
+        init_monitor,
+        record_task_result,
+        record_task_start,
+    )
 
     await init_monitor()
     await record_task_start("irm")
@@ -196,9 +228,18 @@ async def _run_cninfo_job() -> None:
     优先使用 minishare 接口回补；只抓昨天的全市场公告，
     入库时按 cninfo_id 去重；命中关键词的公告在线下载 PDF。
     """
-    from app.data_pipeline.monitor import record_task_start, record_task_result, TaskStatus, init_monitor
+    from app.data_pipeline.dingtalk import (
+        notify_task_failed,
+        notify_task_start,
+        notify_task_success,
+    )
     from app.data_pipeline.fetcher import DataFetcher
-    from app.data_pipeline.dingtalk import notify_task_start, notify_task_success, notify_task_failed
+    from app.data_pipeline.monitor import (
+        TaskStatus,
+        init_monitor,
+        record_task_result,
+        record_task_start,
+    )
 
     await init_monitor()
     await record_task_start("cninfo")
@@ -239,7 +280,12 @@ async def _run_cninfo_job() -> None:
 
 
 async def _run_cninfo_enqueue_job() -> None:
-    from app.data_pipeline.monitor import record_task_start, record_task_result, TaskStatus, init_monitor
+    from app.data_pipeline.monitor import (
+        TaskStatus,
+        init_monitor,
+        record_task_result,
+        record_task_start,
+    )
 
     await init_monitor()
     await record_task_start("cninfo_enqueue")
@@ -259,7 +305,12 @@ async def _run_cninfo_enqueue_job() -> None:
 
 
 async def _run_irm_enqueue_job() -> None:
-    from app.data_pipeline.monitor import record_task_start, record_task_result, TaskStatus, init_monitor
+    from app.data_pipeline.monitor import (
+        TaskStatus,
+        init_monitor,
+        record_task_result,
+        record_task_start,
+    )
 
     await init_monitor()
     await record_task_start("irm_enqueue")
@@ -283,6 +334,16 @@ async def _run_ingestion_worker_job() -> None:
         job_timeout_seconds=INGESTION_WORKER_TIMEOUT_SECONDS,
     ).run_once(limit=INGESTION_WORKER_DRAIN_LIMIT)
     logger.info("[ingestion_worker] drain result: %s", result)
+
+
+async def _run_news_job() -> None:
+    """财联社新闻定时同步（每 5 分钟）。"""
+    from app.data_pipeline.services.news_service import get_news_service
+
+    service = get_news_service()
+    result = await service.fetch_and_save()
+    logger.info("[news_sync] 同步结果: fetched=%d inserted=%d skipped=%d",
+                result.get("fetched", 0), result.get("inserted", 0), result.get("skipped", 0))
 
 
 async def _run_pdf_rotation_job() -> None:
@@ -315,8 +376,17 @@ BATCH_REINDEX_MINUTE = 0
 
 async def _run_batch_reindex_job() -> None:
     """Nightly batch reindex of missing vector embeddings (Phase 06 D-07)."""
-    from app.data_pipeline.monitor import record_task_start, record_task_result, TaskStatus, init_monitor
-    from app.data_pipeline.dingtalk import notify_task_start, notify_task_success, notify_task_failed
+    from app.data_pipeline.dingtalk import (
+        notify_task_failed,
+        notify_task_start,
+        notify_task_success,
+    )
+    from app.data_pipeline.monitor import (
+        TaskStatus,
+        init_monitor,
+        record_task_result,
+        record_task_start,
+    )
     from app.knowledge.vector_ops import reindex_missing_vectors
 
     await init_monitor()
@@ -360,77 +430,58 @@ def add_batch_reindex_job(scheduler: AsyncIOScheduler) -> None:
 
 
 async def _run_kline_job() -> None:
-    """K 线日终任务（D-A4：先 4 个指数 → 再全市场 5000 只个股）。"""
-    from datetime import datetime, timedelta
-    from app.data_pipeline.monitor import record_task_start, record_task_result, TaskStatus, init_monitor
-    from app.data_pipeline.fetcher import DataFetcher
-    from app.data_pipeline.dingtalk import notify_task_start, notify_task_success, notify_task_failed
+    """K 线日终任务：收盘后同步白名单股票的日线数据（baostock + tech_mvp 白名单）。"""
+    from app.data_pipeline.dingtalk import (
+        notify_task_failed,
+        notify_task_start,
+        notify_task_success,
+    )
+    from app.data_pipeline.monitor import (
+        TaskStatus,
+        init_monitor,
+        record_task_result,
+        record_task_start,
+    )
+    from scripts.sync_daily_baostock import sync_daily
 
     await init_monitor()
     await record_task_start("kline")
     notify_task_start("K线同步")
 
-    fetcher = DataFetcher()
-    today = datetime.now()
-    yesterday = (today - timedelta(days=1)).strftime("%Y%m%d")
-    today_str = today.strftime("%Y%m%d")
-
-    grand_success = 0
-    grand_skipped = 0
-    grand_fail = 0
-
-    # ---- 1) 指数 K 线（4 个） ----
-    for code in MONITORED_INDICES:
-        try:
-            result = await fetcher.fetch_index_kline(
-                index_code=code,
-                start_date=yesterday,
-                end_date=today_str,
-            )
-            grand_success += int(result.get("success", 0) or 0)
-            grand_skipped += int(result.get("skipped", 0) or 0)
-            grand_fail += int(result.get("fail", 0) or 0)
-        except Exception as exc:
-            logger.error("指数 %s K线获取失败: %s", code, exc)
-            grand_fail += 1
-    logger.info("指数 K 线完成: 入库 %d，跳过 %d，失败 %d", grand_success, grand_skipped, grand_fail)
-
-    # ---- 2) 全市场个股 K 线 ----
     try:
-        stock_result = await fetcher.fetch_all_stocks_kline()
-        grand_success += int(stock_result.get("success", 0) or 0)
-        grand_fail += int(stock_result.get("fail", 0) or 0)
-        logger.info(
-            "全市场个股 K 线完成: 处理 %s/%s，入库 %s 条",
-            stock_result.get("processed", 0),
-            stock_result.get("total", 0),
-            stock_result.get("success", 0),
+        result = await sync_daily(scope="tech_mvp")
+        await record_task_result(
+            "kline",
+            TaskStatus.SUCCESS if result.get("fail", 0) == 0 else TaskStatus.PARTIAL,
+            total=result.get("total", 0),
+            success=result.get("ok", 0),
+            fail=result.get("fail", 0),
         )
-    except Exception as exc:
-        logger.error("全市场个股 K 线任务失败: %s", exc, exc_info=True)
-        await record_task_result("kline", TaskStatus.FAILED, error_message=str(exc))
-        notify_task_failed("K线同步", str(exc))
+        notify_task_success(
+            "K线同步",
+            result.get("total", 0),
+            result.get("ok", 0),
+            result.get("fail", 0),
+        )
+    except Exception as e:
+        await record_task_result("kline", TaskStatus.FAILED, error_message=str(e))
+        notify_task_failed("K线同步", str(e))
         raise
-
-    await record_task_result(
-        "kline",
-        TaskStatus.SUCCESS if grand_fail == 0 else TaskStatus.PARTIAL,
-        total=grand_success + grand_fail,
-        success=grand_success,
-        fail=grand_fail,
-    )
-    notify_task_success(
-        "K线同步",
-        grand_success + grand_fail,
-        grand_success,
-        grand_fail,
-    )
 
 
 async def _run_sync_stocks_job() -> None:
-    from app.data_pipeline.monitor import record_task_start, record_task_result, TaskStatus, init_monitor
+    from app.data_pipeline.dingtalk import (
+        notify_task_failed,
+        notify_task_start,
+        notify_task_success,
+    )
     from app.data_pipeline.fetcher import async_sync_stocks
-    from app.data_pipeline.dingtalk import notify_task_start, notify_task_success, notify_task_failed
+    from app.data_pipeline.monitor import (
+        TaskStatus,
+        init_monitor,
+        record_task_result,
+        record_task_start,
+    )
 
     await init_monitor()
     await record_task_start("stocks")
@@ -536,6 +587,14 @@ class Scheduler:
             id="sync_stocks_weekly",
             replace_existing=True,
         )
+        self._scheduler.add_job(
+            _run_news_job,
+            CronTrigger(minute=NEWS_FETCH_MINUTE, timezone=TIMEZONE),
+            id="news_sync",
+            replace_existing=True,
+            max_instances=1,
+            coalesce=True,
+        )
 
         self._scheduler.start()
         logger.info("定时任务调度器启动")
@@ -562,6 +621,7 @@ class Scheduler:
             (_run_cninfo_enqueue_job(), "cninfo_enqueue_startup"),
             (_run_ingestion_worker_job(), "ingestion_worker_startup"),
             (_run_sync_stocks_job(), "sync_stocks_startup"),
+            (_run_news_job(), "news_startup"),
         ]
         tasks = []
         for coro, name in task_specs:
@@ -599,4 +659,5 @@ def run_scheduler(run_now: bool = False) -> None:
 
 if __name__ == "__main__":
     import sys
+
     run_scheduler(run_now="--now" in sys.argv)
