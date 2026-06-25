@@ -14,6 +14,9 @@ from app.knowledge.api import concept_router, entities_router, relations_router,
 from app.knowledge.api.feedback import router as feedback_router
 from app.knowledge.api.knowledge_package import router as knowledge_package_router
 from app.utils.auth import verify_api_key, verify_api_key_optional
+from app.account.api import auth as account_auth_router
+from app.account.api import users as account_users_router
+from app.account.api import portfolio as account_portfolio_router
 
 
 _data_scheduler: DataPipelineScheduler | None = None
@@ -91,3 +94,8 @@ app.include_router(information_router, prefix="/api/v1/information", tags=["资�
 app.include_router(logs_router, prefix="/api/v1/logs", tags=["日志"])
 # 数据同步路由
 app.include_router(data_sync_router, prefix="/api/v1/sync", tags=["数据同步"], dependencies=[Depends(verify_api_key)])
+
+# Sub-Project 1: 用户与持仓基础
+app.include_router(account_auth_router.router)
+app.include_router(account_users_router.router)
+app.include_router(account_portfolio_router.router)
