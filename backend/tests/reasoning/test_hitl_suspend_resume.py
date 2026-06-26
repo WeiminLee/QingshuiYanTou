@@ -88,3 +88,45 @@ class TestClarificationDetection:
         sig = inspect.signature(make_lead_agent)
         param = sig.parameters["system_prompt"]
         assert param.default == ""
+
+
+class TestResumeAPI:
+    async def test_resolve_endpoint_returns_404_for_unknown(self):
+        from httpx import AsyncClient, ASGITransport
+        from app.main import app
+        from app.config import settings
+
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.post("/api/v1/agent/resolve/unknown_task", json={
+                "answer": "中际旭创", "clarification_id": "cid_1"
+            }, headers={"x-api-key": settings.api_key})
+            assert resp.status_code == 404
+
+    async def test_resolve_endpoint_accepts_valid_request(self):
+        from httpx import AsyncClient, ASGITransport
+        from app.main import app
+        from app.config import settings
+        from app.reasoning.api.agent_events import _task_manager
+        from app.reasoning.langchain_agent.hitl_store import get_hitl_store, PendingClarification
+
+        task_id = "test_resolve_task"
+        _task_manager.create_task(task_id, "thread_1", "问题")
+        store = get_hitl_store()
+        await store.save(task_id, PendingClarification(
+            task_id=task_id, thread_id="thread_1",
+            clarification_id="cid_1", question="哪只？",
+            clarification_type="ambiguous",
+            options=None, context=None,
+            messages=[], run_config={"model_name": "test"},
+        ))
+
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.post(f"/api/v1/agent/resolve/{task_id}", json={
+                "answer": "中际旭创", "clarification_id": "cid_1"
+            }, headers={"x-api-key": settings.api_key})
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["status"] == "resumed"
+            assert await store.get(task_id) is None

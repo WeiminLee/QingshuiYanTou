@@ -25,19 +25,22 @@ POST /api/v1/agent/stream/report
 GET /api/v1/agent/stream/{task_id}
   SSE 事件流
 """
+
 import asyncio
 import json
 import logging
 import time
 import uuid
 from datetime import datetime
-from typing import Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sse_starlette import EventSourceResponse
+
+from app.reasoning.api.agent_events import ReasoningEvent, _task_manager, emit_error
+from app.reasoning.langchain_agent.hitl_store import get_hitl_store
 from app.utils.auth import verify_api_key, verify_api_key_query
-from app.reasoning.api.agent_events import _task_manager, emit_error
+from langchain_core.messages import BaseMessage, HumanMessage
 
 router = APIRouter(tags=["Agent分析"])
 logger = logging.getLogger(__name__)
@@ -59,18 +62,18 @@ _CLEANUP_THRESHOLD: int = 10
 # - 其他事件       → 原样透传
 
 _VISIBLE_MAP = {
-    "thinking_delta": "thinking",      # DeerFlow 单消息流：统一 → thinking
-    "ai_message": "thinking",          # 向后兼容
-    "tool_called": "tool_called",     # Phase A: 新增
-    "tool_call": "tool_called",       # 向后兼容
-    "tool_result": "tool_result",     # Phase A: 新增（从过滤移入）
+    "thinking_delta": "thinking",  # DeerFlow 单消息流：统一 → thinking
+    "ai_message": "thinking",  # 向后兼容
+    "tool_called": "tool_called",  # Phase A: 新增
+    "tool_call": "tool_called",  # 向后兼容
+    "tool_result": "tool_result",  # Phase A: 新增（从过滤移入）
     "reasoning_start": "reasoning_start",
     "reasoning_started": "reasoning_start",
     "reasoning_end": "stream_end",
     "reasoning_completed": "stream_end",
 }
 
-_FILTERED: set[str] = set()   # Phase A: 不再过滤任何事件，全部透传给前端
+_FILTERED: set[str] = set()  # Phase A: 不再过滤任何事件，全部透传给前端
 
 
 def _filter_sse_event(event_type: str, data: dict) -> tuple[bool, str]:
@@ -98,7 +101,7 @@ def _filter_sse_event(event_type: str, data: dict) -> tuple[bool, str]:
 
 class ChatRequest(BaseModel):
     question: str
-    thread_id: Optional[str] = None
+    thread_id: str | None = None
     max_turns: int = 5
 
 
@@ -106,12 +109,12 @@ class ChatResponse(BaseModel):
     content: str
     thread_id: str
     task_id: str
-    reasoning: Optional[str] = None  # Bug M3 修复：添加 reasoning 字段
+    reasoning: str | None = None  # Bug M3 修复：添加 reasoning 字段
 
 
 class InvokeRequest(BaseModel):
     question: str
-    thread_id: Optional[str] = None
+    thread_id: str | None = None
     max_turns: int = 5
     model_name: str = "minimax2.5"
 
@@ -125,14 +128,19 @@ class InvokeResponse(BaseModel):
 class ResultResponse(BaseModel):
     task_id: str
     status: str
-    content: Optional[str] = None
-    report_json: Optional[dict] = None
-    report_content: Optional[str] = None
-    report_id: Optional[str] = None
-    compliance_passed: Optional[bool] = None
-    reasoning: Optional[str] = None  # Bug M3 修复：添加 reasoning 字段
-    error: Optional[str] = None
-    thread_id: Optional[str] = None
+    content: str | None = None
+    report_json: dict | None = None
+    report_content: str | None = None
+    report_id: str | None = None
+    compliance_passed: bool | None = None
+    reasoning: str | None = None  # Bug M3 修复：添加 reasoning 字段
+    error: str | None = None
+    thread_id: str | None = None
+
+
+class ResolveClarificationRequest(BaseModel):
+    answer: str
+    clarification_id: str
 
 
 async def _run_invoke_task(task_id: str, thread_id: str, question: str, max_turns: int, model_name: str):
@@ -141,6 +149,7 @@ async def _run_invoke_task(task_id: str, thread_id: str, question: str, max_turn
     _task_manager.update_status(task_id, "running")
     try:
         from app.reasoning.langchain_agent.client import run_lead_agent
+
         result = await run_lead_agent(
             question=question,
             thread_id=thread_id,
@@ -157,6 +166,7 @@ async def _run_invoke_task(task_id: str, thread_id: str, question: str, max_turn
 
 
 # ── API 端点 ──────────────────────────────────────
+
 
 @router.post("/chat", response_model=ChatResponse)
 async def chat(request: ChatRequest, _=Depends(verify_api_key)):
@@ -198,7 +208,6 @@ async def invoke(
     适合复杂问题，返回 task_id 供后续查询结果。
     """
     global _cleanup_counter
-    import time
 
     task_id = str(uuid.uuid4())
     thread_id = request.thread_id or str(uuid.uuid4())
@@ -212,8 +221,12 @@ async def invoke(
         background_tasks.add_task(lambda: _task_manager._cleanup())
 
     background_tasks.add_task(
-        _run_invoke_task, task_id, thread_id, request.question,
-        request.max_turns, request.model_name,
+        _run_invoke_task,
+        task_id,
+        thread_id,
+        request.question,
+        request.max_turns,
+        request.model_name,
     )
 
     return InvokeResponse(
@@ -252,21 +265,24 @@ async def list_tasks(limit: int = 20, _=Depends(verify_api_key)):
     recent = _task_manager.list_recent_tasks(limit=safe_limit)
     items = []
     for t in recent:
-        items.append({
-            "task_id": t.get("task_id", ""),
-            "status": t.get("status", "unknown"),
-            "thread_id": t.get("thread_id", ""),
-            "created_at": t.get("created_at"),
-            "completed_at": t.get("completed_at"),
-        })
+        items.append(
+            {
+                "task_id": t.get("task_id", ""),
+                "status": t.get("status", "unknown"),
+                "thread_id": t.get("thread_id", ""),
+                "created_at": t.get("created_at"),
+                "completed_at": t.get("completed_at"),
+            }
+        )
     return {"items": items}
 
 
 # ── Layer 4 报告端点 ──────────────────────────────────────
 
+
 class ReportRequest(BaseModel):
     question: str
-    thread_id: Optional[str] = None
+    thread_id: str | None = None
     max_turns: int = 4
 
 
@@ -292,8 +308,8 @@ async def generate_report(request: ReportRequest, _=Depends(verify_api_key)):
     from app.reasoning.langchain_agent.client import run_lead_agent
     from app.reasoning.output import (
         AnalysisReport,
-        scan_content,
         log_report_audit,
+        scan_content,
     )
 
     task_id = str(uuid.uuid4())
@@ -343,6 +359,7 @@ async def generate_report(request: ReportRequest, _=Depends(verify_api_key)):
 
 # ── SSE 流式报告端点 ──────────────────────────────────────
 
+
 @router.get("/stream/{task_id}")
 async def stream_events(task_id: str, _api_key: str = Depends(verify_api_key_query)):
     """
@@ -354,12 +371,13 @@ async def stream_events(task_id: str, _api_key: str = Depends(verify_api_key_que
     if task_state is None:
         raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
     from app.reasoning.api.agent_events import event_generator
+
     return EventSourceResponse(event_generator(task_id))
 
 
 class StreamReportRequest(BaseModel):
     question: str
-    thread_id: Optional[str] = None
+    thread_id: str | None = None
     max_turns: int = 4
     model_name: str = "minimax2.5"
 
@@ -376,12 +394,52 @@ async def stream_report(request: StreamReportRequest, _=Depends(verify_api_key))
     thread_id = request.thread_id or str(uuid.uuid4())
 
     _task_manager.create_task(task_id, thread_id, request.question)
-    asyncio.create_task(_run_stream_report(
-        task_id, thread_id, request.question,
-        request.max_turns, request.model_name,
-    ))
+    asyncio.create_task(
+        _run_stream_report(
+            task_id,
+            thread_id,
+            request.question,
+            request.max_turns,
+            request.model_name,
+        )
+    )
 
     return {"task_id": task_id, "thread_id": thread_id}
+
+
+@router.post("/resolve/{task_id}")
+async def resolve_clarification(
+    task_id: str,
+    body: ResolveClarificationRequest,
+    _=Depends(verify_api_key),
+):
+    """Resume a paused agent run with user's clarification answer."""
+    store = get_hitl_store()
+    pending = await store.pop(task_id)
+    if not pending:
+        raise HTTPException(404, "No pending clarification found for this task")
+
+    await _task_manager.emit(
+        task_id,
+        ReasoningEvent(
+            type="clarification_resolved",
+            task_id=task_id,
+            stage="clarification_resolved",
+            data={"clarification_id": body.clarification_id, "task_id": task_id},
+        ),
+    )
+
+    messages = list(pending.messages)
+    messages.append(HumanMessage(content=body.answer))
+
+    asyncio.create_task(_resume_stream_report(
+        task_id=task_id,
+        thread_id=pending.thread_id,
+        messages=messages,
+        run_config=pending.run_config,
+    ))
+
+    return {"status": "resumed", "task_id": task_id}
 
 
 async def _run_stream_report(task_id: str, thread_id: str, question: str, max_turns: int, model_name: str):
@@ -412,21 +470,27 @@ async def _run_stream_report(task_id: str, thread_id: str, question: str, max_tu
             delta = data.get("delta") or data.get("content", "")
             if delta:
                 _task_manager.update_last_content(task_id, delta)
-                await _task_manager.emit(task_id, ReasoningEvent(
-                    type="thinking",
-                    task_id=task_id,
-                    stage="思考中",
-                    data={"delta": delta, "turn": turn},
-                    turn=turn,
-                ))
+                await _task_manager.emit(
+                    task_id,
+                    ReasoningEvent(
+                        type="thinking",
+                        task_id=task_id,
+                        stage="思考中",
+                        data={"delta": delta, "turn": turn},
+                        turn=turn,
+                    ),
+                )
         else:
-            await _task_manager.emit(task_id, ReasoningEvent(
-                type=mapped,
-                task_id=task_id,
-                stage=data.get("stage", mapped),
-                data=data,
-                turn=turn,
-            ))
+            await _task_manager.emit(
+                task_id,
+                ReasoningEvent(
+                    type=mapped,
+                    task_id=task_id,
+                    stage=data.get("stage", mapped),
+                    data=data,
+                    turn=turn,
+                ),
+            )
 
     async def emit_fn(ev_type: str, data: dict):
         """async 回调（client.py 里用 await emit_fn() 调用）"""
@@ -434,12 +498,15 @@ async def _run_stream_report(task_id: str, thread_id: str, question: str, max_tu
 
     try:
         _task_manager.update_status(task_id, "running")
-        await _task_manager.emit(task_id, ReasoningEvent(
-            type="reasoning_started",
-            task_id=task_id,
-            stage="开始分析",
-            data={"question": question, "max_turns": max_turns},
-        ))
+        await _task_manager.emit(
+            task_id,
+            ReasoningEvent(
+                type="reasoning_started",
+                task_id=task_id,
+                stage="开始分析",
+                data={"question": question, "max_turns": max_turns},
+            ),
+        )
 
         from app.reasoning.langchain_agent.client import run_lead_agent
         from app.reasoning.output import AnalysisReport, log_report_audit
@@ -456,6 +523,9 @@ async def _run_stream_report(task_id: str, thread_id: str, question: str, max_tu
                 max_turns=max_turns,
                 emit_fn=emit_fn,
             )
+            if result and result.get("status") == "paused":
+                _task_manager.mark_paused(task_id)
+                return
             logger.info(f"[Agent] run_lead_agent 完成，task_id={task_id}")
         except Exception as e:
             logger.exception(f"[Agent] run_lead_agent 异常，task_id={task_id}: {e}")
@@ -479,13 +549,16 @@ async def _run_stream_report(task_id: str, thread_id: str, question: str, max_tu
             result=markdown,
         )
 
-        _task_manager.set_result(task_id, {
-            "content": raw_analysis,
-            "report_json": report.to_dict(),
-            "report_content": markdown,
-            "report_id": report.report_id,
-            "compliance_passed": report.compliance_declared,
-        })
+        _task_manager.set_result(
+            task_id,
+            {
+                "content": raw_analysis,
+                "report_json": report.to_dict(),
+                "report_content": markdown,
+                "report_id": report.report_id,
+                "compliance_passed": report.compliance_declared,
+            },
+        )
         _task_manager.update_status(task_id, "done")
         # 注意：stream_end 已经由 run_lead_agent() 在 agent.stream() 循环中发射
         # 此处不再重复发射，避免前端收到重复的 stream_end 事件
@@ -496,15 +569,98 @@ async def _run_stream_report(task_id: str, thread_id: str, question: str, max_tu
         _task_manager.update_status(task_id, "failed")
 
 
+async def _resume_stream_report(
+    task_id: str,
+    thread_id: str,
+    messages: list[BaseMessage],
+    run_config: dict,
+):
+    """Resume a paused agent run from checkpoint — pushes events to same task_id stream."""
+    from app.reasoning.api.agent_events import ReasoningEvent
+
+    async def _emit_to_manager(ev_type: str, data: dict):
+        mapped = ev_type if ev_type not in _VISIBLE_MAP else _VISIBLE_MAP[ev_type]
+        turn = data.get("turn", 0) if isinstance(data, dict) else 0
+        if ev_type in ("thinking_delta", "ai_message"):
+            delta = data.get("delta") or data.get("content", "")
+            if delta:
+                _task_manager.update_last_content(task_id, delta)
+                await _task_manager.emit(
+                    task_id,
+                    ReasoningEvent(
+                        type="thinking",
+                        task_id=task_id,
+                        stage="思考中",
+                        data={"delta": delta, "turn": turn},
+                        turn=turn,
+                    ),
+                )
+        else:
+            await _task_manager.emit(
+                task_id,
+                ReasoningEvent(
+                    type=mapped,
+                    task_id=task_id,
+                    stage=data.get("stage", mapped),
+                    data=data,
+                    turn=turn,
+                ),
+            )
+
+    async def emit_fn(ev_type: str, data: dict):
+        await _emit_to_manager(ev_type, data)
+
+    try:
+        _task_manager.update_status(task_id, "running")
+
+        from app.reasoning.langchain_agent.client import run_lead_agent
+        from app.reasoning.output import AnalysisReport
+
+        result = await run_lead_agent(
+            question="",
+            thread_id=thread_id,
+            model_name=run_config.get("model_name"),
+            max_turns=run_config.get("max_turns", 8),
+            emit_fn=emit_fn,
+            prebuilt_messages=messages,
+            skip_preflight=True,
+            plan_mode=run_config.get("plan_mode", False),
+        )
+
+        raw_analysis = result.get("content", "") if result else ""
+        report = AnalysisReport(
+            report_id=task_id[:8],
+            topic="继续分析",
+            generated_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            raw_analysis=raw_analysis,
+        )
+        await emit_fn("stream_end", {
+            "report_content": report.to_markdown(),
+            "report_json": report.to_dict(),
+            "report_id": report.report_id,
+            "compliance_passed": report.compliance_declared,
+            "turns": result.get("turns", 0),
+            "content": raw_analysis,
+        })
+        _task_manager.update_status(task_id, "completed")
+
+    except Exception as e:
+        logger.exception(f"[Resume] resume agent exception: {e}")
+        await emit_fn("error", {"error": str(e)})
+        _task_manager.update_status(task_id, "failed")
+
+
 # ── V2 LangChain Agent 端点（显式 V2 前缀） ─────────────────────────────────
+
 
 class V2ChatRequest(BaseModel):
     """V2 引擎聊天请求
 
     BUG-5 修复：添加输入字段验证，防止 DoS 和异常数据。
     """
+
     question: str = Field(..., min_length=1, max_length=5000, description="用户问题")
-    thread_id: Optional[str] = Field(default=None, max_length=100)
+    thread_id: str | None = Field(default=None, max_length=100)
     max_turns: int = Field(default=8, ge=1, le=50)
     model_name: str = Field(default="minimax2.5", max_length=50)
     subagent_enabled: bool = Field(default=False)
@@ -552,8 +708,9 @@ class V2StreamRequest(BaseModel):
 
     BUG-5 修复：添加输入字段验证，防止 DoS 和异常数据。
     """
+
     question: str = Field(..., min_length=1, max_length=5000, description="用户问题")
-    thread_id: Optional[str] = Field(default=None, max_length=100)
+    thread_id: str | None = Field(default=None, max_length=100)
     max_turns: int = Field(default=8, ge=1, le=50)
     model_name: str = Field(default="minimax2.5", max_length=50)
     subagent_enabled: bool = Field(default=False)
@@ -595,9 +752,7 @@ async def v2_stream(request: V2StreamRequest, api_key: str = Depends(verify_api_
         emitter_queue: asyncio.Queue = asyncio.Queue()
 
         async def emit(event_type: str, data: dict):
-            await emitter_queue.put(
-                json.dumps({"type": event_type, "data": data}, ensure_ascii=False)
-            )
+            await emitter_queue.put(json.dumps({"type": event_type, "data": data}, ensure_ascii=False))
 
         async def run_and_stream():
             try:
@@ -610,8 +765,10 @@ async def v2_stream(request: V2StreamRequest, api_key: str = Depends(verify_api_
 
         stream_task = asyncio.create_task(run_and_stream())
 
-        # SSE 总超时配置：30 分钟（1800 秒）— 主 loop 不设外层超时，仅工具层有超时
-        SSE_TOTAL_TIMEOUT = 1800.0
+        # SSE 总超时 — 主 loop 不设外层超时，仅工具层有超时
+        from app.config import settings
+
+        SSE_TOTAL_TIMEOUT = settings.agent_sse_timeout
         SSE_MAX_CONSECUTIVE_PINGS = 10
         ping_count = 0
         start_time = time.monotonic()
@@ -634,7 +791,7 @@ async def v2_stream(request: V2StreamRequest, api_key: str = Depends(verify_api_
                 visible, mapped_type = _filter_sse_event(event_type, data)
                 if visible:
                     yield f"data: {json.dumps({'type': mapped_type, 'data': data})}\n\n"
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 ping_count += 1
                 if ping_count > SSE_MAX_CONSECUTIVE_PINGS:
                     logger.warning(f"[V2Stream] Too many consecutive pings ({ping_count}), stream may be stuck")
