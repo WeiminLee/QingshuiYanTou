@@ -2,8 +2,10 @@
 Agent 事件流测试
 检测 stream_end 重复发射问题
 """
-import pytest
+
 import os
+
+import pytest
 
 
 class TestSSEEventEmission:
@@ -22,12 +24,12 @@ class TestSSEEventEmission:
 
         # 检查 ManualAgentLoop.run() 中的 stream_end 发射
         loop_file = os.path.join(base_dir, "app/reasoning/langchain_agent/middlewares/manual_agent_loop.py")
-        with open(loop_file, "r") as f:
+        with open(loop_file) as f:
             loop_code = f.read()
 
         # 检查 agent.py 中的 stream_end 发射
         agent_file = os.path.join(base_dir, "app/reasoning/api/agent.py")
-        with open(agent_file, "r") as f:
+        with open(agent_file) as f:
             agent_code = f.read()
 
         # 查找 stream_end 发射位置
@@ -52,17 +54,17 @@ class TestSSEEventEmission:
         base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
         loop_file = os.path.join(base_dir, "app/reasoning/langchain_agent/middlewares/manual_agent_loop.py")
-        with open(loop_file, "r") as f:
+        with open(loop_file) as f:
             loop_code = f.read()
 
-        with open(os.path.join(base_dir, "app/reasoning/api/agent.py"), "r") as f:
+        with open(os.path.join(base_dir, "app/reasoning/api/agent.py")) as f:
             agent_code = f.read()
 
         # 提取两个地方的 stream_end 数据字段
         # ManualAgentLoop 发射的数据
         loop_has_content = '"content": raw_analysis' in loop_code
         # _run_stream_report 发射的数据
-        agent_has_content = '"content"' in agent_code and 'stream_end' in agent_code
+        agent_has_content = '"content"' in agent_code and "stream_end" in agent_code
 
         print(f"ManualAgentLoop 有 content 字段: {loop_has_content}")
         print(f"_run_stream_report 有 content 字段: {agent_has_content}")

@@ -4,16 +4,16 @@ FileStorage - 文件存储模块
 管理 PDF 文件的本地存储。
 迁移自 data_access_mvp/src/utils/file_storage.py
 """
+
 import asyncio
-import re
-import requests
-from pathlib import Path
-from typing import Optional
-from urllib.parse import urlparse, parse_qs
-
 import logging
+import re
+from pathlib import Path
+from urllib.parse import parse_qs, urlparse
 
-from app.data_pipeline.rate_limiter import get_cninfo_pdf_limiter
+import requests
+
+from app.data_pipeline.rate_limiter import get_cninfo_pdf_async_limiter, get_cninfo_pdf_limiter
 
 logger = logging.getLogger(__name__)
 
@@ -131,7 +131,8 @@ class FileStorage:
         except ValueError:
             logger.error(
                 "拦截到逃逸出 notices_dir 的路径: target=%s root=%s",
-                target, notices_root,
+                target,
+                notices_root,
             )
             target = notices_root / "_invalid" / safe_filename
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -143,7 +144,7 @@ class FileStorage:
         inst_csname: str,
         trade_date: str,
         filename: str,
-    ) -> tuple[Optional[Path], str | None]:
+    ) -> tuple[Path | None, str | None]:
         """
         研报存储路径决策。
 
@@ -174,13 +175,32 @@ class FileStorage:
         判断发布机构是否为券商/咨询机构。
         """
         BROKER_KEYWORDS = [
-            "证券", "研究所", "研究院", "研究中心",
-            "咨询", "顾问", "评级", "评估",
+            "证券",
+            "研究所",
+            "研究院",
+            "研究中心",
+            "咨询",
+            "顾问",
+            "评级",
+            "评估",
         ]
         EXCLUDE_KEYWORDS = [
-            "WHO", "政府", "卫生部", "国家标准", "标准化技术委员会",
-            "美国", "中国", "联合国", "欧盟", "央行", "财政部",
-            "腾讯云", "阿里巴巴", "阿里云", "字节", "抖音",
+            "WHO",
+            "政府",
+            "卫生部",
+            "国家标准",
+            "标准化技术委员会",
+            "美国",
+            "中国",
+            "联合国",
+            "欧盟",
+            "央行",
+            "财政部",
+            "腾讯云",
+            "阿里巴巴",
+            "阿里云",
+            "字节",
+            "抖音",
         ]
 
         name_lower = inst_csname.lower()
@@ -200,7 +220,7 @@ class FileStorage:
         ts_code: str,
         filename: str,
         pub_date: str | None = None,
-    ) -> Optional[Path]:
+    ) -> Path | None:
         """保存公告 PDF"""
         if not content[:5] == b"%PDF-":
             logger.warning("内容不是 PDF，放弃保存")
@@ -221,24 +241,24 @@ class FileStorage:
         url = url.strip()
 
         # 情况 A: 已经是 PDF 链接（.pdf 结尾的各种域名都支持）
-        if re.search(r'\.pdf$', url, re.IGNORECASE):
-            return url.replace('http://', 'https://')
+        if re.search(r"\.pdf$", url, re.IGNORECASE):
+            return url.replace("http://", "https://")
 
         # 情况 B: 详情页 URL → 提取 announcementId → 调 API 获取 PDF 地址
-        if 'detail' in url and 'cninfo' in url:
+        if "detail" in url and "cninfo" in url:
             parsed = urlparse(url)
             qs = parse_qs(parsed.query)
-            announce_id = qs.get('announcementId', [None])[0]
+            announce_id = qs.get("announcementId", [None])[0]
             if announce_id:
                 try:
                     resp = requests.post(
-                        'http://www.cninfo.com.cn/new/announcement/bulletin_detail',
-                        params={'announceId': announce_id, 'flag': 'true'},
+                        "http://www.cninfo.com.cn/new/announcement/bulletin_detail",
+                        params={"announceId": announce_id, "flag": "true"},
                         headers=HTTP_HEADERS,
                         timeout=15,
                     )
                     if resp.ok:
-                        file_url = resp.json().get('fileUrl')
+                        file_url = resp.json().get("fileUrl")
                         if file_url:
                             return file_url
                 except Exception as e:
@@ -252,7 +272,7 @@ class FileStorage:
         ts_code: str,
         filename: str,
         pub_date: str | None = None,
-    ) -> Optional[Path]:
+    ) -> Path | None:
         """下载并保存公告 PDF"""
         resolved_url = self._resolve_pdf_url(url)
         if not resolved_url:
@@ -279,10 +299,10 @@ class FileStorage:
             return None
         url = url.strip()
         # 直接 PDF 链接，无需 API 调用
-        if re.search(r'\.pdf$', url, re.IGNORECASE):
-            return url.replace('http://', 'https://')
+        if re.search(r"\.pdf$", url, re.IGNORECASE):
+            return url.replace("http://", "https://")
         # 详情页需要调 API，投递到线程池
-        if 'detail' in url and 'cninfo' in url:
+        if "detail" in url and "cninfo" in url:
             return await asyncio.to_thread(self._resolve_pdf_url, url)
         return None
 
@@ -292,7 +312,7 @@ class FileStorage:
         ts_code: str,
         filename: str,
         pub_date: str | None = None,
-    ) -> Optional[Path]:
+    ) -> Path | None:
         """异步下载并保存公告 PDF。
 
         通过 asyncio.to_thread 将同步 HTTP 请求放入线程池，
@@ -303,9 +323,8 @@ class FileStorage:
             logger.warning("公告 URL 无法解析为 PDF 地址，跳过 [%s]", url[:80])
             return None
         try:
-            response = await asyncio.to_thread(
-                requests.get, resolved_url, timeout=30, headers=HTTP_HEADERS
-            )
+            await get_cninfo_pdf_async_limiter().wait_and_acquire()
+            response = await asyncio.to_thread(requests.get, resolved_url, timeout=30, headers=HTTP_HEADERS)
             response.raise_for_status()
             content = response.content
             if not content[:5] == b"%PDF-":
@@ -323,15 +342,13 @@ class FileStorage:
         inst_csname: str,
         trade_date: str,
         filename: str,
-    ) -> Optional[Path]:
+    ) -> Path | None:
         """保存研报 PDF"""
         if not content[:5] == b"%PDF-":
             logger.warning("内容不是 PDF，放弃保存")
             return None
         try:
-            file_path, storage_type = self._get_report_path(
-                ts_code, inst_csname, trade_date, filename
-            )
+            file_path, storage_type = self._get_report_path(ts_code, inst_csname, trade_date, filename)
             if file_path is None:
                 logger.debug(f"研报不下载，只建索引: {filename}")
                 return None
@@ -349,12 +366,10 @@ class FileStorage:
         inst_csname: str,
         trade_date: str,
         filename: str,
-    ) -> Optional[Path]:
+    ) -> Path | None:
         """下载并保存研报 PDF"""
         try:
-            file_path, storage_type = self._get_report_path(
-                ts_code, inst_csname, trade_date, filename
-            )
+            file_path, storage_type = self._get_report_path(ts_code, inst_csname, trade_date, filename)
             if file_path is None:
                 logger.debug(f"研报不下载，只建索引: {filename}")
                 return None
@@ -380,7 +395,7 @@ class FileStorage:
         inst_csname: str,
         trade_date: str,
         filename: str,
-    ) -> tuple[Optional[Path], str | None]:
+    ) -> tuple[Path | None, str | None]:
         """研报外部存储路径：minishare_data_root/reports/{ts_code}/{YYYY-MM}/"""
         safe_ts_code = _sanitize_ts_code(ts_code)
         safe_filename = _sanitize_filename(filename)
@@ -400,15 +415,13 @@ class FileStorage:
         inst_csname: str,
         trade_date: str,
         filename: str,
-    ) -> Optional[Path]:
+    ) -> Path | None:
         """保存研报 PDF 到外部存储"""
         if not content[:5] == b"%PDF-":
             logger.warning("内容不是 PDF，放弃保存")
             return None
         try:
-            file_path, storage_type = self._get_external_report_path(
-                ts_code, inst_csname, trade_date, filename
-            )
+            file_path, storage_type = self._get_external_report_path(ts_code, inst_csname, trade_date, filename)
             if file_path is None:
                 logger.debug(f"研报外部存储跳过（无 ts_code）: {filename}")
                 return None
@@ -426,12 +439,10 @@ class FileStorage:
         inst_csname: str,
         trade_date: str,
         filename: str,
-    ) -> Optional[Path]:
+    ) -> Path | None:
         """下载并保存研报 PDF 到外部存储（存在则跳过）"""
         try:
-            file_path, storage_type = self._get_external_report_path(
-                ts_code, inst_csname, trade_date, filename
-            )
+            file_path, storage_type = self._get_external_report_path(ts_code, inst_csname, trade_date, filename)
             if file_path is None:
                 logger.debug(f"研报外部下载跳过（无 ts_code）: {filename}")
                 return None

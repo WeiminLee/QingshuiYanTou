@@ -3,6 +3,7 @@
 
 数据来源：PostgreSQL（ReportService）→ 定时任务写入
 """
+
 import logging
 from typing import Annotated
 
@@ -25,12 +26,11 @@ def get_announcement(
     return run_async(_fetch_announcements(ts_code, keyword, start_date, end_date, page_size))
 
 
-async def _fetch_announcements(
-    ts_code: str, keyword: str, start_date: str, end_date: str, page_size: int
-) -> str:
+async def _fetch_announcements(ts_code: str, keyword: str, start_date: str, end_date: str, page_size: int) -> str:
     """从本地数据库读取公告数据"""
     try:
         from app.data_pipeline.services.report_service import get_report_service
+
         service = get_report_service()
         items = await service.search_announcements(
             ts_code=ts_code or None,

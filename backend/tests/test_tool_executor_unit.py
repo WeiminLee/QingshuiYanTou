@@ -1,9 +1,15 @@
 """Tool Executor Unit Tests - TEST-02 + Bug T6 regression for Phase 27"""
+
 import asyncio
-import pytest
 from unittest.mock import AsyncMock, MagicMock
 
-from app.reasoning.langchain_agent.tool_executor import ToolExecutor, ToolResult, SLOW_TOOL_THRESHOLD_MS
+import pytest
+
+from app.reasoning.langchain_agent.tool_executor import (
+    SLOW_TOOL_THRESHOLD_MS,
+    ToolExecutor,
+    ToolResult,
+)
 
 
 class TestToolResult:

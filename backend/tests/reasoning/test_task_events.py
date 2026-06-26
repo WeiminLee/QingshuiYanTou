@@ -12,11 +12,11 @@ Bug 描述：
 
 Run: uv run --directory backend python -m pytest tests/reasoning/test_task_events.py -v
 """
-import pytest
-import queue
-import threading
-import time
+
 import concurrent.futures
+import time
+
+import pytest
 
 
 class TestTaskEventsQueueIsolation:
@@ -25,20 +25,21 @@ class TestTaskEventsQueueIsolation:
     def test_single_task_queue_works(self):
         """单个 task 的队列正常工作"""
         from app.reasoning.langchain_agent.task_events import (
-            get_task_events_queue,
-            reset_task_events_queue,
-            enqueue_task_event,
-            drain_task_events,
             TaskEvent,
             TaskEventType,
+            drain_task_events,
+            enqueue_task_event,
+            reset_task_events_queue,
         )
 
         reset_task_events_queue(task_id="task-1")
-        enqueue_task_event(TaskEvent(
-            type=TaskEventType.TASK_STARTED,
-            task_id="task-1",
-            data={"message": "started"},
-        ))
+        enqueue_task_event(
+            TaskEvent(
+                type=TaskEventType.TASK_STARTED,
+                task_id="task-1",
+                data={"message": "started"},
+            )
+        )
         events = drain_task_events(task_id="task-1")
 
         assert len(events) == 1
@@ -51,28 +52,31 @@ class TestTaskEventsQueueIsolation:
         修复后每个 task_id 有独立队列，不会互相覆盖。
         """
         from app.reasoning.langchain_agent.task_events import (
-            get_task_events_queue,
-            reset_task_events_queue,
-            enqueue_task_event,
-            drain_task_events,
             TaskEvent,
             TaskEventType,
+            drain_task_events,
+            enqueue_task_event,
+            reset_task_events_queue,
         )
 
         results = {"task1": [], "task2": []}
 
         def task1_workflow():
             """Task 1 工作流程"""
-            enqueue_task_event(TaskEvent(
-                type=TaskEventType.TASK_STARTED,
-                task_id="task-1",
-                data={"seq": 1},
-            ))
-            enqueue_task_event(TaskEvent(
-                type=TaskEventType.TASK_RUNNING,
-                task_id="task-1",
-                data={"seq": 2},
-            ))
+            enqueue_task_event(
+                TaskEvent(
+                    type=TaskEventType.TASK_STARTED,
+                    task_id="task-1",
+                    data={"seq": 1},
+                )
+            )
+            enqueue_task_event(
+                TaskEvent(
+                    type=TaskEventType.TASK_RUNNING,
+                    task_id="task-1",
+                    data={"seq": 2},
+                )
+            )
             time.sleep(0.1)  # 给 task-2 更多时间
             # drain task-1 的队列
             events = drain_task_events(task_id="task-1")
@@ -81,16 +85,20 @@ class TestTaskEventsQueueIsolation:
         def task2_workflow():
             """Task 2 工作流程"""
             time.sleep(0.01)  # 让 task-1 先开始
-            enqueue_task_event(TaskEvent(
-                type=TaskEventType.TASK_STARTED,
-                task_id="task-2",
-                data={"seq": 1},
-            ))
-            enqueue_task_event(TaskEvent(
-                type=TaskEventType.TASK_RUNNING,
-                task_id="task-2",
-                data={"seq": 2},
-            ))
+            enqueue_task_event(
+                TaskEvent(
+                    type=TaskEventType.TASK_STARTED,
+                    task_id="task-2",
+                    data={"seq": 1},
+                )
+            )
+            enqueue_task_event(
+                TaskEvent(
+                    type=TaskEventType.TASK_RUNNING,
+                    task_id="task-2",
+                    data={"seq": 2},
+                )
+            )
             time.sleep(0.1)
             # drain task-2 的队列
             events = drain_task_events(task_id="task-2")
@@ -115,19 +123,20 @@ class TestTaskEventsQueueIsolation:
     def test_reset_clears_specific_task_queue(self):
         """reset_task_events_queue(task_id) 应清空指定 task 的队列"""
         from app.reasoning.langchain_agent.task_events import (
-            get_task_events_queue,
-            reset_task_events_queue,
-            enqueue_task_event,
-            drain_task_events,
             TaskEvent,
             TaskEventType,
+            drain_task_events,
+            enqueue_task_event,
+            reset_task_events_queue,
         )
 
-        enqueue_task_event(TaskEvent(
-            type=TaskEventType.TASK_STARTED,
-            task_id="task-x",
-            data={},
-        ))
+        enqueue_task_event(
+            TaskEvent(
+                type=TaskEventType.TASK_STARTED,
+                task_id="task-x",
+                data={},
+            )
+        )
 
         reset_task_events_queue(task_id="task-x")
         events = drain_task_events(task_id="task-x")
@@ -137,25 +146,28 @@ class TestTaskEventsQueueIsolation:
     def test_reset_clears_all_queues(self):
         """reset_task_events_queue(None) 应清空所有队列"""
         from app.reasoning.langchain_agent.task_events import (
-            get_task_events_queue,
-            reset_task_events_queue,
-            enqueue_task_event,
-            drain_task_events,
             TaskEvent,
             TaskEventType,
+            drain_task_events,
+            enqueue_task_event,
+            reset_task_events_queue,
         )
 
         # 添加两个 task 的事件
-        enqueue_task_event(TaskEvent(
-            type=TaskEventType.TASK_STARTED,
-            task_id="task-a",
-            data={},
-        ))
-        enqueue_task_event(TaskEvent(
-            type=TaskEventType.TASK_STARTED,
-            task_id="task-b",
-            data={},
-        ))
+        enqueue_task_event(
+            TaskEvent(
+                type=TaskEventType.TASK_STARTED,
+                task_id="task-a",
+                data={},
+            )
+        )
+        enqueue_task_event(
+            TaskEvent(
+                type=TaskEventType.TASK_STARTED,
+                task_id="task-b",
+                data={},
+            )
+        )
 
         reset_task_events_queue(None)  # 清理所有
         events_a = drain_task_events(task_id="task-a")
@@ -195,11 +207,11 @@ class TestTaskEventsAPI:
     def test_enqueue_full_queue_handled(self):
         """队列满时 enqueue 不抛异常"""
         from app.reasoning.langchain_agent.task_events import (
-            get_task_events_queue,
-            reset_task_events_queue,
-            enqueue_task_event,
             TaskEvent,
             TaskEventType,
+            enqueue_task_event,
+            get_task_events_queue,
+            reset_task_events_queue,
         )
 
         reset_task_events_queue(task_id="test-queue")
@@ -207,10 +219,12 @@ class TestTaskEventsAPI:
 
         for i in range(100):
             try:
-                enqueue_task_event(TaskEvent(
-                    type=TaskEventType.TASK_RUNNING,
-                    task_id="test-queue",
-                    data={"i": i},
-                ))
+                enqueue_task_event(
+                    TaskEvent(
+                        type=TaskEventType.TASK_RUNNING,
+                        task_id="test-queue",
+                        data={"i": i},
+                    )
+                )
             except Exception as e:
                 pytest.fail(f"enqueue 不应抛异常: {e}")

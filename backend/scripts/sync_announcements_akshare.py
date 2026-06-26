@@ -8,6 +8,7 @@
 用法:
     python -m scripts.sync_announcements_akshare [--batch-size N]
 """
+
 import argparse
 import asyncio
 import sys
@@ -18,7 +19,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import akshare as ak
-import pandas as pd
 from sqlalchemy import text
 
 from app.core.database import engine
@@ -48,6 +48,7 @@ async def save_announcement(
     """
     try:
         from datetime import date as date_type
+
         if len(ann_date) >= 10:
             d = datetime.strptime(ann_date[:10], "%Y-%m-%d")
             parsed_date = date_type(d.year, d.month, d.day)
@@ -103,40 +104,42 @@ def fetch_stock_announcements(symbol: str, start_date: str, end_date: str) -> li
         results = []
         for _, row in df.iterrows():
             # 从 URL 中提取 announcementId
-            url = str(row.get('公告链接', ''))
+            url = str(row.get("公告链接", ""))
             cninfo_id = None
-            if 'announcementId=' in url:
+            if "announcementId=" in url:
                 try:
-                    cninfo_id = url.split('announcementId=')[1].split('&')[0]
+                    cninfo_id = url.split("announcementId=")[1].split("&")[0]
                 except Exception:
                     cninfo_id = None
             if not cninfo_id:
                 # 使用行索引作为备用
                 cninfo_id = f"{symbol}_{row.name}"
 
-            ann_date = str(row.get('公告时间', ''))
+            ann_date = str(row.get("公告时间", ""))
 
             # 判断交易所
-            if symbol.startswith('6'):
+            if symbol.startswith("6"):
                 ts_code = f"{symbol}.SH"
-            elif symbol.startswith(('0', '3')):
+            elif symbol.startswith(("0", "3")):
                 ts_code = f"{symbol}.SZ"
-            elif symbol.startswith('8') or symbol.startswith('4'):
+            elif symbol.startswith("8") or symbol.startswith("4"):
                 ts_code = f"{symbol}.BJ"
             else:
                 ts_code = f"{symbol}.SZ"
 
-            results.append({
-                'cninfo_id': cninfo_id,
-                'ann_date': ann_date,
-                'ts_code': ts_code,
-                'name': str(row.get('简称', '')),
-                'title': str(row.get('公告标题', '')),
-                'pdf_url': url,
-            })
+            results.append(
+                {
+                    "cninfo_id": cninfo_id,
+                    "ann_date": ann_date,
+                    "ts_code": ts_code,
+                    "name": str(row.get("简称", "")),
+                    "title": str(row.get("公告标题", "")),
+                    "pdf_url": url,
+                }
+            )
 
         return results
-    except Exception as e:
+    except Exception:
         return []
 
 
@@ -144,9 +147,7 @@ async def get_existing_count() -> int:
     """获取已入库公告数量"""
     try:
         async with engine.connect() as conn:
-            result = await conn.execute(
-                text("SELECT COUNT(*) FROM announcements WHERE source_type = 'cninfo_akshare'")
-            )
+            result = await conn.execute(text("SELECT COUNT(*) FROM announcements WHERE source_type = 'cninfo_akshare'"))
             return result.scalar() or 0
     except Exception:
         return 0
@@ -161,13 +162,14 @@ async def main(batch_size: int = 50, start_date: str | None = None, end_date: st
         start_date = (datetime.now() - timedelta(days=730)).strftime("%Y%m%d")
 
     print(f"{'=' * 60}")
-    print(f"历史公告同步任务 (akshare)")
+    print("历史公告同步任务 (akshare)")
     print(f"{'=' * 60}")
     print(f"日期范围: {start_date} ~ {end_date}")
 
     # 获取股票列表
     print("获取股票列表...")
     from app.data_pipeline.data_source import DataSourceClient
+
     ds = DataSourceClient()
     stocks = ds.get_stocks_basic("L")
     ts_codes = [(s["ts_code"], s["ts_code"].split(".")[0]) for s in stocks if s.get("ts_code")]
@@ -175,6 +177,7 @@ async def main(batch_size: int = 50, start_date: str | None = None, end_date: st
 
     # 白名单过滤：scope=tech_mvp 时仅同步白名单股票公告
     from app.data_pipeline.backfill_config import load_backfill_settings
+
     bf_cfg = load_backfill_settings()
     if bf_cfg.scope == "tech_mvp" and bf_cfg.ts_codes:
         before = len(ts_codes)
@@ -193,11 +196,11 @@ async def main(batch_size: int = 50, start_date: str | None = None, end_date: st
     total_errors = 0
     start_time = datetime.now()
 
-    print(f"开始同步...")
+    print("开始同步...")
     print("-" * 60)
 
     for i in range(0, len(ts_codes), batch_size):
-        batch = ts_codes[i:i + batch_size]
+        batch = ts_codes[i : i + batch_size]
         batch_num = i // batch_size + 1
         total_batches = (len(ts_codes) + batch_size - 1) // batch_size
 
@@ -206,18 +209,16 @@ async def main(batch_size: int = 50, start_date: str | None = None, end_date: st
 
         for ts_code, symbol in batch:
             try:
-                announcements = await asyncio.to_thread(
-                    fetch_stock_announcements, symbol, start_date, end_date
-                )
+                announcements = await asyncio.to_thread(fetch_stock_announcements, symbol, start_date, end_date)
 
                 for ann in announcements:
                     ok = await save_announcement(
-                        cninfo_id=ann['cninfo_id'],
-                        ann_date=ann['ann_date'],
-                        ts_code=ann['ts_code'],
-                        name=ann['name'],
-                        title=ann['title'],
-                        pdf_url=ann['pdf_url'],
+                        cninfo_id=ann["cninfo_id"],
+                        ann_date=ann["ann_date"],
+                        ts_code=ann["ts_code"],
+                        name=ann["name"],
+                        title=ann["title"],
+                        pdf_url=ann["pdf_url"],
                     )
                     if ok:
                         batch_saved += 1
@@ -227,7 +228,7 @@ async def main(batch_size: int = 50, start_date: str | None = None, end_date: st
 
                 total_processed += 1
 
-            except Exception as e:
+            except Exception:
                 total_errors += 1
                 batch_errors += 1
 
@@ -237,24 +238,26 @@ async def main(batch_size: int = 50, start_date: str | None = None, end_date: st
         eta = (len(ts_codes) - total_processed) / rate / 60 if rate > 0 else 0
 
         if batch_num % 5 == 1 or batch_num == total_batches:
-            print(f"批次 {batch_num:4d}/{total_batches}: "
-                  f"处理 {total_processed}/{len(ts_codes)} | "
-                  f"新增 {total_saved} | "
-                  f"跳过 {total_skipped} | "
-                  f"耗时 {elapsed/60:.1f}min | "
-                  f"剩余 ~{eta:.1f}min")
+            print(
+                f"批次 {batch_num:4d}/{total_batches}: "
+                f"处理 {total_processed}/{len(ts_codes)} | "
+                f"新增 {total_saved} | "
+                f"跳过 {total_skipped} | "
+                f"耗时 {elapsed / 60:.1f}min | "
+                f"剩余 ~{eta:.1f}min"
+            )
 
     elapsed = (datetime.now() - start_time).total_seconds()
 
     print()
     print(f"{'=' * 60}")
-    print(f"同步完成!")
+    print("同步完成!")
     print(f"{'=' * 60}")
     print(f"处理股票: {total_processed}/{len(ts_codes)}")
     print(f"新增公告: {total_saved} 条")
     print(f"跳过/重复: {total_skipped} 条")
     print(f"错误: {total_errors}")
-    print(f"总耗时: {elapsed/60:.1f} 分钟")
+    print(f"总耗时: {elapsed / 60:.1f} 分钟")
     print(f"日期范围: {start_date} ~ {end_date}")
 
 

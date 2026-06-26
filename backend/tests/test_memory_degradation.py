@@ -1,8 +1,10 @@
 """
 Memory 降级处理测试
 """
-import pytest
+
 import os
+
+import pytest
 
 
 class TestMemoryDegradation:
@@ -12,7 +14,7 @@ class TestMemoryDegradation:
         """验证 Memory 降级时不会阻断 Agent"""
         base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-        with open(os.path.join(base_dir, "app/reasoning/langchain_agent/client.py"), "r") as f:
+        with open(os.path.join(base_dir, "app/reasoning/langchain_agent/client.py")) as f:
             code = f.read()
 
         # 检查 Memory 加载逻辑
@@ -21,10 +23,7 @@ class TestMemoryDegradation:
             print("这是合理的设计选择，不阻断 Agent 执行")
 
             # 当前设计是合理的，记录即可
-            pytest.skip(
-                "Memory 降级返回空字符串是合理的设计。"
-                "如需改进，可在 System Prompt 中添加会话状态提示。"
-            )
+            pytest.skip("Memory 降级返回空字符串是合理的设计。如需改进，可在 System Prompt 中添加会话状态提示。")
 
 
 if __name__ == "__main__":

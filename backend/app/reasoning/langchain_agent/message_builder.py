@@ -13,6 +13,7 @@ MessageBuilder — 统一消息组装器
   4. HumanMessage（User Message，永远最后）
   5. ToolMessage（追加，不改变顺序）
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -87,19 +88,12 @@ class MessageBuilder:
         if ctx.background_knowledge:
             bg = ctx.background_knowledge.strip()
             messages.append(
-                HumanMessage(
-                    content=(
-                        f"{bg}\n\n"
-                        f"请基于以上背景知识回答。如果背景不足，结合你的分析能力补充。\n"
-                    )
-                )
+                HumanMessage(content=(f"{bg}\n\n请基于以上背景知识回答。如果背景不足，结合你的分析能力补充。\n"))
             )
 
         # 3. Memory Context（如果有）
         if ctx.memory_context:
-            messages.append(
-                HumanMessage(content=f"[历史记忆]\n{ctx.memory_context}")
-            )
+            messages.append(HumanMessage(content=f"[历史记忆]\n{ctx.memory_context}"))
 
         # 4. User Message（永远最后）
         messages.append(HumanMessage(content=ctx.user_message))

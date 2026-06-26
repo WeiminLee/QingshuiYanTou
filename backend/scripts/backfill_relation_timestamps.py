@@ -11,13 +11,15 @@ Neo4j 关系时序字段回填脚本
 用法：
   uv run python scripts/backfill_relation_timestamps.py [--dry-run]
 """
+
 import argparse
-import sys
 import os
+import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from datetime import date
+
 from app.core.neo4j_client import run, run_write
 
 
@@ -83,4 +85,5 @@ if __name__ == "__main__":
             print(f"  {r['from_entity']} -[{r['rel_type']}]-> {r['to_entity']}  (from={r['valid_from']})")
         print(result["message"])
     else:
-        print(f"已回填 {result.get('total_open', total)} 条 open 关系")
+        total_open = result.get("total_open", 0)
+        print(f"已回填 {total_open} 条 open 关系")

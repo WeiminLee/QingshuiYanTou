@@ -11,11 +11,10 @@
 - 错误处理（工具不存在、执行异常）
 - H4: 工具参数 schema 校验
 """
+
 import asyncio
-import pytest
 import time
 from unittest.mock import MagicMock
-
 
 # ── Mock 工具工厂 ──────────────────────────────────────────────────
 
@@ -192,7 +191,7 @@ class TestToolExecutorSingle:
 
         tool = MagicMock()
         tool.name = "get_kline"
-        tool.invoke.side_effect = lambda args: (captured_args.update(args) or "ok")
+        tool.invoke.side_effect = lambda args: captured_args.update(args) or "ok"
 
         executor = ToolExecutor(tools=[tool])
         asyncio.run(executor.execute_single("get_kline", {"ts_code": "300308.SZ", "freq": "D"}))
@@ -555,9 +554,7 @@ class TestToolArgValidation:
         )
         executor = ToolExecutor(tools=[tool])
 
-        result = asyncio.run(
-            executor.execute_single("schema_tool", {"query": 123, "top_n": "not_an_int"})
-        )
+        result = asyncio.run(executor.execute_single("schema_tool", {"query": 123, "top_n": "not_an_int"}))
 
         assert result.success is False
         assert "Invalid type for" in result.error
@@ -585,9 +582,7 @@ class TestToolArgValidation:
         tool.invoke = capture_invoke
         executor = ToolExecutor(tools=[tool])
 
-        result = asyncio.run(
-            executor.execute_single("schema_tool", {"query": "光模块", "top_n": 5})
-        )
+        result = asyncio.run(executor.execute_single("schema_tool", {"query": "光模块", "top_n": 5}))
 
         assert result.success is True
         assert captured["query"] == "光模块"
@@ -608,9 +603,7 @@ class TestToolArgValidation:
         executor = ToolExecutor(tools=[tool])
 
         result = asyncio.run(
-            executor.execute_single(
-                "schema_tool", {"query": "光模块", "unknown_param": 999, "another": True}
-            )
+            executor.execute_single("schema_tool", {"query": "光模块", "unknown_param": 999, "another": True})
         )
 
         assert result.success is True
@@ -621,8 +614,9 @@ class TestToolArgValidation:
         场景：工具没有 get_meta 方法
         期望：跳过校验，正常执行
         """
-        from app.reasoning.langchain_agent.tool_executor import ToolExecutor
         from unittest.mock import MagicMock
+
+        from app.reasoning.langchain_agent.tool_executor import ToolExecutor
 
         tool = MagicMock()
         tool.name = "no_meta_tool"
@@ -645,4 +639,3 @@ class TestToolArgValidation:
         assert _check_type(True, "integer") is False
         assert _check_type(False, "number") is False
         assert _check_type("42", "integer") is False
-

@@ -18,6 +18,7 @@ KG 质量指标模块
 from __future__ import annotations
 
 import logging
+
 from app.core.neo4j_client import run
 
 logger = logging.getLogger(__name__)

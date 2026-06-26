@@ -15,10 +15,12 @@ KG Schema 清理脚本 v2（2026-04-14 重构版）
   - dry-run 模式仅打印待删除/迁移的统计，不写入
   - 建议先在 dry-run 模式确认无误后再执行实际清理
 """
+
 from __future__ import annotations
 
-import sys
 import os
+import sys
+
 # 确保 backend 目录在 sys.path（uv run --directory 时 app 模块可被找到）
 _backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _backend_dir not in sys.path:
@@ -38,7 +40,6 @@ if os.path.exists(_env_path):
 
 import argparse
 import logging
-import re
 import sys
 from datetime import date
 
@@ -53,7 +54,7 @@ DRY_RUN = False
 
 def _run(cypher: str, params: dict | None = None, fetch: bool = False):
     """执行 Cypher 查询/写入，dry-run 模式下 stats 查询仍执行"""
-    from app.core.neo4j_client import run_write, run
+    from app.core.neo4j_client import run, run_write
 
     if DRY_RUN and not fetch:
         logger.info("[DRY-RUN] WRITE: %s | params=%s", cypher[:80], params)
@@ -76,6 +77,7 @@ def _run_multi(cyphers: list[str]) -> None:
 
 
 # ── Step 1：统计待删除节点 ──────────────────────────────────────────────────
+
 
 def step0_stats() -> dict:
     """清理前统计：打印当前节点/关系数量"""
@@ -106,6 +108,7 @@ def step0_stats() -> dict:
 
 # ── Step 1：删除旧节点类型 ───────────────────────────────────────────────────
 
+
 def step1_delete_legacy_nodes() -> dict:
     """删除 Event / Tech / Industry / Capacity 节点"""
     logger.info("=" * 60)
@@ -124,6 +127,7 @@ def step1_delete_legacy_nodes() -> dict:
 
 
 # ── Step 2：迁移现存关系到 RELATES 类型 ───────────────────────────────────
+
 
 def step2_migrate_relations() -> dict:
     """
@@ -144,11 +148,7 @@ def step2_migrate_relations() -> dict:
 
     # 收集所有非 RELATES 关系类型
     rel_types = _run("CALL db.relationshipTypes() YIELD relationshipType RETURN relationshipType", fetch=True)
-    non_relates = [
-        r["relationshipType"]
-        for r in rel_types
-        if r["relationshipType"] not in ("RELATES",)
-    ]
+    non_relates = [r["relationshipType"] for r in rel_types if r["relationshipType"] not in ("RELATES",)]
 
     for rel_type in non_relates:
         # 统计当前关系数
@@ -191,6 +191,7 @@ def step2_migrate_relations() -> dict:
 
 # ── Step 3：删除无数值 Metric 节点 ────────────────────────────────────────
 
+
 def step3_cleanup_metrics() -> dict:
     """
     删除无数值（无量化数值）的 Metric 节点。
@@ -203,13 +204,16 @@ def step3_cleanup_metrics() -> dict:
     logger.info("=" * 60)
 
     # 先找出无数值 Metric
-    result = _run("""
+    result = _run(
+        """
         MATCH (m:Metric)
         WHERE m.description IS NULL
            OR m.description = ''
            OR NOT m.description =~ '.*\\\\d+.*'
         RETURN count(m) AS cnt
-    """, fetch=True)
+    """,
+        fetch=True,
+    )
     cnt = result[0]["cnt"] if result else 0
     logger.info("  无数值 Metric 节点: %d", cnt)
 
@@ -227,6 +231,7 @@ def step3_cleanup_metrics() -> dict:
 
 
 # ── Step 4：验证结果 ─────────────────────────────────────────────────────────
+
 
 def step4_validate() -> dict:
     """验证清理后状态"""
@@ -260,11 +265,7 @@ def step4_validate() -> dict:
 
     # 确认无旧类型关系残留
     rel_types = _run("CALL db.relationshipTypes() YIELD relationshipType RETURN relationshipType", fetch=True)
-    legacy_rels = [
-        r["relationshipType"]
-        for r in rel_types
-        if r["relationshipType"] not in ("RELATES", "CONTRADICTS")
-    ]
+    legacy_rels = [r["relationshipType"] for r in rel_types if r["relationshipType"] not in ("RELATES", "CONTRADICTS")]
     if legacy_rels:
         for rt in legacy_rels:
             result = _run(f"MATCH ()-[r:{rt}]->() RETURN count(r) AS cnt", fetch=True)
@@ -275,13 +276,16 @@ def step4_validate() -> dict:
         logger.info("  ✅ 所有旧关系类型已迁移为 RELATES")
 
     # Metric 节点量化校验
-    metric_no_value = _run("""
+    metric_no_value = _run(
+        """
         MATCH (m:Metric)
         WHERE m.description IS NULL
            OR m.description = ''
            OR NOT m.description =~ '.*\\\\d+.*'
         RETURN count(m) AS cnt
-    """, fetch=True)
+    """,
+        fetch=True,
+    )
     cnt = metric_no_value[0]["cnt"] if metric_no_value else 0
     if cnt > 0:
         logger.warning("  ⚠️  无数值 Metric 节点残留: %d", cnt)
@@ -292,6 +296,7 @@ def step4_validate() -> dict:
 
 
 # ── 主入口 ──────────────────────────────────────────────────────────────────
+
 
 def main():
     global DRY_RUN

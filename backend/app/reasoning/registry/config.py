@@ -3,24 +3,25 @@ ToolConfig — Pydantic 配置模型
 
 定义工具的 YAML 配置结构，参考 DeerFlow tools/tool_config.py。
 """
+
 from __future__ import annotations
 
-from enum import Enum
-from typing import Annotated, Literal
+from enum import StrEnum
 
 from pydantic import BaseModel, Field
 
 
-class ToolGroup(str, Enum):
+class ToolGroup(StrEnum):
     """工具分组枚举（与 config.yaml groups 一致）"""
-    MARKET_DATA = "market_data"      # K线、板块热度、市场宽度
-    KNOWLEDGE = "knowledge"          # 知识图谱、研报、公告
-    SEARCH = "search"               # 联网搜索/抓取
-    FINANCIAL = "financial"          # 财务数据、互动易
-    CHART = "chart"                 # 可视化图表
-    AGENT = "agent"                 # Agent 控制工具（write_todos）
-    FILE = "file"                   # 文件操作（ls/read_file/write_file）
-    CLARIFICATION = "clarification" # 澄清拦截（ask_clarification）
+
+    MARKET_DATA = "market_data"  # K线、板块热度、市场宽度
+    KNOWLEDGE = "knowledge"  # 知识图谱、研报、公告
+    SEARCH = "search"  # 联网搜索/抓取
+    FINANCIAL = "financial"  # 财务数据、互动易
+    CHART = "chart"  # 可视化图表
+    AGENT = "agent"  # Agent 控制工具（write_todos）
+    FILE = "file"  # 文件操作（ls/read_file/write_file）
+    CLARIFICATION = "clarification"  # 澄清拦截（ask_clarification）
 
 
 class ToolConfig(BaseModel):
@@ -45,4 +46,5 @@ class ToolConfig(BaseModel):
 
 class ToolConfigList(BaseModel):
     """YAML 根配置"""
+
     tools: list[ToolConfig] = Field(default_factory=list)

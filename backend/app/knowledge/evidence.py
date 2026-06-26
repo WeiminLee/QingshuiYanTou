@@ -4,6 +4,7 @@ This module is intentionally pure: no database, Neo4j, Qdrant, or LLM imports.
 It defines stable identifiers and lightweight schemas used by ingestion builders
 and async extraction workers.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -24,15 +25,17 @@ SOURCE_MARKET = "market"
 SOURCE_NEWS = "news"
 SOURCE_UPLOAD = "upload"
 
-SOURCE_TYPES = frozenset({
-    SOURCE_ANNOUNCEMENT,
-    SOURCE_ANNUAL_REPORT,
-    SOURCE_RESEARCH_REPORT,
-    SOURCE_IRM,
-    SOURCE_MARKET,
-    SOURCE_NEWS,
-    SOURCE_UPLOAD,
-})
+SOURCE_TYPES = frozenset(
+    {
+        SOURCE_ANNOUNCEMENT,
+        SOURCE_ANNUAL_REPORT,
+        SOURCE_RESEARCH_REPORT,
+        SOURCE_IRM,
+        SOURCE_MARKET,
+        SOURCE_NEWS,
+        SOURCE_UPLOAD,
+    }
+)
 
 JOB_COMBINED = "combined"
 JOB_VECTOR = "vector"
@@ -43,13 +46,15 @@ STATUS_RUNNING = "running"
 STATUS_DONE = "done"
 STATUS_FAILED = "failed"
 STATUS_SKIPPED = "skipped"
-JOB_STATUSES = frozenset({
-    STATUS_PENDING,
-    STATUS_RUNNING,
-    STATUS_DONE,
-    STATUS_FAILED,
-    STATUS_SKIPPED,
-})
+JOB_STATUSES = frozenset(
+    {
+        STATUS_PENDING,
+        STATUS_RUNNING,
+        STATUS_DONE,
+        STATUS_FAILED,
+        STATUS_SKIPPED,
+    }
+)
 
 
 @dataclass(slots=True)
@@ -84,12 +89,14 @@ def stable_evidence_id(
     text: str,
 ) -> str:
     """Generate deterministic Evidence ID from source identity and content."""
-    payload = "\n".join([
-        str(source_type or ""),
-        str(source_id or ""),
-        str(chunk_index),
-        text_checksum(text),
-    ])
+    payload = "\n".join(
+        [
+            str(source_type or ""),
+            str(source_id or ""),
+            str(chunk_index),
+            text_checksum(text),
+        ]
+    )
     return f"EV:{_sha256(payload)}"
 
 
@@ -99,11 +106,13 @@ def stable_job_id(
     extractor_version: str = EXTRACTOR_VERSION,
 ) -> str:
     """Generate deterministic extraction job ID."""
-    payload = "\n".join([
-        str(evidence_id or ""),
-        str(job_type or ""),
-        str(extractor_version or ""),
-    ])
+    payload = "\n".join(
+        [
+            str(evidence_id or ""),
+            str(job_type or ""),
+            str(extractor_version or ""),
+        ]
+    )
     return f"JOB:{_sha256(payload)}"
 
 

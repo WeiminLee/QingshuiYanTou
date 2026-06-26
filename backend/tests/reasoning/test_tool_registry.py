@@ -1,4 +1,5 @@
 """Tool health registry tests."""
+
 from __future__ import annotations
 
 
@@ -38,4 +39,3 @@ def test_tool_health_registry_records_failure():
 
     assert health.available is False
     assert "down" in health.error
-

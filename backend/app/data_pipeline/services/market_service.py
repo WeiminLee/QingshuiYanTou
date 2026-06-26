@@ -3,6 +3,7 @@ MarketService - 市场宽度查询服务
 
 从本地 PostgreSQL 查询市场宽度数据，供 Agent 工具调用。
 """
+
 import logging
 from typing import Any
 
@@ -59,9 +60,7 @@ class MarketService:
         ).where(DailyData.trade_date == latest_date)
 
         if ts_codes_filter:
-            breadth_stmt = breadth_stmt.where(
-                DailyData.ts_code.like(f"{ts_codes_filter}%")
-            )
+            breadth_stmt = breadth_stmt.where(DailyData.ts_code.like(f"{ts_codes_filter}%"))
 
         try:
             async with engine.connect() as conn:

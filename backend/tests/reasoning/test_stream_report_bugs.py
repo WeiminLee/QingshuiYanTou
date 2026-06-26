@@ -6,10 +6,11 @@ Bug #7: use_manual_loop=True 路径中，client.py 不发射 reasoning_end。
 
 Run: uv run --directory backend python -m pytest tests/reasoning/test_stream_report_bugs.py -v
 """
-import asyncio
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
 
+import asyncio
+from unittest.mock import AsyncMock, patch
+
+import pytest
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Bug #1: _run_stream_report stream_end 缺 report_content
@@ -44,15 +45,21 @@ class TestBug1StreamEndDuplicate:
             _task_manager.emit = wrapper
 
             try:
-                with patch("app.reasoning.langchain_agent.client._pre_search",
-                           new_callable=AsyncMock) as mock_pre, \
-                     patch("app.reasoning.langchain_agent.client._load_memory_context",
-                           new_callable=AsyncMock) as mock_mem:
+                with (
+                    patch("app.reasoning.langchain_agent.client._pre_search", new_callable=AsyncMock) as mock_pre,
+                    patch(
+                        "app.reasoning.langchain_agent.client._load_memory_context",
+                        new_callable=AsyncMock,
+                    ) as mock_mem,
+                ):
                     mock_pre.return_value = ""
                     mock_mem.return_value = ""
                     await _run_stream_report(
-                        task_id=task_id, thread_id=thread_id,
-                        question=question, max_turns=2, model_name="minimax2.5",
+                        task_id=task_id,
+                        thread_id=thread_id,
+                        question=question,
+                        max_turns=2,
+                        model_name="minimax2.5",
                     )
             finally:
                 _task_manager.emit = original_emit
@@ -80,15 +87,21 @@ class TestBug1StreamEndDuplicate:
         _task_manager.create_task(task_id, thread_id, question)
 
         async def run():
-            with patch("app.reasoning.langchain_agent.client._pre_search",
-                       new_callable=AsyncMock) as mock_pre, \
-                 patch("app.reasoning.langchain_agent.client._load_memory_context",
-                       new_callable=AsyncMock) as mock_mem:
+            with (
+                patch("app.reasoning.langchain_agent.client._pre_search", new_callable=AsyncMock) as mock_pre,
+                patch(
+                    "app.reasoning.langchain_agent.client._load_memory_context",
+                    new_callable=AsyncMock,
+                ) as mock_mem,
+            ):
                 mock_pre.return_value = ""
                 mock_mem.return_value = ""
                 await _run_stream_report(
-                    task_id=task_id, thread_id=thread_id,
-                    question=question, max_turns=2, model_name="minimax2.5",
+                    task_id=task_id,
+                    thread_id=thread_id,
+                    question=question,
+                    max_turns=2,
+                    model_name="minimax2.5",
                 )
 
         asyncio.run(run())

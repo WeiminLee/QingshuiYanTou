@@ -1,13 +1,12 @@
 """
 SubAgent 状态轮询 API
 """
-import asyncio
+
 import logging
 
 from fastapi import APIRouter, Query
 
 from app.reasoning.subagents.executor import get_executor
-from app.reasoning.subagents.task_store import TaskStatus
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/subagent", tags=["SubAgent"])

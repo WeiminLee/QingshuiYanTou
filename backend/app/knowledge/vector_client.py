@@ -24,7 +24,7 @@ import logging
 import uuid
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any
 
 import httpx
 
@@ -33,8 +33,8 @@ logger = logging.getLogger(__name__)
 
 # ── 全局配置 ──────────────────────────────────────────────────────────────
 
-_vector_client: Optional["VectorClient"] = None
-_embedding_model: Optional["EmbeddingModelBase"] = None
+_vector_client: VectorClient | None = None
+_embedding_model: EmbeddingModelBase | None = None
 
 
 def default_embedding_dimension() -> int:
@@ -44,7 +44,7 @@ def default_embedding_dimension() -> int:
     return int(getattr(settings, "embedding_dimension", 2560) or 2560)
 
 
-def get_vector_client() -> "VectorClient":
+def get_vector_client() -> VectorClient:
     """获取全局向量客户端（延迟初始化）"""
     global _vector_client
     if _vector_client is None:
@@ -55,11 +55,14 @@ def get_vector_client() -> "VectorClient":
             api_key=getattr(settings, "qdrant_api_key", ""),
             collection_name=getattr(settings, "qdrant_collection", "qingshui_default"),
         )
-        logger.info("向量库客户端初始化: Qdrant at %s", getattr(settings, "qdrant_url", "http://localhost:6333"))
+        logger.info(
+            "向量库客户端初始化: Qdrant at %s",
+            getattr(settings, "qdrant_url", "http://localhost:6333"),
+        )
     return _vector_client
 
 
-def get_embedding_model() -> "EmbeddingModelBase":
+def get_embedding_model() -> EmbeddingModelBase:
     """获取全局 Embedding 模型（懒加载）。
 
     优先级：
@@ -85,8 +88,11 @@ def get_embedding_model() -> "EmbeddingModelBase":
             _embedding_model = HunyuanEmbedding(
                 api_key=sf_key,
                 model=getattr(settings, "hunyuan_model", "hunyuan-embedding"),
-                api_url=getattr(settings, "hunyuan_embedding_url",
-                               "https://api.hunyuan.cloud.tencent.com/v1/embeddings"),
+                api_url=getattr(
+                    settings,
+                    "hunyuan_embedding_url",
+                    "https://api.hunyuan.cloud.tencent.com/v1/embeddings",
+                ),
             )
             logger.info(f"Embedding 模型: Hunyuan ({_embedding_model._model})")
             return _embedding_model
@@ -97,13 +103,13 @@ def get_embedding_model() -> "EmbeddingModelBase":
     return _embedding_model
 
 
-def set_vector_client(client: "VectorClient") -> None:
+def set_vector_client(client: VectorClient) -> None:
     """注入 mock/测试客户端"""
     global _vector_client
     _vector_client = client
 
 
-def set_embedding_model(model: "EmbeddingModelBase") -> None:
+def set_embedding_model(model: EmbeddingModelBase) -> None:
     """注入自定义 Embedding 模型（用于测试）"""
     global _embedding_model
     _embedding_model = model
@@ -127,6 +133,7 @@ def reset_vector_state(close: bool = False) -> None:
 
 
 # ── Embedding 模型抽象 ────────────────────────────────────────────────────
+
 
 class EmbeddingModelBase(ABC):
     """Embedding 模型接口"""
@@ -159,17 +166,19 @@ class LocalEmbedding(EmbeddingModelBase):
 
     def __init__(
         self,
-        api_url: Optional[str] = None,
-        api_key: Optional[str] = None,
+        api_url: str | None = None,
+        api_key: str | None = None,
         timeout: float = 120.0,
         batch_size: int = 256,
         max_length: int = 512,
     ):
         if api_url is None:
             from app.config import settings
+
             api_url = settings.embedding_api_url or "http://localhost:8000"
         if api_key is None:
             from app.config import settings
+
             api_key = settings.embedding_api_key or None
 
         # 新 API 格式：/api/v1/embed（不再是 /v1/embeddings）
@@ -178,9 +187,9 @@ class LocalEmbedding(EmbeddingModelBase):
         self._timeout = timeout
         self._batch_size = batch_size
         self._max_length = max_length
-        self._async_client: Optional[httpx.AsyncClient] = None
-        self._sync_client: Optional[httpx.Client] = None
-        self._dim: Optional[int] = None
+        self._async_client: httpx.AsyncClient | None = None
+        self._sync_client: httpx.Client | None = None
+        self._dim: int | None = None
 
     async def _aget(self) -> httpx.AsyncClient:
         if self._async_client is None:
@@ -188,7 +197,9 @@ class LocalEmbedding(EmbeddingModelBase):
             if self._api_key:
                 headers["Authorization"] = f"Bearer {self._api_key}"
             self._async_client = httpx.AsyncClient(
-                timeout=self._timeout, headers=headers, trust_env=False,
+                timeout=self._timeout,
+                headers=headers,
+                trust_env=False,
             )
         return self._async_client
 
@@ -199,7 +210,9 @@ class LocalEmbedding(EmbeddingModelBase):
             if self._api_key:
                 headers["Authorization"] = f"Bearer {self._api_key}"
             self._sync_client = httpx.Client(
-                timeout=self._timeout, headers=headers, trust_env=False,
+                timeout=self._timeout,
+                headers=headers,
+                trust_env=False,
             )
         return self._sync_client
 
@@ -215,13 +228,13 @@ class LocalEmbedding(EmbeddingModelBase):
             self._sync_client.close()
             self._sync_client = None
 
-    async def __aenter__(self) -> "LocalEmbedding":
+    async def __aenter__(self) -> LocalEmbedding:
         return self
 
     async def __aexit__(self, *args) -> None:
         await self.aclose()
 
-    def __enter__(self) -> "LocalEmbedding":
+    def __enter__(self) -> LocalEmbedding:
         return self
 
     def __exit__(self, *args) -> None:
@@ -283,6 +296,7 @@ class PlaceholderEmbedding(EmbeddingModelBase):
         h = hashlib.sha256(text.encode()).digest()
         vec = list(h) + [0] * max(0, self._dim - len(h))
         import math
+
         norm = math.sqrt(sum(v * v for v in vec))
         return [v / norm for v in vec[: self._dim]]
 
@@ -398,13 +412,13 @@ class HunyuanEmbedding(EmbeddingModelBase):
             self._sync_client.close()
             self._sync_client = None
 
-    async def __aenter__(self) -> "HunyuanEmbedding":
+    async def __aenter__(self) -> HunyuanEmbedding:
         return self
 
     async def __aexit__(self, *args) -> None:
         await self.aclose()
 
-    def __enter__(self) -> "HunyuanEmbedding":
+    def __enter__(self) -> HunyuanEmbedding:
         return self
 
     def __exit__(self, *args) -> None:
@@ -413,9 +427,11 @@ class HunyuanEmbedding(EmbeddingModelBase):
 
 # ── 向量客户端接口 ────────────────────────────────────────────────────────
 
+
 @dataclass
 class SearchResult:
     """检索结果"""
+
     id: str
     score: float
     payload: dict[str, Any] = field(default_factory=dict)
@@ -424,6 +440,7 @@ class SearchResult:
 @dataclass
 class VectorRecord:
     """待写入记录"""
+
     id: str
     vector: list[float]
     payload: dict[str, Any] = field(default_factory=dict)
@@ -460,7 +477,7 @@ class VectorClient(ABC):
         collection: str,
         query_vector: list[float],
         top_k: int = 10,
-        filter_expr: Optional[str] = None,
+        filter_expr: str | None = None,
     ) -> list[SearchResult]:
         raise NotImplementedError
 
@@ -473,8 +490,8 @@ class VectorClient(ABC):
         collection: str,
         query_text: str,
         top_k: int = 10,
-        filter_expr: Optional[str] = None,
-        embedder: Optional[EmbeddingModelBase] = None,
+        filter_expr: str | None = None,
+        embedder: EmbeddingModelBase | None = None,
     ) -> list[SearchResult]:
         if embedder is None:
             embedder = get_embedding_model()
@@ -484,6 +501,7 @@ class VectorClient(ABC):
 
 # ── Qdrant 实现 ────────────────────────────────────────────────────────────
 
+
 def _build_qdrant_filter(filter_expr: str):
     """
     将 'ts_code == "600519.SH"' 格式的 filter_expr 字符串转为 Qdrant Filter 对象。
@@ -491,7 +509,9 @@ def _build_qdrant_filter(filter_expr: str):
     目前仅支持单字段等值过滤，用于 semantic_search_entities/chunks 的 ts_code 过滤。
     复杂过滤场景（如多字段 AND/OR）需扩展此函数。
     """
-    from qdrant_client.models import Filter, FieldCondition, MatchValue
+    import re
+
+    from qdrant_client.models import FieldCondition, Filter, MatchValue
 
     # 解析格式: field_name == "value"
     m = re.match(r'^\s*(\w+)\s*==\s*[\'"]([^\'"]+)[\'"]', filter_expr.strip())
@@ -518,8 +538,10 @@ class QdrantClient(VectorClient):
     def _create_qdrant_client(self) -> Any:
         """创建 Qdrant 客户端，配置不使用代理（localhost 不走全局代理）"""
         import qdrant_client
+
         try:
             import httpx
+
             # 创建不使用代理的 httpx 客户端
             # Qdrant 部署在 localhost，不需要走全局 SOCKS/HTTP 代理
             http_client = httpx.Client(proxy=None, trust_env=False)
@@ -558,7 +580,11 @@ class QdrantClient(VectorClient):
             if client.collection_exists(name):
                 logger.info("Qdrant Collection 已存在: %s", name)
                 return
-            distance_map = {"COSINE": Distance.COSINE, "EUCLID": Distance.EUCLID, "DOT": Distance.DOT}
+            distance_map = {
+                "COSINE": Distance.COSINE,
+                "EUCLID": Distance.EUCLID,
+                "DOT": Distance.DOT,
+            }
             client.create_collection(
                 collection_name=name,
                 vectors_config=VectorParams(
@@ -577,7 +603,7 @@ class QdrantClient(VectorClient):
         if not records:
             return
         try:
-            from qdrant_client.models import PointStruct, Distance, VectorParams
+            from qdrant_client.models import Distance, PointStruct, VectorParams
 
             client = self._create_qdrant_client()
             if not client.collection_exists(collection):
@@ -587,10 +613,7 @@ class QdrantClient(VectorClient):
                     vectors_config=VectorParams(size=dim, distance=Distance.COSINE),
                 )
                 logger.info("Qdrant Collection 创建: %s (dim=%d)", collection, dim)
-            points = [
-                PointStruct(id=r.id, vector=r.vector, payload=r.payload)
-                for r in records
-            ]
+            points = [PointStruct(id=r.id, vector=r.vector, payload=r.payload) for r in records]
             client.upsert(collection_name=collection, points=points)
             logger.debug("Qdrant upsert 完成: %d 条", len(records))
         except Exception as e:
@@ -603,12 +626,10 @@ class QdrantClient(VectorClient):
         collection: str,
         query_vector: list[float],
         top_k: int = 10,
-        filter_expr: Optional[str] = None,
+        filter_expr: str | None = None,
     ) -> list[SearchResult]:
         self._ensure_connected()
         try:
-            from qdrant_client.models import Filter, FieldCondition, MatchValue
-
             client = self._create_qdrant_client()
             query_kwargs: dict = dict(
                 collection_name=collection,
@@ -626,10 +647,7 @@ class QdrantClient(VectorClient):
                 except Exception as filter_err:
                     logger.debug("filter_expr 解析失败: %s — 忽略过滤", filter_err)
             results = client.query_points(**query_kwargs)
-            return [
-                SearchResult(id=str(r.id), score=r.score, payload=r.payload or {})
-                for r in results.points
-            ]
+            return [SearchResult(id=str(r.id), score=r.score, payload=r.payload or {}) for r in results.points]
         except Exception as e:
             logger.error(f"[RETRIEVE-FAIL] Qdrant search failed [{collection}]: {e}", exc_info=True)
             return []
@@ -646,14 +664,14 @@ class QdrantClient(VectorClient):
 
 # ── Collection 初始化 ───────────────────────────────────────────────────────
 
-COLLECTION_ENTITIES  = "kg_entities"
+COLLECTION_ENTITIES = "kg_entities"
 COLLECTION_RELATIONS = "kg_relations"
-COLLECTION_CHUNKS    = "doc_chunks"
-COLLECTION_QA        = "qa_flash"
+COLLECTION_CHUNKS = "doc_chunks"
+COLLECTION_QA = "qa_flash"
 
 
 def init_collections(
-    embedder: Optional[EmbeddingModelBase] = None,
+    embedder: EmbeddingModelBase | None = None,
 ) -> dict[str, bool]:
     if embedder is None:
         embedder = get_embedding_model()
@@ -662,10 +680,10 @@ def init_collections(
     client = QdrantClient(collection_name="qingshui")
 
     collections = {
-        COLLECTION_ENTITIES:  "实体描述向量（entity_id + entity_name + description）",
+        COLLECTION_ENTITIES: "实体描述向量（entity_id + entity_name + description）",
         COLLECTION_RELATIONS: "关系描述向量（from_entity + to_entity + description）",
-        COLLECTION_CHUNKS:    "文档分块向量（content + heading + source）",
-        COLLECTION_QA:        "研报摘要向量（question + answer + source）",
+        COLLECTION_CHUNKS: "文档分块向量（content + heading + source）",
+        COLLECTION_QA: "研报摘要向量（question + answer + source）",
     }
 
     results = {}
@@ -681,6 +699,7 @@ def init_collections(
 
 
 # ── 快捷写入函数 ─────────────────────────────────────────────────────────
+
 
 def upsert_entity_vector(
     entity_id: str,
@@ -698,6 +717,7 @@ def upsert_entity_vector(
     if entity_type:
         try:
             from app.knowledge.entity_service import is_valid_entity_type
+
             if not is_valid_entity_type(entity_type):
                 logger.warning("upsert_entity_vector 跳过非法 entity_type: %s", entity_type)
                 return False
@@ -834,7 +854,7 @@ def upsert_evidence_chunk_vector(
 
 def semantic_search_entities(
     query: str,
-    ts_code: Optional[str] = None,
+    ts_code: str | None = None,
     top_k: int = 5,
 ) -> list[SearchResult]:
     try:
@@ -855,7 +875,7 @@ def semantic_search_entities(
 
 def semantic_search_chunks(
     query: str,
-    ts_code: Optional[str] = None,
+    ts_code: str | None = None,
     top_k: int = 5,
 ) -> list[SearchResult]:
     try:

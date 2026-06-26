@@ -4,13 +4,13 @@
 按 ts_code 返回该股票的公开材料情报（Markdown 格式）
 供推理决策层使用
 """
+
 from datetime import date
-from typing import Optional
 
 from app.core.mongodb import get_mongo_db
 
-
 # ── 互动易 Q&A ─────────────────────────────────────
+
 
 async def fetch_qa(ts_code: str, limit: int = 50) -> list[dict]:
     """
@@ -48,6 +48,7 @@ def build_qa_section(qa_data: list[dict]) -> list[str]:
 
 
 # ── 主函数 ────────────────────────────────────────
+
 
 async def build_material_package(ts_code: str) -> str:
     """

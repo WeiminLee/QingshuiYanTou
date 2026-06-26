@@ -4,8 +4,6 @@ Test _resolve_pdf_url static method of FileStorage.
 
 from unittest.mock import patch
 
-import pytest
-
 from app.data_pipeline.file_storage import FileStorage
 
 
@@ -79,7 +77,8 @@ class TestDownloadNoticeAsync:
     def test_download_notice_async_direct_pdf(self, mock_to_thread):
         """直接 PDF 链接 -> 下载成功 -> 返回 path"""
         mock_to_thread.return_value = type(
-            "Resp", (),
+            "Resp",
+            (),
             {
                 "raise_for_status": lambda self: None,
                 "content": b"%PDF-1.4 fake content",
@@ -90,6 +89,7 @@ class TestDownloadNoticeAsync:
         with patch.object(storage, "save_notice") as mock_save:
             mock_save.return_value = "/fake/path.pdf"
             import asyncio
+
             result = asyncio.run(
                 storage.download_notice_async(
                     url="https://www.cninfo.com.cn/finalpage/2024-01-01/12345678.PDF",
@@ -107,6 +107,7 @@ class TestDownloadNoticeAsync:
         mock_resolve.return_value = None
         storage = FileStorage()
         import asyncio
+
         result = asyncio.run(
             storage.download_notice_async(
                 url="http://example.com/unknown",
@@ -120,7 +121,8 @@ class TestDownloadNoticeAsync:
     def test_download_notice_async_not_pdf(self, mock_to_thread):
         """下载内容不是 PDF 返回 None"""
         mock_to_thread.return_value = type(
-            "Resp", (),
+            "Resp",
+            (),
             {
                 "raise_for_status": lambda self: None,
                 "content": b"<html>error page</html>",
@@ -128,6 +130,7 @@ class TestDownloadNoticeAsync:
         )()
         storage = FileStorage()
         import asyncio
+
         result = asyncio.run(
             storage.download_notice_async(
                 url="https://www.cninfo.com.cn/finalpage/2024-01-01/12345678.PDF",
@@ -143,6 +146,7 @@ class TestDownloadNoticeAsync:
         mock_to_thread.side_effect = Exception("Connection refused")
         storage = FileStorage()
         import asyncio
+
         result = asyncio.run(
             storage.download_notice_async(
                 url="https://www.cninfo.com.cn/finalpage/2024-01-01/12345678.PDF",

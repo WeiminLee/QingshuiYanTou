@@ -10,11 +10,12 @@
     async def fetch_data():
         ...
 """
+
 import functools
 import logging
 import time
-import uuid
-from typing import Any, Callable, Optional
+from collections.abc import Callable
+from typing import Any
 
 from app.logging.logger import (
     generate_task_id,
@@ -39,6 +40,7 @@ def with_trace_id(func: Callable[..., Any]) -> Callable[..., Any]:
             trace_id = get_trace_id()  # 在函数内获取 trace_id
             ...
     """
+
     @functools.wraps(func)
     async def async_wrapper(*args: Any, **kwargs: Any) -> Any:
         trace_id = generate_trace_id()
@@ -62,6 +64,7 @@ def with_trace_id(func: Callable[..., Any]) -> Callable[..., Any]:
             set_trace_id(old_trace_id)
 
     import asyncio
+
     if asyncio.iscoroutinefunction(func):
         return async_wrapper
     return sync_wrapper
@@ -89,6 +92,7 @@ def with_task_log(
         async def run_task():
             ...
     """
+
     def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
         @functools.wraps(func)
         async def async_wrapper(*args: Any, **kwargs: Any) -> Any:
@@ -170,6 +174,7 @@ def with_task_log(
                 set_task_id(old_task_id)
 
         import asyncio
+
         if asyncio.iscoroutinefunction(func):
             return async_wrapper
         return sync_wrapper

@@ -6,6 +6,7 @@ RelevanceScorer — 多维度相关性评分
 
 参考 RAGFlow search.py lines 194-222 的 P(E|Q) 公式。
 """
+
 from __future__ import annotations
 
 import logging

@@ -8,15 +8,17 @@
   读取 kg_file_index 中所有 status=pending 的文件，逐个执行抽取。
   抽取完成后更新 kg_file_index 状态为 done/failed。
 """
+
 import asyncio
 import logging
-from pathlib import Path
 import sys
+from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from app.knowledge.kg_extractor import extract_document_async
 from motor.motor_asyncio import AsyncIOMotorClient
+
+from app.knowledge.kg_extractor import extract_document_async
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -77,19 +79,18 @@ async def run_extraction():
             n_rel = result.get("relations_created", 0) + result.get("relations_updated", 0)
             await coll.update_one(
                 {"file_path": fp},
-                {"$set": {
-                    "status": "done",
-                    "entities_count": n_ent,
-                    "relations_count": n_rel,
-                }}
+                {
+                    "$set": {
+                        "status": "done",
+                        "entities_count": n_ent,
+                        "relations_count": n_rel,
+                    }
+                },
             )
             print(f"  ✓ 完成: {n_ent} 实体, {n_rel} 关系")
 
         except Exception as e:
-            await coll.update_one(
-                {"file_path": fp},
-                {"$set": {"status": "failed", "error": str(e)[:500]}}
-            )
+            await coll.update_one({"file_path": fp}, {"$set": {"status": "failed", "error": str(e)[:500]}})
             print(f"  ✗ 失败: {e}")
 
     stats = coll.aggregate([{"$group": {"_id": "$status", "count": {"$sum": 1}}}])

@@ -1,10 +1,8 @@
 """Tests for graph_navigator — resolve + expand graph navigation tools."""
+
 from __future__ import annotations
 
 from unittest.mock import patch
-
-import pytest
-
 
 # ── TestResolve ────────────────────────────────────────────────
 
@@ -14,9 +12,7 @@ class TestResolve:
         """resolve with exact entity name returns the entity."""
         from app.reasoning.tools.knowledge.graph_navigator import resolve
 
-        mock_result = [
-            {"entity_id": "C_宁德时代", "name": "宁德时代", "type": "Company", "score": 1.0}
-        ]
+        mock_result = [{"entity_id": "C_宁德时代", "name": "宁德时代", "type": "Company", "score": 1.0}]
         with patch(
             "app.reasoning.tools.knowledge.graph_navigator._search_entity_by_name",
             return_value=mock_result,
@@ -39,9 +35,7 @@ class TestResolve:
     def test_resolve_with_entity_type_filter(self):
         from app.reasoning.tools.knowledge.graph_navigator import resolve
 
-        mock_result = [
-            {"entity_id": "P_电源模块", "name": "电源模块", "type": "Product", "score": 0.95}
-        ]
+        mock_result = [{"entity_id": "P_电源模块", "name": "电源模块", "type": "Product", "score": 0.95}]
         with patch(
             "app.reasoning.tools.knowledge.graph_navigator._search_entity_by_name",
             return_value=mock_result,
@@ -102,9 +96,7 @@ class TestExpand:
             "app.reasoning.tools.knowledge.graph_navigator._fetch_relations",
             return_value=mock_rels,
         ):
-            result = expand.func(
-                "C_新雷能", select=["relations"], filter_={"stmt_types": ["Fact"]}
-            )
+            result = expand.func("C_新雷能", select=["relations"], filter_={"stmt_types": ["Fact"]})
         assert len(result["relations"]) == 1
         assert result["relations"][0]["stmt_type"] == "Fact"
 
@@ -226,12 +218,15 @@ class TestExpand:
                 "weight": 1.0,
             }
         ]
-        with patch(
-            "app.reasoning.tools.knowledge.graph_navigator._fetch_entity",
-            return_value=mock_entity,
-        ), patch(
-            "app.reasoning.tools.knowledge.graph_navigator._fetch_typed_neighbors",
-            return_value=mock_metrics,
+        with (
+            patch(
+                "app.reasoning.tools.knowledge.graph_navigator._fetch_entity",
+                return_value=mock_entity,
+            ),
+            patch(
+                "app.reasoning.tools.knowledge.graph_navigator._fetch_typed_neighbors",
+                return_value=mock_metrics,
+            ),
         ):
             result = expand.func("C_新雷能", select=["properties", "metrics"])
         assert "entity" in result

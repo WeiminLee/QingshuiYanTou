@@ -4,15 +4,15 @@
 GET /api/v1/knowledge/package/{ts_code}  — 完整知识包
 GET /api/v1/knowledge/package/{ts_code}/summary  — 精简摘要
 """
+
 import logging
-from datetime import datetime
-from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
-from app.knowledge.knowledge_package import build_knowledge_package
-from app.core.database import async_session
-from app.models.models import Stock
 from sqlalchemy import select
+
+from app.core.database import async_session
+from app.knowledge.knowledge_package import build_knowledge_package
+from app.models.models import Stock
 
 router = APIRouter()
 logger = logging.getLogger(__name__)

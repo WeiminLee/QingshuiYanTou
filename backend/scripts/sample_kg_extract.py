@@ -11,20 +11,21 @@
   uv run --directory backend python scripts/sample_kg_extract.py --resume  # 重新处理失败项
   uv run --directory backend python scripts/sample_kg_extract.py --n 20
 """
+
 import argparse
 import asyncio
 import hashlib
 import logging
-import sys
 import os
+import sys
 from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 # 保存原始代理环境变量（必须在导入任何 app 模块之前）
 _ORIGINAL_PROXIES = {
-    k: os.environ.get(k, "") for k in
-    ("HTTP_PROXY", "http_proxy", "HTTPS_PROXY", "https_proxy", "ALL_PROXY", "all_proxy")
+    k: os.environ.get(k, "")
+    for k in ("HTTP_PROXY", "http_proxy", "HTTPS_PROXY", "https_proxy", "ALL_PROXY", "all_proxy")
 }
 
 import requests
@@ -32,8 +33,8 @@ from motor.motor_asyncio import AsyncIOMotorClient
 from sqlalchemy import select
 
 from app.core.database import async_session
-from app.models.models import Announcement
 from app.knowledge.kg_extractor import extract_text
+from app.models.models import Announcement
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -42,10 +43,14 @@ CLOUD_BASE = "http://124.221.188.38:8080/api/v1"
 
 # MongoDB kg_file_index 配置（从 .env 读取，支持认证）
 from dotenv import load_dotenv
+
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), ".env"), verbose=False)
 import os as _env_os
-_MONGO_URL = _env_os.environ.get("MONGODB_URL", "mongodb://qingshui:qingshui123@localhost:27017/qingshui?authSource=admin")
-_MONGO_DB  = "qingshui"
+
+_MONGO_URL = _env_os.environ.get(
+    "MONGODB_URL", "mongodb://qingshui:qingshui123@localhost:27017/qingshui?authSource=admin"
+)
+_MONGO_DB = "qingshui"
 INDEX_COL = "kg_file_index"
 
 
@@ -82,8 +87,10 @@ def download_pdf(ann_id: str, file_url: str) -> bytes | None:
 def extract_pdf_text(pdf_bytes: bytes) -> str:
     """从 PDF bytes 提取纯文本"""
     import io
+
     try:
         import pdfplumber
+
         with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
             pages = []
             for page in pdf.pages:
@@ -95,6 +102,7 @@ def extract_pdf_text(pdf_bytes: bytes) -> str:
         logger.warning("pdfplumber 未安装，尝试 PyPDF2")
         try:
             from PyPDF2 import PdfReader
+
             reader = PdfReader(io.BytesIO(pdf_bytes))
             pages = []
             for page in reader.pages:
@@ -108,6 +116,7 @@ def extract_pdf_text(pdf_bytes: bytes) -> str:
 
 
 # ── MongoDB kg_file_index 操作 ────────────────────────────────────────────────
+
 
 async def _get_mongo_collection():
     client = AsyncIOMotorClient(_MONGO_URL)
@@ -209,14 +218,21 @@ async def sample_and_extract(
     skipped_hash = 0
 
     for i, ann in enumerate(rows):
-        logger.info(f"[{i+1}/{len(rows)}] {ann.ts_code} | {ann.title[:40] if ann.title else 'N/A'}")
+        logger.info(f"[{i + 1}/{len(rows)}] {ann.ts_code} | {ann.title[:40] if ann.title else 'N/A'}")
 
         # 2. 下载 PDF
         pdf_bytes = download_pdf(ann.cninfo_id, ann.pdf_url)
         if not pdf_bytes:
             logger.warning("  PDF 下载失败，跳过")
-            await _upsert_index(col, ann.cninfo_id, "", "pdf_failed",
-                                ann.ts_code, ann.title, error="PDF download failed")
+            await _upsert_index(
+                col,
+                ann.cninfo_id,
+                "",
+                "pdf_failed",
+                ann.ts_code,
+                ann.title,
+                error="PDF download failed",
+            )
             results.append({"ann_id": ann.cninfo_id, "status": "pdf_failed"})
             continue
 
@@ -236,8 +252,15 @@ async def sample_and_extract(
         text = extract_pdf_text(pdf_bytes)
         if not text or len(text) < 100:
             logger.warning(f"  文本提取失败或内容过少（{len(text)} 字符），跳过")
-            await _upsert_index(col, ann.cninfo_id, file_hash, "text_empty",
-                                ann.ts_code, ann.title, error=f"Text too short: {len(text)}")
+            await _upsert_index(
+                col,
+                ann.cninfo_id,
+                file_hash,
+                "text_empty",
+                ann.ts_code,
+                ann.title,
+                error=f"Text too short: {len(text)}",
+            )
             results.append({"ann_id": ann.cninfo_id, "status": "text_empty"})
             continue
 
@@ -268,25 +291,30 @@ async def sample_and_extract(
 
             # 成功后写入 index
             await _upsert_index(
-                col, ann.cninfo_id, file_hash, "done",
-                ann.ts_code, ann.title,
+                col,
+                ann.cninfo_id,
+                file_hash,
+                "done",
+                ann.ts_code,
+                ann.title,
                 entities_count=len(ents),
                 relations_count=len(rels),
             )
             logger.info(f"  KG 结果: {len(ents)} 实体, {len(rels)} 关系 → indexed")
-            results.append({
-                "ann_id": ann.cninfo_id,
-                "ts_code": ann.ts_code,
-                "status": "success",
-                "entities": len(ents),
-                "relations": len(rels),
-                "text_len": len(text),
-                "file_hash": file_hash[:16],
-            })
+            results.append(
+                {
+                    "ann_id": ann.cninfo_id,
+                    "ts_code": ann.ts_code,
+                    "status": "success",
+                    "entities": len(ents),
+                    "relations": len(rels),
+                    "text_len": len(text),
+                    "file_hash": file_hash[:16],
+                }
+            )
         except Exception as e:
             logger.exception(f"  KG 抽取失败: {e}")
-            await _upsert_index(col, ann.cninfo_id, file_hash, "kg_failed",
-                                ann.ts_code, ann.title, error=str(e))
+            await _upsert_index(col, ann.cninfo_id, file_hash, "kg_failed", ann.ts_code, ann.title, error=str(e))
             results.append({"ann_id": ann.cninfo_id, "status": "kg_failed", "error": str(e)})
 
     success = sum(1 for r in results if r.get("status") == "success")
@@ -310,8 +338,7 @@ async def main():
     parser = argparse.ArgumentParser(description="小批量 KG 抽取测试（增量版）")
     parser.add_argument("--n", type=int, default=5, help="采样数量（默认 5）")
     parser.add_argument("--dry-run", action="store_true", help="仅采样不抽取")
-    parser.add_argument("--resume", action="store_true",
-                        help="重新处理（包括之前失败的，跳过已成功且 hash 未变的）")
+    parser.add_argument("--resume", action="store_true", help="重新处理（包括之前失败的，跳过已成功且 hash 未变的）")
     args = parser.parse_args()
 
     result = await sample_and_extract(

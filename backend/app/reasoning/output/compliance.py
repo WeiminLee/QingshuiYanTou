@@ -6,9 +6,9 @@ Layer 4 — 合规检查模块
 2. 自动注入合规声明
 3. 报告审计日志
 """
+
 import logging
 import re
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +45,7 @@ class ComplianceResult:
         passed: bool,
         violations: list[dict] | None = None,
         warnings: list[dict] | None = None,
-        sanitized_content: Optional[str] = None,
+        sanitized_content: str | None = None,
     ):
         self.passed = passed
         self.violations = violations or []
@@ -70,32 +70,33 @@ def scan_content(content: str) -> ComplianceResult:
     for pattern, desc in _FORBIDDEN_PATTERNS:
         matches = re.finditer(pattern, sanitized)
         for match in matches:
-            violations.append({
-                "pattern": pattern,
-                "matched": match.group(),
-                "description": desc,
-                "position": match.start(),
-            })
+            violations.append(
+                {
+                    "pattern": pattern,
+                    "matched": match.group(),
+                    "description": desc,
+                    "position": match.start(),
+                }
+            )
             # 替换为安全词
-            sanitized = sanitized[:match.start()] + "[已脱敏]" + sanitized[match.end():]
+            sanitized = sanitized[: match.start()] + "[已脱敏]" + sanitized[match.end() :]
 
     for pattern, desc in _WARNING_PATTERNS:
         matches = re.finditer(pattern, sanitized)
         for match in matches:
-            warnings.append({
-                "pattern": pattern,
-                "matched": match.group(),
-                "description": desc,
-                "position": match.start(),
-            })
+            warnings.append(
+                {
+                    "pattern": pattern,
+                    "matched": match.group(),
+                    "description": desc,
+                    "position": match.start(),
+                }
+            )
 
     passed = len(violations) == 0
 
     if violations:
-        logger.warning(
-            f"[Compliance] {len(violations)} violation(s) found, "
-            f"{len(warnings)} warning(s)"
-        )
+        logger.warning(f"[Compliance] {len(violations)} violation(s) found, {len(warnings)} warning(s)")
 
     return ComplianceResult(
         passed=passed,
@@ -138,6 +139,5 @@ def log_report_audit(report_id: str, topic: str, ts_code: str, result: str) -> N
     当前打印到日志。
     """
     logger.info(
-        f"[Compliance] Report generated: id={report_id}, topic={topic!r}, "
-        f"ts_code={ts_code!r}, chars={len(result)}"
+        f"[Compliance] Report generated: id={report_id}, topic={topic!r}, ts_code={ts_code!r}, chars={len(result)}"
     )

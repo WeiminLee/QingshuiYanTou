@@ -1,20 +1,20 @@
 """
 验证 minishare IRM 代码已全部移除。
 """
-import importlib
+
 import inspect
-import sys
 
 
 class TestMinishareClientNoIrm:
-
     def test_minishare_client_no_irm_methods(self):
         """DataSourceClientMinishare 不再有 get_irm / iter_irm_by_date_range / iter_irm_by_date_range_async"""
         from app.data_pipeline.minishare_client import DataSourceClientMinishare
 
         assert not hasattr(DataSourceClientMinishare, "get_irm"), "get_irm 应已被移除"
         assert not hasattr(DataSourceClientMinishare, "iter_irm_by_date_range"), "iter_irm_by_date_range 应已被移除"
-        assert not hasattr(DataSourceClientMinishare, "iter_irm_by_date_range_async"), "iter_irm_by_date_range_async 应已被移除"
+        assert not hasattr(DataSourceClientMinishare, "iter_irm_by_date_range_async"), (
+            "iter_irm_by_date_range_async 应已被移除"
+        )
 
     def test_minishare_client_no_irm_property(self):
         """DataSourceClientMinishare 不再有 irm_available 属性"""
@@ -33,7 +33,6 @@ class TestMinishareClientNoIrm:
 
 
 class TestFetcherNoMinishareIrm:
-
     def test_fetcher_no_minishare_irm_methods(self):
         """DataFetcher 不再有 fetch_minishare_irm / fetch_minishare_irm_history"""
         from app.data_pipeline.fetcher import DataFetcher

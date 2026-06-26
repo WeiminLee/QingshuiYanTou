@@ -3,18 +3,18 @@
 
 路由前缀：/api/v1/knowledge/kg
 """
+
 import asyncio
 import logging
 from pathlib import Path
-from typing import Optional
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from app.core.file_security import PathTraversalError, validate_file_path
 from app.knowledge.kg_extractor import (
-    extract_text,
     extract_document,
+    extract_text,
 )
 
 logger = logging.getLogger(__name__)
@@ -25,6 +25,7 @@ SAFE_BASE_DIR = Path(__file__).resolve().parent.parent.parent.parent
 
 
 # ── Request / Response Models ─────────────────────────────
+
 
 class ExtractTextRequest(BaseModel):
     text: str = Field(..., max_length=200_000, description="文本内容，最大20万字")
@@ -51,8 +52,8 @@ class ExtractDocumentRequest(BaseModel):
     source_type: str = "uploaded_doc"
 
 
-
 # ── 路由 ───────────────────────────────────────────────
+
 
 @router.post("/extract/text", response_model=ExtractTextResponse)
 async def extract_text_api(req: ExtractTextRequest):
@@ -76,7 +77,7 @@ async def extract_text_api(req: ExtractTextRequest):
             source_name=req.source_name,
             source_type=req.source_type,
             article_ref=req.article_ref,
-        )
+        ),
     )
     return ExtractTextResponse(**result)
 
@@ -110,7 +111,7 @@ async def extract_document_api(req: ExtractDocumentRequest, background: Backgrou
                 ts_code=req.ts_code,
                 source_name=req.source_name,
                 source_type=req.source_type,
-            )
+            ),
         )
         return ExtractTextResponse(**result)
     except FileNotFoundError as e:
@@ -124,6 +125,7 @@ async def extract_document_api(req: ExtractDocumentRequest, background: Backgrou
 
 # ── KG 图谱统计 ────────────────────────────────────────
 
+
 @router.get("/stats")
 async def kg_stats():
     """获取 KG 图谱统计"""
@@ -135,12 +137,8 @@ async def kg_stats():
         node_count = run("MATCH (n) RETURN count(n) AS cnt")[0]["cnt"]
         rel_count = run("MATCH ()-[r]->() RETURN count(r) AS cnt")[0]["cnt"]
 
-        label_stats = run(
-            "MATCH (n) RETURN labels(n)[0] AS label, count(*) AS cnt ORDER BY cnt DESC"
-        )
-        rel_stats = run(
-            "MATCH ()-[r]->() RETURN type(r) AS rel_type, count(*) AS cnt ORDER BY cnt DESC"
-        )
+        label_stats = run("MATCH (n) RETURN labels(n)[0] AS label, count(*) AS cnt ORDER BY cnt DESC")
+        rel_stats = run("MATCH ()-[r]->() RETURN type(r) AS rel_type, count(*) AS cnt ORDER BY cnt DESC")
         return node_count, rel_count, label_stats, rel_stats
 
     node_count, rel_count, label_stats, rel_stats = await loop.run_in_executor(None, _fetch)
@@ -155,8 +153,8 @@ async def kg_stats():
 
 @router.get("/query")
 async def kg_query(
-    entity_type: Optional[str] = Query(None),
-    name_keyword: Optional[str] = Query(None),
+    entity_type: str | None = Query(None),
+    name_keyword: str | None = Query(None),
     limit: int = Query(50, ge=1, le=200),
 ):
     """
@@ -166,6 +164,7 @@ async def kg_query(
     - name_keyword: 名称模糊搜索
     """
     from app.knowledge.entity_service import query_entities
+
     loop = asyncio.get_event_loop()
     result = await loop.run_in_executor(
         None,
@@ -176,8 +175,8 @@ async def kg_query(
 
 @router.get("/relations")
 async def kg_relations(
-    from_entity: Optional[str] = Query(None),
-    to_entity: Optional[str] = Query(None),
+    from_entity: str | None = Query(None),
+    to_entity: str | None = Query(None),
     limit: int = Query(100, ge=1, le=500),
 ):
     """
@@ -187,6 +186,7 @@ async def kg_relations(
     - to_entity: 目标节点 entity_id 前缀
     """
     from app.knowledge.relation_service import query_relations
+
     loop = asyncio.get_event_loop()
     result = await loop.run_in_executor(
         None,

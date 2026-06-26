@@ -3,14 +3,13 @@ Entity ID 生成模块
 
 负责实体名称规范化、entity_id 生成和公司名称解析。
 """
+
 from __future__ import annotations
 
-import asyncio
 import hashlib
 import logging
 import re
 import unicodedata
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -38,12 +37,7 @@ def normalize_name(name: str) -> str:
 
 def looks_like_ts_code(s: str) -> bool:
     """判断字符串是否为股票代码格式"""
-    return bool(
-        s
-        and len(s) >= 8
-        and "." in s
-        and s.replace(".", "").replace("-", "").isalnum()
-    )
+    return bool(s and len(s) >= 8 and "." in s and s.replace(".", "").replace("-", "").isalnum())
 
 
 def entity_id_from_name(name: str, entity_type: str) -> str:
@@ -77,6 +71,7 @@ def resolve_company_id(name: str) -> tuple[str, str]:
     if not name_clean:
         return "CO:UNKNOWN", name
     from app.knowledge.stock_name_resolver import get_stock_name_resolver
+
     return get_stock_name_resolver().resolve_entity_id(name_clean)
 
 
@@ -90,16 +85,19 @@ def validate_metric(entity: dict) -> bool:
     if not desc:
         return False
     has_number = bool(re.search(r"\d+[\.\d]*", desc))
-    has_unit = bool(re.search(
-        r"(%|亿元|万元|元|亿|万只|万辆|万吨|万台|万套|件|只|台|套|个|人|天|[0-9]+年|[0-9]+月|个百分点|比率|比例|增速|占比)", desc
-    ))
+    has_unit = bool(
+        re.search(
+            r"(%|亿元|万元|元|亿|万只|万辆|万吨|万台|万套|件|只|台|套|个|人|天|[0-9]+年|[0-9]+月|个百分点|比率|比例|增速|占比)",
+            desc,
+        )
+    )
     return has_number and has_unit
 
 
 async def disambiguate_with_llm(
     name: str,
     context: str,
-) -> tuple[str, Optional[str]]:
+) -> tuple[str, str | None]:
     """
     使用 LLM 消歧公司名称。
 
@@ -122,6 +120,7 @@ async def disambiguate_with_llm(
     try:
         result = await chat(prompt)
         import json
+
         data = json.loads(result)
         return data.get("decision", "unknown"), data.get("resolved_id")
     except Exception as e:
@@ -201,9 +200,7 @@ async def build_name_to_id_map_async(
                 # Layer 2: LLM fallback for CO:-prefixed entity_ids
                 if entity_id.startswith("CO:") and disambiguation_context:
                     try:
-                        decision, resolved_id = await disambiguate_with_llm(
-                            name, disambiguation_context
-                        )
+                        decision, resolved_id = await disambiguate_with_llm(name, disambiguation_context)
                         if resolved_id:
                             entity_id = resolved_id
                     except Exception as disambig_err:

@@ -7,15 +7,9 @@
 
     <!-- Error state -->
     <div v-else-if="error" class="panel-error">
-      <el-result
-        icon="error"
-        title="加载失败"
-        :sub-title="error"
-      >
+      <el-result icon="error" title="加载失败" :sub-title="error">
         <template #extra>
-          <el-button type="primary" @click="$emit('retry')">
-            重新加载
-          </el-button>
+          <el-button type="primary" @click="$emit('retry')"> 重新加载 </el-button>
         </template>
       </el-result>
     </div>
@@ -33,7 +27,7 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed } from "vue";
 
 const props = defineProps({
   loading: {
@@ -48,16 +42,16 @@ const props = defineProps({
     type: [Array, Object, null],
     default: null,
   },
-})
+});
 
-defineEmits(['retry'])
+defineEmits(["retry"]);
 
 // isEmpty = true only when data is an empty array (null/undefined means "not yet loaded")
 const isEmpty = computed(() => {
-  if (props.data === null || props.data === undefined) return false
-  if (Array.isArray(props.data)) return props.data.length === 0
-  return false
-})
+  if (props.data === null || props.data === undefined) return false;
+  if (Array.isArray(props.data)) return props.data.length === 0;
+  return false;
+});
 </script>
 
 <style scoped>

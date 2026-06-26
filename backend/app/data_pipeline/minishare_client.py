@@ -5,10 +5,11 @@ DataSourceClientMinishare — minishare 备选数据源
 - 研报: pro.research_report(trade_date=) / pro.research_report(ts_code=, start_date=, end_date=)
 - 公告: pro.anns_d(ann_date=) / pro.anns_d(ts_code=, start_date=, end_date=)
 """
+
 from __future__ import annotations
 
 import logging
-from typing import Any, Optional
+from typing import Any
 
 import minishare as ms
 import pandas as pd
@@ -107,10 +108,10 @@ class DataSourceClientMinishare:
 
     def get_reports(
         self,
-        trade_date: Optional[str] = None,
-        ts_code: Optional[str] = None,
-        start_date: Optional[str] = None,
-        end_date: Optional[str] = None,
+        trade_date: str | None = None,
+        ts_code: str | None = None,
+        start_date: str | None = None,
+        end_date: str | None = None,
         limit: int = 5000,
     ) -> list[dict[str, Any]]:
         """获取券商研报数据（minishare）。
@@ -149,17 +150,19 @@ class DataSourceClientMinishare:
                 if not pub_date:
                     continue
                 ts_code_val = _normalize_ts_code(str(row.get("ts_code") or row.get("股票代码") or ""))
-                records.append({
-                    "trade_date": pub_date,
-                    "ts_code": ts_code_val,
-                    "name": _safe_str(row.get("name") or row.get("股票简称")),
-                    "title": _safe_str(row.get("title") or row.get("报告名称")),
-                    "inst_csname": _safe_str(row.get("inst_csname") or row.get("机构")),
-                    "author": _safe_str(row.get("author") or row.get("作者")),
-                    "org_code": "",
-                    "url": _safe_str(row.get("url") or row.get("链接")),
-                    "file_name": "",
-                })
+                records.append(
+                    {
+                        "trade_date": pub_date,
+                        "ts_code": ts_code_val,
+                        "name": _safe_str(row.get("name") or row.get("股票简称")),
+                        "title": _safe_str(row.get("title") or row.get("报告名称")),
+                        "inst_csname": _safe_str(row.get("inst_csname") or row.get("机构")),
+                        "author": _safe_str(row.get("author") or row.get("作者")),
+                        "org_code": "",
+                        "url": _safe_str(row.get("url") or row.get("链接")),
+                        "file_name": "",
+                    }
+                )
 
             logger.info(f"minishare 获取研报数据: {len(records)} 条")
             return records[:limit]
@@ -199,17 +202,19 @@ class DataSourceClientMinishare:
                         if not pub_date:
                             continue
                         ts_code_val = _normalize_ts_code(str(row.get("ts_code") or row.get("股票代码") or ""))
-                        records.append({
-                            "trade_date": pub_date,
-                            "ts_code": ts_code_val,
-                            "name": _safe_str(row.get("name") or row.get("股票简称")),
-                            "title": _safe_str(row.get("title") or row.get("报告名称")),
-                            "inst_csname": _safe_str(row.get("inst_csname") or row.get("机构")),
-                            "author": _safe_str(row.get("author") or row.get("作者")),
-                            "org_code": "",
-                            "url": _safe_str(row.get("url") or row.get("链接")),
-                            "file_name": "",
-                        })
+                        records.append(
+                            {
+                                "trade_date": pub_date,
+                                "ts_code": ts_code_val,
+                                "name": _safe_str(row.get("name") or row.get("股票简称")),
+                                "title": _safe_str(row.get("title") or row.get("报告名称")),
+                                "inst_csname": _safe_str(row.get("inst_csname") or row.get("机构")),
+                                "author": _safe_str(row.get("author") or row.get("作者")),
+                                "org_code": "",
+                                "url": _safe_str(row.get("url") or row.get("链接")),
+                                "file_name": "",
+                            }
+                        )
                     yield date_str, records
                 else:
                     yield date_str, []
@@ -251,66 +256,19 @@ class DataSourceClientMinishare:
                     if not pub_date:
                         continue
                     ts_code_val = _normalize_ts_code(str(row.get("ts_code") or row.get("股票代码") or ""))
-                    records.append({
-                        "trade_date": pub_date,
-                        "ts_code": ts_code_val,
-                        "name": _safe_str(row.get("name") or row.get("股票简称")),
-                        "title": _safe_str(row.get("title") or row.get("报告名称")),
-                        "inst_csname": _safe_str(row.get("inst_csname") or row.get("机构")),
-                        "author": _safe_str(row.get("author") or row.get("作者")),
-                        "org_code": "",
-                        "url": _safe_str(row.get("url") or row.get("链接")),
-                        "file_name": "",
-                    })
-                yield date_str, records
-            else:
-                yield date_str, []
-            current += timedelta(days=1)
-
-    async def iter_reports_by_date_range_async(
-        self,
-        start_date: str,
-        end_date: str,
-    ):
-        """async 版本的 iter_reports_by_date_range。
-
-        每个日期的 API 调用通过 asyncio.to_thread 放到线程池执行，
-        避免阻塞 FastAPI 事件循环。
-        """
-        import asyncio
-        from datetime import datetime, timedelta
-
-        if not self.research_available:
-            return
-
-        current = datetime.strptime(start_date, "%Y%m%d")
-        end = datetime.strptime(end_date, "%Y%m%d")
-        while current <= end:
-            date_str = current.strftime("%Y%m%d")
-            # 网络请求放到线程池，遇到限流/网络错误时当天返回空记录
-            try:
-                df = await asyncio.to_thread(self._research_api.research_report, trade_date=date_str)
-            except Exception as e:
-                logger.warning(f"minishare 研报 {date_str} 失败: {e}")
-                df = None
-            if df is not None and len(df) > 0:
-                records = []
-                for _, row in df.iterrows():
-                    pub_date = _safe_str(row.get("trade_date") or row.get("日期"))
-                    if not pub_date:
-                        continue
-                    ts_code_val = _normalize_ts_code(str(row.get("ts_code") or row.get("股票代码") or ""))
-                    records.append({
-                        "trade_date": pub_date,
-                        "ts_code": ts_code_val,
-                        "name": _safe_str(row.get("name") or row.get("股票简称")),
-                        "title": _safe_str(row.get("title") or row.get("报告名称")),
-                        "inst_csname": _safe_str(row.get("inst_csname") or row.get("机构")),
-                        "author": _safe_str(row.get("author") or row.get("作者")),
-                        "org_code": "",
-                        "url": _safe_str(row.get("url") or row.get("链接")),
-                        "file_name": "",
-                    })
+                    records.append(
+                        {
+                            "trade_date": pub_date,
+                            "ts_code": ts_code_val,
+                            "name": _safe_str(row.get("name") or row.get("股票简称")),
+                            "title": _safe_str(row.get("title") or row.get("报告名称")),
+                            "inst_csname": _safe_str(row.get("inst_csname") or row.get("机构")),
+                            "author": _safe_str(row.get("author") or row.get("作者")),
+                            "org_code": "",
+                            "url": _safe_str(row.get("url") or row.get("链接")),
+                            "file_name": "",
+                        }
+                    )
                 yield date_str, records
             else:
                 yield date_str, []
@@ -320,10 +278,10 @@ class DataSourceClientMinishare:
 
     def get_announcements(
         self,
-        ann_date: Optional[str] = None,
-        ts_code: Optional[str] = None,
-        start_date: Optional[str] = None,
-        end_date: Optional[str] = None,
+        ann_date: str | None = None,
+        ts_code: str | None = None,
+        start_date: str | None = None,
+        end_date: str | None = None,
         limit: int = 5000,
     ) -> list[dict[str, Any]]:
         """获取公告数据（minishare anns_d）。
@@ -359,13 +317,15 @@ class DataSourceClientMinishare:
                 if not ann_date_val:
                     continue
                 ts_code_val = _normalize_ts_code(str(row.get("ts_code") or ""))
-                records.append({
-                    "ann_date": ann_date_val,
-                    "ts_code": ts_code_val,
-                    "name": _safe_str(row.get("name")),
-                    "title": _safe_str(row.get("title")),
-                    "url": _safe_str(row.get("url")),
-                })
+                records.append(
+                    {
+                        "ann_date": ann_date_val,
+                        "ts_code": ts_code_val,
+                        "name": _safe_str(row.get("name")),
+                        "title": _safe_str(row.get("title")),
+                        "url": _safe_str(row.get("url")),
+                    }
+                )
 
             logger.info(f"minishare 获取公告数据: {len(records)} 条")
             return records[:limit]
@@ -406,13 +366,15 @@ class DataSourceClientMinishare:
                         if not ann_date_val:
                             continue
                         ts_code_val = _normalize_ts_code(str(row.get("ts_code") or ""))
-                        records.append({
-                            "ann_date": ann_date_val,
-                            "ts_code": ts_code_val,
-                            "name": _safe_str(row.get("name")),
-                            "title": _safe_str(row.get("title")),
-                            "url": _safe_str(row.get("url")),
-                        })
+                        records.append(
+                            {
+                                "ann_date": ann_date_val,
+                                "ts_code": ts_code_val,
+                                "name": _safe_str(row.get("name")),
+                                "title": _safe_str(row.get("title")),
+                                "url": _safe_str(row.get("url")),
+                            }
+                        )
                     yield date_str, records
                 else:
                     yield date_str, []
@@ -456,13 +418,15 @@ class DataSourceClientMinishare:
                     if not ann_date_val:
                         continue
                     ts_code_val = _normalize_ts_code(str(row.get("ts_code") or ""))
-                    records.append({
-                        "ann_date": ann_date_val,
-                        "ts_code": ts_code_val,
-                        "name": _safe_str(row.get("name")),
-                        "title": _safe_str(row.get("title")),
-                        "url": _safe_str(row.get("url")),
-                    })
+                    records.append(
+                        {
+                            "ann_date": ann_date_val,
+                            "ts_code": ts_code_val,
+                            "name": _safe_str(row.get("name")),
+                            "title": _safe_str(row.get("title")),
+                            "url": _safe_str(row.get("url")),
+                        }
+                    )
                 yield date_str, records
             else:
                 yield date_str, []

@@ -1,14 +1,14 @@
 """Regression tests for shared architecture hardening constraints."""
+
 from __future__ import annotations
 
 import ast
 import inspect
-from datetime import timezone
+from datetime import UTC
 from pathlib import Path
 
-from app.knowledge.evidence_builders import build_file_evidence, build_irm_evidence
 import app.knowledge.evidence_service as evidence_service
-
+from app.knowledge.evidence_builders import build_file_evidence, build_irm_evidence
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 
@@ -56,8 +56,8 @@ def test_evidence_builders_emit_timezone_aware_utc_observed_at() -> None:
         max_chunks=1,
     )[0]
 
-    assert irm.observed_at.tzinfo is timezone.utc
-    assert file_evidence.observed_at.tzinfo is timezone.utc
+    assert irm.observed_at.tzinfo is UTC
+    assert file_evidence.observed_at.tzinfo is UTC
 
 
 def test_evidence_service_has_single_timezone_aware_clock() -> None:
@@ -113,9 +113,7 @@ def test_parser_and_schema_versions_are_centralized() -> None:
     assert metadata.CURRENT_PARSER_VERSION == "v1.0"
     assert metadata.CURRENT_KG_SCHEMA_VERSION == "v4"
     assert metadata.SOURCE_CLOUD_API in metadata.SOURCE_META_MAP
-    assert {
-        meta.parser_version for meta in metadata.SOURCE_META_MAP.values()
-    } == {metadata.CURRENT_PARSER_VERSION}
+    assert {meta.parser_version for meta in metadata.SOURCE_META_MAP.values()} == {metadata.CURRENT_PARSER_VERSION}
 
 
 def test_runtime_models_do_not_hardcode_parser_version_defaults() -> None:

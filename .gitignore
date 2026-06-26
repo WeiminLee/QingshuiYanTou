@@ -102,3 +102,6 @@ Desktop.ini
 
 .claude/
 .planning/
+
+# 板块概念抓取结果（脚本运行产物）
+backend/data/board_concept/

@@ -3,23 +3,45 @@
 
 检测多源语义冲突，并写入 Neo4j。
 """
+
 from __future__ import annotations
 
 import logging
-from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
 # 正面语义关键词（量产、规模化等 → 产业化进度）
 POSITIVE_MARKERS = [
-    "量产", "规模化", "大规模", "已突破", "已实现", "量产爬坡",
-    "正式投产", "产能释放", "商业化", "规模交付", "批量供货",
+    "量产",
+    "规模化",
+    "大规模",
+    "已突破",
+    "已实现",
+    "量产爬坡",
+    "正式投产",
+    "产能释放",
+    "商业化",
+    "规模交付",
+    "批量供货",
 ]
 # 负面语义关键词（中试，小批量等 → 早期阶段）
 NEGATIVE_MARKERS = [
-    "中试", "小批量", "研发中", "仍处", "未实现", "暂未",
-    "试产", "样品阶段", "送样验证", "认证中", "未量产",
-    "仍处于", "仍属", "尚未", "还未", "还在",
+    "中试",
+    "小批量",
+    "研发中",
+    "仍处",
+    "未实现",
+    "暂未",
+    "试产",
+    "样品阶段",
+    "送样验证",
+    "认证中",
+    "未量产",
+    "仍处于",
+    "仍属",
+    "尚未",
+    "还未",
+    "还在",
 ]
 
 
@@ -45,8 +67,8 @@ def detect_contradiction(
     relationship_type: str,
     new_properties: dict,
     new_source_name: str = "",
-    existing_relations: Optional[list[dict]] = None,
-) -> Optional[dict]:
+    existing_relations: list[dict] | None = None,
+) -> dict | None:
     """
     检测多源冲突。
 
@@ -84,8 +106,7 @@ def detect_contradiction(
         if not hist_desc:
             continue
         # 跳过自身（valid_from 相同）
-        if (hist.get("valid_from") == new_properties.get("valid_from")
-                and hist.get("source_name") == new_source_name):
+        if hist.get("valid_from") == new_properties.get("valid_from") and hist.get("source_name") == new_source_name:
             continue
 
         hist_polarity = semantic_polarity(hist_desc)
@@ -93,8 +114,9 @@ def detect_contradiction(
             continue
 
         # 检测极性冲突
-        if (new_polarity == "positive" and hist_polarity == "negative") or \
-           (new_polarity == "negative" and hist_polarity == "positive"):
+        if (new_polarity == "positive" and hist_polarity == "negative") or (
+            new_polarity == "negative" and hist_polarity == "positive"
+        ):
             return {
                 "source_a": hist.get("source_name") or "unknown",
                 "source_b": new_source_name or "unknown",
@@ -103,8 +125,7 @@ def detect_contradiction(
                 "type": "polarity_conflict",
             }
         # 同对同一关系内的"内容矛盾"（同一对有完全相反描述）
-        if (new_polarity == "conflict" or hist_polarity == "conflict") and \
-                hist.get("source_name") != new_source_name:
+        if (new_polarity == "conflict" or hist_polarity == "conflict") and hist.get("source_name") != new_source_name:
             return {
                 "source_a": hist.get("source_name") or "unknown",
                 "source_b": new_source_name or "unknown",

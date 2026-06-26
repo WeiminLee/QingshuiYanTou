@@ -6,15 +6,14 @@
 
 API: GET /api/v1/knowledge/package/{ts_code}
 """
+
 from __future__ import annotations
 
 import logging
 from datetime import datetime
-from typing import Any, Optional
 
-from app.core.neo4j_client import run, run_write, run_single
 from app.core.database import async_session
-from app.models.models import Stock, ConceptScore
+from app.core.neo4j_client import run, run_single
 
 logger = logging.getLogger(__name__)
 
@@ -23,15 +22,19 @@ GRAPH_FIELD_SEP = "<SEP>"
 
 # ── Neo4j 查询 ──────────────────────────────────────────────────────────────
 
+
 def _get_neo4j_stats() -> dict:
     """获取 Neo4j 图谱统计"""
-    result = run("""
+    result = run(
+        """
         MATCH (n)
         RETURN n.entity_type AS entity_type, count(*) AS count
         UNION ALL
         MATCH ()-[r]->()
         RETURN 'relationships' AS entity_type, count(*) AS count
-    """, {})
+    """,
+        {},
+    )
     stats = {}
     for row in result:
         stats[row["entity_type"]] = row["count"]
@@ -40,7 +43,8 @@ def _get_neo4j_stats() -> dict:
 
 def _get_company_entities(ts_code: str) -> list[dict]:
     """获取与某股票相关的所有实体"""
-    result = run("""
+    result = run(
+        """
         MATCH (n)
         WHERE n.entity_id CONTAINS $ts_code
            OR n.ts_code = $ts_code
@@ -51,13 +55,16 @@ def _get_company_entities(ts_code: str) -> list[dict]:
                n.properties AS properties,
                n.confidence AS confidence
         LIMIT 200
-    """, {"ts_code": ts_code})
+    """,
+        {"ts_code": ts_code},
+    )
     return list(result)
 
 
 def _get_kg_relations(ts_code: str) -> list[dict]:
     """获取与某股票相关的所有关系（含 direction / confidence_tier / descriptions）"""
-    result = run("""
+    result = run(
+        """
         MATCH (a)-[r]->(b)
         WHERE a.entity_id CONTAINS $ts_code
            OR b.entity_id CONTAINS $ts_code
@@ -75,13 +82,16 @@ def _get_kg_relations(ts_code: str) -> list[dict]:
                r.valid_from AS valid_from,
                r.valid_to AS valid_to
         LIMIT 300
-    """, {"ts_code": ts_code})
+    """,
+        {"ts_code": ts_code},
+    )
     return list(result)
 
 
 def _get_signal_events(ts_code: str) -> list[dict]:
     """获取某股票的信号 Event 节点"""
-    result = run("""
+    result = run(
+        """
         MATCH (n:Event)
         WHERE n.entity_id CONTAINS $ts_code
           AND n.signal_type IS NOT NULL
@@ -92,13 +102,16 @@ def _get_signal_events(ts_code: str) -> list[dict]:
                n.valid_from AS event_date
         ORDER BY n.valid_from DESC
         LIMIT 100
-    """, {"ts_code": ts_code})
+    """,
+        {"ts_code": ts_code},
+    )
     return list(result)
 
 
 def _get_state_transitions(ts_code: str) -> list[dict]:
     """获取某股票相关的状态跃迁关系"""
-    result = run("""
+    result = run(
+        """
         MATCH (a)-[r:STATE_TRANSITION]->(b)
         WHERE a.entity_id CONTAINS $ts_code
            OR b.entity_id CONTAINS $ts_code
@@ -110,13 +123,16 @@ def _get_state_transitions(ts_code: str) -> list[dict]:
                r.valid_from AS valid_from
         ORDER BY r.valid_from DESC
         LIMIT 20
-    """, {"ts_code": ts_code})
+    """,
+        {"ts_code": ts_code},
+    )
     return list(result)
 
 
 def _get_contradiction_alerts(ts_code: str) -> list[dict]:
     """获取某股票相关的 CONTRADICTS 冲突"""
-    result = run("""
+    result = run(
+        """
         MATCH (a)-[r:CONTRADICTS]-(b)
         WHERE a.entity_id CONTAINS $ts_code
            OR b.entity_id CONTAINS $ts_code
@@ -124,11 +140,13 @@ def _get_contradiction_alerts(ts_code: str) -> list[dict]:
                b.entity_id AS entity_b, b.name AS name_b,
                r.properties AS properties
         LIMIT 20
-    """, {"ts_code": ts_code})
+    """,
+        {"ts_code": ts_code},
+    )
     return list(result)
 
 
-def _get_company_state(ts_code: str) -> Optional[dict]:
+def _get_company_state(ts_code: str) -> dict | None:
     """获取公司节点的当前行业状态"""
     entity_id = f"C:{ts_code}"
     result = run_single(
@@ -154,19 +172,16 @@ def _get_company_state(ts_code: str) -> Optional[dict]:
 
 # ── concept_scores 查询 ─────────────────────────────────────────────────────
 
+
 async def _get_concept_scores(ts_code: str) -> list[dict]:
     """获取某股票关联的概念评分"""
     async with async_session() as db:
-        from sqlalchemy import select, text
-        from app.models.models import ThsConceptMember, ConceptScore
+        from sqlalchemy import select
+
+        from app.models.models import ConceptScore
 
         # 获取该股关联的概念代码
-        stmt = (
-            select(ConceptScore)
-            .where(ConceptScore.ts_code == ts_code)
-            .order_by(ConceptScore.score.desc())
-            .limit(10)
-        )
+        stmt = select(ConceptScore).where(ConceptScore.ts_code == ts_code).order_by(ConceptScore.score.desc()).limit(10)
         result = await db.execute(stmt)
         rows = result.scalars().all()
         return [
@@ -186,11 +201,11 @@ async def _get_concept_scores(ts_code: str) -> list[dict]:
 
 # 5级置信度体系（与 kg_extractor.py SOURCE_CONFIG 一致）
 _CONFIDENCE_TIER_MAP = {
-    "TIER0_LEGAL":    {"level": 5, "name": "法律文件", "weight": 0.95},
+    "TIER0_LEGAL": {"level": 5, "name": "法律文件", "weight": 0.95},
     "TIER1_OFFICIAL": {"level": 4, "name": "官方披露", "weight": 0.82},
     "TIER2_ANALYSIS": {"level": 3, "name": "研究报告", "weight": 0.72},
-    "TIER3_NEWS":     {"level": 2, "name": "新闻资讯", "weight": 0.55},
-    "TIER4_MEDIA":    {"level": 1, "name": "自媒体", "weight": 0.38},
+    "TIER3_NEWS": {"level": 2, "name": "新闻资讯", "weight": 0.55},
+    "TIER4_MEDIA": {"level": 1, "name": "自媒体", "weight": 0.38},
 }
 
 
@@ -251,6 +266,7 @@ def _build_confidence_summary(
 
 # ── 核心知识包 ───────────────────────────────────────────────────────────
 
+
 def build_knowledge_package_sync(ts_code: str) -> dict:
     """
     同步入口：聚合 Neo4j + concept_scores，生成知识包。
@@ -269,13 +285,15 @@ def build_knowledge_package_sync(ts_code: str) -> dict:
     by_type: dict[str, list[dict]] = {}
     for e in entities:
         t = e.get("entity_type", "Unknown")
-        by_type.setdefault(t, []).append({
-            "entity_id": e.get("entity_id"),
-            "name": e.get("name"),
-            "properties": e.get("properties") or {},
-            "confidence": e.get("confidence"),
-            "confidence_tier": (e.get("properties") or {}).get("confidence_tier"),
-        })
+        by_type.setdefault(t, []).append(
+            {
+                "entity_id": e.get("entity_id"),
+                "name": e.get("name"),
+                "properties": e.get("properties") or {},
+                "confidence": e.get("confidence"),
+                "confidence_tier": (e.get("properties") or {}).get("confidence_tier"),
+            }
+        )
 
     # 按类型统计关系
     rel_by_type: dict[str, int] = {}
@@ -291,11 +309,11 @@ def build_knowledge_package_sync(ts_code: str) -> dict:
             "to": r.get("to_entity"),
             "to_name": r.get("to_name"),
             "type": r.get("relationship_type"),
-            "direction": r.get("direction"),                    # positive/negative/neutral/conflict
-            "confidence_tier": r.get("confidence_tier"),         # TIER0_LEGAL 等
+            "direction": r.get("direction"),  # positive/negative/neutral/conflict
+            "confidence_tier": r.get("confidence_tier"),  # TIER0_LEGAL 等
             "description": (r.get("properties") or {}).get("relation_description", ""),
             "latest_description": r.get("latest_description") or "",  # 最新原文
-            "descriptions": r.get("descriptions") or [],           # 多源原文数组
+            "descriptions": r.get("descriptions") or [],  # 多源原文数组
             "valid_from": r.get("valid_from"),
         }
         for r in relations
@@ -308,10 +326,7 @@ def build_knowledge_package_sync(ts_code: str) -> dict:
         for e in signal_events
         if (e.get("properties") or {}).get("sentiment_score") is not None
     ]
-    avg_sentiment = (
-        sum(sentiment_scores) / len(sentiment_scores)
-        if sentiment_scores else 0.0
-    )
+    avg_sentiment = sum(sentiment_scores) / len(sentiment_scores) if sentiment_scores else 0.0
 
     # 信号按类型分组
     signals_by_type: dict[str, int] = {}
@@ -338,8 +353,7 @@ def build_knowledge_package_sync(ts_code: str) -> dict:
             "companies": by_type.get("Company", []),
             "products": by_type.get("Product", []),
             "events": by_type.get("Event", []),
-            "industries": by_type.get("Industry", [])
-                        + by_type.get("IND", []),
+            "industries": by_type.get("Industry", []) + by_type.get("IND", []),
             "techs": by_type.get("Tech", []),
             "metrics": by_type.get("Metric", []),
             "capacities": by_type.get("Capacity", []),
@@ -401,6 +415,7 @@ async def build_knowledge_package(ts_code: str) -> dict:
     主入口：Neo4j（同步）+ concept_scores（异步）。
     """
     import asyncio
+
     # Neo4j 查询（在线程池中执行）
     loop = asyncio.get_running_loop()
     kg_data = await loop.run_in_executor(None, build_knowledge_package_sync, ts_code)

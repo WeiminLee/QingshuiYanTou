@@ -6,23 +6,23 @@ AuditLogger - 结构化日志记录器
 - PostgreSQL 持久化
 - trace_id 和 task_id 追踪
 """
+
 import json
 import logging
 import uuid
 from contextvars import ContextVar
-from datetime import datetime, timezone
-from typing import Any, Optional
+from datetime import UTC, datetime
+from typing import Any
 
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import engine
 
 logger = logging.getLogger(__name__)
 
 # Context variables for request tracing
-_current_trace_id: ContextVar[Optional[str]] = ContextVar("trace_id", default=None)
-_current_task_id: ContextVar[Optional[str]] = ContextVar("task_id", default=None)
+_current_trace_id: ContextVar[str | None] = ContextVar("trace_id", default=None)
+_current_task_id: ContextVar[str | None] = ContextVar("task_id", default=None)
 
 
 def generate_trace_id() -> str:
@@ -35,7 +35,7 @@ def generate_task_id() -> str:
     return str(uuid.uuid4())
 
 
-def get_trace_id() -> Optional[str]:
+def get_trace_id() -> str | None:
     """获取当前 trace_id"""
     return _current_trace_id.get()
 
@@ -45,7 +45,7 @@ def set_trace_id(trace_id: str) -> None:
     _current_trace_id.set(trace_id)
 
 
-def get_task_id() -> Optional[str]:
+def get_task_id() -> str | None:
     """获取当前 task_id"""
     return _current_task_id.get()
 
@@ -80,7 +80,7 @@ class AuditLogger:
         level: str,
         module: str,
         message: str,
-        duration_ms: Optional[int] = None,
+        duration_ms: int | None = None,
         **kwargs: Any,
     ) -> None:
         """
@@ -93,7 +93,7 @@ class AuditLogger:
             duration_ms: 执行耗时 (毫秒)
             **kwargs: 额外的元数据
         """
-        timestamp = datetime.now(timezone.utc)
+        timestamp = datetime.now(UTC)
         trace_id = get_trace_id()
         task_id = get_task_id()
 
@@ -143,7 +143,7 @@ class AsyncAuditLogger(AuditLogger):
         level: str,
         module: str,
         message: str,
-        duration_ms: Optional[int] = None,
+        duration_ms: int | None = None,
         **kwargs: Any,
     ) -> None:
         """
@@ -156,7 +156,7 @@ class AsyncAuditLogger(AuditLogger):
             duration_ms: 执行耗时
             **kwargs: 额外的元数据
         """
-        timestamp = datetime.now(timezone.utc)
+        timestamp = datetime.now(UTC)
         trace_id = get_trace_id()
         task_id = get_task_id()
 

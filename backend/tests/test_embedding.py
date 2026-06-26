@@ -1,4 +1,5 @@
 """Phase 06 embedding/RAG integration tests."""
+
 import asyncio
 import sys
 from pathlib import Path

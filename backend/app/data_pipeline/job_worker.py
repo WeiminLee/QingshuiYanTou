@@ -1,4 +1,5 @@
 """Worker for claiming and executing durable ingestion jobs."""
+
 from __future__ import annotations
 
 import asyncio
@@ -73,7 +74,7 @@ class IngestionJobWorker:
                 counters["partial" if marked else "lost_lock"] += 1
                 return
             await self._mark_failure(job, result.error or result.status, counters)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             error = f"job timed out after {self.job_timeout_seconds}s"
             await self._mark_failure(job, error, counters)
         except Exception as exc:

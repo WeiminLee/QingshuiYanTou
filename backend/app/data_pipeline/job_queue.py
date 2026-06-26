@@ -1,15 +1,15 @@
 """Durable ingestion job queue API."""
+
 from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import text
 
 from app.core.database import engine
-
 
 JOB_PENDING = "pending"
 JOB_RUNNING = "running"
@@ -282,7 +282,7 @@ class IngestionJobQueue:
         return bool(result.rowcount and result.rowcount > 0)
 
     async def requeue_stale_running(self, older_than_minutes: int = 60) -> int:
-        cutoff = datetime.now(timezone.utc) - timedelta(minutes=older_than_minutes)
+        cutoff = datetime.now(UTC) - timedelta(minutes=older_than_minutes)
         sql = text(
             """
             UPDATE ingestion_jobs

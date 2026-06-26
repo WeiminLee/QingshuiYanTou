@@ -1,4 +1,5 @@
 """Research memory filtering and post-run enqueue helpers."""
+
 from __future__ import annotations
 
 import logging
@@ -81,4 +82,3 @@ class HarnessMemoryUpdater:
             manager.stop()
         except Exception as exc:
             logger.warning("[ResearchMemory] post-run update failed: %s", exc)
-

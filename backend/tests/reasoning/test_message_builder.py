@@ -9,8 +9,6 @@
 - Background Knowledge 注入
 - 空值安全处理
 """
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
 
 
 class TestMessageBuilderBuild:
@@ -108,11 +106,11 @@ class TestMessageBuilderAppend:
         场景：追加单个工具结果
         期望：消息列表追加 ToolMessage，包含 tool_call_id
         """
+
         from app.reasoning.langchain_agent.message_builder import (
             MessageBuilder,
             MessageContext,
         )
-        from langchain_core.messages import HumanMessage
 
         mb = MessageBuilder()
         ctx = MessageContext(thread_id="t-004", user_message="查 K 线")
@@ -148,12 +146,8 @@ class TestMessageBuilderAppend:
         ctx = MessageContext(thread_id="t-005", user_message="分析光模块行业")
         messages = mb.build_initial_messages(ctx)
 
-        mb.append_tool_result(
-            messages, tool_name="get_concept_hot", result="光模块热度排名第3", tool_call_id="c1"
-        )
-        mb.append_tool_result(
-            messages, tool_name="get_market_breadth", result="上涨家数占比 55%", tool_call_id="c2"
-        )
+        mb.append_tool_result(messages, tool_name="get_concept_hot", result="光模块热度排名第3", tool_call_id="c1")
+        mb.append_tool_result(messages, tool_name="get_market_breadth", result="上涨家数占比 55%", tool_call_id="c2")
 
         assert len(messages) == 3
         # 初始: [HumanMessage(user_message)]
@@ -241,9 +235,7 @@ class TestBackgroundKnowledgeFormatting:
         # 找 user message 的位置
         user_indices = [i for i, m in enumerate(messages) if "分析中际旭创" in m.content]
         # 找 background message 的位置
-        bg_indices = [
-            i for i, m in enumerate(messages) if "background" in m.content.lower()
-        ]
+        bg_indices = [i for i, m in enumerate(messages) if "background" in m.content.lower()]
 
         if user_indices and bg_indices:
             # Background 应在 User 之前

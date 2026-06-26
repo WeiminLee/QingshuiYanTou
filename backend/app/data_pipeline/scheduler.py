@@ -342,8 +342,12 @@ async def _run_news_job() -> None:
 
     service = get_news_service()
     result = await service.fetch_and_save()
-    logger.info("[news_sync] 同步结果: fetched=%d inserted=%d skipped=%d",
-                result.get("fetched", 0), result.get("inserted", 0), result.get("skipped", 0))
+    logger.info(
+        "[news_sync] 同步结果: fetched=%d inserted=%d skipped=%d",
+        result.get("fetched", 0),
+        result.get("inserted", 0),
+        result.get("skipped", 0),
+    )
 
 
 async def _run_pdf_rotation_job() -> None:

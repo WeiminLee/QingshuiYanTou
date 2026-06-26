@@ -4,15 +4,17 @@ DataSourceClient - 数据源客户端
 封装 akshare + baostock 数据源，提供统一的数据获取接口。
 迁移自 data_access_mvp/src/core/data_source.py
 """
-import random
-import time
+
 import logging
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any
 
 import akshare as ak
 import baostock as bs
 import pandas as pd
+
+# 修复上交所互动易 IPv6 超时：强制 sseinfo.com 走 IPv4
+import app.data_pipeline.ipv4_patch  # noqa: F401 — side-effect import
 
 logger = logging.getLogger(__name__)
 
@@ -127,9 +129,9 @@ class DataSourceClient:
 
     def get_reports(
         self,
-        trade_date: Optional[str] = None,
-        start_date: Optional[str] = None,
-        end_date: Optional[str] = None,
+        trade_date: str | None = None,
+        start_date: str | None = None,
+        end_date: str | None = None,
         limit: int = 5000,
     ) -> list[dict[str, Any]]:
         """获取券商研报数据（akshare）"""
@@ -399,21 +401,23 @@ class DataSourceClient:
             records: list[dict[str, Any]] = []
             while rs.error_code == "0" and rs.next():
                 row = rs.get_row_data()
-                records.append({
-                    "date": row[0],
-                    "code": row[1],
-                    "open": row[2],
-                    "high": row[3],
-                    "low": row[4],
-                    "close": row[5],
-                    "preclose": row[6],
-                    "volume": row[7],
-                    "amount": row[8],
-                    "turn": row[9],
-                    "pctChg": row[10],
-                    "tradestatus": row[11],
-                    "isST": row[12],
-                })
+                records.append(
+                    {
+                        "date": row[0],
+                        "code": row[1],
+                        "open": row[2],
+                        "high": row[3],
+                        "low": row[4],
+                        "close": row[5],
+                        "preclose": row[6],
+                        "volume": row[7],
+                        "amount": row[8],
+                        "turn": row[9],
+                        "pctChg": row[10],
+                        "tradestatus": row[11],
+                        "isST": row[12],
+                    }
+                )
             if rs.error_code != "0":
                 message = f"baostock {ts_code} 非零返回: {rs.error_code} {rs.error_msg}"
                 if raise_on_error:
@@ -435,7 +439,7 @@ class DataSourceClient:
         self,
         ts_code: str,
         start_date: str = "2010-01-01",
-        end_date: Optional[str] = None,
+        end_date: str | None = None,
     ) -> dict[str, float]:
         """
         获取股票复权因子，返回 {date: foreAdjustFactor} 映射（按日期升序）。

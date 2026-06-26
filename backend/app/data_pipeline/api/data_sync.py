@@ -8,20 +8,18 @@ DataSyncAPI - 数据同步 API
 
 所有任务均为异步触发，返回任务ID供后续查询。
 """
+
 from __future__ import annotations
 
-import asyncio
 import logging
 import uuid
 from datetime import datetime, timedelta
-from typing import Any, Optional
+from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from app.data_pipeline.fetcher import DataFetcher
-from app.data_pipeline.data_source import DataSourceClient
-from app.data_pipeline.rate_limiter import get_akshare_limiter
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["数据同步"])
@@ -29,18 +27,20 @@ router = APIRouter(tags=["数据同步"])
 
 class SyncResponse(BaseModel):
     """同步任务响应"""
+
     task_id: str = Field(..., description="任务ID")
     status: str = Field(..., description="状态: pending/running/completed/failed")
     message: str = Field(..., description="状态消息")
-    details: Optional[dict[str, Any]] = Field(default=None, description="详细结果")
+    details: dict[str, Any] | None = Field(default=None, description="详细结果")
 
 
 # ── K线同步 ──────────────────────────────────────────
 
+
 @router.post("/kline/stocks", response_model=SyncResponse)
 async def sync_all_stocks_kline(
-    start_date: Optional[str] = Query(default=None, description="开始日期 YYYYMMDD，如 20260601"),
-    end_date: Optional[str] = Query(default=None, description="结束日期 YYYYMMDD，如 20260615"),
+    start_date: str | None = Query(default=None, description="开始日期 YYYYMMDD，如 20260601"),
+    end_date: str | None = Query(default=None, description="结束日期 YYYYMMDD，如 20260615"),
     background_tasks: BackgroundTasks = None,
 ) -> SyncResponse:
     """
@@ -78,8 +78,8 @@ async def sync_all_stocks_kline(
 @router.post("/kline/stock/{ts_code}", response_model=SyncResponse)
 async def sync_single_stock_kline(
     ts_code: str,
-    start_date: Optional[str] = Query(default=None, description="开始日期 YYYYMMDD"),
-    end_date: Optional[str] = Query(default=None, description="结束日期 YYYYMMDD"),
+    start_date: str | None = Query(default=None, description="开始日期 YYYYMMDD"),
+    end_date: str | None = Query(default=None, description="结束日期 YYYYMMDD"),
 ) -> SyncResponse:
     """
     同步单只股票K线数据（baostock）
@@ -114,12 +114,12 @@ async def sync_single_stock_kline(
 
 @router.post("/kline/indices", response_model=SyncResponse)
 async def sync_index_kline(
-    index_codes: Optional[list[str]] = Query(
+    index_codes: list[str] | None = Query(
         default=None,
         description="指数代码列表，如 ['sh.000001','sz.399001']",
     ),
-    start_date: Optional[str] = Query(default=None, description="开始日期 YYYYMMDD"),
-    end_date: Optional[str] = Query(default=None, description="结束日期 YYYYMMDD"),
+    start_date: str | None = Query(default=None, description="开始日期 YYYYMMDD"),
+    end_date: str | None = Query(default=None, description="结束日期 YYYYMMDD"),
 ) -> SyncResponse:
     """
     同步指数K线数据（baostock）
@@ -175,10 +175,11 @@ async def sync_index_kline(
 
 # ── 公告同步 ──────────────────────────────────────────
 
+
 @router.post("/announcements", response_model=SyncResponse)
 async def sync_announcements(
-    ann_date: Optional[str] = Query(default=None, description="日期 YYYYMMDD，默认为昨天"),
-    ts_code: Optional[str] = Query(default=None, description="股票代码，为空则查全市场"),
+    ann_date: str | None = Query(default=None, description="日期 YYYYMMDD，默认为昨天"),
+    ts_code: str | None = Query(default=None, description="股票代码，为空则查全市场"),
 ) -> SyncResponse:
     """
     同步巨潮资讯公告数据（cninfo）
@@ -212,7 +213,7 @@ async def sync_announcements(
 async def sync_announcements_history(
     start_date: str = Query(..., description="开始日期 YYYYMMDD"),
     end_date: str = Query(..., description="结束日期 YYYYMMDD"),
-    ts_code: Optional[str] = Query(default=None, description="股票代码，为空则查全市场"),
+    ts_code: str | None = Query(default=None, description="股票代码，为空则查全市场"),
 ) -> SyncResponse:
     """
     批量同步历史公告（巨潮 cninfo）
@@ -249,9 +250,10 @@ async def sync_announcements_history(
 
 # ── 互动易同步 ──────────────────────────────────────────
 
+
 @router.post("/irm", response_model=SyncResponse)
 async def sync_irm(
-    ts_codes: Optional[list[str]] = Query(
+    ts_codes: list[str] | None = Query(
         default=None,
         description="股票代码列表，为空则同步全市场",
     ),
@@ -325,6 +327,7 @@ async def sync_single_irm(
 
 # ── 全量同步 ──────────────────────────────────────────
 
+
 @router.post("/all", response_model=SyncResponse)
 async def sync_all_data(
     kline_days: int = Query(default=30, ge=1, le=365, description="K线回填天数"),
@@ -379,12 +382,13 @@ async def sync_all_data(
 
 # ── minishare 备选通道 ──────────────────────────────────
 
+
 @router.post("/minishare/reports", response_model=SyncResponse)
 async def sync_minishare_reports(
-    trade_date: Optional[str] = Query(default=None, description="研报日期 YYYYMMDD，默认为昨天"),
-    ts_code: Optional[str] = Query(default=None, description="股票代码，如 600519.SH"),
-    start_date: Optional[str] = Query(default=None, description="起始日期 YYYYMMDD（配合 ts_code 使用）"),
-    end_date: Optional[str] = Query(default=None, description="结束日期 YYYYMMDD（配合 ts_code 使用）"),
+    trade_date: str | None = Query(default=None, description="研报日期 YYYYMMDD，默认为昨天"),
+    ts_code: str | None = Query(default=None, description="股票代码，如 600519.SH"),
+    start_date: str | None = Query(default=None, description="起始日期 YYYYMMDD（配合 ts_code 使用）"),
+    end_date: str | None = Query(default=None, description="结束日期 YYYYMMDD（配合 ts_code 使用）"),
 ) -> SyncResponse:
     """
     从 minishare 获取券商研报（备选通道）
@@ -421,7 +425,7 @@ async def sync_minishare_reports(
 
 @router.post("/minishare/irm", response_model=SyncResponse)
 async def sync_minishare_irm(
-    trade_date: Optional[str] = Query(default=None, description="日期 YYYYMMDD，默认为昨天"),
+    trade_date: str | None = Query(default=None, description="日期 YYYYMMDD，默认为昨天"),
 ) -> SyncResponse:
     """
     从 minishare 获取互动易 Q&A（备选通道）
@@ -452,6 +456,7 @@ async def sync_minishare_irm(
 
 
 # ── minishare 历史批量同步 ────────────────────────────────
+
 
 @router.post("/minishare/reports/history", response_model=SyncResponse)
 async def sync_minishare_reports_history(
@@ -551,12 +556,13 @@ async def sync_minishare_irm_history(
 
 # ── minishare 公告同步 ──────────────────────────────────
 
+
 @router.post("/minishare/announcements", response_model=SyncResponse)
 async def sync_minishare_announcements(
-    ann_date: Optional[str] = Query(default=None, description="公告日期 YYYYMMDD，默认为昨天"),
-    ts_code: Optional[str] = Query(default=None, description="股票代码，如 600519.SH"),
-    start_date: Optional[str] = Query(default=None, description="起始日期 YYYYMMDD（配合 ts_code 使用）"),
-    end_date: Optional[str] = Query(default=None, description="结束日期 YYYYMMDD（配合 ts_code 使用）"),
+    ann_date: str | None = Query(default=None, description="公告日期 YYYYMMDD，默认为昨天"),
+    ts_code: str | None = Query(default=None, description="股票代码，如 600519.SH"),
+    start_date: str | None = Query(default=None, description="起始日期 YYYYMMDD（配合 ts_code 使用）"),
+    end_date: str | None = Query(default=None, description="结束日期 YYYYMMDD（配合 ts_code 使用）"),
 ) -> SyncResponse:
     """
     从 minishare 获取公告数据（备选通道）
@@ -647,6 +653,7 @@ async def get_minishare_progress() -> dict:
     返回研报和互动易历史同步的 checkpoint 信息
     """
     from sqlalchemy import text
+
     from app.core.database import engine
 
     async with engine.connect() as conn:
@@ -680,13 +687,15 @@ async def get_minishare_task_status(run_id: str) -> dict:
         任务状态、当前进度（日期/总数）、入库统计
     """
     from sqlalchemy import text
+
     from app.core.database import engine
 
     async with engine.connect() as conn:
         row = (
-            await conn.execute(
-                text(
-                    """
+            (
+                await conn.execute(
+                    text(
+                        """
                     SELECT run_id, source, task_name, scope,
                            status, started_at, completed_at,
                            from_watermark, to_watermark,
@@ -699,10 +708,13 @@ async def get_minishare_task_status(run_id: str) -> dict:
                     WHERE run_id::text = :run_id
                     LIMIT 1
                     """
-                ),
-                {"run_id": run_id},
+                    ),
+                    {"run_id": run_id},
+                )
             )
-        ).mappings().first()
+            .mappings()
+            .first()
+        )
 
     if not row:
         return {
@@ -771,6 +783,7 @@ def _parse_date(s: str):
 
 # ── 数据状态查询 ──────────────────────────────────────────
 
+
 @router.get("/status", response_model=dict)
 async def get_sync_status() -> dict:
     """
@@ -779,26 +792,21 @@ async def get_sync_status() -> dict:
     返回各数据源的最新同步时间和记录数
     """
     from sqlalchemy import text
+
     from app.core.database import engine
 
     try:
         async with engine.connect() as conn:
             # 股票数量
-            stock_count = await conn.execute(
-                text("SELECT COUNT(*) FROM stocks")
-            )
+            stock_count = await conn.execute(text("SELECT COUNT(*) FROM stocks"))
             stock_count = stock_count.scalar() or 0
 
             # K线最新日期
-            kline_latest = await conn.execute(
-                text("SELECT MAX(trade_date) FROM daily_data")
-            )
+            kline_latest = await conn.execute(text("SELECT MAX(trade_date) FROM daily_data"))
             kline_latest = kline_latest.scalar()
 
             # 公告数量和最新日期
-            ann_count = await conn.execute(
-                text("SELECT COUNT(*) FROM announcements WHERE source_type = 'cninfo'")
-            )
+            ann_count = await conn.execute(text("SELECT COUNT(*) FROM announcements WHERE source_type = 'cninfo'"))
             ann_count = ann_count.scalar() or 0
 
             ann_latest = await conn.execute(
@@ -807,9 +815,7 @@ async def get_sync_status() -> dict:
             ann_latest = ann_latest.scalar()
 
             # 互动易数量
-            irm_count = await conn.execute(
-                text("SELECT COUNT(*) FROM announcements WHERE source_type = 'irm'")
-            )
+            irm_count = await conn.execute(text("SELECT COUNT(*) FROM announcements WHERE source_type = 'irm'"))
             irm_count = irm_count.scalar() or 0
 
         return {

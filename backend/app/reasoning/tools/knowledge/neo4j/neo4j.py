@@ -4,6 +4,7 @@ Neo4j Graph Tools — 云端 API 版
 知识图谱查询工具集，数据来源：Neo4j 图数据库。
 包含：neo4j_traverse / neo4j_entity_info / neo4j_path / neo4j_industry_state
 """
+
 import asyncio
 import logging
 from typing import Annotated
@@ -21,10 +22,7 @@ def neo4j_traverse(
     entity: Annotated[str, "实体名称（公司名、产品名等）"],
     hops: Annotated[int, "遍历跳数：1=直接关系，2=传导链。默认1。"] = 1,
     rel_type: Annotated[str, "关系类型过滤（如 RELATES / SUPPLIES_TO）。不填则返回所有关系。"] = "",
-    query_mode: Annotated[
-        str,
-        "查询模式：auto=自动检测，typed=仅查类型边，relates=仅查RELATES边。默认auto。"
-    ] = "auto",
+    query_mode: Annotated[str, "查询模式：auto=自动检测，typed=仅查类型边，relates=仅查RELATES边。默认auto。"] = "auto",
     min_weight: Annotated[float, "RELATES边最小权重（0-1）。默认0。"] = 0.0,
 ) -> str:
     """
@@ -45,19 +43,16 @@ def neo4j_traverse(
         # 无运行中的事件循环，创建新的
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-        result = loop.run_until_complete(
-            _atraverse_impl(entity, hops, rel_type, query_mode, min_weight)
-        )
+        result = loop.run_until_complete(_atraverse_impl(entity, hops, rel_type, query_mode, min_weight))
         loop.close()
         return result
 
     # 在已有事件循环中，使用 run_in_executor 避免阻塞
     import concurrent.futures
+
     with concurrent.futures.ThreadPoolExecutor() as pool:
         future = pool.submit(
-            lambda: loop.run_until_complete(
-                _atraverse_impl(entity, hops, rel_type, query_mode, min_weight)
-            )
+            lambda: loop.run_until_complete(_atraverse_impl(entity, hops, rel_type, query_mode, min_weight))
         )
         return future.result()
 
@@ -72,6 +67,7 @@ async def _atraverse_impl(
     """V2 Schema 兼容的关系遍历实现。"""
     try:
         from app.core.neo4j_client import get_async_driver
+
         driver = await get_async_driver()
         async with driver.session() as session:
             if hops >= 2:
@@ -182,10 +178,9 @@ def neo4j_entity_info(
         return result
 
     import concurrent.futures
+
     with concurrent.futures.ThreadPoolExecutor() as pool:
-        future = pool.submit(
-            lambda: loop.run_until_complete(_aentity_info_impl(entity))
-        )
+        future = pool.submit(lambda: loop.run_until_complete(_aentity_info_impl(entity)))
         return future.result()
 
 
@@ -193,6 +188,7 @@ async def _aentity_info_impl(entity: str) -> str:
     """查询实体详细属性。"""
     try:
         from app.core.neo4j_client import get_async_driver
+
         driver = await get_async_driver()
         async with driver.session() as session:
             query = """
@@ -236,10 +232,9 @@ def neo4j_path(
         return result
 
     import concurrent.futures
+
     with concurrent.futures.ThreadPoolExecutor() as pool:
-        future = pool.submit(
-            lambda: loop.run_until_complete(_apath_impl(start, end, max_hops))
-        )
+        future = pool.submit(lambda: loop.run_until_complete(_apath_impl(start, end, max_hops)))
         return future.result()
 
 
@@ -247,6 +242,7 @@ async def _apath_impl(start: str, end: str, max_hops: int) -> str:
     """查询实体间传导路径。"""
     try:
         from app.core.neo4j_client import get_async_driver
+
         driver = await get_async_driver()
         async with driver.session() as session:
             # 使用 shortestPath 查找最短路径
@@ -291,10 +287,9 @@ def neo4j_industry_state(
         return result
 
     import concurrent.futures
+
     with concurrent.futures.ThreadPoolExecutor() as pool:
-        future = pool.submit(
-            lambda: loop.run_until_complete(_aindustry_state_impl(industry))
-        )
+        future = pool.submit(lambda: loop.run_until_complete(_aindustry_state_impl(industry)))
         return future.result()
 
 
@@ -302,6 +297,7 @@ async def _aindustry_state_impl(industry: str) -> str:
     """查询行业状态分布。"""
     try:
         from app.core.neo4j_client import get_async_driver
+
         driver = await get_async_driver()
         async with driver.session() as session:
             query = """
@@ -327,7 +323,7 @@ async def _aindustry_state_impl(industry: str) -> str:
 def _format(entity: str, hops: int, data: list) -> str:
     if not data:
         return f"实体「{entity}」在知识图谱中暂无记录。"
-    lines = [f"## 知识图谱查询结果\n"]
+    lines = ["## 知识图谱查询结果\n"]
     if hops == 1:
         lines.append(f"实体「{entity}」的直接关系（{len(data)} 条）：\n")
         for r in data:
@@ -338,19 +334,13 @@ def _format(entity: str, hops: int, data: list) -> str:
             if rel_type == "RELATES":
                 # V2 schema RELATES 边
                 rel_text = r.get("rel_text", "")
-                lines.append(
-                    f"- **{r.get('src', '')}** --[RELATES{weight_str}]--> "
-                    f"**{r.get('tgt', '')}**"
-                )
+                lines.append(f"- **{r.get('src', '')}** --[RELATES{weight_str}]--> **{r.get('tgt', '')}**")
                 if rel_text:
                     lines.append(f"  {rel_text[:100]}")
             else:
                 # Typed 边
                 description = r.get("description", "")
-                lines.append(
-                    f"- **{r.get('src', '')}** --[{rel_type}]--> "
-                    f"**{r.get('tgt', '')}**"
-                )
+                lines.append(f"- **{r.get('src', '')}** --[{rel_type}]--> **{r.get('tgt', '')}**")
                 if description:
                     lines.append(f"  {description[:100]}")
     else:
@@ -402,15 +392,11 @@ def _format_path(data: list) -> str:
         hops = r.get("hops", 0)
         lines.append(f"路径（{hops} 跳）：")
         for i, node in enumerate(path_nodes):
-            lines.append(f"  {i+1}. {node}")
+            lines.append(f"  {i + 1}. {node}")
             if i < len(edges):
                 edge = edges[i]
                 weight = edge.get("weight", 1.0)
-                lines.append(
-                    f"     ─[{edge.get('type', 'RELATES')}]─ "
-                    f"{edge.get('text', '')} "
-                    f"(w={weight:.2f})"
-                )
+                lines.append(f"     ─[{edge.get('type', 'RELATES')}]─ {edge.get('text', '')} (w={weight:.2f})")
         lines.append("")
     return "\n".join(lines).strip()
 

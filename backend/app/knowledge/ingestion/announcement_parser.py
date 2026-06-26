@@ -3,29 +3,25 @@
 公告 PDF 来自 cninfo（无频率限制），通过 pymupdf 解析正文，
 按中文序号标题（一、二、三）切分为章节。
 """
+
 from __future__ import annotations
 
 import logging
 import re
-from typing import Optional
 
 import fitz  # pymupdf
 import requests
 
 logger = logging.getLogger(__name__)
 
-HTTP_HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-}
+HTTP_HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
 
 # 匹配 "一、标题" 或 "一.标题" 或 "一 标题" 格式的章节标题行
 # 标题长度 2-50 字符，避免匹配页码中的单个数字
-_HEADING_PATTERN = re.compile(
-    r'(?:^|\n)\s*([一二三四五六七八九十]+)[、，。．\.\s]+([^\n]{2,50})\s*\n'
-)
+_HEADING_PATTERN = re.compile(r"(?:^|\n)\s*([一二三四五六七八九十]+)[、，。．\.\s]+([^\n]{2,50})\s*\n")
 
 
-def download_announcement_pdf(url: str, timeout: int = 15) -> Optional[bytes]:
+def download_announcement_pdf(url: str, timeout: int = 15) -> bytes | None:
     """从 cninfo 下载公告 PDF。
 
     Returns:
@@ -89,7 +85,7 @@ def split_by_chapters(text: str) -> list[dict]:
 
     # Preamble：第一个标题之前的内容（如公司名称、公告编号等元信息）
     if matches[0].start() > 0:
-        preamble = text[:matches[0].start()].strip()
+        preamble = text[: matches[0].start()].strip()
         if preamble:
             sections.append({"heading": "", "body": preamble})
 

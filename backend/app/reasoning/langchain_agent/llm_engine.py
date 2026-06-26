@@ -11,6 +11,7 @@ LLMEngine — 跨 Provider 容错引擎
 - LLM_FALLBACK_BASE_URL / LLM_FALLBACK_API_KEY / LLM_FALLBACK_MODEL — fallback provider 1
 - LLM_FALLBACK2_BASE_URL / LLM_FALLBACK2_API_KEY / LLM_FALLBACK2_MODEL — fallback provider 2
 """
+
 from __future__ import annotations
 
 import os
@@ -20,13 +21,13 @@ from typing import Any
 
 from langchain_openai import ChatOpenAI
 
-
 # ── 配置模型 ────────────────────────────────────────────────────────
 
 
 @dataclass
 class LLMProviderConfig:
     """单个 LLM Provider 配置"""
+
     name: str
     base_url: str
     api_key: str
@@ -38,10 +39,11 @@ class LLMProviderConfig:
 @dataclass
 class LLMEngineConfig:
     """LLM Engine 配置，包含按优先级排序的 provider 链"""
+
     providers: list[LLMProviderConfig] = field(default_factory=list)
 
     @classmethod
-    def from_env(cls) -> "LLMEngineConfig":
+    def from_env(cls) -> LLMEngineConfig:
         """
         从 app.config.settings + 环境变量构建 provider 链。
 
@@ -57,8 +59,7 @@ class LLMEngineConfig:
 
         if not base_url or not api_key:
             raise ValueError(
-                "Missing required configuration: LLM_BASE_URL/llm_base_url and "
-                "LLM_API_KEY/llm_api_key must be set"
+                "Missing required configuration: LLM_BASE_URL/llm_base_url and LLM_API_KEY/llm_api_key must be set"
             )
 
         providers = [
@@ -75,24 +76,28 @@ class LLMEngineConfig:
         fb1_key = os.getenv("LLM_FALLBACK_API_KEY", "").strip()
         fb1_model = os.getenv("LLM_FALLBACK_MODEL", "").strip()
         if fb1_url and fb1_key:
-            providers.append(LLMProviderConfig(
-                name="fallback1",
-                base_url=fb1_url,
-                api_key=fb1_key,
-                model=fb1_model or model,
-            ))
+            providers.append(
+                LLMProviderConfig(
+                    name="fallback1",
+                    base_url=fb1_url,
+                    api_key=fb1_key,
+                    model=fb1_model or model,
+                )
+            )
 
         # Fallback provider 2
         fb2_url = os.getenv("LLM_FALLBACK2_BASE_URL", "").strip()
         fb2_key = os.getenv("LLM_FALLBACK2_API_KEY", "").strip()
         fb2_model = os.getenv("LLM_FALLBACK2_MODEL", "").strip()
         if fb2_url and fb2_key:
-            providers.append(LLMProviderConfig(
-                name="fallback2",
-                base_url=fb2_url,
-                api_key=fb2_key,
-                model=fb2_model or model,
-            ))
+            providers.append(
+                LLMProviderConfig(
+                    name="fallback2",
+                    base_url=fb2_url,
+                    api_key=fb2_key,
+                    model=fb2_model or model,
+                )
+            )
 
         return cls(providers=providers)
 
@@ -112,6 +117,7 @@ class CircuitBreaker:
 
     Bug #1 Fix: 每个 tenant_id 独立计数，彻底隔离多租户之间的熔断影响。
     """
+
     failure_threshold: int = 3
     recovery_timeout: float = 60.0
 
@@ -164,6 +170,7 @@ class CircuitBreaker:
 @dataclass
 class LLMResult:
     """LLM 调用结果"""
+
     result: Any
     provider: str
     fallback_used: bool
@@ -171,10 +178,9 @@ class LLMResult:
     usage: dict | None = None  # Phase G: token 使用统计 {prompt_tokens, completion_tokens, total_tokens}
 
 
-
-
 class LLMError(Exception):
     """所有 provider 都失败时的错误"""
+
     def __init__(self, message: str, *, errors: list[str] | None = None):
         super().__init__(message)
         self.errors = errors or []
@@ -219,7 +225,7 @@ class LLMEngine:
             return None
         return self._get_model(self.config.providers[0])
 
-    def bind_tools(self, tools: list) -> "LLMEngine":
+    def bind_tools(self, tools: list) -> LLMEngine:
         """
         为所有 provider 绑定工具。
 
@@ -293,7 +299,7 @@ class LLMEngine:
                     error=None,
                     usage=usage,
                 )
-            except Exception as e:  # noqa: BLE-001
+            except Exception as e:
                 errors.append(f"{provider.name}: {e}")
                 if i == 0:
                     self._breaker.record_failure(tenant_id)
@@ -363,7 +369,7 @@ class LLMEngine:
                         )
                     self._breaker.record_success(tenant_id)
                     return
-            except Exception as e:  # noqa: BLE-001
+            except Exception as e:
                 errors.append(f"{provider.name}: {e}")
                 if i == 0:
                     self._breaker.record_failure(tenant_id)
@@ -388,24 +394,24 @@ class LLMEngine:
         同步包装器，兼容同步调用场景。
         """
         import asyncio
+
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:
             loop = None
         if loop is not None:
             raise RuntimeError(
-                "LLMEngine.invoke() cannot be called from an async context — "
-                "use await engine.ainvoke(messages) instead"
+                "LLMEngine.invoke() cannot be called from an async context — use await engine.ainvoke(messages) instead"
             )
         return asyncio.run(self.ainvoke(messages))
 
 
 # ── 全局单例（进程级，多处共享同一 CircuitBreaker 状态）───────────────
 
-_global_engine: "LLMEngine | None" = None
+_global_engine: LLMEngine | None = None
 
 
-def get_global_engine() -> "LLMEngine":
+def get_global_engine() -> LLMEngine:
     """
     获取或创建全局 LLMEngine 单例（进程级）。
 

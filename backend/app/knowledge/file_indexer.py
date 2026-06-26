@@ -9,15 +9,15 @@ KG 文件索引管理器（异步版，motor）
 
 索引 Key：file_path（绝对路径）+ file_hash（SHA256，内容指纹）
 """
+
 from __future__ import annotations
 
 import hashlib
 import logging
 import os
 import re
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Optional
 
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
@@ -38,10 +38,10 @@ _STOCK_CODE_RE = re.compile(r"\((\d{6})\)")
 
 
 def _utc_now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
-def _parse_ts_code_from_filename(filename: str) -> Optional[str]:
+def _parse_ts_code_from_filename(filename: str) -> str | None:
     """从文件名解析 ts_code"""
     m = _STOCK_CODE_RE.search(filename)
     if m:
@@ -63,9 +63,7 @@ def _compute_file_hash(file_path: Path) -> str:
     except Exception as e:
         logger.warning("无法计算 hash: %s: %s", file_path, e)
         stat = file_path.stat()
-        return hashlib.sha256(
-            f"{file_path}:{stat.st_mtime}:{stat.st_size}".encode()
-        ).hexdigest()
+        return hashlib.sha256(f"{file_path}:{stat.st_mtime}:{stat.st_size}".encode()).hexdigest()
 
 
 class FileIndexer:
@@ -132,25 +130,27 @@ class FileIndexer:
                     # 新文件
                     file_hash = _compute_file_hash(file_path)
                     ts_code = _parse_ts_code_from_filename(file_path.name)
-                    await self._col.insert_one({
-                        "file_path": str(file_path),
-                        "file_name": file_path.name,
-                        "file_type": ext[1:],
-                        "file_size": file_size,
-                        "mtime": mtime,
-                        "file_hash": file_hash,
-                        "status": "pending",
-                        "ts_code": ts_code,
-                        "entities_count": 0,
-                        "relations_count": 0,
-                        "extracted_at": None,
-                        "error": None,
-                        "retry_count": 0,
-                        "schema_version": CURRENT_KG_SCHEMA_VERSION,
-                        "parser_version": CURRENT_KG_PARSER_VERSION,
-                        "created_at": now,
-                        "updated_at": now,
-                    })
+                    await self._col.insert_one(
+                        {
+                            "file_path": str(file_path),
+                            "file_name": file_path.name,
+                            "file_type": ext[1:],
+                            "file_size": file_size,
+                            "mtime": mtime,
+                            "file_hash": file_hash,
+                            "status": "pending",
+                            "ts_code": ts_code,
+                            "entities_count": 0,
+                            "relations_count": 0,
+                            "extracted_at": None,
+                            "error": None,
+                            "retry_count": 0,
+                            "schema_version": CURRENT_KG_SCHEMA_VERSION,
+                            "parser_version": CURRENT_KG_PARSER_VERSION,
+                            "created_at": now,
+                            "updated_at": now,
+                        }
+                    )
                     result["new"].append(file_path.name)
                     logger.info("新文件: %s", file_path.name)
 
@@ -159,26 +159,28 @@ class FileIndexer:
                     if file_hash != doc["file_hash"]:
                         await self._col.update_one(
                             {"file_path": str(file_path)},
-                            {"$set": {
-                                "file_hash": file_hash,
-                                "file_size": file_size,
-                                "mtime": mtime,
-                                "status": "pending",
-                                "entities_count": 0,
-                                "relations_count": 0,
-                                "extracted_at": None,
-                                "error": None,
-                                "schema_version": CURRENT_KG_SCHEMA_VERSION,
-                                "parser_version": CURRENT_KG_PARSER_VERSION,
-                                "updated_at": now,
-                            }}
+                            {
+                                "$set": {
+                                    "file_hash": file_hash,
+                                    "file_size": file_size,
+                                    "mtime": mtime,
+                                    "status": "pending",
+                                    "entities_count": 0,
+                                    "relations_count": 0,
+                                    "extracted_at": None,
+                                    "error": None,
+                                    "schema_version": CURRENT_KG_SCHEMA_VERSION,
+                                    "parser_version": CURRENT_KG_PARSER_VERSION,
+                                    "updated_at": now,
+                                }
+                            },
                         )
                         result["changed"].append(file_path.name)
                         logger.info("内容变化: %s", file_path.name)
                     else:
                         await self._col.update_one(
                             {"file_path": str(file_path)},
-                            {"$set": {"mtime": mtime, "updated_at": now}}
+                            {"$set": {"mtime": mtime, "updated_at": now}},
                         )
                         result["unchanged"] += 1
                 else:
@@ -189,7 +191,7 @@ class FileIndexer:
             if not Path(doc["file_path"]).exists():
                 await self._col.update_one(
                     {"file_path": doc["file_path"]},
-                    {"$set": {"status": "skipped", "updated_at": now}}
+                    {"$set": {"status": "skipped", "updated_at": now}},
                 )
                 result["removed"] += 1
                 logger.info("已删除: %s", doc["file_path"])
@@ -201,7 +203,7 @@ class FileIndexer:
     async def get_pending_files(
         self,
         limit: int = 10,
-        exclude_types: Optional[set[str]] = None,
+        exclude_types: set[str] | None = None,
     ) -> list[dict]:
         """获取待抽取文件列表"""
         query: dict = {"status": "pending"}
@@ -214,7 +216,7 @@ class FileIndexer:
             files.append(doc)
         return files
 
-    async def get_file_info(self, file_path: str) -> Optional[dict]:
+    async def get_file_info(self, file_path: str) -> dict | None:
         doc = await self._col.find_one({"file_path": file_path}, {"_id": 0})
         return doc
 
@@ -257,12 +259,14 @@ class FileIndexer:
             return 0
         result = await self._col.update_many(
             {"file_path": {"$in": file_paths}},
-            {"$set": {
-                "status": "extracting",
-                "schema_version": CURRENT_KG_SCHEMA_VERSION,
-                "parser_version": CURRENT_KG_PARSER_VERSION,
-                "updated_at": _utc_now(),
-            }},
+            {
+                "$set": {
+                    "status": "extracting",
+                    "schema_version": CURRENT_KG_SCHEMA_VERSION,
+                    "parser_version": CURRENT_KG_PARSER_VERSION,
+                    "updated_at": _utc_now(),
+                }
+            },
         )
         return int(result.modified_count)
 
@@ -288,10 +292,7 @@ class FileIndexer:
             update["source_type"] = source_type
         if doc_type:
             update["doc_type"] = doc_type
-        await self._col.update_one(
-            {"file_path": file_path},
-            {"$set": update}
-        )
+        await self._col.update_one({"file_path": file_path}, {"$set": update})
 
     async def mark_failed(
         self,
@@ -299,9 +300,7 @@ class FileIndexer:
         error: str,
         max_retries: int = 3,
     ) -> None:
-        doc = await self._col.find_one(
-            {"file_path": file_path}, {"retry_count": 1}
-        )
+        doc = await self._col.find_one({"file_path": file_path}, {"retry_count": 1})
         retry_count = (doc.get("retry_count") or 0) + 1
         if retry_count >= max_retries:
             new_status = "failed"
@@ -312,34 +311,42 @@ class FileIndexer:
 
         await self._col.update_one(
             {"file_path": file_path},
-            {"$set": {
-                "status": new_status,
-                "error": error[:500],
-                "last_error": error[:1000],
-                "retry_count": retry_count,
-                "updated_at": _utc_now(),
-            }}
+            {
+                "$set": {
+                    "status": new_status,
+                    "error": error[:500],
+                    "last_error": error[:1000],
+                    "retry_count": retry_count,
+                    "updated_at": _utc_now(),
+                }
+            },
         )
 
     async def find_files_older_than(self, cutoff_date: datetime, limit: int = 1000) -> list[dict]:
-        cursor = self._col.find(
-            {
-                "created_at": {"$lt": cutoff_date},
-                "file_path": {"$nin": [None, ""]},
-            },
-            {"_id": 0},
-        ).sort("created_at", 1).limit(limit)
+        cursor = (
+            self._col.find(
+                {
+                    "created_at": {"$lt": cutoff_date},
+                    "file_path": {"$nin": [None, ""]},
+                },
+                {"_id": 0},
+            )
+            .sort("created_at", 1)
+            .limit(limit)
+        )
         return [doc async for doc in cursor]
 
     async def clear_file_path(self, cninfo_id: str) -> bool:
         result = await self._col.update_one(
             {"cninfo_id": cninfo_id},
-            {"$set": {
-                "file_path": None,
-                "status": "rotated",
-                "rotated_at": _utc_now(),
-                "updated_at": _utc_now(),
-            }},
+            {
+                "$set": {
+                    "file_path": None,
+                    "status": "rotated",
+                    "rotated_at": _utc_now(),
+                    "updated_at": _utc_now(),
+                }
+            },
         )
         return bool(result.modified_count)
 
@@ -351,11 +358,13 @@ class FileIndexer:
         """
         result = await self._col.update_many(
             {"status": "extracting"},
-            {"$set": {
-                "status": "pending",
-                "error": "进程中断，上次抽取未完成",
-                "updated_at": _utc_now(),
-            }}
+            {
+                "$set": {
+                    "status": "pending",
+                    "error": "进程中断，上次抽取未完成",
+                    "updated_at": _utc_now(),
+                }
+            },
         )
         return result.modified_count
 
@@ -363,16 +372,12 @@ class FileIndexer:
 
     async def get_stats(self) -> dict:
         """获取索引统计"""
-        pipeline = [
-            {"$group": {"_id": "$status", "count": {"$sum": 1}}}
-        ]
+        pipeline = [{"$group": {"_id": "$status", "count": {"$sum": 1}}}]
         status_counts = {}
         async for r in self._col.aggregate(pipeline):
             status_counts[r["_id"]] = r["count"]
 
-        total_pipeline = [
-            {"$group": {"_id": None, "total": {"$sum": "$file_size"}}}
-        ]
+        total_pipeline = [{"$group": {"_id": None, "total": {"$sum": "$file_size"}}}]
         total = 0
         async for r in self._col.aggregate(total_pipeline):
             total = r.get("total", 0)

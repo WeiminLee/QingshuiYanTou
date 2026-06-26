@@ -29,7 +29,11 @@
           失败
         </span>
       </span>
-      <span v-if="toolCall.result" class="expand-arrow" :class="{ 'expand-arrow--expanded': expanded }">
+      <span
+        v-if="toolCall.result"
+        class="expand-arrow"
+        :class="{ 'expand-arrow--expanded': expanded }"
+      >
         <ChevronDown :size="12" :stroke-width="1.6" />
       </span>
     </div>
@@ -52,34 +56,37 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
-import { Check, X, ChevronDown } from 'lucide-vue-next'
-import type { ToolCallItem } from '@/types/chat'
-import { normalizeToolName, getToolIcon, formatDuration, formatToolArgs } from '@/utils/toolHelpers'
+import { ref, computed } from "vue";
+import { Check, X, ChevronDown } from "lucide-vue-next";
+import type { ToolCallItem } from "@/types/chat";
+import {
+  normalizeToolName,
+  getToolIcon,
+  formatDuration,
+  formatToolArgs,
+} from "@/utils/toolHelpers";
 
 const props = defineProps<{
-  toolCall: ToolCallItem
-}>()
+  toolCall: ToolCallItem;
+}>();
 
-const expanded = ref(false)
+const expanded = ref(false);
 
-const toolIcon = computed(() => getToolIcon(props.toolCall.name))
+const toolIcon = computed(() => getToolIcon(props.toolCall.name));
 
-const PREVIEW_MAX_LENGTH = 80
+const PREVIEW_MAX_LENGTH = 80;
 
 const collapsedPreviewText = computed(() => {
-  const preview = props.toolCall.preview
-  if (preview) return preview
-  if (!props.toolCall.result) return ''
-  const result = props.toolCall.result
-  return result.length > PREVIEW_MAX_LENGTH
-    ? result.slice(0, PREVIEW_MAX_LENGTH) + '...'
-    : result
-})
+  const preview = props.toolCall.preview;
+  if (preview) return preview;
+  if (!props.toolCall.result) return "";
+  const result = props.toolCall.result;
+  return result.length > PREVIEW_MAX_LENGTH ? result.slice(0, PREVIEW_MAX_LENGTH) + "..." : result;
+});
 
 function toggleExpand() {
   if (props.toolCall.result) {
-    expanded.value = !expanded.value
+    expanded.value = !expanded.value;
   }
 }
 </script>
@@ -131,7 +138,7 @@ function toggleExpand() {
 .tool-duration {
   font-size: 11px;
   color: var(--status-success);
-  background: rgba(45,158,108,0.08);
+  background: rgba(45, 158, 108, 0.08);
   padding: 1px 6px;
   border-radius: 4px;
   font-family: var(--font-mono);
@@ -162,15 +169,19 @@ function toggleExpand() {
 }
 
 @keyframes shimmer-badge {
-  0%   { background-position: 200% 0; }
-  100% { background-position: -200% 0; }
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
 }
 
 .badge-running {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  background: rgba(59,91,219,0.1);
+  background: rgba(59, 91, 219, 0.1);
   color: var(--ledger-blue);
   padding: 2px 8px;
   border-radius: 4px;
@@ -180,7 +191,7 @@ function toggleExpand() {
   display: inline-block;
   width: 11px;
   height: 11px;
-  border: 1.5px solid rgba(59,91,219,0.3);
+  border: 1.5px solid rgba(59, 91, 219, 0.3);
   border-top-color: var(--ledger-blue);
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
@@ -188,14 +199,16 @@ function toggleExpand() {
 }
 
 @keyframes spin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .badge-done {
   display: inline-flex;
   align-items: center;
   gap: 3px;
-  background: rgba(45,158,108,0.1);
+  background: rgba(45, 158, 108, 0.1);
   color: var(--status-success);
   padding: 2px 8px;
   border-radius: 4px;
@@ -205,7 +218,7 @@ function toggleExpand() {
   display: inline-flex;
   align-items: center;
   gap: 3px;
-  background: rgba(192,57,43,0.1);
+  background: rgba(192, 57, 43, 0.1);
   color: var(--ledger-red);
   padding: 2px 8px;
   border-radius: 4px;

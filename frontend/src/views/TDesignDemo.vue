@@ -18,11 +18,7 @@
     <div class="demo-section">
       <h3>2. Streaming Test (Incremental Update)</h3>
       <t-chat-message avatar="https://tdesign.gtimg.com/site/avatar.jpg" name="AI Assistant">
-        <t-chat-thinking
-          :collapsed="false"
-          status="loading"
-          :content="streamingContent"
-        />
+        <t-chat-thinking :collapsed="false" status="loading" :content="streamingContent" />
       </t-chat-message>
       <button @click="startStreaming">Start Streaming</button>
       <button @click="resetStreaming">Reset</button>
@@ -52,7 +48,8 @@
       <button @click="startRealSSE">Connect to Backend</button>
       <div class="sse-messages">
         <div v-for="msg in messages" :key="msg.id" class="sse-msg">
-          <strong>{{ msg.role }}:</strong> {{ msg.content || msg.thinkingContent ? '[思考中...]' : '' }}
+          <strong>{{ msg.role }}:</strong>
+          {{ msg.content || msg.thinkingContent ? "[思考中...]" : "" }}
         </div>
         <div v-if="isLoading" class="sse-loading">⏳ 等待响应...</div>
       </div>
@@ -61,73 +58,81 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
-import { useChatSession } from '@/composables/useChatSession'
+import { ref } from "vue";
+import { useChatSession } from "@/composables/useChatSession";
 
 // Test 1: Collapse/Expand
-const thinkingCollapsed = ref(false)
-const thinkingStatus = ref('done')
-const thinkingContent = ref('这是一个静态思考内容，用于测试折叠/展开功能。')
+const thinkingCollapsed = ref(false);
+const thinkingStatus = ref("done");
+const thinkingContent = ref("这是一个静态思考内容，用于测试折叠/展开功能。");
 
 function toggleCollapse() {
-  thinkingCollapsed.value = !thinkingCollapsed.value
+  thinkingCollapsed.value = !thinkingCollapsed.value;
 }
 
 // Test 2: Streaming
-const streamingContent = ref('')
-const updateCount = ref(0)
+const streamingContent = ref("");
+const updateCount = ref(0);
 
 async function startStreaming() {
-  streamingContent.value = ''
-  updateCount.value = 0
+  streamingContent.value = "";
+  updateCount.value = 0;
 
   const chunks = [
-    '分析中...',
-    '\n正在检索数据...',
-    '\n发现 3 条相关信息',
-    '\n正在生成回答...',
-    '\n完成！'
-  ]
+    "分析中...",
+    "\n正在检索数据...",
+    "\n发现 3 条相关信息",
+    "\n正在生成回答...",
+    "\n完成！",
+  ];
 
   for (const chunk of chunks) {
-    streamingContent.value += chunk
-    updateCount.value++
-    await new Promise(resolve => setTimeout(resolve, 500))
+    streamingContent.value += chunk;
+    updateCount.value++;
+    await new Promise((resolve) => setTimeout(resolve, 500));
   }
 }
 
 function resetStreaming() {
-  streamingContent.value = ''
-  updateCount.value = 0
+  streamingContent.value = "";
+  updateCount.value = 0;
 }
 
 // Test 3: Actions
 const actions = ref([
-  { label: '光模块', value: 'optical-module' },
-  { label: '服务器', value: 'server' },
-  { label: '芯片', value: 'chip' }
-])
-const selectedAction = ref('')
+  { label: "光模块", value: "optical-module" },
+  { label: "服务器", value: "server" },
+  { label: "芯片", value: "chip" },
+]);
+const selectedAction = ref("");
 
 function addOption() {
-  const newOption = { label: `选项 ${actions.value.length + 1}`, value: `option-${actions.value.length + 1}` }
-  actions.value.push(newOption)
+  const newOption = {
+    label: `选项 ${actions.value.length + 1}`,
+    value: `option-${actions.value.length + 1}`,
+  };
+  actions.value.push(newOption);
 }
 
 function handleAction(action) {
-  selectedAction.value = action.label
+  selectedAction.value = action.label;
 }
 
 // Test 4: Real SSE via useChatSession
-const testQuestion = ref('AI算力链条还能投吗？')
+const testQuestion = ref("AI算力链条还能投吗？");
 
 const {
-  messages, isLoading, error, thinkingCollapsed: thinkingCollapsedSession,
-  sendMessage, stop, reset
-} = useChatSession()
+  messages,
+  isLoading,
+  error,
+  thinkingCollapsed: thinkingCollapsedSession,
+  sendMessage,
+  stop,
+  reset,
+} = useChatSession();
 
 async function startRealSSE() {
-  await sendMessage(testQuestion.value)
+  await sendMessage(testQuestion.value);
 }
 </script>
 

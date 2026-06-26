@@ -1,4 +1,5 @@
 """FastAPI Depends: verify_master_token + get_current_user"""
+
 import pytest
 from fastapi import HTTPException
 
@@ -14,9 +15,12 @@ class _FakeRequest:
 async def test_verify_master_token_ok(monkeypatch):
     monkeypatch.setenv("MASTER_PASSWORD", "test-master-pass-1234")
     from importlib import reload
+
     import app.config
+
     reload(app.config)
     from app.account.services import auth_service
+
     token = auth_service.issue_master_token()
     await account_deps.verify_master_token(_FakeRequest({"master_token": token}))  # 不抛
 
@@ -25,7 +29,9 @@ async def test_verify_master_token_ok(monkeypatch):
 async def test_verify_master_token_missing(monkeypatch):
     monkeypatch.setenv("MASTER_PASSWORD", "test-master-pass-1234")
     from importlib import reload
+
     import app.config
+
     reload(app.config)
     with pytest.raises(HTTPException) as ei:
         await account_deps.verify_master_token(_FakeRequest({}))
@@ -36,7 +42,9 @@ async def test_verify_master_token_missing(monkeypatch):
 async def test_get_current_user_no_cookie(monkeypatch):
     monkeypatch.setenv("MASTER_PASSWORD", "test-master-pass-1234")
     from importlib import reload
+
     import app.config
+
     reload(app.config)
     with pytest.raises(HTTPException) as ei:
         # db won't be reached because cookie check happens first

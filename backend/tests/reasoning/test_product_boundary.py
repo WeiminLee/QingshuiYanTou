@@ -1,16 +1,20 @@
 """Product boundary tests: QingShui is research-only, never execution."""
+
 from __future__ import annotations
 
 import pytest
 
 
-@pytest.mark.parametrize("text", [
-    "自动下单买入中际旭创",
-    "place order for 300308.SZ",
-    "broker execution",
-    "交易执行",
-    "rebalance execution",
-])
+@pytest.mark.parametrize(
+    "text",
+    [
+        "自动下单买入中际旭创",
+        "place order for 300308.SZ",
+        "broker execution",
+        "交易执行",
+        "rebalance execution",
+    ],
+)
 def test_execution_intent_is_rejected(text):
     from app.reasoning.tools.guardrails import validate_research_only
 
@@ -29,4 +33,3 @@ def test_tool_boundary_rejects_execution_tool():
 
     with pytest.raises(ValueError):
         validate_tool_boundary("auto_order", "自动下单工具")
-

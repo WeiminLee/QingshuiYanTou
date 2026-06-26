@@ -1,11 +1,11 @@
 """portfolio_service: 持仓增删查 + 跨用户隔离"""
+
 import pytest
 import pytest_asyncio
-from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from app.models.models import PortfolioPosition, User
 from app.account.services import portfolio_service
+from app.models.models import PortfolioPosition, User
 
 
 @pytest_asyncio.fixture
@@ -16,10 +16,12 @@ async def db_session():
         await conn.run_sync(PortfolioPosition.__table__.create)
     Session = async_sessionmaker(engine, expire_on_commit=False)
     async with Session() as session:
-        session.add_all([
-            User(user_id="alice", display_name="Alice"),
-            User(user_id="bob", display_name="Bob"),
-        ])
+        session.add_all(
+            [
+                User(user_id="alice", display_name="Alice"),
+                User(user_id="bob", display_name="Bob"),
+            ]
+        )
         await session.commit()
         yield session
     await engine.dispose()

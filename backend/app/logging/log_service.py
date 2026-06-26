@@ -8,9 +8,10 @@ LogService - 日志查询服务
 - 按 trace_id 追踪
 - 分页查询
 """
+
 import json
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,18 +22,18 @@ from app.core.database import engine
 class LogService:
     """日志查询服务"""
 
-    def __init__(self, session: Optional[AsyncSession] = None):
+    def __init__(self, session: AsyncSession | None = None):
         self.session = session
 
     async def query_logs(
         self,
-        start_time: Optional[datetime] = None,
-        end_time: Optional[datetime] = None,
-        service: Optional[str] = None,
-        level: Optional[str] = None,
-        module: Optional[str] = None,
-        trace_id: Optional[str] = None,
-        task_id: Optional[str] = None,
+        start_time: datetime | None = None,
+        end_time: datetime | None = None,
+        service: str | None = None,
+        level: str | None = None,
+        module: str | None = None,
+        trace_id: str | None = None,
+        task_id: str | None = None,
         page: int = 1,
         page_size: int = 50,
     ) -> dict[str, Any]:
@@ -136,9 +137,9 @@ class LogService:
 
     async def get_stats(
         self,
-        start_time: Optional[datetime] = None,
-        end_time: Optional[datetime] = None,
-        service: Optional[str] = None,
+        start_time: datetime | None = None,
+        end_time: datetime | None = None,
+        service: str | None = None,
     ) -> dict[str, Any]:
         """
         获取日志统计信息

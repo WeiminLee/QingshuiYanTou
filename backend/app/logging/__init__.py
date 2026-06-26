@@ -7,8 +7,9 @@
 - 任务关联 (task_id)
 - PostgreSQL 持久化存储
 """
-from app.logging.logger import AuditLogger, get_logger
+
 from app.logging.decorators import with_task_log, with_trace_id
+from app.logging.logger import AuditLogger, get_logger
 
 __all__ = [
     "AuditLogger",

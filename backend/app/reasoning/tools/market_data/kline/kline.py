@@ -3,6 +3,7 @@ K线与技术指标 Tool — 本地数据库版
 
 数据来源：PostgreSQL（KlineService）→ 定时任务写入
 """
+
 import datetime as _dt
 import logging
 from typing import Annotated
@@ -38,6 +39,7 @@ async def _fetch_kline(ts_code: str, start_date: str, end_date: str, freq: str, 
 
     try:
         from app.data_pipeline.services.kline_service import get_kline_service
+
         service = get_kline_service()
         frequency = {"D": "d", "W": "w", "M": "m"}.get(freq.upper(), "d")
         rows = await service.get_stock_kline(ts_code, start_date, end_date, frequency)
@@ -49,7 +51,9 @@ async def _fetch_kline(ts_code: str, start_date: str, end_date: str, freq: str, 
     return f"未获取到股票 {ts_code} 的K线数据（{start_date}~{end_date}）。本地数据库可能尚未同步数据，请稍后再试。"
 
 
-def _format_kline(ts_code: str, start_date: str, end_date: str, freq: str, rows: list[dict], indicators: list[str]) -> str:
+def _format_kline(
+    ts_code: str, start_date: str, end_date: str, freq: str, rows: list[dict], indicators: list[str]
+) -> str:
     """格式化 K线数据输出"""
     if not rows:
         return f"未获取到股票 {ts_code} 的K线数据（{start_date}~{end_date}）。"
@@ -99,7 +103,7 @@ def _compute_indicators(rows: list[dict], indicators: list[str]) -> str:
         try:
             mb = _sma(closes, 20)
             std = _std(closes, 20)
-            lines.append(f"- BOLL(20)：上={mb[-1] + 2*std[-1]:.2f}，中={mb[-1]:.2f}，下={mb[-1] - 2*std[-1]:.2f}\n")
+            lines.append(f"- BOLL(20)：上={mb[-1] + 2 * std[-1]:.2f}，中={mb[-1]:.2f}，下={mb[-1] - 2 * std[-1]:.2f}\n")
         except Exception:
             lines.append("- BOLL：计算失败\n")
 
@@ -123,15 +127,15 @@ def _ema(data: np.ndarray, span: int) -> np.ndarray:
 
 def _sma(data: np.ndarray, window: int) -> np.ndarray:
     sma = np.empty_like(data)
-    sma[:window - 1] = np.nan
+    sma[: window - 1] = np.nan
     for i in range(window - 1, len(data)):
-        sma[i] = np.mean(data[i - window + 1:i + 1])
+        sma[i] = np.mean(data[i - window + 1 : i + 1])
     return sma
 
 
 def _std(data: np.ndarray, window: int) -> np.ndarray:
     std_arr = np.empty_like(data)
-    std_arr[:window - 1] = np.nan
+    std_arr[: window - 1] = np.nan
     for i in range(window - 1, len(data)):
-        std_arr[i] = np.std(data[i - window + 1:i + 1])
+        std_arr[i] = np.std(data[i - window + 1 : i + 1])
     return std_arr

@@ -3,6 +3,7 @@
 
 数据来源：PostgreSQL（MarketService）→ 定时任务写入
 """
+
 import logging
 from typing import Annotated
 
@@ -25,6 +26,7 @@ async def _fetch_breadth(market: str) -> str:
     """从本地数据库读取市场宽度数据"""
     try:
         from app.data_pipeline.services.market_service import get_market_service
+
         service = get_market_service()
         data = await service.get_market_breadth(market)
         if data and data.get("total", 0) > 0:
@@ -42,12 +44,12 @@ def _format_breadth(data: dict) -> str:
     limit_up = data.get("limit_up_count", 0)
     limit_down = data.get("limit_down_count", 0)
     unchanged = data.get("unchanged_count", 0)
-    total = data.get("total", 0)
+    data.get("total", 0)
     breadth_pct = data.get("breadth_pct", 0)
 
     lines = [
         f"## 市场宽度指标（{data.get('trade_date', '今日')}）\n\n",
-        f"**整体格局**：\n",
+        "**整体格局**：\n",
         f"- 上涨：{advance} 家（{breadth_pct:.1f}%）\n",
         f"- 下跌：{decline} 家\n",
         f"- 平盘：{unchanged} 家\n",

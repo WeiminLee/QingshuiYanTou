@@ -24,6 +24,7 @@ Minishare IRM 历史数据回补脚本
     # 试运行
     python -m scripts.sync_minishare_irm_history --dry-run
 """
+
 from __future__ import annotations
 
 import argparse
@@ -43,6 +44,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.core.database import engine
+from app.data_pipeline.backfill_config import load_backfill_settings
 from app.data_pipeline.irm_filter import should_save as should_save_irm
 from app.data_pipeline.progress import (
     PARTIAL,
@@ -50,7 +52,6 @@ from app.data_pipeline.progress import (
     IngestionProgressTracker,
 )
 from app.models.models import Announcement
-from app.data_pipeline.backfill_config import load_backfill_settings
 
 logging.basicConfig(
     level=logging.INFO,
@@ -110,7 +111,7 @@ async def _batch_insert(records: list[dict]) -> tuple[int, int]:
             result = await conn.execute(stmt)
             saved = result.rowcount if result.rowcount else 0
             return saved, len(records) - saved
-    except Exception as e:
+    except Exception:
         # 降级逐条插入，同时处理两个约束
         saved = 0
         for rec in records:
@@ -150,17 +151,19 @@ def _fetch_day_irm(minishare_pro, trade_date: str) -> list[dict]:
                     break
 
                 for _, row in df.iterrows():
-                    records.append({
-                        "source": source_tag,
-                        "ts_code": str(row.get("ts_code", "")).strip(),
-                        "name": str(row.get("name", "")).strip(),
-                        "trade_date": row.get("trade_date"),
-                        "pub_time": str(row.get("pub_time", "")).strip(),
-                        "industry": str(row.get("industry", "")).strip(),
-                        "q": str(row.get("q", "")).strip(),
-                        "a": str(row.get("a", "")).strip(),
-                        "row_hash": str(row.get("row_hash", "")).strip(),
-                    })
+                    records.append(
+                        {
+                            "source": source_tag,
+                            "ts_code": str(row.get("ts_code", "")).strip(),
+                            "name": str(row.get("name", "")).strip(),
+                            "trade_date": row.get("trade_date"),
+                            "pub_time": str(row.get("pub_time", "")).strip(),
+                            "industry": str(row.get("industry", "")).strip(),
+                            "q": str(row.get("q", "")).strip(),
+                            "a": str(row.get("a", "")).strip(),
+                            "row_hash": str(row.get("row_hash", "")).strip(),
+                        }
+                    )
 
                 # 如果返回数据少于 page_size，说明已经是最后一页
                 if len(df) < page_size:
@@ -235,18 +238,20 @@ async def sync_day(
 
         source_name = "上证e互动" if exchange == "SH" else "深证互动易"
 
-        pending.append({
-            "ann_date": ann_date,
-            "ts_code": ts_code,
-            "name": rec["name"] or None,
-            "title": question[:500],
-            "type": answer,
-            "cninfo_id": cninfo_id,
-            "announcement_type": f"irm:{exchange}",
-            "source_type": "minishare",
-            "source_name": source_name,
-            "confidence_tier": "Tier2",
-        })
+        pending.append(
+            {
+                "ann_date": ann_date,
+                "ts_code": ts_code,
+                "name": rec["name"] or None,
+                "title": question[:500],
+                "type": answer,
+                "cninfo_id": cninfo_id,
+                "announcement_type": f"irm:{exchange}",
+                "source_type": "minishare",
+                "source_name": source_name,
+                "confidence_tier": "Tier2",
+            }
+        )
 
     # 批量写入
     if not dry_run and pending:
@@ -273,10 +278,9 @@ def format_duration(seconds: int) -> str:
 async def get_latest_irm_date() -> str | None:
     """查询数据库中 IRM 数据的最新日期。"""
     from sqlalchemy import text
+
     async with engine.connect() as conn:
-        r = await conn.execute(text(
-            "SELECT MAX(ann_date) FROM announcements WHERE source_type LIKE 'irm%'"
-        ))
+        r = await conn.execute(text("SELECT MAX(ann_date) FROM announcements WHERE source_type LIKE 'irm%'"))
         latest = r.scalar()
         if latest:
             return latest.strftime("%Y%m%d")
@@ -294,6 +298,7 @@ async def main(
     if scope:
         os.environ["BACKFILL_SCOPE"] = scope
     from app.data_pipeline.backfill_config import reset_settings_cache
+
     reset_settings_cache()
     cfg = load_backfill_settings()
 
@@ -324,7 +329,7 @@ async def main(
         whitelist = cfg.ts_codes
 
     print(f"{'=' * 65}")
-    print(f"  Minishare IRM 数据回补")
+    print("  Minishare IRM 数据回补")
     print(f"{'=' * 65}")
     print(f"  日期范围:  {start_str} ~ {end_str}")
     print(f"  白名单:    {'tech_mvp (%d 只)' % len(whitelist) if whitelist else '全市场'}")
@@ -339,6 +344,7 @@ async def main(
 
     # 初始化 minishare
     from dotenv import load_dotenv
+
     load_dotenv(Path(__file__).parent.parent / ".env")
     irm_token = os.getenv("MINISHARE_IRM_TOKEN", "")
     if not irm_token:
@@ -346,6 +352,7 @@ async def main(
         return {}
 
     import minishare as ms
+
     minishare_pro = ms.pro_api(irm_token)
 
     # 进度追踪
@@ -364,8 +371,12 @@ async def main(
 
     # 逐日同步
     total_counters = {
-        "total": 0, "replied": 0, "filtered_irm": 0,
-        "whitelist_skip": 0, "saved": 0, "dup_skip": 0,
+        "total": 0,
+        "replied": 0,
+        "filtered_irm": 0,
+        "whitelist_skip": 0,
+        "saved": 0,
+        "dup_skip": 0,
     }
     current = start_date
     days_done = 0
@@ -397,7 +408,7 @@ async def main(
     elapsed = int(time.time() - start_time)
     print()
     print(f"{'=' * 65}")
-    print(f"  回补完成!")
+    print("  回补完成!")
     print(f"{'=' * 65}")
     print(f"  天数:         {days_done}")
     print(f"  总行数:       {total_counters['total']:,}")
@@ -416,7 +427,9 @@ async def main(
             total_items=days_done,
             processed_items=days_done,
             success_count=total_counters["saved"],
-            skipped_count=total_counters["filtered_irm"] + total_counters["whitelist_skip"] + total_counters["dup_skip"],
+            skipped_count=total_counters["filtered_irm"]
+            + total_counters["whitelist_skip"]
+            + total_counters["dup_skip"],
             downloaded_count=0,
             fail_count=0,
             current_watermark=end_str,
@@ -430,16 +443,17 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Minishare IRM 数据回补")
     parser.add_argument("--start-date", help="起始日期 YYYYMMDD (默认: 数据库最新日期+1)")
     parser.add_argument("--end-date", help="结束日期 YYYYMMDD (默认: 今天)")
-    parser.add_argument("--scope", choices=["tech_mvp", "all"], default=None,
-                        help="覆盖 BACKFILL_SCOPE 配置")
+    parser.add_argument("--scope", choices=["tech_mvp", "all"], default=None, help="覆盖 BACKFILL_SCOPE 配置")
     parser.add_argument("--batch-size", type=int, default=BATCH_SIZE)
     parser.add_argument("--dry-run", action="store_true", help="试运行")
     args = parser.parse_args()
 
-    asyncio.run(main(
-        start_date_str=args.start_date,
-        end_date_str=args.end_date,
-        scope=args.scope,
-        batch_size=args.batch_size,
-        dry_run=args.dry_run,
-    ))
+    asyncio.run(
+        main(
+            start_date_str=args.start_date,
+            end_date_str=args.end_date,
+            scope=args.scope,
+            batch_size=args.batch_size,
+            dry_run=args.dry_run,
+        )
+    )

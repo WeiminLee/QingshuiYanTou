@@ -1,9 +1,9 @@
 """SSE event protocol regression tests for the current LangChain agent path."""
+
 from __future__ import annotations
 
 import asyncio
-import json
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
 
 def test_filter_maps_reasoning_started_to_canonical_reasoning_start():
@@ -49,8 +49,8 @@ def test_emit_reasoning_started_uses_canonical_event_name():
 
 def test_v2_stream_does_not_add_extra_stream_end():
     """Regression for duplicate stream_end in /v2/stream."""
-    from app.reasoning.api.agent import V2StreamRequest, v2_stream
     import app.reasoning.api.agent as agent_module
+    from app.reasoning.api.agent import V2StreamRequest, v2_stream
 
     class FakeResponse:
         def __init__(self, generator):
@@ -67,8 +67,10 @@ def test_v2_stream_does_not_add_extra_stream_end():
 
     async def collect():
         request = V2StreamRequest(question="分析光模块")
-        with patch.object(agent_module, "EventSourceResponse", FakeResponse), \
-             patch("app.reasoning.langchain_agent.client.LangChainAgentClient", FakeClient):
+        with (
+            patch.object(agent_module, "EventSourceResponse", FakeResponse),
+            patch("app.reasoning.langchain_agent.client.LangChainAgentClient", FakeClient),
+        ):
             response = await v2_stream(request, api_key="test")
             chunks = []
             async for chunk in response.generator:
@@ -84,4 +86,3 @@ def test_ping_interval_constant_exists():
     from app.reasoning.api import agent_events as ae_module
 
     assert ae_module.PING_INTERVAL == 60
-

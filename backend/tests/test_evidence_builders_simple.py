@@ -1,9 +1,8 @@
 """Tests for evidence_builders_simple.py"""
-import pytest
-import os
+
 from app.knowledge.evidence_builders_simple import (
-    _map_file_path,
     _file_exists,
+    _map_file_path,
 )
 
 

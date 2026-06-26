@@ -3,6 +3,7 @@
 
 数据来源：PostgreSQL（ConceptService）→ 定时任务写入
 """
+
 import logging
 from typing import Annotated
 
@@ -26,6 +27,7 @@ async def _fetch_concept_hot(top_n: int, sort_by: str) -> str:
     """从本地数据库读取概念热度数据"""
     try:
         from app.data_pipeline.services.concept_service import get_concept_service
+
         service = get_concept_service()
         items = await service.get_concept_ranking(
             top_n=min(top_n, 50),
@@ -44,8 +46,8 @@ def _format_concepts(items: list[dict], sort_by: str) -> str:
     """格式化概念数据"""
     sort_label = {"change_pct": "涨跌幅", "turnover": "换手率", "limit_up": "涨停家数"}.get(sort_by, sort_by)
     lines = [f"## 概念板块热度排名（按{sort_label}，共 {len(items)} 条）\n\n"]
-    lines.append(f"| 排名 | 板块名称 | 涨跌幅 | 涨停家数 | 综合得分 |\n")
-    lines.append(f"|------|----------|--------|----------|----------|\n")
+    lines.append("| 排名 | 板块名称 | 涨跌幅 | 涨停家数 | 综合得分 |\n")
+    lines.append("|------|----------|--------|----------|----------|\n")
 
     for item in items:
         name = item.get("name", "未知")
@@ -53,8 +55,6 @@ def _format_concepts(items: list[dict], sort_by: str) -> str:
         up_nums = item.get("up_nums", 0)
         score = item.get("score", 0)
         arrow = "↑" if pct_chg >= 0 else "↓"
-        lines.append(
-            f"| {item.get('rank', '?')} | {name} | {arrow}{abs(pct_chg):.2f}% | {up_nums} | {score:.2f} |\n"
-        )
+        lines.append(f"| {item.get('rank', '?')} | {name} | {arrow}{abs(pct_chg):.2f}% | {up_nums} | {score:.2f} |\n")
 
     return "".join(lines)

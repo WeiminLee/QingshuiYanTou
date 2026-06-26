@@ -15,12 +15,13 @@ SSE 事件格式：
         ]
     }
 """
+
 from __future__ import annotations
 
-import json
 import logging
 import threading
-from typing import Any, Callable, Literal
+from collections.abc import Callable
+from typing import Literal
 
 logger = logging.getLogger(__name__)
 
@@ -78,6 +79,7 @@ class TodoListMiddleware:
             # 格式: "1. ○ [pending] 搜索相关信息"
             # 或 "2. ✓ [completed] ..."
             import re
+
             m = re.match(r"^\d+\.\s*[○●✓]\s*\[(\w+)\]\s*(.+)$", line)
             if m:
                 status = m.group(1).strip()
@@ -112,8 +114,9 @@ class TodoListMiddleware:
 
         if emit_fn:
             import asyncio
+
             try:
-                loop = asyncio.get_running_loop()
+                asyncio.get_running_loop()
                 asyncio.create_task(emit_fn("todo_update", {"todos": todos}))
             except RuntimeError:
                 pass  # 无 running loop，同步上下文

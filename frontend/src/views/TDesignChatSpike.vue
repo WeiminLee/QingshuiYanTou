@@ -2,15 +2,10 @@
   <div class="spike-container">
     <h3>TDesign Chat Spike — Slot Validation</h3>
 
-    <ChatList
-      :data="chatData"
-      :is-stream-load="isStreaming"
-      layout="both"
-      auto-scroll
-    >
+    <ChatList :data="chatData" :is-stream-load="isStreaming" layout="both" auto-scroll>
       <!-- 自定义 reasoning slot -->
       <template #reasoning="{ item }">
-        <div class="spike-reasoning" v-if="item.reasoning">
+        <div v-if="item.reasoning" class="spike-reasoning">
           <div class="reasoning-header" @click="toggleReasoning(item)">
             <span>🧐 思考过程</span>
             <span v-if="item.reasoning.collapsed">▶</span>
@@ -46,73 +41,83 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
-import { ChatList, ChatSender } from '@tdesign-vue-next/chat'
-import '@tdesign-vue-next/chat/es/style/index.css'
+import { ref } from "vue";
+import { ChatList, ChatSender } from "@tdesign-vue-next/chat";
+import "@tdesign-vue-next/chat/es/style/index.css";
 
-const inputText = ref('')
-const isStreaming = ref(false)
+const inputText = ref("");
+const isStreaming = ref(false);
 
 interface SpikeChatItem {
-  role: 'user' | 'assistant'
-  avatar?: string
-  name?: string
-  datetime?: string
-  content?: string
-  reasoning?: { content: string; collapsed: boolean }
-  toolCalls?: Array<{ id: string; name: string; status: string }>
+  role: "user" | "assistant";
+  avatar?: string;
+  name?: string;
+  datetime?: string;
+  content?: string;
+  reasoning?: { content: string; collapsed: boolean };
+  toolCalls?: Array<{ id: string; name: string; status: string }>;
 }
 
 const chatData = ref<SpikeChatItem[]>([
   {
-    role: 'user',
-    avatar: '',
-    name: '你',
-    datetime: '10:30',
-    content: 'AI算力链条还能投吗？',
+    role: "user",
+    avatar: "",
+    name: "你",
+    datetime: "10:30",
+    content: "AI算力链条还能投吗？",
   },
   {
-    role: 'assistant',
-    avatar: '',
-    name: '观仓 AI',
-    datetime: '10:30',
+    role: "assistant",
+    avatar: "",
+    name: "观仓 AI",
+    datetime: "10:30",
     reasoning: {
-      content: '用户询问AI算力链条的投资机会，我需要先获取概念板块热度、市场宽度数据，然后搜索最新资讯和研报观点，最后综合分析给出建议。',
+      content:
+        "用户询问AI算力链条的投资机会，我需要先获取概念板块热度、市场宽度数据，然后搜索最新资讯和研报观点，最后综合分析给出建议。",
       collapsed: true,
     },
     toolCalls: [
-      { id: '1', name: 'get_concept_hot', status: 'done' },
-      { id: '2', name: 'get_market_breadth', status: 'error' },
-      { id: '3', name: 'tavily_search', status: 'done' },
-      { id: '4', name: 'get_research_report', status: 'done' },
+      { id: "1", name: "get_concept_hot", status: "done" },
+      { id: "2", name: "get_market_breadth", status: "error" },
+      { id: "3", name: "tavily_search", status: "done" },
+      { id: "4", name: "get_research_report", status: "done" },
     ],
-    content: '<p>基于当前市场数据分析，AI算力链条整体仍具投资价值，但需关注以下要点：</p><ul><li>光模块板块近期涨幅较大，注意短期回调风险</li><li>液冷服务器需求持续增长</li><li>建议关注估值合理的细分龙头</li></ul>',
+    content:
+      "<p>基于当前市场数据分析，AI算力链条整体仍具投资价值，但需关注以下要点：</p><ul><li>光模块板块近期涨幅较大，注意短期回调风险</li><li>液冷服务器需求持续增长</li><li>建议关注估值合理的细分龙头</li></ul>",
   },
-])
+]);
 
 function toggleReasoning(item: SpikeChatItem) {
   if (item.reasoning) {
-    item.reasoning.collapsed = !item.reasoning.collapsed
+    item.reasoning.collapsed = !item.reasoning.collapsed;
   }
 }
 
 function handleSend(value: string) {
   chatData.value = [
     ...chatData.value,
-    { role: 'user' as const, content: value, datetime: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) },
-  ]
-  isStreaming.value = true
+    {
+      role: "user" as const,
+      content: value,
+      datetime: new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" }),
+    },
+  ];
+  isStreaming.value = true;
   setTimeout(() => {
     chatData.value = [
       ...chatData.value,
-      { role: 'assistant' as const, content: `<p>收到：${value}</p>`, datetime: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) },
-    ]
-    isStreaming.value = false
-  }, 2000)
+      {
+        role: "assistant" as const,
+        content: `<p>收到：${value}</p>`,
+        datetime: new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" }),
+      },
+    ];
+    isStreaming.value = false;
+  }, 2000);
 }
 
 function handleStop() {
-  isStreaming.value = false
+  isStreaming.value = false;
 }
 </script>
 

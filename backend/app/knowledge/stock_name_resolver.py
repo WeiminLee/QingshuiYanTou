@@ -7,14 +7,13 @@ supplemental_aliases.json 作为补充（海外公司 + 手动别名）。
 启动时 warm_cache() 从 PostgreSQL 加载全量映射到内存，
 之后所有查询都是同步的内存 dict 读取，零 IO。
 """
+
 from __future__ import annotations
 
 import hashlib
 import json
 import logging
-import os
 from pathlib import Path
-from typing import Optional
 
 from sqlalchemy import select
 
@@ -71,29 +70,27 @@ class StockNameResolver:
         self._loaded = True
         total = len(self._name_to_ts_code) + len(self._co_name_to_id)
         logger.info(
-            "StockNameResolver 已加载: %d 条 A-share 映射 (PG=%d, 补充=%d), "
-            "%d 条非 A-share 映射, 总计 %d 条名称",
-            len(self._name_to_ts_code), pg_count, supp_count,
-            len(self._co_name_to_id), total,
+            "StockNameResolver 已加载: %d 条 A-share 映射 (PG=%d, 补充=%d), %d 条非 A-share 映射, 总计 %d 条名称",
+            len(self._name_to_ts_code),
+            pg_count,
+            supp_count,
+            len(self._co_name_to_id),
+            total,
         )
 
     async def _load_from_postgresql(self) -> int:
         """从 PostgreSQL stocks + company_profiles 加载 A-share 映射。"""
         try:
             from app.core.database import async_session
-            from app.models.models import Stock, CompanyProfile
+            from app.models.models import CompanyProfile, Stock
 
             async with async_session() as db:
                 # Load stocks (简称 + industry)
-                stock_result = await db.execute(
-                    select(Stock.ts_code, Stock.name, Stock.industry)
-                )
+                stock_result = await db.execute(select(Stock.ts_code, Stock.name, Stock.industry))
                 stocks = stock_result.fetchall()
 
                 # Load company_profiles (全称)
-                profile_result = await db.execute(
-                    select(CompanyProfile.ts_code, CompanyProfile.com_name)
-                )
+                profile_result = await db.execute(select(CompanyProfile.ts_code, CompanyProfile.com_name))
                 profiles = profile_result.fetchall()
 
             # Build name → ts_code mappings
@@ -126,8 +123,12 @@ class StockNameResolver:
                 if com_name not in names_list:
                     names_list.append(com_name)
 
-            logger.info("PostgreSQL 加载: %d stocks, %d profiles, %d 新映射",
-                        len(stocks), len(profiles), added)
+            logger.info(
+                "PostgreSQL 加载: %d stocks, %d profiles, %d 新映射",
+                len(stocks),
+                len(profiles),
+                added,
+            )
             return added
 
         except Exception as e:
@@ -202,7 +203,7 @@ class StockNameResolver:
 
     # ── Public lookup methods (all synchronous, in-memory) ─────────────
 
-    def resolve(self, name: str) -> Optional[str]:
+    def resolve(self, name: str) -> str | None:
         """
         解析公司名称 → ts_code。
         返回 None 表示未找到。

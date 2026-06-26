@@ -4,15 +4,11 @@ test_tools_functional.py — 工具功能测试
 测试所有 Agent 工具的导入、调用和返回格式。
 对于需要网络/云端 API 的工具，使用 mock 避免外部依赖。
 """
-import json
-import os
-from pathlib import Path
+
 from unittest.mock import MagicMock, patch
 
-import pytest
-
-
 # ── 工具导入测试 ──────────────────────────────────────────────────────────────
+
 
 class TestToolImports:
     """验证所有工具能正确导入"""
@@ -20,23 +16,26 @@ class TestToolImports:
     def test_import_kline_tool(self):
         """get_kline 工具导入"""
         from app.reasoning.tools.market_data.kline.kline import get_kline
+
         assert get_kline is not None
         assert get_kline.name == "get_kline"
 
     def test_import_concept_hot_tool(self):
         """get_concept_hot 工具导入"""
         from app.reasoning.tools.market_data.concept_hot import get_concept_hot
+
         assert get_concept_hot is not None
         assert get_concept_hot.name == "get_concept_hot"
 
     def test_import_neo4j_tools(self):
         """neo4j 工具集导入"""
         from app.reasoning.tools.knowledge.neo4j.neo4j import (
-            neo4j_traverse,
             neo4j_entity_info,
-            neo4j_path,
             neo4j_industry_state,
+            neo4j_path,
+            neo4j_traverse,
         )
+
         assert neo4j_traverse.name == "neo4j_traverse"
         assert neo4j_entity_info.name == "neo4j_entity_info"
         assert neo4j_path.name == "neo4j_path"
@@ -45,48 +44,56 @@ class TestToolImports:
     def test_import_research_report_tool(self):
         """get_research_report 工具导入"""
         from app.reasoning.tools.knowledge.research_report import get_research_report
+
         assert get_research_report is not None
         assert get_research_report.name == "get_research_report"
 
     def test_import_announcement_tool(self):
         """get_announcement 工具导入"""
         from app.reasoning.tools.knowledge.announcement import get_announcement
+
         assert get_announcement is not None
         assert get_announcement.name == "get_announcement"
 
     def test_import_tavily_tool(self):
         """tavily_search 工具导入"""
         from app.reasoning.tools.search.tavily.tavily import tavily_search
+
         assert tavily_search is not None
         assert tavily_search.name == "tavily_search"
 
     def test_import_web_fetch_tool(self):
         """web_fetch 工具导入"""
         from app.reasoning.tools.search.web_fetch import web_fetch
+
         assert web_fetch is not None
         assert web_fetch.name == "web_fetch"
 
     def test_import_stock_profile_tool(self):
         """get_stock_profile 工具导入"""
         from app.reasoning.tools.financial.profile.profile import get_stock_profile
+
         assert get_stock_profile is not None
         assert get_stock_profile.name == "get_stock_profile"
 
     def test_import_irm_tool(self):
         """get_irm 工具导入"""
         from app.reasoning.tools.financial.irm import get_irm
+
         assert get_irm is not None
         assert get_irm.name == "get_irm"
 
     def test_import_present_chart_tool(self):
         """present_chart 工具导入"""
         from app.reasoning.tools.chart import present_chart
+
         assert present_chart is not None
         assert present_chart.name == "present_chart"
 
     def test_import_file_tools(self):
         """sandbox 文件工具导入"""
         from app.reasoning.tools.sandbox.file_tools import ls_tool, read_file_tool, write_file_tool
+
         assert ls_tool.name == "ls"
         assert read_file_tool.name == "read_file"
         assert write_file_tool.name == "write_file"
@@ -94,11 +101,13 @@ class TestToolImports:
     def test_import_clarification_tool(self):
         """ask_clarification 工具导入"""
         from app.reasoning.tools.builtins.clarification import ask_clarification
+
         assert ask_clarification is not None
         assert ask_clarification.name == "ask_clarification"
 
 
 # ── 市场数据工具测试 ──────────────────────────────────────────────────────────
+
 
 class TestMarketDataTools:
     """市场数据工具功能测试"""
@@ -112,19 +121,37 @@ class TestMarketDataTools:
         mock_response = MagicMock()
         mock_response.json.return_value = {
             "items": [
-                {"trade_date": "20240501", "close": 50.0, "open": 49.0, "high": 51.0, "low": 48.5,
-                 "volume": 1000000, "pct_chg": 2.04, "qfq_factor": 1.0},
-                {"trade_date": "20240502", "close": 51.5, "open": 50.0, "high": 52.0, "low": 49.5,
-                 "volume": 1200000, "pct_chg": 3.0, "qfq_factor": 1.0},
+                {
+                    "trade_date": "20240501",
+                    "close": 50.0,
+                    "open": 49.0,
+                    "high": 51.0,
+                    "low": 48.5,
+                    "volume": 1000000,
+                    "pct_chg": 2.04,
+                    "qfq_factor": 1.0,
+                },
+                {
+                    "trade_date": "20240502",
+                    "close": 51.5,
+                    "open": 50.0,
+                    "high": 52.0,
+                    "low": 49.5,
+                    "volume": 1200000,
+                    "pct_chg": 3.0,
+                    "qfq_factor": 1.0,
+                },
             ]
         }
         mock_session.return_value.get.return_value = mock_response
 
-        result = get_kline.invoke({
-            "ts_code": "300308.SZ",
-            "start_date": "20240501",
-            "end_date": "20240502",
-        })
+        result = get_kline.invoke(
+            {
+                "ts_code": "300308.SZ",
+                "start_date": "20240501",
+                "end_date": "20240502",
+            }
+        )
 
         assert "K线" in result
         assert "300308.SZ" in result
@@ -152,8 +179,20 @@ class TestMarketDataTools:
         mock_response = MagicMock()
         mock_response.json.return_value = {
             "items": [
-                {"name": "光通信", "change_pct": 5.5, "turnover": 3.2, "limit_up_count": 3, "volume": 50000000},
-                {"name": "AI算力", "change_pct": -2.1, "turnover": 8.5, "limit_up_count": 0, "volume": 80000000},
+                {
+                    "name": "光通信",
+                    "change_pct": 5.5,
+                    "turnover": 3.2,
+                    "limit_up_count": 3,
+                    "volume": 50000000,
+                },
+                {
+                    "name": "AI算力",
+                    "change_pct": -2.1,
+                    "turnover": 8.5,
+                    "limit_up_count": 0,
+                    "volume": 80000000,
+                },
             ]
         }
         mock_session.return_value.get.return_value = mock_response
@@ -167,6 +206,7 @@ class TestMarketDataTools:
 
 
 # ── 知识图谱工具测试 ──────────────────────────────────────────────────────────
+
 
 class TestNeo4jTools:
     """Neo4j 知识图谱工具测试（使用 mock）"""
@@ -205,6 +245,7 @@ class TestNeo4jTools:
 
 # ── 研报与公告工具测试 ───────────────────────────────────────────────────────
 
+
 class TestResearchTools:
     """研报与公告工具测试"""
 
@@ -239,7 +280,7 @@ class TestResearchTools:
                     "pub_date": "2024-05-01",
                     "summary": "公司业绩增长良好，目标价50元。",
                 }
-            ]
+            ],
         }
         mock_session.return_value.get.return_value = mock_response
 
@@ -265,6 +306,7 @@ class TestResearchTools:
 
 # ── 搜索工具测试 ──────────────────────────────────────────────────────────────
 
+
 class TestSearchTools:
     """搜索工具测试"""
 
@@ -288,6 +330,7 @@ class TestSearchTools:
 
 
 # ── 财务工具测试 ──────────────────────────────────────────────────────────────
+
 
 class TestFinancialTools:
     """财务工具测试"""
@@ -352,7 +395,7 @@ class TestFinancialTools:
                     "question_time": "2024-05-01",
                     "signals": "AI",
                 }
-            ]
+            ],
         }
         mock_session.return_value.get.return_value = mock_response
 
@@ -364,6 +407,7 @@ class TestFinancialTools:
 
 # ── 图表工具测试 ──────────────────────────────────────────────────────────────
 
+
 class TestChartTools:
     """图表工具测试"""
 
@@ -371,19 +415,35 @@ class TestChartTools:
         """present_chart K线图渲染"""
         from app.reasoning.tools.chart import present_chart
 
-        result = present_chart.invoke({
-            "chart_type": "kline",
-            "data": {
-                "ts_code": "300308.SZ",
-                "candles": [
-                    {"date": "2024-05-01", "open": 50, "close": 52, "high": 53, "low": 49, "vol": 1000},
-                    {"date": "2024-05-02", "open": 52, "close": 51, "high": 53, "low": 50, "vol": 1100},
-                ],
-                "ma5": [None, 51.5],
-                "ma10": [None, 51.5],
-            },
-            "title": "测试K线",
-        })
+        result = present_chart.invoke(
+            {
+                "chart_type": "kline",
+                "data": {
+                    "ts_code": "300308.SZ",
+                    "candles": [
+                        {
+                            "date": "2024-05-01",
+                            "open": 50,
+                            "close": 52,
+                            "high": 53,
+                            "low": 49,
+                            "vol": 1000,
+                        },
+                        {
+                            "date": "2024-05-02",
+                            "open": 52,
+                            "close": 51,
+                            "high": 53,
+                            "low": 50,
+                            "vol": 1100,
+                        },
+                    ],
+                    "ma5": [None, 51.5],
+                    "ma10": [None, 51.5],
+                },
+                "title": "测试K线",
+            }
+        )
 
         assert "图表已生成" in result
         assert "kline_" in result
@@ -393,11 +453,13 @@ class TestChartTools:
         """present_chart 未知类型时"""
         from app.reasoning.tools.chart import present_chart
 
-        result = present_chart.invoke({
-            "chart_type": "unknown_type_xyz",
-            "data": {},
-            "title": "测试",
-        })
+        result = present_chart.invoke(
+            {
+                "chart_type": "unknown_type_xyz",
+                "data": {},
+                "title": "测试",
+            }
+        )
 
         assert "未知图表类型" in result
         assert "可用" in result
@@ -406,37 +468,44 @@ class TestChartTools:
         """present_chart 空数据时"""
         from app.reasoning.tools.chart import present_chart
 
-        result = present_chart.invoke({
-            "chart_type": "confidence_radar",
-            "data": {"indicators": []},
-            "title": "测试",
-        })
+        result = present_chart.invoke(
+            {
+                "chart_type": "confidence_radar",
+                "data": {"indicators": []},
+                "title": "测试",
+            }
+        )
 
         assert "无" in result or "图表" in result
 
 
 # ── 工具参数描述测试 ──────────────────────────────────────────────────────────
 
+
 class TestToolDescriptions:
     """验证工具参数描述是否完整"""
 
     def test_kline_has_description(self):
         from app.reasoning.tools.market_data.kline.kline import get_kline
+
         assert hasattr(get_kline, "name")
         assert get_kline.name == "get_kline"
 
     def test_tavily_has_description(self):
         from app.reasoning.tools.search.tavily.tavily import tavily_search
+
         assert hasattr(tavily_search, "name")
         assert tavily_search.name == "tavily_search"
 
     def test_present_chart_has_description(self):
         from app.reasoning.tools.chart import present_chart
+
         assert hasattr(present_chart, "name")
         assert present_chart.name == "present_chart"
 
 
 # ── 工具注册表测试 ────────────────────────────────────────────────────────────
+
 
 class TestToolRegistry:
     """验证工具注册表"""
@@ -444,12 +513,14 @@ class TestToolRegistry:
     def test_registry_exists(self):
         """注册表单例存在"""
         from app.reasoning.registry import get_registry
+
         registry = get_registry()
         assert registry is not None
 
     def test_registry_has_basic_methods(self):
         """注册表有基本方法"""
         from app.reasoning.registry import get_registry
+
         registry = get_registry()
         assert hasattr(registry, "register")
         assert hasattr(registry, "get_tool_instance")
@@ -459,8 +530,8 @@ class TestToolRegistry:
     def test_registry_register_and_get(self):
         """注册表可以注册和获取工具"""
         from app.reasoning.registry import get_registry
-        from app.reasoning.tools.market_data.kline.kline import get_kline
         from app.reasoning.registry.config import ToolConfig, ToolGroup
+        from app.reasoning.tools.market_data.kline.kline import get_kline
 
         registry = get_registry()
 
@@ -481,15 +552,18 @@ class TestToolRegistry:
 
 # ── 工具执行器测试 ────────────────────────────────────────────────────────────
 
+
 class TestToolExecutor:
     """验证工具执行器"""
 
     def test_executor_can_import(self):
         from app.reasoning.langchain_agent.tool_executor import ToolExecutor
+
         assert ToolExecutor is not None
 
     def test_executor_has_retry_strategy(self):
         from app.reasoning.langchain_agent.retry import ExponentialBackoff
+
         strategy = ExponentialBackoff()
         assert strategy.max_attempts == 3
         assert strategy.base_delay == 1.0
@@ -497,6 +571,7 @@ class TestToolExecutor:
     def test_executor_has_never_parallel(self):
         """NEVER_PARALLEL 常量存在"""
         from app.reasoning.langchain_agent.tool_executor import NEVER_PARALLEL
+
         # 文件写入类工具必须串行
         assert "write_file" in NEVER_PARALLEL
         assert "clarify" in NEVER_PARALLEL
@@ -504,6 +579,7 @@ class TestToolExecutor:
     def test_executor_has_tool_result(self):
         """ToolResult dataclass 存在"""
         from app.reasoning.langchain_agent.tool_executor import ToolResult
+
         result = ToolResult(
             tool_name="test",
             success=True,

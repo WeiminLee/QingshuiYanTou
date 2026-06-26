@@ -1,9 +1,11 @@
 """
 SSE 事件映射一致性测试
 """
-import pytest
+
 import os
 import re
+
+import pytest
 
 
 class TestSSEEventMapping:
@@ -13,25 +15,25 @@ class TestSSEEventMapping:
         """验证两处事件映射表一致性"""
         base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-        with open(os.path.join(base_dir, "app/reasoning/api/agent.py"), "r") as f:
+        with open(os.path.join(base_dir, "app/reasoning/api/agent.py")) as f:
             code = f.read()
 
         # 提取 _VISIBLE_MAP 内容
-        visible_map_match = re.search(r'_VISIBLE_MAP = \{(.+?)\n\}', code, re.DOTALL)
-        event_map_match = re.search(r'event_map = \{(.+?)\n\}', code, re.DOTALL)
+        visible_map_match = re.search(r"_VISIBLE_MAP = \{(.+?)\n\}", code, re.DOTALL)
+        event_map_match = re.search(r"event_map = \{(.+?)\n\}", code, re.DOTALL)
 
         if not visible_map_match or not event_map_match:
             pytest.skip("找不到映射表")
 
-        visible_lines = [line.strip().rstrip(',') for line in visible_map_match.group(1).split('\n') if line.strip()]
-        event_lines = [line.strip().rstrip(',') for line in event_map_match.group(1).split('\n') if line.strip()]
+        visible_lines = [line.strip().rstrip(",") for line in visible_map_match.group(1).split("\n") if line.strip()]
+        event_lines = [line.strip().rstrip(",") for line in event_map_match.group(1).split("\n") if line.strip()]
 
         # 提取 key: value 格式
         def extract_keys(lines):
             keys = set()
             for line in lines:
-                if ':' in line:
-                    key = line.split(':')[0].strip().strip('"').strip("'")
+                if ":" in line:
+                    key = line.split(":")[0].strip().strip('"').strip("'")
                     keys.add(key)
             return keys
 

@@ -6,31 +6,32 @@ Layer 4 — 决策输出层
 - compliance.py: 合规扫描 + 声明注入
 - confidence.py: 置信度融合 + 降级
 """
-from app.reasoning.output.report import (
-    AnalysisReport,
-    Conclusion,
-    EvidenceRef,
-    Catalyst,
-    RiskItem,
-    TrackingIndicator,
-    ScenarioProjection,
-    ConfidenceLevel,
-    build_report_from_analysis,
-)
+
 from app.reasoning.output.compliance import (
-    scan_content,
+    ComplianceResult,
     inject_compliance_declaration,
     log_report_audit,
-    ComplianceResult,
+    scan_content,
 )
 from app.reasoning.output.confidence import (
-    source_type_to_tier,
-    merge_confidence,
+    SOURCE_TO_TIER,
+    TIER_DESCRIPTIONS,
     downgrade_for_conflict,
     format_confidence_block,
     label_for_score,
-    TIER_DESCRIPTIONS,
-    SOURCE_TO_TIER,
+    merge_confidence,
+    source_type_to_tier,
+)
+from app.reasoning.output.report import (
+    AnalysisReport,
+    Catalyst,
+    Conclusion,
+    ConfidenceLevel,
+    EvidenceRef,
+    RiskItem,
+    ScenarioProjection,
+    TrackingIndicator,
+    build_report_from_analysis,
 )
 
 __all__ = [

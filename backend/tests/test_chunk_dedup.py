@@ -1,4 +1,5 @@
 """Tests for chunk_dedup.py — Chunk-level content fingerprint deduplication."""
+
 import hashlib
 
 from app.knowledge.extraction.chunk_dedup import (
@@ -6,7 +7,6 @@ from app.knowledge.extraction.chunk_dedup import (
     compute_document_hashes,
     find_new_chunk_indices,
 )
-
 
 # ---------------------------------------------------------------------------
 # compute_chunk_hash

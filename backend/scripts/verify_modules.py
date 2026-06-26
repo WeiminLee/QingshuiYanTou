@@ -6,7 +6,9 @@
   exec(open('scripts/verify_modules.py').read())
   "
 """
+
 import sys
+
 sys.path.insert(0, ".")
 
 # ── 状态机验证 ───────────────────────────────────────────────────────────
@@ -16,11 +18,10 @@ print("=" * 60)
 
 from app.knowledge.state_machine import (
     IndustryState,
-    infer_state_from_text,
-    validate_transition,
     describe_state,
     get_all_states,
-    Transition,
+    infer_state_from_text,
+    validate_transition,
 )
 
 test_texts = [
@@ -47,17 +48,19 @@ transitions = [
     (IndustryState.GROWTH, IndustryState.LAB, False),
     (IndustryState.GROWTH, IndustryState.MATURITY, True),
     (IndustryState.DECLINE, IndustryState.GROWTH, True),  # 可逆
-    (IndustryState.LAB, IndustryState.GROWTH, False),      # 跳级
+    (IndustryState.LAB, IndustryState.GROWTH, False),  # 跳级
 ]
 for from_s, to_s, expected in transitions:
     ok = validate_transition(from_s, to_s)
     status = "✓" if ok == expected else "✗"
     if status == "✗":
         all_pass = False
-    print(f"  {status} {from_s.value} → {to_s.value}: {'允许' if ok else '禁止'} (期望:{'允许' if expected else '禁止'})")
+    print(
+        f"  {status} {from_s.value} → {to_s.value}: {'允许' if ok else '禁止'} (期望:{'允许' if expected else '禁止'})"
+    )
 
 print()
-print(f"  状态描述:")
+print("  状态描述:")
 for s in get_all_states():
     print(f"    {s.value:16s} = {describe_state(s)}")
 
@@ -69,14 +72,11 @@ print("2. 向量库模块验证（占位实现）")
 print("=" * 60)
 
 from app.knowledge.vector_client import (
-    PlaceholderEmbedding,
-    VectorRecord,
-    SearchResult,
-    init_collections,
-    upsert_entity_vector,
-    semantic_search_entities,
-    QdrantClient,
     COLLECTION_ENTITIES,
+    PlaceholderEmbedding,
+    QdrantClient,
+    SearchResult,
+    VectorRecord,
 )
 
 # Embedding 占位实现
@@ -97,7 +97,7 @@ print(f"  ✓ SearchResult: id={res.id}, score={res.score}")
 
 # Qdrant 客户端实例化（不实际连接）
 qc = QdrantClient(url="http://localhost:6333")
-print(f"  ✓ QdrantClient 实例化成功")
+print("  ✓ QdrantClient 实例化成功")
 
 # Collection 常量
 print(f"  ✓ Collection 常量: entities={COLLECTION_ENTITIES}")

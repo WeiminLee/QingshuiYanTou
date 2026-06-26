@@ -12,7 +12,7 @@
         <el-table-column prop="pct_change" label="涨跌幅" width="100" sortable>
           <template #default="{ row }">
             <span :class="pctClass(row.pct_change)">
-              {{ row.pct_change >= 0 ? '+' : '' }}{{ row.pct_change?.toFixed(2) }}%
+              {{ row.pct_change >= 0 ? "+" : "" }}{{ row.pct_change?.toFixed(2) }}%
             </span>
           </template>
         </el-table-column>
@@ -27,34 +27,34 @@
 </template>
 
 <script setup>
-import { storeToRefs } from 'pinia'
-import { useMarketStore } from '../store/market.js'
-import { useUiStore } from '../store/ui.js'
-import { usePolling } from '../composables/usePolling.js'
-import DataPanel from './DataPanel.vue'
+import { storeToRefs } from "pinia";
+import { useMarketStore } from "../store/market.js";
+import { useUiStore } from "../store/ui.js";
+import { usePolling } from "../composables/usePolling.js";
+import DataPanel from "./DataPanel.vue";
 
-const marketStore = useMarketStore()
-const uiStore = useUiStore()
-const { concepts, loading, error } = storeToRefs(marketStore)
+const marketStore = useMarketStore();
+const uiStore = useUiStore();
+const { concepts, loading, error } = storeToRefs(marketStore);
 
-const { start } = usePolling(60_000, 300_000, () => marketStore.fetchConcepts())
-onMounted(() => start())
+const { start } = usePolling(60_000, 300_000, () => marketStore.fetchConcepts());
+onMounted(() => start());
 
 function formatAmount(val) {
-  if (!val) return '-'
-  if (val >= 1e8) return (val / 1e8).toFixed(2) + '亿'
-  if (val >= 1e4) return (val / 1e4).toFixed(2) + '万'
-  return String(val)
+  if (!val) return "-";
+  if (val >= 1e8) return (val / 1e8).toFixed(2) + "亿";
+  if (val >= 1e4) return (val / 1e4).toFixed(2) + "万";
+  return String(val);
 }
 
 function pctClass(val) {
-  if (val > 0) return 'gain-text'
-  if (val < 0) return 'loss-text'
-  return 'neutral-text'
+  if (val > 0) return "gain-text";
+  if (val < 0) return "loss-text";
+  return "neutral-text";
 }
 
 function onRowClick(row) {
-  uiStore.setSelectedSector(row)
+  uiStore.setSelectedSector(row);
 }
 </script>
 
@@ -64,10 +64,22 @@ function onRowClick(row) {
   height: 100%;
 }
 
-.gain-text { color: #ef4444; font-weight: 600; }
-.loss-text { color: #22c55e; font-weight: 600; }
-.neutral-text { color: #909399; }
+.gain-text {
+  color: #ef4444;
+  font-weight: 600;
+}
+.loss-text {
+  color: #22c55e;
+  font-weight: 600;
+}
+.neutral-text {
+  color: #909399;
+}
 
-.clickable-row { cursor: pointer; }
-.clickable-row:hover > td { background-color: #f5f7fa !important; }
+.clickable-row {
+  cursor: pointer;
+}
+.clickable-row:hover > td {
+  background-color: #f5f7fa !important;
+}
 </style>

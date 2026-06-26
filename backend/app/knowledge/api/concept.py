@@ -6,18 +6,23 @@
 - 概念详情查询（成分股 + 资金面排序）
 - 统一使用 THS TI 格式（与 limit_cpt_list 体系一致）
 """
+
 import logging
-from datetime import datetime
-from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import and_, desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, desc, and_
 
 from app.core.database import get_db
 from app.models.models import (
-    Stock, DailyData, ConceptLimit, DailyBasic,
-    ThsConcept, ThsConceptMember, ConceptScore, StockScore,
+    ConceptLimit,
+    ConceptScore,
+    DailyBasic,
+    DailyData,
+    Stock,
+    StockScore,
+    ThsConcept,
+    ThsConceptMember,
 )
 
 router = APIRouter()
@@ -40,25 +45,18 @@ async def get_top_concepts(
     4. 累加 N 天得分，取 TOP N
     """
     # 获取最近 N 个有数据的交易日
-    trade_dates_stmt = (
-        select(ConceptLimit.trade_date)
-        .distinct()
-        .order_by(desc(ConceptLimit.trade_date))
-        .limit(days)
-    )
+    trade_dates_stmt = select(ConceptLimit.trade_date).distinct().order_by(desc(ConceptLimit.trade_date)).limit(days)
     result = await db.execute(trade_dates_stmt)
     trade_dates = [row[0] for row in result.fetchall()]
 
     if len(trade_dates) < 2:
         raise HTTPException(
             status_code=400,
-            detail=f"本地数据不足（仅{len(trade_dates)}个交易日），请先运行同步脚本采集数据"
+            detail=f"本地数据不足（仅{len(trade_dates)}个交易日），请先运行同步脚本采集数据",
         )
 
     # 读取所有相关数据
-    data_stmt = select(ConceptLimit).where(
-        ConceptLimit.trade_date.in_(trade_dates)
-    )
+    data_stmt = select(ConceptLimit).where(ConceptLimit.trade_date.in_(trade_dates))
     result = await db.execute(data_stmt)
     rows = result.scalars().all()
 
@@ -66,7 +64,7 @@ async def get_top_concepts(
     concept_scores: dict[str, dict] = {}
     for row in rows:
         idx = trade_dates.index(row.trade_date)
-        weight = 1.0 / (2 ** idx)
+        weight = 1.0 / (2**idx)
         up_bonus = 20 if (row.up_nums or 0) >= 10 else (10 if (row.up_nums or 0) >= 5 else 0)
 
         if row.concept_code not in concept_scores:
@@ -135,9 +133,8 @@ async def get_concept_stocks(
         raise HTTPException(status_code=404, detail="概念不存在")
 
     # 成分股列表（从 ths_concept_members 查，con_code 是股票代码）
-    member_stmt = (
-        select(ThsConceptMember.con_code, ThsConceptMember.con_name)
-        .where(ThsConceptMember.ts_code == concept.ts_code)
+    member_stmt = select(ThsConceptMember.con_code, ThsConceptMember.con_name).where(
+        ThsConceptMember.ts_code == concept.ts_code
     )
     member_result = await db.execute(member_stmt)
     member_rows = member_result.all()
@@ -154,10 +151,7 @@ async def get_concept_stocks(
     con_name_map = {r[0]: r[1] for r in member_rows}
 
     # 关联 stocks 表获取行业等信息
-    stock_info_stmt = (
-        select(Stock.ts_code, Stock.name, Stock.industry)
-        .where(Stock.ts_code.in_(stock_codes))
-    )
+    stock_info_stmt = select(Stock.ts_code, Stock.name, Stock.industry).where(Stock.ts_code.in_(stock_codes))
     stock_info_result = await db.execute(stock_info_stmt)
     stock_info_map = {r[0]: {"name": r[1], "industry": r[2]} for r in stock_info_result.fetchall()}
 
@@ -190,35 +184,42 @@ async def get_concept_stocks(
         }
 
     # 日线数据
-    price_stmt = (
-        select(DailyData.ts_code, DailyData.close, DailyData.pct_chg)
-        .where(and_(DailyData.ts_code.in_(stock_codes), DailyData.trade_date == latest_date))
+    price_stmt = select(DailyData.ts_code, DailyData.close, DailyData.pct_chg).where(
+        and_(DailyData.ts_code.in_(stock_codes), DailyData.trade_date == latest_date)
     )
     price_map = {r[0]: {"close": r[1], "pct_chg": r[2]} for r in (await db.execute(price_stmt)).fetchall()}
 
     # 基本面数据
-    basic_stmt = (
-        select(DailyBasic.ts_code, DailyBasic.turnover_rate, DailyBasic.volume_ratio, DailyBasic.pe, DailyBasic.pb)
-        .where(and_(DailyBasic.ts_code.in_(stock_codes), DailyBasic.trade_date == latest_date))
-    )
-    basic_map = {r[0]: {"turnover_rate": r[1], "volume_ratio": r[2], "pe": r[3], "pb": r[4]} for r in (await db.execute(basic_stmt)).fetchall()}
+    basic_stmt = select(
+        DailyBasic.ts_code,
+        DailyBasic.turnover_rate,
+        DailyBasic.volume_ratio,
+        DailyBasic.pe,
+        DailyBasic.pb,
+    ).where(and_(DailyBasic.ts_code.in_(stock_codes), DailyBasic.trade_date == latest_date))
+    basic_map = {
+        r[0]: {"turnover_rate": r[1], "volume_ratio": r[2], "pe": r[3], "pb": r[4]}
+        for r in (await db.execute(basic_stmt)).fetchall()
+    }
 
     # 合并
     stocks_data = []
     for code in stock_codes:
         p = price_map.get(code, {})
         b = basic_map.get(code, {})
-        stocks_data.append({
-            "ts_code": code,
-            "name": stock_info_map.get(code, {}).get("name") or con_name_map.get(code, ""),
-            "industry": stock_info_map.get(code, {}).get("industry"),
-            "close": p.get("close"),
-            "pct_chg": p.get("pct_chg"),
-            "volume_ratio": b.get("volume_ratio"),
-            "turnover_rate": b.get("turnover_rate"),
-            "pe": b.get("pe"),
-            "pb": b.get("pb"),
-        })
+        stocks_data.append(
+            {
+                "ts_code": code,
+                "name": stock_info_map.get(code, {}).get("name") or con_name_map.get(code, ""),
+                "industry": stock_info_map.get(code, {}).get("industry"),
+                "close": p.get("close"),
+                "pct_chg": p.get("pct_chg"),
+                "volume_ratio": b.get("volume_ratio"),
+                "turnover_rate": b.get("turnover_rate"),
+                "pe": b.get("pe"),
+                "pb": b.get("pb"),
+            }
+        )
 
     # 排序
     sort_keys = {"volume": "volume_ratio", "turnover": "turnover_rate", "pct_chg": "pct_chg"}
@@ -251,10 +252,7 @@ async def get_stock_concepts(
         raise HTTPException(status_code=404, detail="股票不存在")
 
     # 查询所属概念（从 ths_concept_members）
-    member_stmt = (
-        select(ThsConceptMember.ts_code)
-        .where(ThsConceptMember.con_code == ts_code)
-    )
+    member_stmt = select(ThsConceptMember.ts_code).where(ThsConceptMember.con_code == ts_code)
     member_result = await db.execute(member_stmt)
     ths_codes = [row[0] for row in member_result.fetchall()]
 
@@ -272,7 +270,12 @@ async def get_stock_concepts(
 
     # 获取近期涨停数据（concept_limit 用同样的 TI 格式，直接匹配）
     limit_stmt = (
-        select(ConceptLimit.concept_code, ConceptLimit.pct_chg, ConceptLimit.up_nums, ConceptLimit.trade_date)
+        select(
+            ConceptLimit.concept_code,
+            ConceptLimit.pct_chg,
+            ConceptLimit.up_nums,
+            ConceptLimit.trade_date,
+        )
         .where(ConceptLimit.concept_code.in_(ths_codes))
         .order_by(desc(ConceptLimit.trade_date))
     )
@@ -363,6 +366,7 @@ async def sync_concept_limit_today():
 
 # ── 概念/个股评分 ───────────────────────────────────────
 
+
 @router.get("/scores/concepts")
 async def get_concept_scores(
     limit: int = Query(default=50, ge=1, le=200),
@@ -372,12 +376,7 @@ async def get_concept_scores(
     """
     获取概念评分列表（按评分降序）
     """
-    stmt = (
-        select(ConceptScore)
-        .order_by(desc(ConceptScore.score))
-        .offset(offset)
-        .limit(limit)
-    )
+    stmt = select(ConceptScore).order_by(desc(ConceptScore.score)).offset(offset).limit(limit)
     result = await db.execute(stmt)
     rows = result.scalars().all()
 
@@ -450,12 +449,7 @@ async def get_stock_scores(
     """
     获取个股评分列表（按总分降序）
     """
-    stmt = (
-        select(StockScore)
-        .order_by(desc(StockScore.total_score))
-        .offset(offset)
-        .limit(limit)
-    )
+    stmt = select(StockScore).order_by(desc(StockScore.total_score)).offset(offset).limit(limit)
     result = await db.execute(stmt)
     rows = result.scalars().all()
 
@@ -492,12 +486,7 @@ async def get_stock_score(
     """
     获取个股综合评分详情
     """
-    stmt = (
-        select(StockScore)
-        .where(StockScore.ts_code == ts_code)
-        .order_by(desc(StockScore.trade_date))
-        .limit(1)
-    )
+    stmt = select(StockScore).where(StockScore.ts_code == ts_code).order_by(desc(StockScore.trade_date)).limit(1)
     result = await db.execute(stmt)
     row = result.scalar_one_or_none()
 
@@ -554,10 +543,10 @@ async def trigger_score_calculation():
     import subprocess
     import sys
     from pathlib import Path
+
     script = str(Path(__file__).parent.parent / "scripts" / "sync_concept_scores.py")
     subprocess.Popen(
         [sys.executable, script],
         cwd=str(Path(__file__).parent.parent.parent),
     )
     return {"message": "评分计算任务已启动"}
-

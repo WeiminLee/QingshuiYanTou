@@ -6,11 +6,11 @@
 - RuleBasedSignalExtractor: 规则实现（Phase 1，无 LLM 依赖）
 - LLMSignalExtractor: LLM 实现（Phase 2，对接 Ollama/OpenAI）
 """
+
 import logging
 import re
 from abc import ABC, abstractmethod
 from datetime import datetime
-from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -49,40 +49,118 @@ class RuleBasedSignalExtractor(SignalExtractor):
     # 关键词 → 信号类型映射
     SIGNAL_PATTERNS = {
         "product_expansion": [
-            "扩产", "新增产能", "新建", "投产", "量产", "产品线扩张",
-            "新工厂", "产业园", "项目开工", "产能释放", "产能爬坡",
+            "扩产",
+            "新增产能",
+            "新建",
+            "投产",
+            "量产",
+            "产品线扩张",
+            "新工厂",
+            "产业园",
+            "项目开工",
+            "产能释放",
+            "产能爬坡",
         ],
         "supply_chain": [
-            "供应商", "原材料", "采购", "供应链", "战略合作",
-            "上下游", "产业链整合", "独家供应", "供应商准入",
+            "供应商",
+            "原材料",
+            "采购",
+            "供应链",
+            "战略合作",
+            "上下游",
+            "产业链整合",
+            "独家供应",
+            "供应商准入",
         ],
         "policy_impact": [
-            "政策", "监管", "补贴", "税收优惠", "行业规划", "双碳",
-            "碳中和", "碳达峰", "专精特新", "国产替代", "进口替代",
+            "政策",
+            "监管",
+            "补贴",
+            "税收优惠",
+            "行业规划",
+            "双碳",
+            "碳中和",
+            "碳达峰",
+            "专精特新",
+            "国产替代",
+            "进口替代",
         ],
         "management_change": [
-            "董事长", "总经理", "高管", "换届", "离职", "任命",
-            "管理层", "核心技术人员", "首席", "cto", "ceo",
+            "董事长",
+            "总经理",
+            "高管",
+            "换届",
+            "离职",
+            "任命",
+            "管理层",
+            "核心技术人员",
+            "首席",
+            "cto",
+            "ceo",
         ],
         "financial_highlight": [
-            "营收增长", "净利润", "毛利率", "订单", "合同",
-            "回款", "现金流", "业绩预增", "扭亏", "大幅增长",
-            "超预期", "符合预期", "不及预期", "低于预期",
+            "营收增长",
+            "净利润",
+            "毛利率",
+            "订单",
+            "合同",
+            "回款",
+            "现金流",
+            "业绩预增",
+            "扭亏",
+            "大幅增长",
+            "超预期",
+            "符合预期",
+            "不及预期",
+            "低于预期",
         ],
         "risk_warning": [
-            "风险", "诉讼", "处罚", "商誉减值", "存货减值",
-            "应收账款", "债务", "资金紧张", "停产", "召回",
+            "风险",
+            "诉讼",
+            "处罚",
+            "商誉减值",
+            "存货减值",
+            "应收账款",
+            "债务",
+            "资金紧张",
+            "停产",
+            "召回",
         ],
     }
 
     SENTIMENT_WORDS_POSITIVE = [
-        "增长", "突破", "创新", "领先", "扩张", "提升", "大增", "超预期",
-        "大幅", "显著", "明显", "持续", "战略", "重大", "强劲", "开门红",
+        "增长",
+        "突破",
+        "创新",
+        "领先",
+        "扩张",
+        "提升",
+        "大增",
+        "超预期",
+        "大幅",
+        "显著",
+        "明显",
+        "持续",
+        "战略",
+        "重大",
+        "强劲",
+        "开门红",
     ]
 
     SENTIMENT_WORDS_NEGATIVE = [
-        "下降", "亏损", "减少", "下滑", "不及预期", "低于预期", "风险",
-        "诉讼", "处罚", "停产", "召回", "商誉减值", "大幅下跌",
+        "下降",
+        "亏损",
+        "减少",
+        "下滑",
+        "不及预期",
+        "低于预期",
+        "风险",
+        "诉讼",
+        "处罚",
+        "停产",
+        "召回",
+        "商誉减值",
+        "大幅下跌",
     ]
 
     STRONG_MARKERS = ["大幅", "显著", "明显", "持续", "战略", "重大", "强劲", "首次"]
@@ -98,16 +176,18 @@ class RuleBasedSignalExtractor(SignalExtractor):
         for signal_type, keywords in self.SIGNAL_PATTERNS.items():
             for kw in keywords:
                 if kw in text or kw in text_lower:
-                    sentences = re.split(r'[。；！？\n,，]', text or "")
+                    sentences = re.split(r"[。；！？\n,，]", text or "")
                     for sent in sentences:
                         if kw in sent and len(sent.strip()) > 5:
-                            signals.append({
-                                "type": signal_type,
-                                "content": sent.strip()[:200],
-                                "gap_type": self._infer_gap_type(sent),
-                                "strength": self._infer_strength(sent, kw),
-                                "extracted_at": datetime.now().isoformat(),
-                            })
+                            signals.append(
+                                {
+                                    "type": signal_type,
+                                    "content": sent.strip()[:200],
+                                    "gap_type": self._infer_gap_type(sent),
+                                    "strength": self._infer_strength(sent, kw),
+                                    "extracted_at": datetime.now().isoformat(),
+                                }
+                            )
                             detected_types.add(signal_type)
                             break
 
@@ -137,16 +217,18 @@ class RuleBasedSignalExtractor(SignalExtractor):
         for signal_type, keywords in self.SIGNAL_PATTERNS.items():
             for kw in keywords:
                 if kw in text or kw in text_lower:
-                    sentences = re.split(r'[。；！？\n,，]', text or "")
+                    sentences = re.split(r"[。；！？\n,，]", text or "")
                     for sent in sentences:
                         if kw in sent and len(sent.strip()) > 5:
-                            signals.append({
-                                "type": signal_type,
-                                "content": sent.strip()[:200],
-                                "gap_type": self._infer_gap_type(sent),
-                                "strength": self._infer_strength(sent, kw),
-                                "extracted_at": datetime.now().isoformat(),
-                            })
+                            signals.append(
+                                {
+                                    "type": signal_type,
+                                    "content": sent.strip()[:200],
+                                    "gap_type": self._infer_gap_type(sent),
+                                    "strength": self._infer_strength(sent, kw),
+                                    "extracted_at": datetime.now().isoformat(),
+                                }
+                            )
                             detected_types.add(signal_type)
                             break  # 每种类型只取第一个匹配
 
@@ -204,6 +286,7 @@ class LLMSignalExtractor(SignalExtractor):
 
     def __init__(self, base_url: str | None = None, model: str = "qwen2.5:7b"):
         import os
+
         self.base_url = base_url or os.getenv("OLLAMA_URL", "http://localhost:11434")
         self.model = model
 
@@ -249,15 +332,15 @@ class LLMSignalExtractor(SignalExtractor):
 只输出JSON，不要有其他内容。"""
 
     async def _parse_llm_response(self, llm_text: str) -> dict:
-        match = re.search(r'\{.*\}', llm_text, re.DOTALL)
+        match = re.search(r"\{.*\}", llm_text, re.DOTALL)
         if match:
             import json
+
             try:
                 parsed = json.loads(match.group())
                 parsed["method"] = "llm"
                 parsed["signals"] = [
-                    {**s, "extracted_at": datetime.now().isoformat()}
-                    for s in parsed.get("signals", [])
+                    {**s, "extracted_at": datetime.now().isoformat()} for s in parsed.get("signals", [])
                 ]
                 return parsed
             except json.JSONDecodeError:
@@ -268,6 +351,7 @@ class LLMSignalExtractor(SignalExtractor):
 
 
 # ── 信号持久化（写入 Neo4j Event 节点）─────────────────────────────────
+
 
 def persist_signals_to_neo4j(
     signals_result: dict,
@@ -336,19 +420,23 @@ def persist_signals_to_neo4j(
             written_ids.append(entity_id)
             logger.debug(
                 "Signal Event 入库: %s (%s, %s)",
-                entity_id, sig_type, gap_type,
+                entity_id,
+                sig_type,
+                gap_type,
             )
         except Exception as e:
             logger.warning("Signal Event 入库失败 [%s]: %s", entity_id, e)
 
     logger.info(
         "Signal 持久化完成: %d 条 signal → %d 个 Event 节点",
-        len(signals), len(written_ids),
+        len(signals),
+        len(written_ids),
     )
     return written_ids
 
 
 # ── 信号持久化（写入 Company 节点属性，替代 Event 节点）─────────────────
+
 
 def persist_signals_to_company_props(
     signals_result: dict,
@@ -374,7 +462,7 @@ def persist_signals_to_company_props(
     Returns:
         写入状态 dict（写入条数 / 信号类型 / 最新摘要）
     """
-    from app.core.neo4j_client import run_write, run
+    from app.core.neo4j_client import run, run_write
 
     signals = signals_result.get("signals", [])
     if not signals:
@@ -386,8 +474,7 @@ def persist_signals_to_company_props(
     # 读取现有哪些信号（避免每次追加丢失旧数据）
     existing_signals: list[dict] = []
     result = run(
-        f"MATCH (n:Company {{entity_id: $eid}}) "
-        f"RETURN n.signals AS signals",
+        "MATCH (n:Company {entity_id: $eid}) RETURN n.signals AS signals",
         params={"eid": entity_id},
     )
     if result and result[0].get("signals"):
@@ -409,16 +496,18 @@ def persist_signals_to_company_props(
 
     # 追加新信号（带元数据）
     for sig in signals:
-        existing_signals.append({
-            "type": sig.get("type", "unknown"),
-            "content": sig.get("content", "")[:200],
-            "gap_type": sig.get("gap_type", "neutral"),
-            "strength": sig.get("strength", "medium"),
-            "sentiment_score": signals_result.get("sentiment_score", 0.0),
-            "source_type": source_type,
-            "source_document_id": source_document_id,
-            "written_at": written_at,
-        })
+        existing_signals.append(
+            {
+                "type": sig.get("type", "unknown"),
+                "content": sig.get("content", "")[:200],
+                "gap_type": sig.get("gap_type", "neutral"),
+                "strength": sig.get("strength", "medium"),
+                "sentiment_score": signals_result.get("sentiment_score", 0.0),
+                "source_type": source_type,
+                "source_document_id": source_document_id,
+                "written_at": written_at,
+            }
+        )
 
     # 构建去重类型列表 & 最新 3 条摘要
     signal_types = list(dict.fromkeys(s["type"] for s in existing_signals))
@@ -431,14 +520,14 @@ def persist_signals_to_company_props(
 
     try:
         run_write(
-            f"MATCH (n:Company {{entity_id: $eid}}) "
-            f"SET n.signals = $signals_json, "
-            f"    n.signal_types = $signal_types, "
-            f"    n.signal_summary = $summary, "
-            f"    n.latest_signal_at = $written_at",
+            "MATCH (n:Company {entity_id: $eid}) "
+            "SET n.signals = $signals_json, "
+            "    n.signal_types = $signal_types, "
+            "    n.signal_summary = $summary, "
+            "    n.latest_signal_at = $written_at",
             params={
                 "eid": entity_id,
-                "signals_json": signals_json,   # Neo4j 存为字符串，读取时 JSON.parse
+                "signals_json": signals_json,  # Neo4j 存为字符串，读取时 JSON.parse
                 "signal_types": signal_types,
                 "summary": summary,
                 "written_at": written_at,
@@ -446,7 +535,9 @@ def persist_signals_to_company_props(
         )
         logger.debug(
             "Company 信号写入 [%s]: %d 条，类型=%s",
-            entity_id, len(signals), signal_types,
+            entity_id,
+            len(signals),
+            signal_types,
         )
         return {
             "written": len(signals),

@@ -1,10 +1,11 @@
 """StructuredFact persistence helpers."""
+
 from __future__ import annotations
 
-import json
 import hashlib
+import json
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from app.core.neo4j_client import write_transaction
@@ -22,11 +23,19 @@ FORBIDDEN_STATE_VALUES = {
 
 
 def _utc_now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def stable_fact_id(subject_id: str, dimension: str, state_value: str, observed_at: Any, evidence_id: str) -> str:
-    payload = "\n".join([str(subject_id or ""), str(dimension or ""), str(state_value or ""), str(observed_at or ""), str(evidence_id or "")])
+    payload = "\n".join(
+        [
+            str(subject_id or ""),
+            str(dimension or ""),
+            str(state_value or ""),
+            str(observed_at or ""),
+            str(evidence_id or ""),
+        ]
+    )
     return f"SF:{hashlib.sha256(payload.encode('utf-8')).hexdigest()[:24]}"
 
 
@@ -72,7 +81,10 @@ def upsert_structured_fact(fact: dict[str, Any]) -> tuple[dict[str, Any], bool]:
             {"fact_id": fact_id},
         ).single()
         if existing:
-            tx.run("MATCH (f:StructuredFact {fact_id: $fact_id}) SET f += $props", {"fact_id": fact_id, "props": props})
+            tx.run(
+                "MATCH (f:StructuredFact {fact_id: $fact_id}) SET f += $props",
+                {"fact_id": fact_id, "props": props},
+            )
         else:
             tx.run("CREATE (f:StructuredFact $props)", {"props": props})
             subject_id = str(fact.get("subject_id") or "")
@@ -87,7 +99,9 @@ def upsert_structured_fact(fact: dict[str, Any]) -> tuple[dict[str, Any], bool]:
     return {**props, "fact_id": fact_id}, True
 
 
-def extract_rule_based_facts(evidence: dict[str, Any], entities: list[dict[str, Any]], relations: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def extract_rule_based_facts(
+    evidence: dict[str, Any], entities: list[dict[str, Any]], relations: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
     text = str(evidence.get("text_excerpt") or "")
     subject_hint = evidence.get("subject_hint") or {}
     subject_id = str(subject_hint.get("ts_code") or "").strip()
@@ -95,63 +109,71 @@ def extract_rule_based_facts(evidence: dict[str, Any], entities: list[dict[str, 
         return []
     facts: list[dict[str, Any]] = []
     if "量产" in text:
-        facts.append({
-            "subject_id": subject_id,
-            "subject_type": "Company",
-            "dimension": "production",
-            "state_value": "mass_production_started",
-            "observed_at": evidence.get("observed_at"),
-            "valid_from": evidence.get("publish_date") or evidence.get("observed_at"),
-            "evidence_id": evidence.get("evidence_id"),
-            "evidence_text": text[:500],
-            "confidence": evidence.get("confidence") or 0.8,
-            "source_type": evidence.get("source_type"),
-            "source_name": evidence.get("source_name"),
-            "metadata": {"trigger": "量产"},
-        })
+        facts.append(
+            {
+                "subject_id": subject_id,
+                "subject_type": "Company",
+                "dimension": "production",
+                "state_value": "mass_production_started",
+                "observed_at": evidence.get("observed_at"),
+                "valid_from": evidence.get("publish_date") or evidence.get("observed_at"),
+                "evidence_id": evidence.get("evidence_id"),
+                "evidence_text": text[:500],
+                "confidence": evidence.get("confidence") or 0.8,
+                "source_type": evidence.get("source_type"),
+                "source_name": evidence.get("source_name"),
+                "metadata": {"trigger": "量产"},
+            }
+        )
     if "导入" in text or "进入供应链" in text:
-        facts.append({
-            "subject_id": subject_id,
-            "subject_type": "Company",
-            "dimension": "customer",
-            "state_value": "customer_introduction",
-            "observed_at": evidence.get("observed_at"),
-            "valid_from": evidence.get("publish_date") or evidence.get("observed_at"),
-            "evidence_id": evidence.get("evidence_id"),
-            "evidence_text": text[:500],
-            "confidence": evidence.get("confidence") or 0.8,
-            "source_type": evidence.get("source_type"),
-            "source_name": evidence.get("source_name"),
-            "metadata": {"trigger": "导入"},
-        })
+        facts.append(
+            {
+                "subject_id": subject_id,
+                "subject_type": "Company",
+                "dimension": "customer",
+                "state_value": "customer_introduction",
+                "observed_at": evidence.get("observed_at"),
+                "valid_from": evidence.get("publish_date") or evidence.get("observed_at"),
+                "evidence_id": evidence.get("evidence_id"),
+                "evidence_text": text[:500],
+                "confidence": evidence.get("confidence") or 0.8,
+                "source_type": evidence.get("source_type"),
+                "source_name": evidence.get("source_name"),
+                "metadata": {"trigger": "导入"},
+            }
+        )
     if "订单" in text and "排产" in text:
-        facts.append({
-            "subject_id": subject_id,
-            "subject_type": "Company",
-            "dimension": "order",
-            "state_value": "order_scheduled",
-            "observed_at": evidence.get("observed_at"),
-            "valid_from": evidence.get("publish_date") or evidence.get("observed_at"),
-            "evidence_id": evidence.get("evidence_id"),
-            "evidence_text": text[:500],
-            "confidence": evidence.get("confidence") or 0.8,
-            "source_type": evidence.get("source_type"),
-            "source_name": evidence.get("source_name"),
-            "metadata": {"trigger": "订单排产"},
-        })
+        facts.append(
+            {
+                "subject_id": subject_id,
+                "subject_type": "Company",
+                "dimension": "order",
+                "state_value": "order_scheduled",
+                "observed_at": evidence.get("observed_at"),
+                "valid_from": evidence.get("publish_date") or evidence.get("observed_at"),
+                "evidence_id": evidence.get("evidence_id"),
+                "evidence_text": text[:500],
+                "confidence": evidence.get("confidence") or 0.8,
+                "source_type": evidence.get("source_type"),
+                "source_name": evidence.get("source_name"),
+                "metadata": {"trigger": "订单排产"},
+            }
+        )
     if "业绩不及预期" in text or "低于预期" in text:
-        facts.append({
-            "subject_id": subject_id,
-            "subject_type": "Company",
-            "dimension": "financial",
-            "state_value": "earnings_below_expectation",
-            "observed_at": evidence.get("observed_at"),
-            "valid_from": evidence.get("publish_date") or evidence.get("observed_at"),
-            "evidence_id": evidence.get("evidence_id"),
-            "evidence_text": text[:500],
-            "confidence": evidence.get("confidence") or 0.8,
-            "source_type": evidence.get("source_type"),
-            "source_name": evidence.get("source_name"),
-            "metadata": {"trigger": "业绩不及预期"},
-        })
+        facts.append(
+            {
+                "subject_id": subject_id,
+                "subject_type": "Company",
+                "dimension": "financial",
+                "state_value": "earnings_below_expectation",
+                "observed_at": evidence.get("observed_at"),
+                "valid_from": evidence.get("publish_date") or evidence.get("observed_at"),
+                "evidence_id": evidence.get("evidence_id"),
+                "evidence_text": text[:500],
+                "confidence": evidence.get("confidence") or 0.8,
+                "source_type": evidence.get("source_type"),
+                "source_name": evidence.get("source_name"),
+                "metadata": {"trigger": "业绩不及预期"},
+            }
+        )
     return facts

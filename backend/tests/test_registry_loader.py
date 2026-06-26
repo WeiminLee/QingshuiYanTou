@@ -3,11 +3,8 @@ tests/test_registry_loader.py — Phase 0: loader.py YAML 声明式改造测试
 
 验证工具注册机制的核心行为（resolve_variable + YAML 配置）。
 """
-from __future__ import annotations
 
-import tempfile
-import os
-from pathlib import Path
+from __future__ import annotations
 
 import pytest
 
@@ -91,8 +88,8 @@ class TestLoadToolsFromConfig:
 
     def test_provided_configs_used_directly(self):
         """传入 configs 参数时应跳过 YAML，直接使用传入配置"""
-        from app.reasoning.registry.loader import load_tools_from_config
         from app.reasoning.registry.config import ToolConfig, ToolGroup
+        from app.reasoning.registry.loader import load_tools_from_config
 
         # 用一个最小配置覆盖
         test_configs = [
@@ -110,8 +107,8 @@ class TestLoadToolsFromConfig:
 
     def test_disabled_tool_not_registered(self):
         """enabled=False 的工具不应被注册"""
-        from app.reasoning.registry.loader import load_tools_from_config
         from app.reasoning.registry.config import ToolConfig, ToolGroup
+        from app.reasoning.registry.loader import load_tools_from_config
 
         test_configs = [
             ToolConfig(
@@ -128,8 +125,8 @@ class TestLoadToolsFromConfig:
 
     def test_load_nonexistent_tool_returns_others(self):
         """某个工具导入失败时，不应阻断其他工具加载"""
-        from app.reasoning.registry.loader import load_tools_from_config
         from app.reasoning.registry.config import ToolConfig, ToolGroup
+        from app.reasoning.registry.loader import load_tools_from_config
 
         test_configs = [
             ToolConfig(

@@ -34,97 +34,102 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
-import { storeToRefs } from 'pinia'
-import { useUiStore } from '../store/ui.js'
-import { getNewsList } from '../api/information.js'
-import DataPanel from './DataPanel.vue'
+import { ref, computed, onMounted } from "vue";
+import { storeToRefs } from "pinia";
+import { useUiStore } from "../store/ui.js";
+import { getNewsList } from "../api/information.js";
+import DataPanel from "./DataPanel.vue";
 
 const props = defineProps({
   filters: {
     type: Object,
     default: () => ({ sources: [], tiers: [] }),
   },
-})
+});
 
-const uiStore = useUiStore()
-const { selectedInfo } = storeToRefs(uiStore)
+const uiStore = useUiStore();
+const { selectedInfo } = storeToRefs(uiStore);
 
-const allItems = ref([])
-const loading = ref(false)
-const error = ref(null)
+const allItems = ref([]);
+const loading = ref(false);
+const error = ref(null);
 
-const selectedId = computed(() => selectedInfo.value?.id)
+const selectedId = computed(() => selectedInfo.value?.id);
 
-const hasActiveFilter = computed(() =>
-  (props.filters.sources?.length ?? 0) > 0 || (props.filters.tiers?.length ?? 0) > 0
-)
+const hasActiveFilter = computed(
+  () => (props.filters.sources?.length ?? 0) > 0 || (props.filters.tiers?.length ?? 0) > 0,
+);
 
 const filteredItems = computed(() => {
-  let items = allItems.value
+  let items = allItems.value;
   if (props.filters.sources?.length) {
-    items = items.filter(i => props.filters.sources.includes(i.source))
+    items = items.filter((i) => props.filters.sources.includes(i.source));
   }
   if (props.filters.tiers?.length) {
-    items = items.filter(i => {
-      const t = i.tier ?? i.confidence_tier ?? -1
-      return props.filters.tiers.includes(t)
-    })
+    items = items.filter((i) => {
+      const t = i.tier ?? i.confidence_tier ?? -1;
+      return props.filters.tiers.includes(t);
+    });
   }
-  return items
-})
+  return items;
+});
 
-onMounted(() => fetchNews())
+onMounted(() => fetchNews());
 
 async function fetchNews() {
-  loading.value = true
-  error.value = null
+  loading.value = true;
+  error.value = null;
   try {
-    const data = await getNewsList()
-    allItems.value = Array.isArray(data) ? data : []
+    const data = await getNewsList();
+    allItems.value = Array.isArray(data) ? data : [];
   } catch (e) {
-    error.value = e.message || '加载资讯失败'
+    error.value = e.message || "加载资讯失败";
   } finally {
-    loading.value = false
+    loading.value = false;
   }
 }
 
 function selectItem(item) {
-  uiStore.setSelectedInfo(item)
+  uiStore.setSelectedInfo(item);
 }
 
 function sourceLabel(source) {
-  const map = { cls: '财联社', announcement: '公告', research: '研报', qa: '互动易' }
-  return map[source] || source || ''
+  const map = { cls: "财联社", announcement: "公告", research: "研报", qa: "互动易" };
+  return map[source] || source || "";
 }
 
 function sourceStyle(source) {
   const styles = {
-    cls: { background: '#fff4ef', color: '#ff6b35' },
-    announcement: { background: '#f5f3ff', color: '#7c3aed' },
-    research: { background: '#ecfeff', color: '#0891b2' },
-    qa: { background: '#ecfdf5', color: '#059669' },
-  }
-  return styles[source] || { background: '#f5f7fa', color: '#909399' }
+    cls: { background: "#fff4ef", color: "#ff6b35" },
+    announcement: { background: "#f5f3ff", color: "#7c3aed" },
+    research: { background: "#ecfeff", color: "#0891b2" },
+    qa: { background: "#ecfdf5", color: "#059669" },
+  };
+  return styles[source] || { background: "#f5f7fa", color: "#909399" };
 }
 
 function tierColor(tier) {
-  const colors = { 0: '#059669', 1: '#16a34a', 2: '#ca8a04', 3: '#ea580c', 4: '#dc2626' }
-  return colors[tier ?? -1] || '#d1d5db'
+  const colors = { 0: "#059669", 1: "#16a34a", 2: "#ca8a04", 3: "#ea580c", 4: "#dc2626" };
+  return colors[tier ?? -1] || "#d1d5db";
 }
 
 function formatTime(ts) {
-  if (!ts) return ''
-  const d = new Date(ts)
-  if (isNaN(d)) return String(ts)
-  return `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`
+  if (!ts) return "";
+  const d = new Date(ts);
+  if (isNaN(d)) return String(ts);
+  return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
 </script>
 
 <style scoped>
-.info-timeline { width: 100%; height: 100%; }
+.info-timeline {
+  width: 100%;
+  height: 100%;
+}
 
-.timeline-item { cursor: pointer; }
+.timeline-item {
+  cursor: pointer;
+}
 
 .timeline-card {
   padding: 8px 12px;
@@ -133,8 +138,14 @@ function formatTime(ts) {
   border: 1px solid transparent;
   transition: all 0.15s;
 }
-.timeline-card:hover { background: #f0f4ff; border-color: #409eff; }
-.timeline-card.is-selected { background: #ecf5ff; border-color: #409eff; }
+.timeline-card:hover {
+  background: #f0f4ff;
+  border-color: #409eff;
+}
+.timeline-card.is-selected {
+  background: #ecf5ff;
+  border-color: #409eff;
+}
 
 .card-header {
   display: flex;
@@ -158,8 +169,19 @@ function formatTime(ts) {
   flex-shrink: 0;
 }
 
-.card-time { font-size: 11px; color: #909399; margin-left: auto; }
-.card-title { font-size: 13px; color: #303133; line-height: 1.4; }
+.card-time {
+  font-size: 11px;
+  color: #909399;
+  margin-left: auto;
+}
+.card-title {
+  font-size: 13px;
+  color: #303133;
+  line-height: 1.4;
+}
 
-.no-items { padding: 24px; text-align: center; }
+.no-items {
+  padding: 24px;
+  text-align: center;
+}
 </style>

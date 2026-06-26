@@ -11,21 +11,20 @@ import logging
 import re
 import unicodedata
 from datetime import date, datetime
-from typing import Any, Optional
+from typing import Any
 
-from app.core.neo4j_client import run, run_write, run_single, write_transaction
+from app.core.neo4j_client import run, run_single, run_write, write_transaction
 
 logger = logging.getLogger(__name__)
 
 # ── 节点类型常量 ────────────────────────────────────────
 # V1.3 Schema: 3 类实体（克制扩展原则）
 
-ENTITY_TYPES = frozenset({
-    "Company", "Product", "Metric"
-})
+ENTITY_TYPES = frozenset({"Company", "Product", "Metric"})
 
 # ── entity_type 校验函数 ──────────────────────────────────────────────
 # 安全修复：防止 Cypher 注入攻击，entity_type 必须在白名单内
+
 
 def validate_entity_type(entity_type: str) -> str:
     """
@@ -52,6 +51,7 @@ def is_valid_entity_type(entity_type: str) -> bool:
 
 # ── ID 生成 ──────────────────────────────────────────────
 
+
 def _short_hash(text: str, length: int = 16) -> str:
     text = unicodedata.normalize("NFKC", text or "").strip()
     return hashlib.md5(text.encode("utf-8")).hexdigest()[:length]
@@ -66,9 +66,9 @@ def _safe_metric_name(value: str) -> str:
 def generate_entity_id(
     entity_type: str,
     name: str,
-    ts_code: Optional[str] = None,
-    metric_name: Optional[str] = None,
-    period: Optional[str] = None,
+    ts_code: str | None = None,
+    metric_name: str | None = None,
+    period: str | None = None,
 ) -> str:
     """
     唯一ID规则（V1.3 Schema - 3 类实体）：
@@ -106,6 +106,7 @@ def generate_entity_id(
 
 # ── 节点 → dict 互转 ──────────────────────────────────
 
+
 def _node_to_dict(node: Any) -> dict:
     """将 Neo4j Node 对象转为 plain dict（含 entity_id）"""
     if node is None:
@@ -118,18 +119,19 @@ def _node_to_dict(node: Any) -> dict:
 
 # ── 实体服务 ─────────────────────────────────────────────
 
+
 def upsert_entity(
     entity_id: str,
     entity_type: str,
     name: str = "",
-    ts_code: Optional[str] = None,
-    properties: Optional[dict] = None,
+    ts_code: str | None = None,
+    properties: dict | None = None,
     confidence: float = 0.80,
-    source_type: Optional[str] = None,
-    source_name: Optional[str] = None,
-    evidence_url: Optional[str] = None,
-    valid_from: Optional[date] = None,
-    valid_to: Optional[date] = None,
+    source_type: str | None = None,
+    source_name: str | None = None,
+    evidence_url: str | None = None,
+    valid_from: date | None = None,
+    valid_to: date | None = None,
     parser_version: str = "v1.3",
 ) -> tuple[dict, bool]:
     """
@@ -173,6 +175,7 @@ def upsert_entity(
         if entity_type == "Company":
             try:
                 from app.knowledge.stock_name_resolver import get_stock_name_resolver
+
                 all_names = get_stock_name_resolver().get_aliases(ts_code)
                 aliases = [n for n in all_names if n and n != name]
                 if aliases:
@@ -221,22 +224,25 @@ def upsert_entity(
     """
 
     try:
-        result = run_single(cypher, {
-            "entity_id": entity_id,
-            "name": name,
-            "confidence": confidence,
-            "source_type": source_type,
-            "source_name": source_name,
-            "evidence_url": evidence_url,
-            "valid_from": valid_from_str,
-            "valid_to": valid_to_str,
-            "parser_version": parser_version,
-            "ts_code": ts_code or "",
-            "aliases": props.get("aliases", []),
-            "created_at": now,
-            "updated_at": now,
-            "extra_props": extra_props,
-        })
+        result = run_single(
+            cypher,
+            {
+                "entity_id": entity_id,
+                "name": name,
+                "confidence": confidence,
+                "source_type": source_type,
+                "source_name": source_name,
+                "evidence_url": evidence_url,
+                "valid_from": valid_from_str,
+                "valid_to": valid_to_str,
+                "parser_version": parser_version,
+                "ts_code": ts_code or "",
+                "aliases": props.get("aliases", []),
+                "created_at": now,
+                "updated_at": now,
+                "extra_props": extra_props,
+            },
+        )
 
         if result:
             node = result["n"]
@@ -253,9 +259,18 @@ def upsert_entity(
         logger.warning("MERGE upsert 失败 [%s]: %s", entity_id, e)
         # 降级：回退到旧的非原子模式（作为兜底）
         return _upsert_entity_legacy(
-            entity_id, entity_type, name, ts_code, properties,
-            confidence, source_type, source_name, evidence_url,
-            valid_from, valid_to, parser_version
+            entity_id,
+            entity_type,
+            name,
+            ts_code,
+            properties,
+            confidence,
+            source_type,
+            source_name,
+            evidence_url,
+            valid_from,
+            valid_to,
+            parser_version,
         )
 
     # 兜底返回
@@ -266,14 +281,14 @@ def _upsert_entity_legacy(
     entity_id: str,
     entity_type: str,
     name: str = "",
-    ts_code: Optional[str] = None,
-    properties: Optional[dict] = None,
+    ts_code: str | None = None,
+    properties: dict | None = None,
     confidence: float = 0.80,
-    source_type: Optional[str] = None,
-    source_name: Optional[str] = None,
-    evidence_url: Optional[str] = None,
-    valid_from: Optional[date] = None,
-    valid_to: Optional[date] = None,
+    source_type: str | None = None,
+    source_name: str | None = None,
+    evidence_url: str | None = None,
+    valid_from: date | None = None,
+    valid_to: date | None = None,
     parser_version: str = "v1.3",
 ) -> tuple[dict, bool]:
     """
@@ -305,7 +320,7 @@ def _upsert_entity_legacy(
         merged["updated_at"] = now
 
         run_write(
-            f"MATCH (n) WHERE n.entity_id = $entity_id SET n += $props",
+            "MATCH (n) WHERE n.entity_id = $entity_id SET n += $props",
             {"entity_id": entity_id, "props": merged},
         )
         logger.debug("Legacy 更新实体: %s", entity_id)
@@ -330,6 +345,7 @@ def _upsert_entity_legacy(
         if entity_type == "Company":
             try:
                 from app.knowledge.stock_name_resolver import get_stock_name_resolver
+
                 all_names = get_stock_name_resolver().get_aliases(ts_code)
                 aliases = [n for n in all_names if n and n != name]
                 if aliases:
@@ -356,8 +372,7 @@ def batch_upsert_entities(entities: list[dict]) -> tuple[int, int]:
     """
     # 委托给高效的批量方法
     result = batch_upsert_entities_unwind(entities)
-    logger.info("批量 upsert 完成: 新增=%d 更新=%d",
-                result.get("inserted", 0), result.get("updated", 0))
+    logger.info("批量 upsert 完成: 新增=%d 更新=%d", result.get("inserted", 0), result.get("updated", 0))
     return result.get("inserted", 0), result.get("updated", 0)
 
 
@@ -380,16 +395,19 @@ def batch_upsert_entities_unwind(entities: list[dict]) -> dict:
         }
     """
     import time
+
     start = time.monotonic()
-    failed = 0
 
     # 过滤无效记录（entity_id/entity_type 缺失 + entity_type 不在白名单）
     # 安全修复：防止非法 entity_type 进入 Cypher
     valid_entities = [
-        e for e in entities
-        if e.get("entity_id") and e.get("entity_type") and is_valid_entity_type(e["entity_type"])
+        e for e in entities if e.get("entity_id") and e.get("entity_type") and is_valid_entity_type(e["entity_type"])
     ]
-    invalid_type_count = len(entities) - len([e for e in entities if not e.get("entity_id") or not e.get("entity_type")]) - len(valid_entities)
+    invalid_type_count = (
+        len(entities)
+        - len([e for e in entities if not e.get("entity_id") or not e.get("entity_type")])
+        - len(valid_entities)
+    )
     if invalid_type_count > 0:
         logger.warning("batch_upsert 过滤 %d 条非法 entity_type 记录", invalid_type_count)
 
@@ -489,8 +507,7 @@ def batch_upsert_entities_unwind(entities: list[dict]) -> dict:
         }
 
 
-
-def get_entity(entity_id: str) -> Optional[dict]:
+def get_entity(entity_id: str) -> dict | None:
     """根据 entity_id 查询单条实体"""
     result = run_single(
         "MATCH (n) WHERE n.entity_id = $entity_id RETURN n",
@@ -502,9 +519,9 @@ def get_entity(entity_id: str) -> Optional[dict]:
 
 
 def query_entities(
-    entity_type: Optional[str] = None,
-    ts_code: Optional[str] = None,
-    name_keyword: Optional[str] = None,
+    entity_type: str | None = None,
+    ts_code: str | None = None,
+    name_keyword: str | None = None,
     limit: int = 100,
     offset: int = 0,
 ) -> list[dict]:
@@ -528,14 +545,13 @@ def query_entities(
     params["offset"] = offset
 
     rows = run(
-        f"MATCH (n{labels}) {where_clause} RETURN n ORDER BY n.entity_id "
-        f"SKIP $offset LIMIT $limit",
+        f"MATCH (n{labels}) {where_clause} RETURN n ORDER BY n.entity_id SKIP $offset LIMIT $limit",
         params,
     )
     return [_node_to_dict(r["n"]) for r in rows]
 
 
-def get_company_by_ts_code(ts_code: str) -> Optional[dict]:
+def get_company_by_ts_code(ts_code: str) -> dict | None:
     return get_entity(f"C:{ts_code}")
 
 
@@ -544,8 +560,8 @@ def upsert_company(
     name: str,
     source_type: str,
     source_name: str,
-    properties: Optional[dict] = None,
-    evidence_url: Optional[str] = None,
+    properties: dict | None = None,
+    evidence_url: str | None = None,
 ) -> tuple[dict, bool]:
     entity_id = f"C:{ts_code}"
     return upsert_entity(

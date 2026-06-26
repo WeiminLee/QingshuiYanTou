@@ -17,28 +17,24 @@ RAGFlow General 模式知识图谱抽取引擎
 子模块：
   - extraction.rag_prompts: 提示词模板
 """
+
 from __future__ import annotations
 
 import asyncio
 import logging
 import re
 from collections import Counter, defaultdict
-from typing import Any, Callable, Optional
+from collections.abc import Callable
 
 from app.core.llm_client import chat
-from app.knowledge.extraction.chunker import Chunk, chunk_by_token, num_tokens
+from app.knowledge.extraction.chunker import Chunk, chunk_by_token
 from app.knowledge.extraction.rag_prompts import (
-    TUPLE_DELIMITER,
-    RECORD_DELIMITER,
     COMPLETION_DELIMITER,
-    GRAPH_FIELD_SEP,
-    ENTITY_TYPES,
-    DEFAULT_ENTITY_TYPES,
-    EXTRACTION_PROMPT,
-    EXTRACTION_PROMPT_V13,
-    ANNOUNCEMENT_SOURCE_TYPES,
     CONTINUE_PROMPT,
+    ENTITY_TYPES,
+    GRAPH_FIELD_SEP,
     SUMMARIZE_PROMPT,
+    TUPLE_DELIMITER,
     get_extraction_prompt,
 )
 
@@ -88,7 +84,7 @@ def _summarize_descriptions(
     # 注意：在 async context 中应直接调用 module-level async _summarize_descriptions
     # 这里处理 sync context 的情况
     try:
-        loop = asyncio.get_running_loop()
+        asyncio.get_running_loop()
         # 在 async context 中，fallback 到 raw merge（避免嵌套 event loop）
         # 调用方应在 async context 中使用 async _summarize_descriptions
         return _merge_descriptions_raw(descriptions)
@@ -120,7 +116,7 @@ async def _async_summarize_descriptions(
     try:
         prompt = SUMMARIZE_PROMPT.format(
             entity_name=entity_or_relation,
-            description_list="\n".join(f"{i+1}. {d}" for i, d in enumerate(unique)),
+            description_list="\n".join(f"{i + 1}. {d}" for i, d in enumerate(unique)),
         )
         summary = await _call_llm_async(prompt)
         return summary.strip()
@@ -131,6 +127,7 @@ async def _async_summarize_descriptions(
 
 
 # ── 输出解析 ────────────────────────────────────────────────────────────────
+
 
 def _parse_tuple_record(record: str) -> list[str]:
     """用 TUPLE_DELIMITER 切分一条 tuple 记录"""
@@ -202,10 +199,9 @@ def _parse_entity_relation_blocks(raw_text: str) -> tuple[dict, dict]:
     # 合法的 entity_type（白名单）
     valid_entity_types = VALID_ENTITY_TYPES
 
-    current_entity: tuple = None   # (name, e_type)
+    current_entity: tuple = None  # (name, e_type)
     current_section_type: str | None = None
-    current_rel: dict = None        # {src, tgt, description, weight}
-    current_rel_weight: float = None
+    current_rel: dict = None  # {src, tgt, description, weight}
 
     for line in raw_text.split("\n"):
         line_stripped = _normalize_llm_output_line(line)
@@ -216,34 +212,32 @@ def _parse_entity_relation_blocks(raw_text: str) -> tuple[dict, dict]:
         if len(tuple_parts) >= 4:
             name, maybe_type, desc = tuple_parts[0], tuple_parts[1], tuple_parts[2]
             if maybe_type in valid_entity_types and not _is_noise_entity_name(name):
-                nodes[name].append({
-                    "entity_name": name,
-                    "entity_type": maybe_type,
-                    "description": desc,
-                })
+                nodes[name].append(
+                    {
+                        "entity_name": name,
+                        "entity_type": maybe_type,
+                        "description": desc,
+                    }
+                )
                 continue
         if len(tuple_parts) >= 5:
             src, relation, tgt = tuple_parts[0], tuple_parts[1], tuple_parts[2]
-            if (
-                src
-                and tgt
-                and relation
-                and not _is_noise_entity_name(src)
-                and not _is_noise_entity_name(tgt)
-            ):
+            if src and tgt and relation and not _is_noise_entity_name(src) and not _is_noise_entity_name(tgt):
                 try:
                     weight = float(tuple_parts[3])
                 except (ValueError, TypeError):
                     weight = 1.0
                 desc = tuple_parts[4] if len(tuple_parts) > 4 else relation
-                edges[(src, tgt)].append({
-                    "src_id": src,
-                    "tgt_id": tgt,
-                    "description": desc or relation,
-                    "keywords": relation,
-                    "direction": "neutral",
-                    "weight": weight,
-                })
+                edges[(src, tgt)].append(
+                    {
+                        "src_id": src,
+                        "tgt_id": tgt,
+                        "description": desc or relation,
+                        "keywords": relation,
+                        "direction": "neutral",
+                        "weight": weight,
+                    }
+                )
                 continue
 
         section = line_stripped.rstrip(":：").strip()
@@ -255,10 +249,24 @@ def _parse_entity_relation_blocks(raw_text: str) -> tuple[dict, dict]:
 
         if current_section_type and not line_stripped.endswith(":") and not line_stripped.endswith("："):
             structured_prefixes = (
-                "RELATES:", "METRIC:", "Relation:", "Entity:",
-                "关系描述:", "关系描述：", "关系陈述:", "关系陈述：",
-                "置信度:", "置信度：", "来源:", "来源：",
-                "name:", "value:", "unit:", "period:", "period_type:", "sentiment:",
+                "RELATES:",
+                "METRIC:",
+                "Relation:",
+                "Entity:",
+                "关系描述:",
+                "关系描述：",
+                "关系陈述:",
+                "关系陈述：",
+                "置信度:",
+                "置信度：",
+                "来源:",
+                "来源：",
+                "name:",
+                "value:",
+                "unit:",
+                "period:",
+                "period_type:",
+                "sentiment:",
             )
             if line_stripped.startswith(structured_prefixes):
                 current_section_type = None
@@ -270,11 +278,13 @@ def _parse_entity_relation_blocks(raw_text: str) -> tuple[dict, dict]:
                     and len(bullet_name) <= 50
                     and not _is_noise_entity_name(bullet_name)
                 ):
-                    nodes[bullet_name].append({
-                        "entity_name": bullet_name,
-                        "entity_type": current_section_type,
-                        "description": "",
-                    })
+                    nodes[bullet_name].append(
+                        {
+                            "entity_name": bullet_name,
+                            "entity_type": current_section_type,
+                            "description": "",
+                        }
+                    )
                     continue
 
         # V2 Entity 行
@@ -283,11 +293,13 @@ def _parse_entity_relation_blocks(raw_text: str) -> tuple[dict, dict]:
             name, e_type = em.group(1).strip(), em.group(2).strip()
             if name and e_type and e_type in valid_entity_types and not _is_noise_entity_name(name):
                 current_entity = (name, e_type)
-                nodes[name].append({
-                    "entity_name": name,
-                    "entity_type": e_type,
-                    "description": "",
-                })
+                nodes[name].append(
+                    {
+                        "entity_name": name,
+                        "entity_type": e_type,
+                        "description": "",
+                    }
+                )
             else:
                 current_entity = None
             continue
@@ -311,7 +323,6 @@ def _parse_entity_relation_blocks(raw_text: str) -> tuple[dict, dict]:
                 current_rel = None
                 continue
             current_rel = {"src_id": src, "tgt_id": tgt, "description": "", "weight": 1.0}
-            current_rel_weight = None
             continue
 
         # V2 关系陈述行
@@ -330,16 +341,17 @@ def _parse_entity_relation_blocks(raw_text: str) -> tuple[dict, dict]:
                 # B4 fix: 不排序，保留 (src, tgt) 原始顺序以维护关系方向
                 if current_rel.get("src_id") and current_rel.get("tgt_id"):
                     key = (current_rel["src_id"], current_rel["tgt_id"])
-                    edges[key].append({
-                        "src_id": current_rel["src_id"],
-                        "tgt_id": current_rel["tgt_id"],
-                        "description": current_rel.get("description", ""),
-                        "keywords": "",
-                        "direction": "neutral",
-                        "weight": current_rel.get("weight", 1.0),
-                    })
+                    edges[key].append(
+                        {
+                            "src_id": current_rel["src_id"],
+                            "tgt_id": current_rel["tgt_id"],
+                            "description": current_rel.get("description", ""),
+                            "keywords": "",
+                            "direction": "neutral",
+                            "weight": current_rel.get("weight", 1.0),
+                        }
+                    )
                 current_rel = None
-                current_rel_weight = None
                 continue
 
         # V1 旧格式 Relation 行（向后兼容）
@@ -357,30 +369,32 @@ def _parse_entity_relation_blocks(raw_text: str) -> tuple[dict, dict]:
             if src and tgt:
                 # B4 fix: 不排序，保留 (src, tgt) 原始顺序以维护关系方向
                 key = (src, tgt)
-                edges[key].append({
-                    "src_id": src,
-                    "tgt_id": tgt,
-                    "description": desc,
-                    "keywords": "",
-                    "direction": direction,
-                    "weight": weight,
-                })
+                edges[key].append(
+                    {
+                        "src_id": src,
+                        "tgt_id": tgt,
+                        "description": desc,
+                        "keywords": "",
+                        "direction": direction,
+                        "weight": weight,
+                    }
+                )
             continue
 
         # V1 Entity 行（向后兼容）
-        v1_entity_pattern = re.compile(
-            r"^Entity\s*:\s*(.+?)\s*\(\s*([^\)]+)\s*\)(?:\s*/\s*(.+))?$"
-        )
+        v1_entity_pattern = re.compile(r"^Entity\s*:\s*(.+?)\s*\(\s*([^\)]+)\s*\)(?:\s*/\s*(.+))?$")
         v1em = v1_entity_pattern.match(line_stripped)
         if v1em:
             name, e_type = v1em.group(1).strip(), v1em.group(2).strip()
             desc = (v1em.group(3) or "").strip()
             if name and e_type and e_type in valid_entity_types and not _is_noise_entity_name(name):
-                nodes[name].append({
-                    "entity_name": name,
-                    "entity_type": e_type,
-                    "description": desc,
-                })
+                nodes[name].append(
+                    {
+                        "entity_name": name,
+                        "entity_type": e_type,
+                        "description": desc,
+                    }
+                )
 
     return dict(nodes), dict(edges)
 
@@ -504,30 +518,35 @@ def _parse_chunk_output(raw_text: str) -> tuple[dict, dict]:
 
     for rel in _parse_relates(raw_text):
         key = (rel["from_entity"], rel["to_entity"])
-        edges.setdefault(key, []).append({
-            "src_id": rel["from_entity"],
-            "tgt_id": rel["to_entity"],
-            "description": rel.get("text", ""),
-            "keywords": "",
-            "direction": "neutral",
-            "weight": rel.get("weight", 1.0),
-            "source": rel.get("source", ""),
-            "stmt_type": rel.get("stmt_type", "Fact"),
-        })
+        edges.setdefault(key, []).append(
+            {
+                "src_id": rel["from_entity"],
+                "tgt_id": rel["to_entity"],
+                "description": rel.get("text", ""),
+                "keywords": "",
+                "direction": "neutral",
+                "weight": rel.get("weight", 1.0),
+                "source": rel.get("source", ""),
+                "stmt_type": rel.get("stmt_type", "Fact"),
+            }
+        )
 
     for metric in _parse_metrics(raw_text):
         name = metric["name"]
-        nodes.setdefault(name, []).append({
-            "entity_name": name,
-            "entity_type": "Metric",
-            "description": "",
-            "metric": metric,
-        })
+        nodes.setdefault(name, []).append(
+            {
+                "entity_name": name,
+                "entity_type": "Metric",
+                "description": "",
+                "metric": metric,
+            }
+        )
 
     return nodes, edges
 
 
 # ── LLM 调用（同步包装）───────────────────────────────────────────────────────
+
 
 def _call_llm(prompt: str, timeout: int = 300) -> str:
     """同步调用 LLM，包装为 asyncio 线程调用"""
@@ -547,9 +566,9 @@ _RE_DISCLAIMER = re.compile(
     r"(?:本报告|转载|版权|免责|风险提示|机构介绍|东北证券|中邮证券|东吴证券|国联证券|华泰证券|光大证券|中金公司|中信建投|中信证券|投资评级|投资建议|荐|维持|首次覆盖)[^\n]{0,30}?(?:仅供参考|不构成|禁止|联系|获取|报告来源)",
     re.IGNORECASE,
 )
-_RE_URL_EMAIL    = re.compile(r"https?://|www\.|@.+\.(com|cn|net|org|edu)|/api/v\d+|http\S+")
-_RE_BLANK_LINE   = re.compile(r"^[\s ]{0,10}$")  # 空白/纯空格行（含不间断空格）
-_RE_GIBBERISH    = re.compile(r"^[^一-鿿\w]{30,}$")  # 30+连续非汉字/字母/数字
+_RE_URL_EMAIL = re.compile(r"https?://|www\.|@.+\.(com|cn|net|org|edu)|/api/v\d+|http\S+")
+_RE_BLANK_LINE = re.compile(r"^[\s ]{0,10}$")  # 空白/纯空格行（含不间断空格）
+_RE_GIBBERISH = re.compile(r"^[^一-鿿\w]{30,}$")  # 30+连续非汉字/字母/数字
 
 
 def _prefilter_chunk(content: str) -> str:
@@ -597,12 +616,13 @@ def _prefilter_chunk(content: str) -> str:
 
 # ── Gleaning 循环 ──────────────────────────────────────────────────────────────
 
+
 async def _extract_single_chunk(
     chunk: Chunk,
     examples: list[str],
     max_gleanings: int = 2,
-    semaphore: Optional[asyncio.Semaphore] = None,
-    source_file: Optional[str] = None,
+    semaphore: asyncio.Semaphore | None = None,
+    source_file: str | None = None,
     source_type: str = "uploaded_doc",
 ) -> tuple[dict, dict]:
     """
@@ -671,6 +691,7 @@ async def _extract_single_chunk(
 
 # ── 核心抽取器 ────────────────────────────────────────────────────────────────
 
+
 class RAGExtractor:
     """
     RAGFlow General 模式抽取引擎。
@@ -685,7 +706,7 @@ class RAGExtractor:
 
     def __init__(
         self,
-        examples: Optional[list[str]] = None,
+        examples: list[str] | None = None,
         max_gleanings: int = 2,  # 默认 2 轮 gleaning 循环提升实体召回（与 RAGFlow 最佳实践同步）
         max_concurrency: int = 1,
         language: str = "Chinese",
@@ -698,11 +719,11 @@ class RAGExtractor:
     async def extract(
         self,
         text: str,
-        chunks: Optional[list[Chunk]] = None,
+        chunks: list[Chunk] | None = None,
         max_tokens: int = 2048,
         overlap_tokens: int = 256,
-        callback: Optional[Callable[[str, float], None]] = None,
-        source_file: Optional[str] = None,
+        callback: Callable[[str, float], None] | None = None,
+        source_file: str | None = None,
         source_type: str = "uploaded_doc",
     ) -> tuple[list[dict], list[dict]]:
         """
@@ -785,7 +806,7 @@ class RAGExtractor:
                 merged.append(res)
         return merged
 
-    async def _merge_single_entity(self, name: str, instances: list[dict]) -> Optional[dict]:
+    async def _merge_single_entity(self, name: str, instances: list[dict]) -> dict | None:
         """合并单个实体的多条记录"""
         if not instances:
             return None
@@ -794,11 +815,7 @@ class RAGExtractor:
         name = RAGExtractor._normalize_name_for_merge(name)
 
         # entity_type 投票（同票时按优先级决定：Company > Product > Metric）
-        type_counter = Counter(
-            e_type
-            for e in instances
-            if (e_type := str(e.get("entity_type") or "").strip())
-        )
+        type_counter = Counter(e_type for e in instances if (e_type := str(e.get("entity_type") or "").strip()))
         if type_counter:
             # 先取最高票数，再从同票类型中按优先级选
             max_count = max(type_counter.values())
@@ -813,9 +830,7 @@ class RAGExtractor:
         all_descriptions = [e.get("description", "") for e in instances if e.get("description")]
 
         # 合并 source_ids（记录来源 chunk）
-        source_ids = list(dict.fromkeys(
-            e.get("source_id", "") for e in instances if e.get("source_id")
-        ))
+        source_ids = list(dict.fromkeys(e.get("source_id", "") for e in instances if e.get("source_id")))
 
         return {
             "entity_name": name,
@@ -829,7 +844,9 @@ class RAGExtractor:
     @staticmethod
     def _normalize_name_for_merge(name: str) -> str:
         """归一化实体名称，与 kg_extractor._normalize_name 保持一致"""
-        import unicodedata, re
+        import re
+        import unicodedata
+
         if not name:
             return ""
         normalized = unicodedata.normalize("NFKC", name)
@@ -853,9 +870,7 @@ class RAGExtractor:
                 merged.append(res)
         return merged
 
-    async def _merge_single_relation(
-        self, src: str, tgt: str, instances: list[dict]
-    ) -> Optional[dict]:
+    async def _merge_single_relation(self, src: str, tgt: str, instances: list[dict]) -> dict | None:
         """
         合并单个关系的多个记录。
 
@@ -873,6 +888,7 @@ class RAGExtractor:
         # ── 按 source_id 分组 ─────────────────────────────────────────
         # source_id = source_file（文件名@日期），由 _extract_single_chunk 传入
         from collections import defaultdict
+
         by_source: dict[str, list[dict]] = defaultdict(list)
         for inst in instances:
             sid = inst.get("source_id", "") or ""
@@ -884,8 +900,8 @@ class RAGExtractor:
         all_directions: list[str] = []
         all_keywords: list[str] = []
         all_source_ids: list[str] = []
-        seen_texts_in_output: set[str] = set()   # 全局去重（跨 source）
-        seen_sources: set[str] = set()            # 已有 source 去重
+        seen_texts_in_output: set[str] = set()  # 全局去重（跨 source）
+        seen_sources: set[str] = set()  # 已有 source 去重
 
         for sid, group in by_source.items():
             # 同一 source 内的所有 description，拼接
@@ -893,7 +909,7 @@ class RAGExtractor:
             group_directions: list[str] = []
             for e in group:
                 desc = e.get("description", "").strip()
-                if desc and desc not in group_texts:   # 同 source 内去重
+                if desc and desc not in group_texts:  # 同 source 内去重
                     group_texts.append(desc)
                 d = e.get("direction", "neutral")
                 if d:
@@ -914,21 +930,23 @@ class RAGExtractor:
                 seen_sources.add(sid)
                 all_source_ids.append(sid)
 
-            descriptions.append({
-                "text": merged_text,
-                "source": sid,
-                "source_ids": [sid],
-            })
+            descriptions.append(
+                {
+                    "text": merged_text,
+                    "source": sid,
+                    "source_ids": [sid],
+                }
+            )
             all_directions.extend(group_directions)
 
         # ── direction 多数投票 ────────────────────────────────────────
         direction_counter = Counter(all_directions)
-        dominant_dir, dominant_count = (
-            direction_counter.most_common(1)[0] if direction_counter else ("neutral", 0)
-        )
+        dominant_dir, dominant_count = direction_counter.most_common(1)[0] if direction_counter else ("neutral", 0)
         has_dir_conflict = (
-            len(all_directions) >= 2 and dominant_count < len(all_directions)
-            and "negative" in all_directions and "positive" in all_directions
+            len(all_directions) >= 2
+            and dominant_count < len(all_directions)
+            and "negative" in all_directions
+            and "positive" in all_directions
         )
         final_direction = "conflict" if has_dir_conflict else dominant_dir
 
@@ -948,7 +966,7 @@ class RAGExtractor:
             "src_id": src,
             "tgt_id": tgt,
             "description": flat_descs[0] if flat_descs else "",
-            "descriptions": flat_descs,   # Neo4j 兼容：list[str]
+            "descriptions": flat_descs,  # Neo4j 兼容：list[str]
             "keywords": keywords,
             "direction": final_direction,
             "weight": round(total_weight, 2),
@@ -960,15 +978,16 @@ class RAGExtractor:
 
 # ── 同步入口（供 kg_extractor.py 调用）───────────────────────────────────────
 
+
 def extract_sync(
     text: str,
-    chunks: Optional[list["Chunk"]] = None,
-    examples: Optional[list[str]] = None,
+    chunks: list[Chunk] | None = None,
+    examples: list[str] | None = None,
     max_gleanings: int = 2,  # 默认 2 轮 gleaning 循环提升实体召回
     max_tokens: int = 512,
     overlap_tokens: int = 0,
-    callback: Optional[Callable[[str, float], None]] = None,
-    source_file: Optional[str] = None,
+    callback: Callable[[str, float], None] | None = None,
+    source_file: str | None = None,
     source_type: str = "uploaded_doc",  # B8 fix: 添加 source_type 参数
 ) -> tuple[list[dict], list[dict]]:
     """
@@ -988,17 +1007,22 @@ def extract_sync(
 
     # 检测是否在 async 上下文中
     try:
-        loop = asyncio.get_running_loop()
+        asyncio.get_running_loop()
         # 在 async 上下文中，使用 ThreadPoolExecutor 避免嵌套 asyncio.run
         from concurrent.futures import ThreadPoolExecutor
+
         with ThreadPoolExecutor(max_workers=1) as pool:
             future = pool.submit(
                 asyncio.run,
                 extractor.extract(
-                    text, chunks=chunks, max_tokens=max_tokens,
-                    overlap_tokens=overlap_tokens, callback=callback,
-                    source_file=source_file, source_type=source_type
-                )
+                    text,
+                    chunks=chunks,
+                    max_tokens=max_tokens,
+                    overlap_tokens=overlap_tokens,
+                    callback=callback,
+                    source_file=source_file,
+                    source_type=source_type,
+                ),
             )
             return future.result()
     except RuntimeError:
@@ -1006,21 +1030,27 @@ def extract_sync(
         pass
 
     return asyncio.run(
-        extractor.extract(text, chunks=chunks, max_tokens=max_tokens,
-                         overlap_tokens=overlap_tokens, callback=callback,
-                         source_file=source_file, source_type=source_type)
+        extractor.extract(
+            text,
+            chunks=chunks,
+            max_tokens=max_tokens,
+            overlap_tokens=overlap_tokens,
+            callback=callback,
+            source_file=source_file,
+            source_type=source_type,
+        )
     )
 
 
 async def extract_async(
     text: str,
-    chunks: Optional[list["Chunk"]] = None,
-    examples: Optional[list[str]] = None,
+    chunks: list[Chunk] | None = None,
+    examples: list[str] | None = None,
     max_gleanings: int = 2,  # 默认 2 轮 gleaning 循环提升实体召回
     max_tokens: int = 512,
     overlap_tokens: int = 0,
-    callback: Optional[Callable[[str, float], None]] = None,
-    source_file: Optional[str] = None,
+    callback: Callable[[str, float], None] | None = None,
+    source_file: str | None = None,
     source_type: str = "uploaded_doc",
 ) -> tuple[list[dict], list[dict]]:
     """异步入口函数"""
@@ -1030,7 +1060,11 @@ async def extract_async(
         max_concurrency=4,
     )
     return await extractor.extract(
-        text, chunks=chunks, max_tokens=max_tokens,
-        overlap_tokens=overlap_tokens, callback=callback,
-        source_file=source_file, source_type=source_type,
+        text,
+        chunks=chunks,
+        max_tokens=max_tokens,
+        overlap_tokens=overlap_tokens,
+        callback=callback,
+        source_file=source_file,
+        source_type=source_type,
     )

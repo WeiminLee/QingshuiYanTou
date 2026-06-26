@@ -1,4 +1,5 @@
 """Regression tests for reported production bug candidates."""
+
 import asyncio
 import concurrent.futures
 import logging
@@ -121,6 +122,7 @@ def test_irm_checkpoint_uses_consistent_timezone_aware_datetimes():
             async def iterator():
                 if False:
                     yield {}
+
             return iterator()
 
     class FakeCollection:

@@ -15,9 +15,10 @@ clean_noise()
      - 名称长度 > 50
   3. 删除关联的 RELATES 关系
 """
-from neo4j import GraphDatabase
+
 from pathlib import Path
-import sys
+
+from neo4j import GraphDatabase
 
 # ── 加载 .env ──────────────────────────────────────────────────────
 env = {}
@@ -57,7 +58,6 @@ def clean_noise():
             r".*@.*",
             r".*Email.*",
         ]
-        import re
         pattern = "|".join(f"(?i){p}" for p in invalid_company_patterns)
 
         # 先查出要删的节点

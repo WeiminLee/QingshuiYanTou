@@ -1,4 +1,5 @@
 """/api/v1/users 路由：列出可选身份"""
+
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends

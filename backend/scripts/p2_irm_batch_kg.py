@@ -13,6 +13,7 @@ Examples:
   python scripts/p2_irm_batch_kg.py --ts-codes 300593.SZ,000858.SH --force
   python scripts/p2_irm_batch_kg.py --dry-run
 """
+
 from __future__ import annotations
 
 import argparse
@@ -38,6 +39,7 @@ from app.data_pipeline.progress import FAILED, PARTIAL, SUCCESS, IngestionProgre
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
+
 def _a_share_filter(alias: str = "") -> str:
     prefix = f"{alias}." if alias else ""
     return f"""
@@ -61,7 +63,9 @@ async def _candidate_ts_codes(batch_size: int, force: bool) -> list[str]:
                         SELECT ts_code
                         FROM stocks
                         WHERE ts_code IS NOT NULL
-                          AND """ + _a_share_filter() + """
+                          AND """
+                        + _a_share_filter()
+                        + """
                         ORDER BY ts_code
                         LIMIT :limit
                         """
@@ -103,7 +107,9 @@ async def _candidate_ts_codes(batch_size: int, force: bool) -> list[str]:
                     LEFT JOIN announcements a
                       ON a.ts_code = s.ts_code AND a.announcement_type LIKE 'irm:%'
                     WHERE s.ts_code IS NOT NULL
-                      AND """ + _a_share_filter("s") + """
+                      AND """
+                    + _a_share_filter("s")
+                    + """
                     GROUP BY s.ts_code
                     ORDER BY COUNT(a.cninfo_id) ASC, s.ts_code
                     LIMIT :limit
@@ -115,7 +121,9 @@ async def _candidate_ts_codes(batch_size: int, force: bool) -> list[str]:
     return [r[0] for r in rows]
 
 
-async def run_batch(ts_codes: list[str], batch_size: int, dry_run: bool, force: bool, kg_concurrency: int) -> dict[str, Any]:
+async def run_batch(
+    ts_codes: list[str], batch_size: int, dry_run: bool, force: bool, kg_concurrency: int
+) -> dict[str, Any]:
     if not ts_codes:
         ts_codes = await _candidate_ts_codes(batch_size, force=force)
     ts_codes = [c.strip() for c in ts_codes if c.strip()]

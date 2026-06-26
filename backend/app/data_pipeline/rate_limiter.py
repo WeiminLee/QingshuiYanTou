@@ -7,10 +7,11 @@ RateLimiter - API 限速器
 E2 fix: 添加 AsyncRateLimiter 类，使用 asyncio.sleep 而非 time.sleep，
 避免在异步上下文中阻塞事件循环。
 """
+
 import asyncio
-import time
-import threading
 import logging
+import threading
+import time
 from collections import deque
 
 logger = logging.getLogger(__name__)

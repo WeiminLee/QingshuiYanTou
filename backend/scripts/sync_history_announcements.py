@@ -14,10 +14,11 @@
     # 同步指定日期范围
     python -m scripts.sync_history_announcements --start-date 20240501 --end-date 20260515
 """
+
 import argparse
 import asyncio
 import sys
-from datetime import datetime, timedelta, date
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 # 添加 backend 到 path
@@ -26,9 +27,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from sqlalchemy import text
 
 from app.core.database import engine
+from app.data_pipeline.announcement_filter import DOC_TYPE_SAVE, classify_title
 from app.data_pipeline.cninfo_client import CninfoClient
-from app.data_pipeline.announcement_filter import classify_title, DOC_TYPE_SAVE
-
 
 # 每批天数（控制内存使用）
 BATCH_DAYS = 5
@@ -55,8 +55,15 @@ async def get_existing_count() -> int:
         return 0
 
 
-async def save_announcement(cninfo_id: str, ann_date: str, ts_code: str, name: str,
-                           title: str, pdf_url: str, ann_type: str = "other") -> bool:
+async def save_announcement(
+    cninfo_id: str,
+    ann_date: str,
+    ts_code: str,
+    name: str,
+    title: str,
+    pdf_url: str,
+    ann_type: str = "other",
+) -> bool:
     """保存单条公告到数据库"""
     sql = """
     INSERT INTO announcements (
@@ -72,6 +79,7 @@ async def save_announcement(cninfo_id: str, ann_date: str, ts_code: str, name: s
     """
     try:
         from datetime import date as date_type
+
         parsed_date = date_type(int(ann_date[:4]), int(ann_date[4:6]), int(ann_date[6:8]))
     except Exception:
         return False
@@ -134,6 +142,7 @@ async def sync_single_day(client: CninfoClient, target_date: str) -> dict:
 
                 # 白名单过滤：scope=tech_mvp 时仅保存白名单股票公告
                 from app.data_pipeline.backfill_config import is_in_scope
+
                 if not is_in_scope(ts_code):
                     skipped += 1
                     continue
@@ -191,7 +200,7 @@ async def main(start_date_str: str | None = None, end_date_str: str | None = Non
     end_str = end_date.strftime("%Y%m%d")
 
     print(f"{'=' * 60}")
-    print(f"历史公告同步任务")
+    print("历史公告同步任务")
     print(f"{'=' * 60}")
     print(f"日期范围: {start_str} ~ {end_str}")
 
@@ -218,12 +227,12 @@ async def main(start_date_str: str | None = None, end_date_str: str | None = Non
     batch_num = 0
     last_print = datetime.now()
 
-    print(f"开始同步 (Ctrl+C 可中断，已处理的数据会保留)...")
+    print("开始同步 (Ctrl+C 可中断，已处理的数据会保留)...")
     print("-" * 60)
 
     # 分批处理
     for i in range(0, total_days, BATCH_DAYS):
-        batch_dates = trading_days[i:i + BATCH_DAYS]
+        batch_dates = trading_days[i : i + BATCH_DAYS]
         batch_num += 1
 
         result = await sync_date_batch(client, batch_dates)
@@ -236,16 +245,18 @@ async def main(start_date_str: str | None = None, end_date_str: str | None = Non
         if (now - last_print).seconds >= 10 or batch_num == 1:
             progress = (i + BATCH_DAYS) / total_days * 100
             days_done = i + BATCH_DAYS
-            print(f"批次 {batch_num:4d}: {batch_dates[0].strftime('%m/%d')}~{batch_dates[-1].strftime('%m/%d')} | "
-                  f"本批 {result['total']:5d} 条 | "
-                  f"累计 {grand_total:7d} 条 | "
-                  f"新增 {grand_saved:6d} | "
-                  f"进度 {progress:5.1f}%")
+            print(
+                f"批次 {batch_num:4d}: {batch_dates[0].strftime('%m/%d')}~{batch_dates[-1].strftime('%m/%d')} | "
+                f"本批 {result['total']:5d} 条 | "
+                f"累计 {grand_total:7d} 条 | "
+                f"新增 {grand_saved:6d} | "
+                f"进度 {progress:5.1f}%"
+            )
             last_print = now
 
     print()
     print(f"{'=' * 60}")
-    print(f"同步完成!")
+    print("同步完成!")
     print(f"{'=' * 60}")
     print(f"批次总数: {batch_num}")
     print(f"获取公告: {grand_total} 条")

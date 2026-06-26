@@ -1,8 +1,8 @@
 """用户服务：yaml 同步 + 活跃查询"""
+
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -38,7 +38,7 @@ async def sync_from_yaml(session: AsyncSession, yaml_path: Path | None = None) -
     return len(list(active_q.scalars()))
 
 
-async def get_active(session: AsyncSession, user_id: str) -> Optional[User]:
+async def get_active(session: AsyncSession, user_id: str) -> User | None:
     """返回活跃用户；不存在或已停用返回 None"""
     u = await session.get(User, user_id)
     if u is None or not u.is_active:

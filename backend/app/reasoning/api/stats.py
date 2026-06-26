@@ -1,8 +1,8 @@
 """
 Tool 使用量统计 API
 """
+
 import logging
-from datetime import datetime
 
 from fastapi import APIRouter, Query
 
@@ -46,6 +46,7 @@ async def get_tool_usage(
     if thread_id or date:
         try:
             from app.core.mongodb import get_mongodb
+
             db = await get_mongodb()
             if db:
                 collection = db["tool_usage"]
@@ -65,9 +66,7 @@ async def get_tool_usage(
                             "date": r.get("date"),
                             "usage": r.get("usage"),
                             "total_calls": r.get("total_calls", 0),
-                            "created_at": r.get("created_at", "").isoformat()
-                            if r.get("created_at")
-                            else None,
+                            "created_at": r.get("created_at", "").isoformat() if r.get("created_at") else None,
                         }
                         for r in records
                     ]

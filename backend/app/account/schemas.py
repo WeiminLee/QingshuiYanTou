@@ -1,12 +1,11 @@
 """Pydantic 请求/响应模型"""
+
 from __future__ import annotations
 
 import re
 from datetime import datetime
-from typing import List, Optional
 
 from pydantic import BaseModel, Field, field_validator
-
 
 _TS_CODE_RE = re.compile(r"^\d{6}\.(SH|SZ|BJ)$")
 
@@ -17,7 +16,7 @@ class LoginRequest(BaseModel):
 
 class LoginResponse(BaseModel):
     ok: bool = True
-    users: List["UserBrief"] = Field(default_factory=list)
+    users: list[UserBrief] = Field(default_factory=list)
 
 
 class SwitchUserRequest(BaseModel):
@@ -33,12 +32,12 @@ class UserBrief(BaseModel):
 
 
 class UserBriefList(BaseModel):
-    users: List[UserBrief]
+    users: list[UserBrief]
 
 
 class WhoAmIResponse(BaseModel):
-    user: Optional[UserBrief] = None
-    users: List[UserBrief] = Field(default_factory=list)
+    user: UserBrief | None = None
+    users: list[UserBrief] = Field(default_factory=list)
 
 
 class SwitchUserResponse(BaseModel):
@@ -56,7 +55,7 @@ class PortfolioPositionOut(BaseModel):
 
 
 class PortfolioListResponse(BaseModel):
-    positions: List[PortfolioPositionOut]
+    positions: list[PortfolioPositionOut]
 
 
 class PortfolioAddRequest(BaseModel):
@@ -79,11 +78,11 @@ class PortfolioAddResponse(BaseModel):
 class StockSearchItem(BaseModel):
     ts_code: str
     name: str
-    industry: Optional[str] = None
+    industry: str | None = None
 
 
 class StockSearchResponse(BaseModel):
-    items: List[StockSearchItem]
+    items: list[StockSearchItem]
 
 
 class OkResponse(BaseModel):

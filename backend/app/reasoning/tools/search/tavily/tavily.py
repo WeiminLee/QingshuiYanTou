@@ -1,6 +1,7 @@
 """
 Tavily Search Tool — 联网实时检索
 """
+
 import asyncio
 import logging
 from typing import Annotated
@@ -19,8 +20,9 @@ def tavily_search(
 ) -> str:
     """联网搜索实时市场信息、新闻、政策动态。使用中文关键词搜索，返回结构化结果。输入搜索词和日期范围，返回相关资讯列表。"""
     try:
-        loop = asyncio.get_running_loop()
+        asyncio.get_running_loop()
         import concurrent.futures
+
         with concurrent.futures.ThreadPoolExecutor() as pool:
             fut = pool.submit(asyncio.run, _asearch(query, max_results, days))
             return fut.result()
@@ -31,6 +33,7 @@ def tavily_search(
 async def _asearch(query: str, max_results: int, days: int) -> str:
     try:
         from app.config import settings
+
         max_results = min(max_results, 10)
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.post(

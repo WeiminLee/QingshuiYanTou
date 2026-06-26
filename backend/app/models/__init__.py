@@ -2,6 +2,8 @@
 数据模型 - 统一导出
 """
 
+from app.models.event import Event
+
 from .models import (
     Alert,
     # 分析
@@ -39,8 +41,6 @@ from .models import (
     # 用户数据
     Watchlist,
 )
-
-from app.models.event import Event
 
 __all__ = [
     "Stock",

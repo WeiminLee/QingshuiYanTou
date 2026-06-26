@@ -3,21 +3,21 @@
 
 路由前缀：/api/v1/knowledge/relation
 """
+
 from __future__ import annotations
 
 import asyncio
 from datetime import date as _date
-from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
 from app.knowledge.relation_service import (
-    upsert_relation,
-    batch_upsert_relations,
-    query_relations,
-    link_company_to_industry,
     RELATIONSHIP_TYPES,
+    batch_upsert_relations,
+    link_company_to_industry,
+    query_relations,
+    upsert_relation,
 )
 
 router = APIRouter(prefix="/api/v1/knowledge/relation", tags=["知识构建层"])
@@ -25,19 +25,20 @@ router = APIRouter(prefix="/api/v1/knowledge/relation", tags=["知识构建层"]
 
 # ── Models ───────────────────────────────────────────
 
+
 class RelationCreate(BaseModel):
     from_entity: str
     to_entity: str
     relationship_type: str
-    properties: Optional[dict] = None
+    properties: dict | None = None
     confidence: float = 0.80
-    source_type: Optional[str] = None
-    source_name: Optional[str] = None
-    evidence_url: Optional[str] = None
-    article_ref: Optional[str] = None
-    notes: Optional[str] = None
-    valid_from: Optional[str] = None   # YYYY-MM-DD
-    valid_to: Optional[str] = None
+    source_type: str | None = None
+    source_name: str | None = None
+    evidence_url: str | None = None
+    article_ref: str | None = None
+    notes: str | None = None
+    valid_from: str | None = None  # YYYY-MM-DD
+    valid_to: str | None = None
 
 
 class RelationBatchCreate(BaseModel):
@@ -50,14 +51,14 @@ class RelationResponse(BaseModel):
     relationship_type: str
     properties: dict
     confidence: float
-    source_type: Optional[str]
-    source_name: Optional[str]
-    evidence_url: Optional[str]
-    article_ref: Optional[str]
-    notes: Optional[str]
-    valid_from: Optional[str]
-    valid_to: Optional[str]
-    superseded_by: Optional[str]
+    source_type: str | None
+    source_name: str | None
+    evidence_url: str | None
+    article_ref: str | None
+    notes: str | None
+    valid_from: str | None
+    valid_to: str | None
+    superseded_by: str | None
 
     @classmethod
     def from_result(cls, r: dict):
@@ -85,14 +86,12 @@ class BatchResult(BaseModel):
 
 # ── 路由 ──────────────────────────────────────────
 
+
 @router.post("", response_model=RelationResponse)
 async def create_or_update_relation(body: RelationCreate):
     """创建或更新一条关系"""
     if body.relationship_type not in RELATIONSHIP_TYPES:
-        raise HTTPException(
-            400,
-            f"无效 relationship_type，可选值: {sorted(RELATIONSHIP_TYPES)}"
-        )
+        raise HTTPException(400, f"无效 relationship_type，可选值: {sorted(RELATIONSHIP_TYPES)}")
 
     valid_from = _date.fromisoformat(body.valid_from) if body.valid_from else None
     valid_to = _date.fromisoformat(body.valid_to) if body.valid_to else None
@@ -124,20 +123,22 @@ async def batch_create_relations(body: RelationBatchCreate):
             raise HTTPException(400, f"无效 relationship_type: {item.relationship_type}")
         valid_from = _date.fromisoformat(item.valid_from) if item.valid_from else None
         valid_to = _date.fromisoformat(item.valid_to) if item.valid_to else None
-        results.append(dict(
-            from_entity=item.from_entity,
-            to_entity=item.to_entity,
-            relationship_type=item.relationship_type,
-            properties=item.properties,
-            confidence=item.confidence,
-            source_type=item.source_type,
-            source_name=item.source_name,
-            evidence_url=item.evidence_url,
-            article_ref=item.article_ref,
-            notes=item.notes,
-            valid_from=valid_from,
-            valid_to=valid_to,
-        ))
+        results.append(
+            dict(
+                from_entity=item.from_entity,
+                to_entity=item.to_entity,
+                relationship_type=item.relationship_type,
+                properties=item.properties,
+                confidence=item.confidence,
+                source_type=item.source_type,
+                source_name=item.source_name,
+                evidence_url=item.evidence_url,
+                article_ref=item.article_ref,
+                notes=item.notes,
+                valid_from=valid_from,
+                valid_to=valid_to,
+            )
+        )
 
     inserted, updated = await asyncio.to_thread(batch_upsert_relations, results)
     return BatchResult(inserted=inserted, updated=updated)
@@ -145,21 +146,18 @@ async def batch_create_relations(body: RelationBatchCreate):
 
 @router.get("", response_model=list[RelationResponse])
 async def list_relations(
-    from_entity: Optional[str] = Query(None),
-    to_entity: Optional[str] = Query(None),
-    relationship_type: Optional[str] = Query(None),
-    ts_code: Optional[str] = Query(None),
-    valid_at: Optional[str] = Query(None),  # YYYY-MM-DD AS-OF 切片
-    active_only: bool = Query(True),         # 仅返回当前有效关系
+    from_entity: str | None = Query(None),
+    to_entity: str | None = Query(None),
+    relationship_type: str | None = Query(None),
+    ts_code: str | None = Query(None),
+    valid_at: str | None = Query(None),  # YYYY-MM-DD AS-OF 切片
+    active_only: bool = Query(True),  # 仅返回当前有效关系
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
 ):
     """查询关系边列表（默认仅返回当前有效关系，active_only=False 可查全部历史）"""
     if relationship_type and relationship_type not in RELATIONSHIP_TYPES:
-        raise HTTPException(
-            400,
-            f"无效 relationship_type，可选值: {sorted(RELATIONSHIP_TYPES)}"
-        )
+        raise HTTPException(400, f"无效 relationship_type，可选值: {sorted(RELATIONSHIP_TYPES)}")
 
     valid_at_date = _date.fromisoformat(valid_at) if valid_at else None
 
@@ -185,8 +183,8 @@ async def link_company_to_industry_api(
     industry_name: str,
     source_type: str,
     source_name: str,
-    valid_from: Optional[str] = None,
-    properties: Optional[dict] = None,
+    valid_from: str | None = None,
+    properties: dict | None = None,
 ):
     """快捷接口：建立 [公司] -[BELONGS_TO]-> [行业] 关系"""
     vf = _date.fromisoformat(valid_from) if valid_from else None

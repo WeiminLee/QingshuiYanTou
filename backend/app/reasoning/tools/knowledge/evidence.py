@@ -4,10 +4,10 @@ fetch_evidence — L1 evidence retrieval tool.
 Allows the Agent to trace any conclusion back to the original
 source text stored in MongoDB's kg_evidence collection.
 """
+
 from __future__ import annotations
 
 import asyncio
-import concurrent.futures
 import logging
 from typing import Annotated
 
@@ -48,10 +48,9 @@ def fetch_evidence(
             return _format_evidence(result)
 
         import concurrent.futures
+
         with concurrent.futures.ThreadPoolExecutor() as pool:
-            future = pool.submit(
-                lambda: loop.run_until_complete(svc.get_evidence(evidence_id))
-            )
+            future = pool.submit(lambda: loop.run_until_complete(svc.get_evidence(evidence_id)))
             result = future.result(timeout=10)
         return _format_evidence(result)
     except Exception as e:
@@ -70,7 +69,7 @@ def _format_evidence(doc: dict | None) -> str:
         f"来源名称: {doc.get('source_name', 'N/A')}",
         f"发布时间: {doc.get('publish_date', 'N/A')}",
         f"置信度: {doc.get('confidence', 'N/A')}",
-        f"--- 原始文本 ---",
+        "--- 原始文本 ---",
         doc.get("text_excerpt", "(无文本内容)"),
     ]
 

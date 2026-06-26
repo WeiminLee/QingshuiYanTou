@@ -10,15 +10,15 @@ tools/tools.py — 统一工具加载机制（DeerFlow 风格）
 - registry: 从 YAML/默认配置加载业务工具（get_kline, tavily_search 等）
 - tools.py: 整合业务工具 + 内置工具（ask_clarification, present_file 等）
 """
+
 from __future__ import annotations
 
 import logging
-from typing import Any
 
 from langchain_core.tools import BaseTool
 
 from app.reasoning.registry import get_registry, load_tools_from_config
-from app.reasoning.tools.builtins import ask_user_question, ask_clarification
+from app.reasoning.tools.builtins import ask_clarification, ask_user_question
 from app.reasoning.tools.builtins.task import task_tool
 from app.reasoning.tools.guardrails import validate_tool_boundary
 from app.reasoning.tools.registry import get_tool_health_registry

@@ -1,4 +1,5 @@
 """Async worker that consumes Evidence extraction jobs."""
+
 from __future__ import annotations
 
 import asyncio
@@ -50,9 +51,11 @@ class EvidenceExtractionWorker:
             if not jobs:
                 break
             sem = asyncio.Semaphore(self.max_concurrency)
+
             async def _run(job: dict[str, Any]) -> dict[str, Any]:
                 async with sem:
                     return await self.process_job(job)
+
             results = await asyncio.gather(*[_run(job) for job in jobs], return_exceptions=True)
             for job, res in zip(jobs, results):
                 claimed += 1
@@ -65,9 +68,20 @@ class EvidenceExtractionWorker:
                     skipped += 1
                 else:
                     failed += 1
-        return {"claimed": claimed, "success": success, "failed": failed, "skipped": skipped, "job_type": job_type}
+        return {
+            "claimed": claimed,
+            "success": success,
+            "failed": failed,
+            "skipped": skipped,
+            "job_type": job_type,
+        }
 
-    async def run_loop(self, interval_seconds: int = 30, limit_per_loop: int | None = None, job_type: str = "combined") -> None:
+    async def run_loop(
+        self,
+        interval_seconds: int = 30,
+        limit_per_loop: int | None = None,
+        job_type: str = "combined",
+    ) -> None:
         while True:
             result = await self.run_once(limit=limit_per_loop, job_type=job_type)
             logger.info("Evidence worker loop: %s", result)
@@ -85,7 +99,9 @@ class EvidenceExtractionWorker:
         try:
             if job_type == JOB_COMBINED:
                 result = await extract_evidence_async(evidence)
-                facts = extract_rule_based_facts(evidence, result.get("entities_raw", []), result.get("relations_raw", []))
+                facts = extract_rule_based_facts(
+                    evidence, result.get("entities_raw", []), result.get("relations_raw", [])
+                )
                 fact_ok = 0
                 fact_failed = 0
                 for fact in facts:

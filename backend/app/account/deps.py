@@ -1,4 +1,5 @@
 """FastAPI Depends：用户态接口的鉴权"""
+
 from __future__ import annotations
 
 from fastapi import Depends, HTTPException, Request, status

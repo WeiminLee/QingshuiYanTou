@@ -1,4 +1,5 @@
 """SubAgent task tool tests."""
+
 from __future__ import annotations
 
 import pytest
@@ -38,10 +39,11 @@ def test_task_tool_accepts_research_task(monkeypatch):
 
     monkeypatch.setattr(task_module, "get_executor", lambda: FakeExecutor())
 
-    result = task_module.task_tool.invoke({
-        "task": "分析光模块产业链的风险因素",
-        "agent_name": "researcher",
-    })
+    result = task_module.task_tool.invoke(
+        {
+            "task": "分析光模块产业链的风险因素",
+            "agent_name": "researcher",
+        }
+    )
 
     assert "研究结论" in result
-

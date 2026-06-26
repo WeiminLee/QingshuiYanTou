@@ -12,7 +12,7 @@
         log_end("sync_stock_pool", success=False, info=str(e))
         raise
 """
-import os
+
 import time as _time
 from datetime import datetime
 from pathlib import Path

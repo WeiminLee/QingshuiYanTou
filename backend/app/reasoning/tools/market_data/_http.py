@@ -3,6 +3,7 @@
 
 提供带代理支持的 requests.Session 实例，供所有云端 API 工具使用。
 """
+
 import logging
 import threading
 
@@ -78,7 +79,7 @@ def _get_proxy_from_settings() -> str | None:
     """从 settings 读取代理地址，失败时返回 None"""
     try:
         from app.config import settings
+
         return settings.http_proxy or None
     except Exception:
         return None
-

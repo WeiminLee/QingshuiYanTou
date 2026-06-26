@@ -4,11 +4,12 @@ Chart Tool — 可视化图表渲染
 将数据渲染为 ECharts HTML 图表，供前端展示。
 支持：K线图 / 板块热度图 / 置信度雷达图 / 供应链桑基图
 """
+
 import json
 import logging
 import uuid
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated
 
 from langchain_core.tools import tool
 
@@ -57,7 +58,7 @@ def _render_kline(data: dict, title: str) -> str:
 <script>
 const c=echarts.init(document.getElementById('c'));
 c.setOption({{
-  title:{{text:"{title or ts_code+' K线'}"}},
+  title:{{text:"{title or ts_code + " K线"}"}},
   tooltip:{{trigger:'axis',axisPointer:{{type:'cross'}}}},
   legend:{{data: ['K线','MA5','MA10','成交量']}},
   grid:[{{left:'10%',right:'8%',top:'10%',height:'55%'}},{{left:'10%',right:'8%',top:'72%',height:'15%'}}],
@@ -88,7 +89,7 @@ def _render_concept_heatmap(data: dict, title: str) -> str:
 <script>
 const c=echarts.init(document.getElementById('c'));
 c.setOption({{
-  title:{{text:"{title or '板块热度'}"}},
+  title:{{text:"{title or "板块热度"}"}},
   tooltip:{{formatter:p=>{{const d={json.dumps(names)}[p.data[1]];return d+'<br/>'+p.data[2]+'%'}}}},
   xAxis:{{type:'category',data:['热度'],axisLabel:{{show:false}}}},
   yAxis:{{type:'category',data:{json.dumps(names)},inverse:true}},
@@ -112,7 +113,7 @@ def _render_confidence_radar(data: dict, title: str) -> str:
 <script>
 const c=echarts.init(document.getElementById('c'));
 c.setOption({{
-  title:{{text:"{title or '置信度雷达'}",left:'center'}},
+  title:{{text:"{title or "置信度雷达"}",left:'center'}},
   tooltip:{{}},
   legend:{{data:['置信度'],bottom:10}},
   radar:{{indicator:{ind_json}}},
@@ -135,7 +136,7 @@ def _render_sankey(data: dict, title: str) -> str:
 <script>
 const c=echarts.init(document.getElementById('c'));
 c.setOption({{
-  title:{{text:"{title or '供应链桑基'}"}},
+  title:{{text:"{title or "供应链桑基"}"}},
   tooltip:{{trigger:'item',triggerOn:'mousemove'}},
   series:[{{
     type:'sankey',layout:'none',

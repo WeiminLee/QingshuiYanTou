@@ -6,18 +6,18 @@ SubagentExecutor — 后台线程池 + 状态机执行器
 - Task 状态机：PENDING → RUNNING → COMPLETED / FAILED / TIMED_OUT
 - 纯内存存储（TaskStore）
 """
+
 from __future__ import annotations
 
 import asyncio
 import concurrent.futures
 import logging
 import time
-from typing import Any
 
 from app.reasoning.subagents.config import SubAgentConfig
 from app.reasoning.subagents.task_store import (
-    TaskStore,
     TaskStatus,
+    TaskStore,
     get_task_store,
 )
 
@@ -43,6 +43,7 @@ def _execute_llm_sync(agent_name: str, prompt: str) -> str:
     同步执行 LLM 调用（在线程池中运行，不阻塞事件循环）。
     """
     from app.core.llm_client import chat
+
     response = chat(
         prompt=f"你是一个投资研究助手。请简洁地回答：\n\n{prompt}",
         model="minimax2.5",
@@ -69,9 +70,7 @@ def _run_task_sync(
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:
-            loop.run_until_complete(
-                _run_async(task_id, agent_name, prompt, config, store, start_time)
-            )
+            loop.run_until_complete(_run_async(task_id, agent_name, prompt, config, store, start_time))
         finally:
             loop.close()
     except Exception as e:
@@ -98,7 +97,7 @@ async def _run_async(
         elapsed = time.time() - start_time
         store.update(task_id, TaskStatus.COMPLETED, result=result)
         logger.info(f"[SubagentExecutor] task_id={task_id} completed in {elapsed:.1f}s")
-    except asyncio.TimeoutError:
+    except TimeoutError:
         elapsed = time.time() - start_time
         store.update(task_id, TaskStatus.TIMED_OUT, error=f"执行超时（{elapsed:.0f}s）")
         logger.warning(f"[SubagentExecutor] task_id={task_id} timed out after {elapsed:.1f}s")
@@ -156,7 +155,12 @@ class SubagentExecutor:
         record = self._store.get(task_id)
         if record is None:
             return False
-        if record.status in (TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.TIMED_OUT, TaskStatus.CANCELLED):
+        if record.status in (
+            TaskStatus.COMPLETED,
+            TaskStatus.FAILED,
+            TaskStatus.TIMED_OUT,
+            TaskStatus.CANCELLED,
+        ):
             return False
         self._store.update(task_id, TaskStatus.CANCELLED)
         return True

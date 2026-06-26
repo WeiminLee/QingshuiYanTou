@@ -10,6 +10,7 @@ Usage:
     uv run --directory backend -- python scripts/populate_neo4j_aliases.py
     uv run --directory backend -- python scripts/populate_neo4j_aliases.py --dry-run
 """
+
 from __future__ import annotations
 
 import argparse
@@ -67,10 +68,12 @@ async def main(dry_run: bool = False) -> None:
         if not merged or sorted(merged) == sorted(existing or []):
             continue
 
-        updates.append({
-            "entity_id": entity_id,
-            "aliases": merged,
-        })
+        updates.append(
+            {
+                "entity_id": entity_id,
+                "aliases": merged,
+            }
+        )
 
     logger.info("需要更新 %d 个节点", len(updates))
 
@@ -84,7 +87,7 @@ async def main(dry_run: bool = False) -> None:
     BATCH_SIZE = 500
     written = 0
     for i in range(0, len(updates), BATCH_SIZE):
-        batch = updates[i:i + BATCH_SIZE]
+        batch = updates[i : i + BATCH_SIZE]
         run_write(
             """
             UNWIND $rows AS row

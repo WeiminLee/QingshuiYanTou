@@ -11,6 +11,7 @@ MemoryManager — 防抖队列 + LLM 摘要
   2. MemoryUpdateQueue（队列层）：线程安全队列 + 防抖窗口
   3. MemoryUpdater（LLM 层）：批量 summarization → 写入 MongoDB
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -18,7 +19,6 @@ import logging
 import threading
 import time
 from dataclasses import dataclass, field
-from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -27,15 +27,17 @@ COLLECTION = "agent_memory"
 # ── 防抖配置 ───────────────────────────────────────────────────────────────
 
 DEFAULT_DEBOUNCE_SECONDS = 5.0  # 防抖窗口（秒）
-DEFAULT_BATCH_SIZE       = 5     # 批量处理的会话数
+DEFAULT_BATCH_SIZE = 5  # 批量处理的会话数
 DEFAULT_SUMMARY_MAX_TOKENS = 500
 
 
 # ── MemoryUpdateQueue ───────────────────────────────────────────────────
 
+
 @dataclass
 class MemoryContext:
     """记忆更新上下文"""
+
     thread_id: str
     agent_name: str | None
     messages: list[dict]  # 原始对话消息
@@ -61,7 +63,7 @@ class MemoryUpdateQueue:
 
     def __init__(
         self,
-        updater: "MemoryUpdater",
+        updater: MemoryUpdater,
         debounce_seconds: float = DEFAULT_DEBOUNCE_SECONDS,
         batch_size: int = DEFAULT_BATCH_SIZE,
     ):
@@ -87,14 +89,14 @@ class MemoryUpdateQueue:
         """
         with self._lock:
             # 去重：移除同一 thread_id 的旧请求
-            self._queue = [
-                ctx for ctx in self._queue if ctx.thread_id != thread_id
-            ]
-            self._queue.append(MemoryContext(
-                thread_id=thread_id,
-                agent_name=agent_name,
-                messages=messages,
-            ))
+            self._queue = [ctx for ctx in self._queue if ctx.thread_id != thread_id]
+            self._queue.append(
+                MemoryContext(
+                    thread_id=thread_id,
+                    agent_name=agent_name,
+                    messages=messages,
+                )
+            )
             self._reset_timer()
 
     def _reset_timer(self) -> None:
@@ -111,7 +113,7 @@ class MemoryUpdateQueue:
             if not self._queue:
                 return
             contexts = self._queue[: self._batch_size]
-            self._queue = self._queue[self._batch_size:]
+            self._queue = self._queue[self._batch_size :]
             self._last_flush = time.time()
 
         # 在独立线程中执行（不阻塞 Agent 主流程）
@@ -134,10 +136,7 @@ class MemoryUpdateQueue:
             try:
                 await self._updater.update(ctx.thread_id, ctx.agent_name, ctx.messages)
             except Exception as e:
-                logger.warning(
-                    f"[MemoryQueue] Failed to update memory "
-                    f"for thread={ctx.thread_id}: {e}"
-                )
+                logger.warning(f"[MemoryQueue] Failed to update memory for thread={ctx.thread_id}: {e}")
 
     def stop(self) -> None:
         """停止队列处理（session 结束时调用）"""
@@ -231,11 +230,13 @@ class MemoryUpdater:
         top_of_mind = None
         try:
             import json
+
             prompt = MEMORY_UPDATE_PROMPT.format(
                 current_memory=json.dumps(current, ensure_ascii=False),
                 conversation=conversation,
             )
             from app.core.llm_client import chat
+
             response = chat(prompt, model=self._llm_model, temperature=0.1, timeout=30)
             update_data = json.loads(response)
             facts = update_data.get("facts", [])
@@ -276,12 +277,15 @@ class MemoryUpdater:
         """获取当前记忆"""
         try:
             from app.core.mongodb import get_mongo_db
+
             db = get_mongo_db()
             coll = db[COLLECTION]
-            doc = await coll.find_one({
-                "thread_id": thread_id,
-                "agent_name": agent_name,
-            })
+            doc = await coll.find_one(
+                {
+                    "thread_id": thread_id,
+                    "agent_name": agent_name,
+                }
+            )
             return doc if doc else {}
         except Exception as e:
             logger.warning("读取记忆失败 [%s/%s]: %s", thread_id, agent_name, e)
@@ -297,9 +301,11 @@ class MemoryUpdater:
     ) -> None:
         """写入分层记忆到 MongoDB（workContext / topOfMind / facts）"""
         from datetime import datetime
+
         now = datetime.now().isoformat()
         try:
             from app.core.mongodb import get_mongo_db
+
             db = get_mongo_db()
             coll = db[COLLECTION]
 
@@ -317,10 +323,7 @@ class MemoryUpdater:
                 {"$set": update_doc},
                 upsert=True,
             )
-            logger.info(
-                f"[MemoryUpdater] Written {len(facts)} facts "
-                f"for thread={thread_id}, agent={agent_name}"
-            )
+            logger.info(f"[MemoryUpdater] Written {len(facts)} facts for thread={thread_id}, agent={agent_name}")
         except Exception as e:
             logger.warning(f"[MemoryUpdater] Write failed: {e}")
 
@@ -330,15 +333,18 @@ class MemoryUpdater:
         for m in messages:
             content = m["content"]
             if len(content) > 10:
-                facts.append({
-                    "content": content[:200],
-                    "category": "fact",
-                    "confidence": 0.5,  # 降级路径默认中等置信度
-                })
+                facts.append(
+                    {
+                        "content": content[:200],
+                        "category": "fact",
+                        "confidence": 0.5,  # 降级路径默认中等置信度
+                    }
+                )
         return facts[:20]  # 最多 20 条
 
 
 # ── MemoryManager ─────────────────────────────────────────────────────
+
 
 class MemoryManager:
     """
@@ -402,6 +408,7 @@ async def get_kg_anchors(thread_id: str, top_k: int = 10, analyst_id: str = "def
     """
     try:
         from app.core.mongodb import get_mongo_db
+
         db = get_mongo_db()
         coll = db[KG_COLLECTION]
         cursor = coll.find(
@@ -431,8 +438,10 @@ async def increment_kg_anchor(
       - KG Anchor 追踪的是本次会话中主观高频提及的实体
     """
     try:
-        from app.core.mongodb import get_mongo_db
         from datetime import datetime
+
+        from app.core.mongodb import get_mongo_db
+
         db = get_mongo_db()
         coll = db[KG_COLLECTION]
         await coll.update_one(
@@ -459,10 +468,12 @@ def format_kg_anchors_for_prompt(thread_id: str, analyst_id: str = "default") ->
     调用时创建新的事件循环，避免与 uvloop 冲突。
     """
     import asyncio
+
     try:
         asyncio.get_running_loop()
         # 有事件循环，用 ThreadPool
         import concurrent.futures
+
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
             fut = pool.submit(asyncio.run, get_kg_anchors(thread_id, analyst_id=analyst_id))
             anchors = fut.result(timeout=10)

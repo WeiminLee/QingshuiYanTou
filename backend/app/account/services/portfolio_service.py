@@ -1,7 +1,6 @@
 """持仓服务：增删查，严格按 user_id 隔离"""
-from __future__ import annotations
 
-from typing import List
+from __future__ import annotations
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,7 +17,7 @@ async def add(session: AsyncSession, user_id: str, ts_code: str, stock_name: str
     return pos
 
 
-async def list_for_user(session: AsyncSession, user_id: str) -> List[PortfolioPosition]:
+async def list_for_user(session: AsyncSession, user_id: str) -> list[PortfolioPosition]:
     """列出某用户的所有持仓，按 created_at desc"""
     result = await session.execute(
         select(PortfolioPosition)

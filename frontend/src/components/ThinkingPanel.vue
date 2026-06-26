@@ -28,87 +28,94 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onUnmounted } from 'vue'
-import { Brain, ChevronDown } from 'lucide-vue-next'
-import { sanitize } from '@/utils/sanitize.js'
-import { formatDuration } from '@/utils/toolHelpers'
+import { ref, computed, watch, onUnmounted } from "vue";
+import { Brain, ChevronDown } from "lucide-vue-next";
+import { sanitize } from "@/utils/sanitize.js";
+import { formatDuration } from "@/utils/toolHelpers";
 
-const props = withDefaults(defineProps<{
-  content: string
-  loading?: boolean
-  collapsed?: boolean
-}>(), {
-  loading: false,
-  collapsed: false,
-})
+const props = withDefaults(
+  defineProps<{
+    content: string;
+    loading?: boolean;
+    collapsed?: boolean;
+  }>(),
+  {
+    loading: false,
+    collapsed: false,
+  },
+);
 
-const AUTO_COLLAPSE_DELAY_MS = 1000  // P23-B: locked by CONTEXT, do not make configurable
+const AUTO_COLLAPSE_DELAY_MS = 1000; // P23-B: locked by CONTEXT, do not make configurable
 
-const startTime = ref<number | null>(null)
-const elapsedMs = ref(0)
-const hasAutoCollapsed = ref(false)
-let elapsedTimer: ReturnType<typeof setInterval> | null = null
-let collapseTimer: ReturnType<typeof setTimeout> | null = null
+const startTime = ref<number | null>(null);
+const elapsedMs = ref(0);
+const hasAutoCollapsed = ref(false);
+let elapsedTimer: ReturnType<typeof setInterval> | null = null;
+let collapseTimer: ReturnType<typeof setTimeout> | null = null;
 
-const isCollapsed = computed(() => props.collapsed || hasAutoCollapsed.value)
+const isCollapsed = computed(() => props.collapsed || hasAutoCollapsed.value);
 
 const elapsedText = computed(() => {
-  if (elapsedMs.value <= 0 && !startTime.value) return ''
-  return formatDuration(elapsedMs.value)
-})
+  if (elapsedMs.value <= 0 && !startTime.value) return "";
+  return formatDuration(elapsedMs.value);
+});
 
 const filteredContent = computed(() => {
-  return props.content
-    .replace(/\[ASK_CLARIFICATION\][\s\S]*$/g, '')
-    .trim()
-})
+  return props.content.replace(/\[ASK_CLARIFICATION\][\s\S]*$/g, "").trim();
+});
 
-watch(() => props.content, (newVal) => {
-  if (newVal && !startTime.value) {
-    startTime.value = Date.now()
-    startElapsedTimer()
-  }
-})
-
-watch(() => props.loading, (newLoading, oldLoading) => {
-  if (oldLoading && !newLoading) {
-    stopElapsedTimer()
-    if (startTime.value) {
-      elapsedMs.value = Date.now() - startTime.value
+watch(
+  () => props.content,
+  (newVal) => {
+    if (newVal && !startTime.value) {
+      startTime.value = Date.now();
+      startElapsedTimer();
     }
-    if (collapseTimer) clearTimeout(collapseTimer)
-    collapseTimer = setTimeout(() => {
-      hasAutoCollapsed.value = true
-    }, AUTO_COLLAPSE_DELAY_MS)
-  }
-})
+  },
+);
+
+watch(
+  () => props.loading,
+  (newLoading, oldLoading) => {
+    if (oldLoading && !newLoading) {
+      stopElapsedTimer();
+      if (startTime.value) {
+        elapsedMs.value = Date.now() - startTime.value;
+      }
+      if (collapseTimer) clearTimeout(collapseTimer);
+      collapseTimer = setTimeout(() => {
+        hasAutoCollapsed.value = true;
+      }, AUTO_COLLAPSE_DELAY_MS);
+    }
+  },
+);
 
 function startElapsedTimer() {
-  if (elapsedTimer) return
+  if (elapsedTimer) return;
   elapsedTimer = setInterval(() => {
     if (startTime.value) {
-      elapsedMs.value = Date.now() - startTime.value
+      elapsedMs.value = Date.now() - startTime.value;
     }
-  }, 200)
+  }, 200);
 }
 
 function stopElapsedTimer() {
   if (elapsedTimer) {
-    clearInterval(elapsedTimer)
-    elapsedTimer = null
+    clearInterval(elapsedTimer);
+    elapsedTimer = null;
   }
 }
 
 function toggleCollapse() {
   if (!props.loading) {
-    hasAutoCollapsed.value = !hasAutoCollapsed.value
+    hasAutoCollapsed.value = !hasAutoCollapsed.value;
   }
 }
 
 onUnmounted(() => {
-  stopElapsedTimer()
-  if (collapseTimer) clearTimeout(collapseTimer)
-})
+  stopElapsedTimer();
+  if (collapseTimer) clearTimeout(collapseTimer);
+});
 </script>
 
 <style scoped>
@@ -151,7 +158,7 @@ onUnmounted(() => {
   font-size: 11px;
   font-weight: 600;
   color: var(--ledger-blue);
-  background: rgba(59,91,219,0.08);
+  background: rgba(59, 91, 219, 0.08);
   padding: 1px 8px;
   border-radius: 4px;
   font-family: var(--font-mono);

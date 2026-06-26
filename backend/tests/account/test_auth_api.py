@@ -1,12 +1,13 @@
 """集成测：/api/v1/auth/* 和 /api/v1/users"""
+
 import pytest
 import pytest_asyncio
-from httpx import AsyncClient, ASGITransport
+from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 import app.main as main_mod
-from app.models.models import User
 from app.core import database as db_mod
+from app.models.models import User
 
 fastapi_app = main_mod.app
 
@@ -15,7 +16,9 @@ fastapi_app = main_mod.app
 async def client(monkeypatch):
     monkeypatch.setenv("MASTER_PASSWORD", "test-master-pass-1234")
     from importlib import reload
+
     import app.config
+
     reload(app.config)
 
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
@@ -27,15 +30,18 @@ async def client(monkeypatch):
     async def _override_get_db():
         async with db_mod.async_session() as s:
             yield s
+
     fastapi_app.dependency_overrides[db_mod.get_db] = _override_get_db
 
     transport = ASGITransport(app=fastapi_app)
     async with AsyncClient(transport=transport, base_url="http://test") as c:
         async with db_mod.async_session() as s:
-            s.add_all([
-                User(user_id="alice", display_name="Alice"),
-                User(user_id="bob", display_name="Bob"),
-            ])
+            s.add_all(
+                [
+                    User(user_id="alice", display_name="Alice"),
+                    User(user_id="bob", display_name="Bob"),
+                ]
+            )
             await s.commit()
         yield c
     fastapi_app.dependency_overrides.clear()

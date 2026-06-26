@@ -7,16 +7,18 @@ task_events.py — task_tool SSE 事件总线
 旧实现（Bug #4）：全局单一队列 `_task_events_queue`
 新实现：`dict[task_id, queue.Queue]` 按 task_id 隔离
 """
+
 from __future__ import annotations
 
 import queue
 import threading
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import StrEnum
 
 
-class TaskEventType(str, Enum):
+class TaskEventType(StrEnum):
     """Task SSE 事件类型"""
+
     TASK_STARTED = "task_started"
     TASK_RUNNING = "task_running"
     TASK_COMPLETED = "task_completed"
@@ -27,6 +29,7 @@ class TaskEventType(str, Enum):
 @dataclass
 class TaskEvent:
     """单个 task 事件"""
+
     type: TaskEventType
     task_id: str
     data: dict = field(default_factory=dict)

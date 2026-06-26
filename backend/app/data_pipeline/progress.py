@@ -1,15 +1,15 @@
 """数据接入进度与断点跟踪服务。"""
+
 from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import text
 
 from app.core.database import engine
-
 
 RUNNING = "running"
 SUCCESS = "success"
@@ -27,6 +27,7 @@ class IngestionRunContext:
 
 class IngestionProgressTracker:
     """持久化记录一次接入任务的运行状态、事件和 checkpoint。"""
+
     _tables_ready = False
 
     def __init__(
@@ -135,9 +136,10 @@ class IngestionProgressTracker:
         await self.ensure_tables()
         async with engine.connect() as conn:
             row = (
-                await conn.execute(
-                    text(
-                        """
+                (
+                    await conn.execute(
+                        text(
+                            """
                         SELECT source, task_name, scope, watermark_type,
                                last_success_watermark, last_attempt_watermark,
                                last_run_id, last_status, last_success_at,
@@ -147,14 +149,17 @@ class IngestionProgressTracker:
                           AND task_name = :task_name
                           AND scope = :scope
                         """
-                    ),
-                    {
-                        "source": self.source,
-                        "task_name": self.task_name,
-                        "scope": self.scope,
-                    },
+                        ),
+                        {
+                            "source": self.source,
+                            "task_name": self.task_name,
+                            "scope": self.scope,
+                        },
+                    )
                 )
-            ).mappings().first()
+                .mappings()
+                .first()
+            )
         return dict(row) if row else None
 
     async def start_run(
@@ -290,11 +295,7 @@ class IngestionProgressTracker:
         }
         if values["last_item_id"] is not None:
             values["last_item_id"] = str(values["last_item_id"])[:100]
-        assignments = [
-            f"{name} = :{name}"
-            for name, value in values.items()
-            if value is not None
-        ]
+        assignments = [f"{name} = :{name}" for name, value in values.items() if value is not None]
         if not assignments:
             return
         assignments.append("updated_at = NOW()")
@@ -330,7 +331,7 @@ class IngestionProgressTracker:
         next_from_watermark: str | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> None:
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         if last_item_id is not None:
             last_item_id = str(last_item_id)[:100]
         async with engine.begin() as conn:
@@ -453,7 +454,6 @@ class IngestionProgressTracker:
                 },
             )
 
-
     async def save_checkpoint(
         self,
         last_success_watermark: str | None = None,
@@ -465,7 +465,7 @@ class IngestionProgressTracker:
     ) -> None:
         """逐日更新断点（不创建 run）。"""
         await self.ensure_tables()
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         async with engine.begin() as conn:
             await conn.execute(
                 text(

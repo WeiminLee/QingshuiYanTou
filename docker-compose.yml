@@ -88,6 +88,75 @@ services:
     networks:
       - qingshui-net
 
+  # ── 应用服务 ────────────────────────────────────────────
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: qingshui_backend
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+    environment:
+      - ENABLE_API_SCHEDULER=false
+      - DATABASE_URL=postgresql+asyncpg://qingshui:qingshui123@postgres:5432/qingshui
+      - MONGODB_URL=mongodb://mongo:27017/qingshui
+      - REDIS_URL=redis://redis:6379/0
+      - NEO4J__PASSWORD=qingshui123
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mongo:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    ports:
+      - "8080:8000"
+    networks:
+      - qingshui-net
+
+  scheduler:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: qingshui_scheduler
+    command: python -m app.data_pipeline.scheduler
+    environment:
+      - ENABLE_API_SCHEDULER=false
+      - DATABASE_URL=postgresql+asyncpg://qingshui:qingshui123@postgres:5432/qingshui
+      - MONGODB_URL=mongodb://mongo:27017/qingshui
+      - REDIS_URL=redis://redis:6379/0
+      - NEO4J__PASSWORD=qingshui123
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mongo:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - qingshui-net
+
+  job-worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: qingshui_job_worker
+    command: python -m app.data_pipeline.job_worker
+    environment:
+      - ENABLE_API_SCHEDULER=false
+      - DATABASE_URL=postgresql+asyncpg://qingshui:qingshui123@postgres:5432/qingshui
+      - MONGODB_URL=mongodb://mongo:27017/qingshui
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mongo:
+        condition: service_healthy
+    restart: unless-stopped
+    deploy:
+      replicas: 2
+    networks:
+      - qingshui-net
+
 networks:
   qingshui-net:
     driver: bridge

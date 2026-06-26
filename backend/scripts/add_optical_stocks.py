@@ -9,7 +9,9 @@
 
 import asyncio
 from datetime import date
+
 from sqlalchemy import text
+
 from app.core.database import async_session
 
 # 文章明确提及的核心标的（ts_code, name, 环节标签, 关联概念名)
@@ -35,10 +37,7 @@ async def main():
 
         for ts_code, name, link, concept in OPTICAL_STOCKS:
             # 检查是否已在 StockPool
-            exists = await sess.execute(
-                text("SELECT 1 FROM stock_pool WHERE ts_code = :ts_code"),
-                {"ts_code": ts_code}
-            )
+            exists = await sess.execute(text("SELECT 1 FROM stock_pool WHERE ts_code = :ts_code"), {"ts_code": ts_code})
             if exists.scalar():
                 print(f"⏭  {name}({ts_code}) 已在 StockPool，跳过")
                 continue
@@ -57,7 +56,7 @@ async def main():
                     "concept_code": f"optical_{link}",
                     "concept_name": f"光通信-{concept}",
                     "in_date": today,
-                }
+                },
             )
             print(f"✅ {name}({ts_code}) 已加入 StockPool -> 光通信-{concept}")
 

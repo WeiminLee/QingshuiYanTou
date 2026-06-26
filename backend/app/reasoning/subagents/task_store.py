@@ -4,18 +4,20 @@ TaskStore — 纯内存任务存储
 存储所有后台 SubAgent 任务的状态，供轮询 API 使用。
 进程重启后数据丢失（纯内存设计）。
 """
+
 from __future__ import annotations
 
 import threading
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 
-class TaskStatus(str, Enum):
+class TaskStatus(StrEnum):
     """任务状态枚举"""
+
     PENDING = "pending"
     RUNNING = "running"
     COMPLETED = "completed"
@@ -27,6 +29,7 @@ class TaskStatus(str, Enum):
 @dataclass
 class TaskRecord:
     """任务记录"""
+
     task_id: str
     agent_name: str
     prompt: str
@@ -94,7 +97,12 @@ class TaskStore:
             task.error = error
             if status == TaskStatus.RUNNING and task.started_at is None:
                 task.started_at = datetime.now()
-            if status in (TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.TIMED_OUT, TaskStatus.CANCELLED):
+            if status in (
+                TaskStatus.COMPLETED,
+                TaskStatus.FAILED,
+                TaskStatus.TIMED_OUT,
+                TaskStatus.CANCELLED,
+            ):
                 task.completed_at = datetime.now()
             return True
 
@@ -105,7 +113,6 @@ class TaskStore:
 
     def cleanup(self, max_age_seconds: int = 3600) -> int:
         """清理已完成超过 max_age_seconds 的任务"""
-        import time
         cutoff = datetime.now().timestamp() - max_age_seconds
         removed = 0
         with self._lock:

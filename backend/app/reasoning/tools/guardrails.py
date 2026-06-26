@@ -4,11 +4,11 @@ QingShuiTouYan is an investment research platform. It must never expose
 trading, order placement, broker execution, exchange execution, or automated
 execution capabilities.
 """
+
 from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-
 
 EXECUTION_INTENT_TERMS: tuple[str, ...] = (
     "下单",
@@ -97,4 +97,3 @@ def filter_research_memory_text(text: str | None) -> str:
     if not text or not is_research_only(text):
         return ""
     return text
-

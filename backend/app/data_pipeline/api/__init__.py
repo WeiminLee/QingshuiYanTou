@@ -7,10 +7,11 @@ data_pipeline.api - 数据相关 API
 - information: 资讯查询
 - monitor: 监控告警
 """
-from app.data_pipeline.api.stocks import router as stocks_router
+
 from app.data_pipeline.api.data import router as data_router
 from app.data_pipeline.api.information import router as information_router
 from app.data_pipeline.api.monitor import router as monitor_router
+from app.data_pipeline.api.stocks import router as stocks_router
 
 __all__ = [
     "stocks_router",

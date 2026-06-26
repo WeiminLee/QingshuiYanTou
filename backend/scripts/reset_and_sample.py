@@ -9,11 +9,13 @@
 用法:
   uv run --directory backend python scripts/reset_and_sample.py
 """
-from neo4j import GraphDatabase
-import pymongo
-from pathlib import Path
-import sys
+
 import random
+import sys
+from pathlib import Path
+
+import pymongo
+from neo4j import GraphDatabase
 
 # ── 加载 .env（直接读原始行，防编码问题）───────────────────────
 env = {}
@@ -52,10 +54,12 @@ def reset_and_sample(n: int = 5):
     db = mc.get_database()
     coll = db["kg_file_index"]
 
-    done_files = list(coll.find(
-        {"status": {"$in": ["done", "failed"]}},
-        {"_id": 0, "file_path": 1, "file_name": 1, "status": 1, "ts_code": 1}
-    ))
+    done_files = list(
+        coll.find(
+            {"status": {"$in": ["done", "failed"]}},
+            {"_id": 0, "file_path": 1, "file_name": 1, "status": 1, "ts_code": 1},
+        )
+    )
 
     if not done_files:
         print("[2/3] ✗ 没有 status=done/failed 的文件可抽取")
@@ -70,21 +74,26 @@ def reset_and_sample(n: int = 5):
     for f in sampled:
         coll.update_one(
             {"file_path": f["file_path"]},
-            {"$set": {"status": "pending", "error": None, "entities_count": 0, "relations_count": 0}}
+            {
+                "$set": {
+                    "status": "pending",
+                    "error": None,
+                    "entities_count": 0,
+                    "relations_count": 0,
+                }
+            },
         )
         print(f"  → {f['file_name']}  ({f['status']} → pending)")
         paths.append(f["file_path"])
 
     # ── Step 3: 统计 ───────────────────────────────────
-    stats = coll.aggregate([
-        {"$group": {"_id": "$status", "count": {"$sum": 1}}}
-    ])
+    stats = coll.aggregate([{"$group": {"_id": "$status", "count": {"$sum": 1}}}])
     stat_map = {r["_id"]: r["count"] for r in stats}
-    print(f"\n[3/3] kg_file_index 状态统计：")
+    print("\n[3/3] kg_file_index 状态统计：")
     for status, count in sorted(stat_map.items()):
         print(f"  {status}: {count}")
 
-    print(f"\n文件绝对路径（供后续抽取使用）：")
+    print("\n文件绝对路径（供后续抽取使用）：")
     for p in paths:
         print(f"  {p}")
 

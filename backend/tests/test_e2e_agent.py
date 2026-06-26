@@ -5,12 +5,12 @@ Requires: backend running at http://localhost:8000 + real LLM API.
 Mark: @pytest.mark.integration — skipped in regular test runs.
 Run explicitly: pytest tests/test_e2e_agent.py -v
 """
+
 import logging
+import time
+
 import pytest
 import requests
-import time
-import requests
-import time
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -39,7 +39,7 @@ def test_e2e_semiconductor_sector():
     """
     payload = {
         "question": "分析中际旭创的竞争格局和产品布局",
-        "max_turns": 2,          # keep test fast
+        "max_turns": 2,  # keep test fast
     }
     logger.info("POST /api/v1/agent/chat with semiconductor query")
     t0 = time.time()
@@ -60,8 +60,7 @@ def test_e2e_semiconductor_sector():
     logger.info("Found section keys: %s", found_keys)
 
     assert len(found_keys) >= 3, (
-        f"Expected at least 3 of {SECTION_KEYS} in response, found {found_keys}. "
-        f"Response preview: {data_str[:500]}"
+        f"Expected at least 3 of {SECTION_KEYS} in response, found {found_keys}. Response preview: {data_str[:500]}"
     )
     print(f"PASS: test_e2e_semiconductor_sector ({elapsed:.1f}s, {len(found_keys)} sections)")
     return data

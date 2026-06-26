@@ -15,20 +15,21 @@ Harness — 执行控制层（V2 精简版）
   - Hermes-Agent: environments/agent_loop.py（Budget + Loop）
   - DeerFlow: agents/middlewares/
 """
+
 from app.reasoning.harness.budget import (
     BudgetConfig,
     BudgetEnforcer,
-    TurnBudget,
     ToolResultBudget,
+    TurnBudget,
 )
 from app.reasoning.harness.memory import (
-    MemoryManager,
-    MemoryUpdater,
-    MemoryUpdateQueue,
     DEFAULT_DEBOUNCE_SECONDS,
+    MemoryManager,
+    MemoryUpdateQueue,
+    MemoryUpdater,
+    format_kg_anchors_for_prompt,
     get_kg_anchors,
     increment_kg_anchor,
-    format_kg_anchors_for_prompt,
 )
 
 __all__ = [

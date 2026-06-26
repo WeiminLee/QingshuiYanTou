@@ -1,15 +1,15 @@
 """测试智能分块模块"""
-import pytest
+
 from app.knowledge.ingestion.chunker import (
+    MAX_CHUNK_TOKENS,
+    MERGE_TARGET_TOKENS,
+    MIN_CHUNK_TOKENS,
+    Chapter,
     SmartChunker,
-    split_by_chapters,
-    merge_small_chunks,
     chunk_text,
     count_tokens,
-    Chapter,
-    MAX_CHUNK_TOKENS,
-    MIN_CHUNK_TOKENS,
-    MERGE_TARGET_TOKENS,
+    merge_small_chunks,
+    split_by_chapters,
 )
 
 
@@ -114,7 +114,7 @@ class TestSmartChunking:
     def test_token_limit(self):
         """分块不超过最大 token 数"""
         # 生成一个超过限制的长文本（使用重复的短句）
-        sentences = ["这是第{}句话。".format(i) for i in range(500)]
+        sentences = [f"这是第{i}句话。" for i in range(500)]
         long_text = "\n".join(sentences)
         chunks = chunk_text(long_text, max_tokens=MAX_CHUNK_TOKENS)
         # 每个块应不超过限制（允许10%误差）

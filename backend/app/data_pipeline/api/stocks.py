@@ -4,27 +4,31 @@
 数据来源：本地 PostgreSQL（通过 services 层查询）
 已移除云端 API 依赖。
 """
-import logging
-from fastapi import APIRouter, Depends, Body, HTTPException, Query
-from fastapi.responses import PlainTextResponse
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, or_, func, desc
 
-from typing import Optional
+import logging
+
+from fastapi import APIRouter, Body, Depends, HTTPException, Query
+from fastapi.responses import PlainTextResponse
+from sqlalchemy import desc, func, or_, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.core.database import get_db
-from app.models.models import Stock, Watchlist, DailyData, AnalysisReport
 from app.data_pipeline.services.kline_service import get_kline_service
+from app.models.models import AnalysisReport, DailyData, Stock, Watchlist
+from app.packages.material_package import build_material_package as _build_material_package
 from app.packages.stock_package import (
     build_stock_package as _build_stock_package,
+)
+from app.packages.stock_package import (
     build_stock_package_json as _build_stock_package_json,
 )
-from app.packages.material_package import build_material_package as _build_material_package
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
 # ── 基础数据 ──────────────────────────────────────────
+
 
 @router.get("/list")
 async def get_stock_list(
@@ -39,8 +43,13 @@ async def get_stock_list(
     return {
         "total": limit,
         "items": [
-            {"ts_code": s.ts_code, "symbol": s.symbol, "name": s.name,
-             "industry": s.industry, "area": s.area}
+            {
+                "ts_code": s.ts_code,
+                "symbol": s.symbol,
+                "name": s.name,
+                "industry": s.industry,
+                "area": s.area,
+            }
             for s in stocks
         ],
     }
@@ -69,8 +78,13 @@ async def search_stocks(
     stocks = result.scalars().all()
     return {
         "items": [
-            {"ts_code": s.ts_code, "symbol": s.symbol, "name": s.name,
-             "industry": s.industry, "area": s.area}
+            {
+                "ts_code": s.ts_code,
+                "symbol": s.symbol,
+                "name": s.name,
+                "industry": s.industry,
+                "area": s.area,
+            }
             for s in stocks
         ],
     }
@@ -78,43 +92,38 @@ async def search_stocks(
 
 # ── 自选股 ──────────────────────────────────────────
 
+
 @router.get("/watchlist")
 async def get_watchlist(db: AsyncSession = Depends(get_db)):
     """获取自选股列表（含最新价格 + 最新分析评分）"""
     # 子查询：每只股票最新一条日线数据
-    daily_subq = (
-        select(
-            DailyData.ts_code,
-            DailyData.close,
-            DailyData.pct_chg,
-            func.row_number().over(
-                partition_by=DailyData.ts_code,
-                order_by=desc(DailyData.trade_date),
-            ).label("rn"),
-        ).subquery()
-    )
+    daily_subq = select(
+        DailyData.ts_code,
+        DailyData.close,
+        DailyData.pct_chg,
+        func.row_number()
+        .over(
+            partition_by=DailyData.ts_code,
+            order_by=desc(DailyData.trade_date),
+        )
+        .label("rn"),
+    ).subquery()
     latest_price = (
-        select(daily_subq.c.ts_code, daily_subq.c.close, daily_subq.c.pct_chg)
-        .where(daily_subq.c.rn == 1)
-        .subquery()
+        select(daily_subq.c.ts_code, daily_subq.c.close, daily_subq.c.pct_chg).where(daily_subq.c.rn == 1).subquery()
     )
 
     # 子查询：每只股票最新一条分析报告
-    report_subq = (
-        select(
-            AnalysisReport.ts_code,
-            AnalysisReport.score,
-            func.row_number().over(
-                partition_by=AnalysisReport.ts_code,
-                order_by=desc(AnalysisReport.created_at),
-            ).label("rn"),
-        ).subquery()
-    )
-    latest_report = (
-        select(report_subq.c.ts_code, report_subq.c.score)
-        .where(report_subq.c.rn == 1)
-        .subquery()
-    )
+    report_subq = select(
+        AnalysisReport.ts_code,
+        AnalysisReport.score,
+        func.row_number()
+        .over(
+            partition_by=AnalysisReport.ts_code,
+            order_by=desc(AnalysisReport.created_at),
+        )
+        .label("rn"),
+    ).subquery()
+    latest_report = select(report_subq.c.ts_code, report_subq.c.score).where(report_subq.c.rn == 1).subquery()
 
     stmt = (
         select(Stock, Watchlist, latest_price.c.close, latest_price.c.pct_chg, latest_report.c.score)
@@ -185,6 +194,7 @@ async def remove_from_watchlist(ts_code: str, db: AsyncSession = Depends(get_db)
 
 # ── 情报包（JSON）—— 必须在 /{ts_code} 之前 ─────────────
 
+
 @router.get("/package/{ts_code}")
 async def get_stock_package_json(ts_code: str):
     """
@@ -194,6 +204,7 @@ async def get_stock_package_json(ts_code: str):
 
 
 # ── 情报包接口（Markdown 文本格式）─────────────────────────────
+
 
 @router.get("/package/{ts_code}/markdown", response_class=PlainTextResponse)
 async def get_stock_package_markdown(ts_code: str):
@@ -261,6 +272,7 @@ async def get_capital_flow(
 
 # ── 个股详情 ──────────────────────────────────────────
 # 注意：必须在所有特定路径路由之后
+
 
 @router.get("/{ts_code}")
 async def get_stock(ts_code: str, db: AsyncSession = Depends(get_db)):

@@ -11,12 +11,13 @@ Phase C TDD — 中间件链完善
 
 Run: uv run --directory backend python -m pytest tests/reasoning/test_middleware_chain.py -v
 """
-import pytest
-from unittest.mock import patch, MagicMock, AsyncMock
+
 from dataclasses import dataclass
 
+import pytest
 
 # ── 辅助 Mock ─────────────────────────────────────────────────────────
+
 
 @dataclass
 class MockClarificationResult:
@@ -38,6 +39,7 @@ class TestClarificationV2ShortQuestion:
         from app.reasoning.langchain_agent.middlewares.clarification import (
             ClarificationMiddleware,
         )
+
         mw = ClarificationMiddleware()
 
         result = mw.check_question("分析")
@@ -69,6 +71,7 @@ class TestClarificationV2ShortQuestion:
         from app.reasoning.langchain_agent.middlewares.clarification import (
             ClarificationMiddleware,
         )
+
         mw = ClarificationMiddleware()
 
         result = mw.check_question("分析中际旭创2024年光模块业务竞争力")
@@ -86,6 +89,7 @@ class TestClarificationV2VagueQuestion:
         from app.reasoning.langchain_agent.middlewares.clarification import (
             ClarificationMiddleware,
         )
+
         mw = ClarificationMiddleware()
 
         result = mw.check_question("分析一下这个行业")
@@ -151,7 +155,7 @@ class TestSubagentLimitMiddleware:
         mw = SubagentLimitMiddleware(max_concurrent=3)
         for i in range(3):
             result = await mw.process_tool_call("task", {"description": f"分析{i}"})
-            assert result["allowed"] is True, f"第{i+1}次调用应在限制内"
+            assert result["allowed"] is True, f"第{i + 1}次调用应在限制内"
 
     @pytest.mark.anyio
     async def test_exceeds_limit_returns_blocked(self):
@@ -168,7 +172,7 @@ class TestSubagentLimitMiddleware:
         result = await mw.process_tool_call("task", {"description": "第4个分析"})
         assert result["allowed"] is False, "超出限制应返回 blocked"
         msg = result.get("message", "")
-        assert ("limit" in msg.lower() or "exceeded" in msg.lower() or "上限" in msg), (
+        assert "limit" in msg.lower() or "exceeded" in msg.lower() or "上限" in msg, (
             f"超出限制应返回包含 'limit' 或 '上限' 的消息，实际：{msg}"
         )
 
@@ -243,7 +247,9 @@ class TestClientMiddlewareIntegration:
     def test_client_imports_clarification_middleware(self):
         """client.py 导入了 ClarificationMiddleware"""
         import inspect
+
         from app.reasoning.langchain_agent import client
+
         src = inspect.getsource(client)
 
         assert "ClarificationMiddleware" in src or "clarification" in src.lower(), (
@@ -253,7 +259,9 @@ class TestClientMiddlewareIntegration:
     def test_client_imports_subagent_limit_middleware(self):
         """client.py 导入了 SubagentLimitMiddleware"""
         import inspect
+
         from app.reasoning.langchain_agent import client
+
         src = inspect.getsource(client)
 
         # 至少导入了 subagent_limit 相关逻辑
@@ -264,7 +272,9 @@ class TestClientMiddlewareIntegration:
     def test_run_lead_agent_checks_clarification_before_agent(self):
         """run_lead_agent 在调用 agent 之前检查是否需要澄清"""
         import inspect
+
         from app.reasoning.langchain_agent import client
+
         src = inspect.getsource(client.run_lead_agent)
         lines = src.splitlines()
 

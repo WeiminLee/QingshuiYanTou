@@ -7,6 +7,7 @@
 用法:
     python -m scripts.index_existing_storage
 """
+
 import asyncio
 import re
 from datetime import datetime

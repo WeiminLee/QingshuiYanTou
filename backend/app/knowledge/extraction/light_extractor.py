@@ -10,18 +10,18 @@ LightExtractor - 轻量级实体关系抽取引擎
 
 参考 RAGFlow graphrag/light/graph_extractor.py 设计。
 """
+
 from __future__ import annotations
 
 import logging
-from typing import Optional
 
 from app.core.llm_client import chat
+from app.knowledge.extraction.chunker import num_tokens
 from app.knowledge.extraction.rag_prompts import (
     EXTRACTION_PROMPT_V13,
-    TUPLE_DELIMITER,
     RECORD_DELIMITER,
+    TUPLE_DELIMITER,
 )
-from app.knowledge.extraction.chunker import num_tokens
 
 logger = logging.getLogger(__name__)
 
@@ -87,7 +87,7 @@ class LightExtractor:
             return text
         # 按字符比例截断
         char_ratio = self.max_tokens / tokens
-        return text[:int(len(text) * char_ratio)]
+        return text[: int(len(text) * char_ratio)]
 
     def _build_messages(self, text: str) -> list[dict]:
         """
@@ -140,30 +140,34 @@ class LightExtractor:
             if current_section == "entity":
                 parts = line.split(TUPLE_DELIMITER)
                 if len(parts) >= 2:
-                    entities.append({
-                        "name": parts[0].strip(),
-                        "type": parts[1].strip(),
-                        "description": parts[2].strip() if len(parts) > 2 else "",
-                        "source": parts[3].strip() if len(parts) > 3 else "",
-                    })
+                    entities.append(
+                        {
+                            "name": parts[0].strip(),
+                            "type": parts[1].strip(),
+                            "description": parts[2].strip() if len(parts) > 2 else "",
+                            "source": parts[3].strip() if len(parts) > 3 else "",
+                        }
+                    )
             elif current_section == "relation":
                 parts = line.split(TUPLE_DELIMITER)
                 if len(parts) >= 3:
-                    relations.append({
-                        "source": parts[0].strip(),
-                        "relation": parts[1].strip(),
-                        "target": parts[2].strip(),
-                        "weight": float(parts[3].strip()) if len(parts) > 3 and parts[3].strip() else 1.0,
-                        "description": parts[4].strip() if len(parts) > 4 else "",
-                        "source_ref": parts[5].strip() if len(parts) > 5 else "",
-                    })
+                    relations.append(
+                        {
+                            "source": parts[0].strip(),
+                            "relation": parts[1].strip(),
+                            "target": parts[2].strip(),
+                            "weight": float(parts[3].strip()) if len(parts) > 3 and parts[3].strip() else 1.0,
+                            "description": parts[4].strip() if len(parts) > 4 else "",
+                            "source_ref": parts[5].strip() if len(parts) > 5 else "",
+                        }
+                    )
 
         return entities, relations
 
 
 # ── 便捷函数 ────────────────────────────────────────────────────────────────
 
-_light_extractor: Optional[LightExtractor] = None
+_light_extractor: LightExtractor | None = None
 
 
 def get_light_extractor() -> LightExtractor:

@@ -2,26 +2,22 @@
   <div class="dashboard-header">
     <span class="dashboard-title">投研看板</span>
     <div class="header-actions">
-      <el-button
-        :icon="collapsed ? Expand : Fold"
-        text
-        @click="$emit('toggle-sidebar')"
-      />
+      <el-button :icon="collapsed ? Expand : Fold" text @click="$emit('toggle-sidebar')" />
     </div>
   </div>
 </template>
 
 <script setup>
-import { Fold, Expand } from '@element-plus/icons-vue'
+import { Fold, Expand } from "@element-plus/icons-vue";
 
 defineProps({
   collapsed: {
     type: Boolean,
     default: false,
   },
-})
+});
 
-defineEmits(['toggle-sidebar'])
+defineEmits(["toggle-sidebar"]);
 </script>
 
 <style scoped>

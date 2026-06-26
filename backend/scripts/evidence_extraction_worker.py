@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """CLI for Evidence extraction worker."""
+
 from __future__ import annotations
 
 import argparse
@@ -12,6 +13,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 os.environ.setdefault("UV_RUN", "1")
 
 from dotenv import load_dotenv
+
 load_dotenv()
 
 from app.knowledge.evidence_worker import EvidenceExtractionWorker

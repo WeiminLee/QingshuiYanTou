@@ -2,8 +2,10 @@
 任务存储管理测试
 验证 _task_store 和 _task_manager 统一问题
 """
-import pytest
+
 import os
+
+import pytest
 
 
 class TestTaskStorage:
@@ -14,7 +16,7 @@ class TestTaskStorage:
         base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
         agent_file = os.path.join(base_dir, "app/reasoning/api/agent.py")
-        with open(agent_file, "r") as f:
+        with open(agent_file) as f:
             code = f.read()
 
         # 检查是否有双重存储
@@ -47,7 +49,7 @@ class TestTaskStorage:
         base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
         agent_file = os.path.join(base_dir, "app/reasoning/api/agent.py")
-        with open(agent_file, "r") as f:
+        with open(agent_file) as f:
             code = f.read()
 
         # 检查是否在 /result 端点同时查两处

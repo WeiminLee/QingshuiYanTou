@@ -12,10 +12,11 @@ Registry — 统一 Tool 注册表（DeerFlow 风格）
     registry = get_registry()
     tools = get_all_tools()
 """
+
 from app.reasoning.registry.config import ToolConfig, ToolGroup
-from app.reasoning.registry.registry import ToolRegistry, get_registry
 from app.reasoning.registry.loader import load_tools_from_config
-from app.reasoning.registry.resolve_variable import resolve_variable, resolve_class
+from app.reasoning.registry.registry import ToolRegistry, get_registry
+from app.reasoning.registry.resolve_variable import resolve_class, resolve_variable
 
 __all__ = [
     "ToolConfig",

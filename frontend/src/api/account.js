@@ -62,7 +62,7 @@ http.interceptors.response.use(
       window.dispatchEvent(new CustomEvent("account:unauthorized"));
     }
     return Promise.reject(err);
-  }
+  },
 );
 
 export default http;

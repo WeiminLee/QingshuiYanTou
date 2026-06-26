@@ -3,6 +3,7 @@
 
 数据来源：PostgreSQL（StockService/ReportService）→ 定时任务写入
 """
+
 import logging
 from typing import Annotated
 
@@ -25,6 +26,7 @@ async def _fetch_profile(ts_code: str) -> str:
     """从本地数据库读取股票概况"""
     try:
         from app.data_pipeline.services.stock_service import get_stock_service
+
         service = get_stock_service()
         data = await service.get_stock_profile(ts_code)
         if data and data.get("main_business"):
@@ -65,12 +67,11 @@ def get_irm(
     return run_async(_fetch_irm(ts_code, keyword, start_date, end_date, page_size))
 
 
-async def _fetch_irm(
-    ts_code: str, keyword: str, start_date: str, end_date: str, page_size: int
-) -> str:
+async def _fetch_irm(ts_code: str, keyword: str, start_date: str, end_date: str, page_size: int) -> str:
     """从本地数据库读取互动易数据"""
     try:
         from app.data_pipeline.services.report_service import get_report_service
+
         service = get_report_service()
         items = await service.search_irm(
             ts_code=ts_code or None,

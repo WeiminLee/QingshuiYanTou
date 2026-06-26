@@ -10,11 +10,12 @@ Test LLMEngine — 跨 Provider 容错引擎
 - CircuitBreaker 连续失败 3 次后打开熔断
 - CircuitBreaker 成功后重置计数器
 """
+
 import asyncio
-import pytest
 import time
 from unittest.mock import MagicMock
 
+import pytest
 
 # ── Mock LLM 工厂 ──────────────────────────────────────────────────
 
@@ -146,7 +147,7 @@ class TestLLMProviderConfig:
         assert cfg.api_key == "sk-test"
         assert cfg.model == "gpt-4o-mini"
         assert cfg.temperature == 0.1  # 默认值
-        assert cfg.timeout == 120.0    # 默认值
+        assert cfg.timeout == 120.0  # 默认值
 
 
 # ── LLMEngineConfig.from_env() 测试 ───────────────────────────────
@@ -170,6 +171,7 @@ class TestLLMEngineConfigFromEnv:
         monkeypatch.delenv("LLM_FALLBACK_MODEL", raising=False)
 
         from app.reasoning.langchain_agent.llm_engine import LLMEngineConfig
+
         config = LLMEngineConfig.from_env()
 
         assert len(config.providers) == 1
@@ -195,6 +197,7 @@ class TestLLMEngineConfigFromEnv:
         monkeypatch.delenv("LLM_FALLBACK2_API_KEY", raising=False)
 
         from app.reasoning.langchain_agent.llm_engine import LLMEngineConfig
+
         config = LLMEngineConfig.from_env()
 
         assert len(config.providers) == 2
@@ -216,6 +219,7 @@ class TestLLMEngineConfigFromEnv:
         monkeypatch.delenv("LLM_FALLBACK_MODEL", raising=False)
 
         from app.reasoning.langchain_agent.llm_engine import LLMEngineConfig
+
         config = LLMEngineConfig.from_env()
 
         # fallback 未满足条件，只有主 provider
@@ -238,18 +242,20 @@ class TestLLMEngineInvoke:
         """
         from app.reasoning.langchain_agent.llm_engine import (
             LLMEngine,
-            LLMProviderConfig,
             LLMEngineConfig,
+            LLMProviderConfig,
         )
 
-        config = LLMEngineConfig(providers=[
-            LLMProviderConfig(
-                name="test",
-                base_url="https://test.com/v1",
-                api_key="test-key",
-                model="test-model",
-            )
-        ])
+        config = LLMEngineConfig(
+            providers=[
+                LLMProviderConfig(
+                    name="test",
+                    base_url="https://test.com/v1",
+                    api_key="test-key",
+                    model="test-model",
+                )
+            ]
+        )
 
         engine = LLMEngine(config)
         # 直接注入 bound model
@@ -268,14 +274,16 @@ class TestLLMEngineInvoke:
         """
         from app.reasoning.langchain_agent.llm_engine import (
             LLMEngine,
-            LLMProviderConfig,
             LLMEngineConfig,
+            LLMProviderConfig,
         )
 
-        config = LLMEngineConfig(providers=[
-            LLMProviderConfig(name="primary", base_url="http://p", api_key="k1", model="m1"),
-            LLMProviderConfig(name="fallback", base_url="http://f", api_key="k2", model="m2"),
-        ])
+        config = LLMEngineConfig(
+            providers=[
+                LLMProviderConfig(name="primary", base_url="http://p", api_key="k1", model="m1"),
+                LLMProviderConfig(name="fallback", base_url="http://f", api_key="k2", model="m2"),
+            ]
+        )
 
         engine = LLMEngine(config)
         engine._bound_models["primary"] = _make_mock_model("primary", success=False)
@@ -294,15 +302,17 @@ class TestLLMEngineInvoke:
         """
         from app.reasoning.langchain_agent.llm_engine import (
             LLMEngine,
-            LLMProviderConfig,
             LLMEngineConfig,
             LLMError,
+            LLMProviderConfig,
         )
 
-        config = LLMEngineConfig(providers=[
-            LLMProviderConfig(name="p1", base_url="http://p1", api_key="k1", model="m1"),
-            LLMProviderConfig(name="p2", base_url="http://p2", api_key="k2", model="m2"),
-        ])
+        config = LLMEngineConfig(
+            providers=[
+                LLMProviderConfig(name="p1", base_url="http://p1", api_key="k1", model="m1"),
+                LLMProviderConfig(name="p2", base_url="http://p2", api_key="k2", model="m2"),
+            ]
+        )
 
         engine = LLMEngine(config)
         engine._bound_models["p1"] = _make_mock_model("p1", success=False)
@@ -323,15 +333,17 @@ class TestLLMEngineInvoke:
         """
         from app.reasoning.langchain_agent.llm_engine import (
             LLMEngine,
-            LLMProviderConfig,
             LLMEngineConfig,
             LLMError,
+            LLMProviderConfig,
         )
 
-        config = LLMEngineConfig(providers=[
-            LLMProviderConfig(name="primary", base_url="http://p", api_key="k1", model="m1"),
-            LLMProviderConfig(name="fallback", base_url="http://f", api_key="k2", model="m2"),
-        ])
+        config = LLMEngineConfig(
+            providers=[
+                LLMProviderConfig(name="primary", base_url="http://p", api_key="k1", model="m1"),
+                LLMProviderConfig(name="fallback", base_url="http://f", api_key="k2", model="m2"),
+            ]
+        )
 
         engine = LLMEngine(config)
         engine._bound_models["primary"] = _make_mock_model("primary", success=False)
@@ -364,14 +376,16 @@ class TestLLMEngineInvoke:
         """
         from app.reasoning.langchain_agent.llm_engine import (
             LLMEngine,
-            LLMProviderConfig,
             LLMEngineConfig,
+            LLMProviderConfig,
         )
 
-        config = LLMEngineConfig(providers=[
-            LLMProviderConfig(name="primary", base_url="http://p", api_key="k1", model="m1"),
-            LLMProviderConfig(name="fallback", base_url="http://f", api_key="k2", model="m2"),
-        ])
+        config = LLMEngineConfig(
+            providers=[
+                LLMProviderConfig(name="primary", base_url="http://p", api_key="k1", model="m1"),
+                LLMProviderConfig(name="fallback", base_url="http://f", api_key="k2", model="m2"),
+            ]
+        )
 
         engine = LLMEngine(config)
         engine._bound_models["primary"] = _make_mock_model("primary", success=False)
@@ -408,14 +422,16 @@ class TestLLMEngineBindTools:
         """
         from app.reasoning.langchain_agent.llm_engine import (
             LLMEngine,
-            LLMProviderConfig,
             LLMEngineConfig,
+            LLMProviderConfig,
         )
 
-        config = LLMEngineConfig(providers=[
-            LLMProviderConfig(name="primary", base_url="http://p", api_key="k1", model="m1"),
-            LLMProviderConfig(name="fallback", base_url="http://f", api_key="k2", model="m2"),
-        ])
+        config = LLMEngineConfig(
+            providers=[
+                LLMProviderConfig(name="primary", base_url="http://p", api_key="k1", model="m1"),
+                LLMProviderConfig(name="fallback", base_url="http://f", api_key="k2", model="m2"),
+            ]
+        )
 
         engine = LLMEngine(config)
 
@@ -436,13 +452,15 @@ class TestLLMEngineBindTools:
         """
         from app.reasoning.langchain_agent.llm_engine import (
             LLMEngine,
-            LLMProviderConfig,
             LLMEngineConfig,
+            LLMProviderConfig,
         )
 
-        config = LLMEngineConfig(providers=[
-            LLMProviderConfig(name="primary", base_url="http://p", api_key="k1", model="m1"),
-        ])
+        config = LLMEngineConfig(
+            providers=[
+                LLMProviderConfig(name="primary", base_url="http://p", api_key="k1", model="m1"),
+            ]
+        )
 
         engine = LLMEngine(config)
 

@@ -22,12 +22,8 @@ class Event(Base):
     source: Mapped[str] = mapped_column(String(32), nullable=False, default="cls")
     url: Mapped[str | None] = mapped_column(Text)
     publish_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=False)
-    ingested_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
-    )
-    metadata_: Mapped[dict[str, Any]] = mapped_column(
-        "metadata", JSONB, nullable=False, server_default="{}"
-    )
+    ingested_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
+    metadata_: Mapped[dict[str, Any]] = mapped_column("metadata", JSONB, nullable=False, server_default="{}")
 
 
 Index("idx_events_publish_at", Event.publish_at, postgresql_using="btree")

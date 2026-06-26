@@ -3,16 +3,13 @@ AuditExportService - 审计日志导出服务
 
 支持 CSV 和 JSON 格式导出
 """
-import csv
-import io
+
 import json
+from collections.abc import AsyncIterator
 from datetime import datetime
-from typing import Any, AsyncIterator, Optional
 
 from fastapi.responses import StreamingResponse
-from sqlalchemy import text
 
-from app.core.database import engine
 from app.logging.log_service import LogService
 
 
@@ -24,10 +21,10 @@ class AuditExportService:
 
     async def export_logs_csv(
         self,
-        start_time: Optional[datetime] = None,
-        end_time: Optional[datetime] = None,
-        service: Optional[str] = None,
-        level: Optional[str] = None,
+        start_time: datetime | None = None,
+        end_time: datetime | None = None,
+        service: str | None = None,
+        level: str | None = None,
     ) -> StreamingResponse:
         """
         导出日志为 CSV 格式
@@ -38,7 +35,7 @@ class AuditExportService:
         filename = f"logs_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
 
         async def generate() -> AsyncIterator[bytes]:
-            yield "id,timestamp,level,service,module,message,trace_id,task_id,duration_ms,extra_data\n".encode()
+            yield b"id,timestamp,level,service,module,message,trace_id,task_id,duration_ms,extra_data\n"
 
             page = 1
             page_size = 1000
@@ -80,10 +77,10 @@ class AuditExportService:
 
     async def export_logs_json(
         self,
-        start_time: Optional[datetime] = None,
-        end_time: Optional[datetime] = None,
-        service: Optional[str] = None,
-        level: Optional[str] = None,
+        start_time: datetime | None = None,
+        end_time: datetime | None = None,
+        service: str | None = None,
+        level: str | None = None,
     ) -> StreamingResponse:
         """
         导出日志为 JSON 格式

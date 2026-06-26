@@ -1,4 +1,5 @@
 """Producers that enqueue ingestion jobs without doing external IO."""
+
 from __future__ import annotations
 
 import asyncio
@@ -77,13 +78,15 @@ async def enqueue_irm_company_jobs(
 
     # 白名单过滤：scope=tech_mvp 时仅入队白名单股票
     from app.data_pipeline.backfill_config import load_backfill_settings
+
     bf_cfg = load_backfill_settings()
     if bf_cfg.scope == "tech_mvp" and bf_cfg.ts_codes:
         before = len(stocks)
         stocks = [s for s in stocks if str(s.get("ts_code", "")) in bf_cfg.ts_codes]
         logger.info(
             "enqueue_irm_company_jobs: backfill scope=tech_mvp, %d/%d 命中白名单",
-            len(stocks), before,
+            len(stocks),
+            before,
         )
 
     count = 0

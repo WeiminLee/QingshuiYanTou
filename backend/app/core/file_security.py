@@ -6,6 +6,7 @@
 2. 路径验证：确保文件在允许范围内
 3. 路径遍历检测：防止 .. 攻击
 """
+
 from __future__ import annotations
 
 import re
@@ -80,9 +81,7 @@ def validate_path_traversal(path: Path, base: Path) -> None:
     try:
         path.resolve().relative_to(base.resolve())
     except ValueError:
-        raise PathTraversalError(
-            f"Path traversal detected: {path} escapes {base}"
-        )
+        raise PathTraversalError(f"Path traversal detected: {path} escapes {base}")
 
 
 def validate_file_path(

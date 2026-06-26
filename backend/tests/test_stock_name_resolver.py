@@ -1,7 +1,8 @@
 """Tests for StockNameResolver — A-share name → ts_code resolution."""
+
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -37,9 +38,12 @@ def resolver_with_mocked_pg():
             self._ts_code_to_names.setdefault(ts_code, []).append(com_name)
         return len(stock_rows)
 
-    with patch.object(StockNameResolver, "_load_from_postgresql", fake_load_postgresql), \
-         patch.object(StockNameResolver, "_load_supplemental", lambda self: 0):
+    with (
+        patch.object(StockNameResolver, "_load_from_postgresql", fake_load_postgresql),
+        patch.object(StockNameResolver, "_load_supplemental", lambda self: 0),
+    ):
         import asyncio
+
         asyncio.run(resolver.warm_cache())
     return resolver
 
@@ -101,9 +105,7 @@ def test_get_sector_tags_from_industry(resolver_with_mocked_pg):
 
 def test_is_same_company_same_ts_code(resolver_with_mocked_pg):
     """简称与全称属于同一公司"""
-    assert resolver_with_mocked_pg.is_same_company(
-        "中芯国际", "中芯国际半导体制造有限公司"
-    ) is True
+    assert resolver_with_mocked_pg.is_same_company("中芯国际", "中芯国际半导体制造有限公司") is True
 
 
 def test_is_same_company_different(resolver_with_mocked_pg):
@@ -126,6 +128,7 @@ def test_warm_cache_idempotent(resolver_with_mocked_pg):
     """重复调用 warm_cache 不重新加载"""
     initial_size = resolver_with_mocked_pg.size()
     import asyncio
+
     asyncio.run(resolver_with_mocked_pg.warm_cache())
     assert resolver_with_mocked_pg.size() == initial_size
 
@@ -138,9 +141,12 @@ def test_fallback_when_postgres_unavailable():
         # _load_from_postgresql 内部 try/except 会捕获异常并返回 0
         return 0
 
-    with patch.object(StockNameResolver, "_load_from_postgresql", no_op_load), \
-         patch.object(StockNameResolver, "_load_supplemental", lambda self: 0):
+    with (
+        patch.object(StockNameResolver, "_load_from_postgresql", no_op_load),
+        patch.object(StockNameResolver, "_load_supplemental", lambda self: 0),
+    ):
         import asyncio
+
         asyncio.run(resolver.warm_cache())
         # 系统功能降级但不崩溃
         assert resolver.resolve("任意公司") is None

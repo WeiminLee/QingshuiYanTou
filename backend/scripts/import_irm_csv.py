@@ -22,6 +22,7 @@ IRM CSV 数据导入脚本
     # 全市场导入
     python -m scripts.import_irm_csv --scope all
 """
+
 from __future__ import annotations
 
 import argparse
@@ -39,14 +40,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.core.database import engine
-from app.data_pipeline.irm_filter import should_save as should_save_irm
-from app.data_pipeline.progress import (
-    PARTIAL,
-    SUCCESS,
-    IngestionProgressTracker,
-)
-from app.models.models import Announcement
 from app.data_pipeline.backfill_config import load_backfill_settings
+from app.data_pipeline.irm_filter import should_save as should_save_irm
+from app.models.models import Announcement
 
 logging.basicConfig(
     level=logging.INFO,
@@ -166,18 +162,20 @@ async def sync_csv(
 
             source_name = "上证e互动" if exchange == "SH" else "深证互动易"
 
-            pending.append({
-                "ann_date": ann_date,
-                "ts_code": ts_code,
-                "name": str(row.get("name", "")).strip() or None,
-                "title": question[:500],
-                "type": answer,
-                "cninfo_id": cninfo_id,
-                "announcement_type": f"irm:{exchange}",
-                "source_type": "minishare",
-                "source_name": source_name,
-                "confidence_tier": "Tier2",
-            })
+            pending.append(
+                {
+                    "ann_date": ann_date,
+                    "ts_code": ts_code,
+                    "name": str(row.get("name", "")).strip() or None,
+                    "title": question[:500],
+                    "type": answer,
+                    "cninfo_id": cninfo_id,
+                    "announcement_type": f"irm:{exchange}",
+                    "source_type": "minishare",
+                    "source_name": source_name,
+                    "confidence_tier": "Tier2",
+                }
+            )
 
         if not dry_run and pending:
             for i in range(0, len(pending), batch_size):
@@ -213,6 +211,7 @@ async def main(
     if scope:
         os.environ["BACKFILL_SCOPE"] = scope
     from app.data_pipeline.backfill_config import reset_settings_cache
+
     reset_settings_cache()
     cfg = load_backfill_settings()
 
@@ -221,7 +220,7 @@ async def main(
         whitelist = cfg.ts_codes
 
     print(f"{'=' * 65}")
-    print(f"  IRM CSV 数据导入")
+    print("  IRM CSV 数据导入")
     print(f"{'=' * 65}")
     print(f"  CSV 文件: {csv_file}")
     print(f"  白名单:   {'tech_mvp (%d 只)' % len(whitelist) if whitelist else '全市场'}")
@@ -235,7 +234,7 @@ async def main(
 
     print()
     print(f"{'=' * 65}")
-    print(f"  导入完成!")
+    print("  导入完成!")
     print(f"{'=' * 65}")
     print(f"  总行数:     {result['total']:,}")
     print(f"  已回复:     {result['replied']:,}")
@@ -276,9 +275,11 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-    asyncio.run(main(
-        csv_file=args.csv_file,
-        scope=args.scope,
-        batch_size=args.batch_size,
-        dry_run=args.dry_run,
-    ))
+    asyncio.run(
+        main(
+            csv_file=args.csv_file,
+            scope=args.scope,
+            batch_size=args.batch_size,
+            dry_run=args.dry_run,
+        )
+    )

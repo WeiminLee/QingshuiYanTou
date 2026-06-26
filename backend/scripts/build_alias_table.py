@@ -23,6 +23,7 @@ Usage:
     # Full rebuild - replace cloud-sourced entries, keep manual ones
     uv run --directory backend -- python scripts/build_alias_table.py --full
 """
+
 import argparse
 import json
 import logging
@@ -34,7 +35,9 @@ BACKEND_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(BACKEND_DIR))
 
 try:
-    from app.core.data.cloud_api_client import CloudDataClient  # type: ignore[import-not-found]  # noqa: E402
+    from app.core.data.cloud_api_client import (
+        CloudDataClient,  # type: ignore[import-not-found]  # noqa: E402
+    )
 except ModuleNotFoundError:  # pragma: no cover - compatibility path for deprecated script
     from app.data_pipeline.data_source import DataSourceClient  # noqa: E402
 
@@ -46,6 +49,7 @@ except ModuleNotFoundError:  # pragma: no cover - compatibility path for depreca
 
         def get_stocks(self) -> list[dict]:
             return self._client.get_stocks_basic("L")
+
 
 logging.basicConfig(
     level=logging.INFO,
@@ -175,7 +179,7 @@ def load_aliases(path: Path) -> dict[str, dict]:
     if not path.exists():
         logger.info("No existing alias file at %s, starting fresh", path)
         return {}
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         data = json.load(f)
     logger.info("Loaded %d existing aliases", len(data))
     return data
@@ -194,9 +198,7 @@ def save_aliases(path: Path, aliases: dict[str, dict]) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Build A-share company alias table from cloud API"
-    )
+    parser = argparse.ArgumentParser(description="Build A-share company alias table from cloud API")
     parser.add_argument(
         "--full",
         action="store_true",
@@ -228,8 +230,7 @@ def main() -> None:
     logger.info("Result: %d total entries in %s", entry_count, ALIAS_FILE)
     if entry_count < 5000:
         logger.warning(
-            "Entry count (%d) is below 5000 target. "
-            "Cloud API may have returned a partial list.",
+            "Entry count (%d) is below 5000 target. Cloud API may have returned a partial list.",
             entry_count,
         )
 

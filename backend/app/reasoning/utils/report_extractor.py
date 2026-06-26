@@ -5,11 +5,12 @@
 - 参考文献引用
 - 股票ID信息
 """
+
 import re
-from typing import Dict, Any
+from typing import Any
 
 
-def extract_references(report_content: str) -> Dict[str, Dict[str, Any]]:
+def extract_references(report_content: str) -> dict[str, dict[str, Any]]:
     """
     从报告内容中提取参考文献信息
 
@@ -26,7 +27,7 @@ def extract_references(report_content: str) -> Dict[str, Dict[str, Any]]:
     references = {}
 
     # 匹配引用定义 [^N]: 标题 - 来源
-    pattern = r'\[\^(\d+)\]:\s*(.+?)(?:\s*-\s*(.+))?$'
+    pattern = r"\[\^(\d+)\]:\s*(.+?)(?:\s*-\s*(.+))?$"
     matches = re.findall(pattern, report_content, re.MULTILINE)
 
     for match in matches:
@@ -34,13 +35,13 @@ def extract_references(report_content: str) -> Dict[str, Dict[str, Any]]:
         references[ref_id] = {
             "title": title.strip(),
             "source": source.strip() if source else "未知来源",
-            "url": None  # 可从知识图谱获取
+            "url": None,  # 可从知识图谱获取
         }
 
     return references
 
 
-def extract_stock_ids(report_content: str) -> Dict[str, Dict[str, Any]]:
+def extract_stock_ids(report_content: str) -> dict[str, dict[str, Any]]:
     """
     从报告内容中提取股票ID
 
@@ -57,7 +58,7 @@ def extract_stock_ids(report_content: str) -> Dict[str, Dict[str, Any]]:
     stock_info = {}
 
     # 匹配股票ID (6位数字 + .SH/.SZ)
-    pattern = r'(\d{6}\.(?:SH|SZ))'
+    pattern = r"(\d{6}\.(?:SH|SZ))"
     stock_ids = set(re.findall(pattern, report_content))
 
     for stock_id in stock_ids:
@@ -66,13 +67,13 @@ def extract_stock_ids(report_content: str) -> Dict[str, Dict[str, Any]]:
             "name": stock_id,  # 应替换为实际股票名称
             "price": 0,
             "change": 0,
-            "kline_url": f"/api/v1/stock/kline/{stock_id}"
+            "kline_url": f"/api/v1/stock/kline/{stock_id}",
         }
 
     return stock_info
 
 
-def get_report_metadata(report_content: str) -> Dict[str, Any]:
+def get_report_metadata(report_content: str) -> dict[str, Any]:
     """
     获取报告的元数据（引用 + 股票ID）
 
@@ -87,5 +88,5 @@ def get_report_metadata(report_content: str) -> Dict[str, Any]:
     return {
         "references": extract_references(report_content),
         "stock_info": extract_stock_ids(report_content),
-        "timestamp": datetime.now().isoformat()
+        "timestamp": datetime.now().isoformat(),
     }

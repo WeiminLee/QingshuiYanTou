@@ -23,6 +23,7 @@ entity_id 统一规则：
   - knowledge.confidence: 置信度体系
   - knowledge.state_writer: 状态写入 Neo4j
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -30,65 +31,62 @@ import hashlib
 import logging
 import math
 import re
-from datetime import date, datetime
+from collections.abc import Callable
+from datetime import date
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from sqlalchemy import text as sql_text
 
 from app.core.database import engine
 from app.core.file_security import PathTraversalError, validate_file_path
+
+# 从 confidence 模块导入（保持向后兼容）
+from app.knowledge.confidence import (
+    _source_confidence,
+)
+from app.knowledge.contradiction import (
+    detect_contradiction,
+    write_contradiction,
+)
 from app.knowledge.entity_service import (
     ENTITY_TYPES,
     generate_entity_id,
-    upsert_entity,
     upsert_company,
-)
-from app.knowledge.relation_service import (
-    upsert_relates, infer_relation_type,
-)
-from app.knowledge.contradiction import (
-    detect_contradiction, write_contradiction,
-)
-from app.knowledge.extraction.rag_extractor import (
-    RAGExtractor,
-    extract_sync as rag_extract_sync,
-    extract_async as rag_extract_async,
-)
-from app.knowledge.extraction.rag_prompts import (
-    RELATES_EXTRACTION_PROMPT,
-    METRIC_EXTRACTION_PROMPT,
+    upsert_entity,
 )
 from app.knowledge.extraction.chunker import chunk_by_token
+from app.knowledge.extraction.rag_extractor import (
+    extract_async as rag_extract_async,
+)
+from app.knowledge.extraction.rag_extractor import (
+    extract_sync as rag_extract_sync,
+)
 from app.knowledge.extraction.signal_extractor import (
     RuleBasedSignalExtractor,
     persist_signals_to_company_props,
 )
+from app.knowledge.relation_service import (
+    infer_relation_type,
+    upsert_relates,
+)
 from app.knowledge.state_machine import (
-    infer_state_from_text,
-    extract_state_transitions,
     build_transition_signal,
-)
-from app.knowledge.vector_client import (
-    upsert_entity_vector,
-    upsert_relation_vector,
-    upsert_chunk_vector,
-)
-from app.knowledge.evidence import JOB_COMBINED, JOB_VECTOR, STATUS_DONE, STATUS_FAILED, STATUS_PENDING, STATUS_RUNNING
-
-
-# 从 confidence 模块导入（保持向后兼容）
-from app.knowledge.confidence import (
-    ConfidenceTier,
-    SourceConfig,
-    SOURCE_CONFIG,
-    _source_confidence,
+    extract_state_transitions,
+    infer_state_from_text,
 )
 
 # 从 state_writer 模块导入（保持向后兼容）
 from app.knowledge.state_writer import (
     write_state_to_neo4j as _write_state_to_neo4j,
+)
+from app.knowledge.state_writer import (
     write_transition_to_neo4j as _write_transition_to_neo4j,
+)
+from app.knowledge.vector_client import (
+    upsert_chunk_vector,
+    upsert_entity_vector,
+    upsert_relation_vector,
 )
 
 logger = logging.getLogger(__name__)
@@ -328,14 +326,16 @@ async def _apply_announcement_fallback(
     existing = {(e.get("entity_name"), e.get("entity_type")) for e in merged_entities}
     company_name = await _lookup_company_name(ts_code, source_name)
     if company_name and (company_name, "Company") not in existing:
-        merged_entities.append({
-            "entity_name": company_name,
-            "entity_type": "Company",
-            "description": f"{source_name}公告主体",
-            "descriptions": [f"{source_name}公告主体"],
-            "source_ids": [source_name],
-            "instance_count": 1,
-        })
+        merged_entities.append(
+            {
+                "entity_name": company_name,
+                "entity_type": "Company",
+                "description": f"{source_name}公告主体",
+                "descriptions": [f"{source_name}公告主体"],
+                "source_ids": [source_name],
+                "instance_count": 1,
+            }
+        )
         existing.add((company_name, "Company"))
         added_entities += 1
 
@@ -354,31 +354,35 @@ async def _apply_announcement_fallback(
             "sentiment": "neutral",
         }
         if (term, "Metric") not in existing:
-            merged_entities.append({
-                "entity_name": term,
-                "entity_type": "Metric",
-                "description": f"{source_name}披露{period}{term}",
-                "descriptions": [f"{source_name}披露{period}{term}"],
-                "metric": metric,
-                "source_ids": [source_name],
-                "instance_count": 1,
-            })
+            merged_entities.append(
+                {
+                    "entity_name": term,
+                    "entity_type": "Metric",
+                    "description": f"{source_name}披露{period}{term}",
+                    "descriptions": [f"{source_name}披露{period}{term}"],
+                    "metric": metric,
+                    "source_ids": [source_name],
+                    "instance_count": 1,
+                }
+            )
             existing.add((term, "Metric"))
             added_entities += 1
         desc = f"{source_name}披露{period}{term}"
         rel_key = (company_name, term, desc)
         if company_name and rel_key not in relation_keys:
-            merged_relations.append({
-                "src_id": company_name,
-                "tgt_id": term,
-                "description": desc,
-                "descriptions": [desc],
-                "keywords": "公告披露",
-                "direction": "neutral",
-                "weight": 1.0,
-                "source_ids": [source_name],
-                "instance_count": 1,
-            })
+            merged_relations.append(
+                {
+                    "src_id": company_name,
+                    "tgt_id": term,
+                    "description": desc,
+                    "descriptions": [desc],
+                    "keywords": "公告披露",
+                    "direction": "neutral",
+                    "weight": 1.0,
+                    "source_ids": [source_name],
+                    "instance_count": 1,
+                }
+            )
             relation_keys.add(rel_key)
             added_relations += 1
 
@@ -410,6 +414,7 @@ def _extract_text_from_file(file_path: Path, file_ext: str) -> str:
         if file_ext == ".pdf":
             try:
                 from app.knowledge.ingestion.pdf_parser import extract_text_from_pdf
+
                 return extract_text_from_pdf(str(file_path))
             except Exception as pdf_err:
                 logger.warning("PDF 解析失败: %s", pdf_err)
@@ -420,12 +425,14 @@ def _extract_text_from_file(file_path: Path, file_ext: str) -> str:
         logger.error("文本提取失败 %s: %s", file_path, e)
         return ""
 
+
 # ── Company 别名解析 ─────────────────────────────────────────────────────────
 # 委派给 StockNameResolver（PostgreSQL 主源 + supplemental_aliases.json 补充）
 # 历史的 _ALIAS_MAP / _CO_CACHE / _load_aliases() 已移除（2026-05-09 P1 重构）
 
 
 # ── 主抽取函数（保留旧接口，内部委托 RAGExtractor）───────────────────────
+
 
 def extract_text(
     text: str,
@@ -453,6 +460,7 @@ def extract_text(
     """
     # ── 构建 source_file（文件名@今日日期）───────────────────────────
     from datetime import date as _date
+
     source_file = f"{article_ref}@{_date.today().isoformat()}" if article_ref else None
 
     # 调用 RAGExtractor（同步），只分块一次，chunks 同时用于抽取和向量写入
@@ -460,26 +468,38 @@ def extract_text(
     if not chunks:
         logger.warning("文本为空，跳过抽取: %s", source_name)
         return {
-            "entities_created": 0, "entities_updated": 0,
-            "relations_created": 0, "relations_updated": 0,
-            "entities": [], "relations": [], "chunks_processed": 0,
+            "entities_created": 0,
+            "entities_updated": 0,
+            "relations_created": 0,
+            "relations_updated": 0,
+            "entities": [],
+            "relations": [],
+            "chunks_processed": 0,
         }
 
     try:
         # B8 fix: 传递 source_type 参数
-        merged_entities, merged_relations = rag_extract_sync(text, chunks=chunks, source_file=source_file, source_type=source_type)
+        merged_entities, merged_relations = rag_extract_sync(
+            text, chunks=chunks, source_file=source_file, source_type=source_type
+        )
     except Exception as e:
         logger.warning("RAGExtractor 调用失败 [%s]: %s", source_name, e)
         return {
-            "entities_created": 0, "entities_updated": 0,
-            "relations_created": 0, "relations_updated": 0,
-            "entities": [], "relations": [], "chunks_processed": len(chunks),
+            "entities_created": 0,
+            "entities_updated": 0,
+            "relations_created": 0,
+            "relations_updated": 0,
+            "entities": [],
+            "relations": [],
+            "chunks_processed": len(chunks),
             "error": str(e),
         }
 
     logger.info(
         "RAGExtractor 完成: %s → 实体=%d, 关系=%d",
-        source_name, len(merged_entities), len(merged_relations),
+        source_name,
+        len(merged_entities),
+        len(merged_relations),
     )
 
     # ── 文档 Chunk 向量写入 ───────────────────────────────────────
@@ -505,17 +525,23 @@ def extract_text(
         except Exception as ch_ex:
             chunks_failed += 1
             # 记录失败的向量详细信息，用于补偿
-            failed_vectors.append({
-                "chunk_id": f"{ts_code}:{source_name}:{getattr(ch, 'chunk_id', 0)}",
-                "ts_code": ts_code,
-                "source_name": source_name,
-                "content_snippet": (ch.content[:100] if hasattr(ch, 'content') else str(ch)[:100]) if ch else "",
-                "heading": getattr(ch, "heading", "") or "",
-                "error": str(ch_ex)[:200],
-            })
+            failed_vectors.append(
+                {
+                    "chunk_id": f"{ts_code}:{source_name}:{getattr(ch, 'chunk_id', 0)}",
+                    "ts_code": ts_code,
+                    "source_name": source_name,
+                    "content_snippet": (ch.content[:100] if hasattr(ch, "content") else str(ch)[:100]) if ch else "",
+                    "heading": getattr(ch, "heading", "") or "",
+                    "error": str(ch_ex)[:200],
+                }
+            )
             logger.warning(
                 "Chunk 向量写入失败 [%s:%d]: %s (已成功: %d, 已失败: %d)",
-                source_name, getattr(ch, "chunk_id", 0), ch_ex, chunks_written, chunks_failed
+                source_name,
+                getattr(ch, "chunk_id", 0),
+                ch_ex,
+                chunks_written,
+                chunks_failed,
             )
 
     # 建立 name → entity_id 查找表
@@ -547,13 +573,15 @@ def extract_text(
             "source_type": source_type,
         }
         if metric:
-            props.update({
-                "metric_value": metric.get("value"),
-                "metric_unit": metric.get("unit"),
-                "period": metric.get("period"),
-                "period_type": metric.get("period_type"),
-                "sentiment": metric.get("sentiment"),
-            })
+            props.update(
+                {
+                    "metric_value": metric.get("value"),
+                    "metric_unit": metric.get("unit"),
+                    "period": metric.get("period"),
+                    "period_type": metric.get("period_type"),
+                    "sentiment": metric.get("sentiment"),
+                }
+            )
 
         entity_id = lookup.get(name) or lookup.get(name.lower())
         if not entity_id:
@@ -618,7 +646,7 @@ def extract_text(
         tgt_name = r.get("tgt_id", "").strip()
         rel_desc = r.get("description", "").strip()
         direction = r.get("direction", "neutral")
-        has_conflict = r.get("has_direction_conflict", False)
+        r.get("has_direction_conflict", False)
         stmt_type = r.get("stmt_type", "Fact")
 
         src_eid = lookup.get(src_name) or lookup.get(src_name.lower())
@@ -651,13 +679,15 @@ def extract_text(
                 relations_created += 1
             else:
                 relations_updated += 1
-            written_rels.append({
-                "from": src_eid,
-                "to": tgt_eid,
-                "type": "RELATES",
-                "direction": direction,
-                "relation": rel_desc,
-            })
+            written_rels.append(
+                {
+                    "from": src_eid,
+                    "to": tgt_eid,
+                    "type": "RELATES",
+                    "direction": direction,
+                    "relation": rel_desc,
+                }
+            )
 
             # ── 矛盾检测（多源冲突时写入 CONTRADICTS 边）───────────────
             try:
@@ -676,7 +706,10 @@ def extract_text(
                     write_contradiction(src_eid, tgt_eid, contradiction)
                     logger.info(
                         "多源冲突 [%s → %s]: %s (%s)",
-                        src_eid, tgt_eid, contradiction.get("type"), source_name,
+                        src_eid,
+                        tgt_eid,
+                        contradiction.get("type"),
+                        source_name,
                     )
             except Exception as contra_err:
                 logger.debug("矛盾检测失败: %s", contra_err)
@@ -720,18 +753,22 @@ def extract_text(
                         source_name=source_name,
                         source_type=source_type,
                     )
-                    state_transitions.append({
-                        "from": st.from_state.value,
-                        "to": st.to_state.value,
-                        "direction": st.direction,
-                        "evidence": st.evidence[:100],
-                        "confidence": st.confidence,
-                        "source_type": st.source_type,
-                    })
+                    state_transitions.append(
+                        {
+                            "from": st.from_state.value,
+                            "to": st.to_state.value,
+                            "direction": st.direction,
+                            "evidence": st.evidence[:100],
+                            "confidence": st.confidence,
+                            "source_type": st.source_type,
+                        }
+                    )
                 investment_signal = build_transition_signal(raw_transitions)
                 logger.info(
                     "状态跃迁提取: %s → %d 条跃迁，信号=%s",
-                    source_name, len(raw_transitions), investment_signal.get("signal", "none"),
+                    source_name,
+                    len(raw_transitions),
+                    investment_signal.get("signal", "none"),
                 )
         except Exception as st_ex:
             logger.warning("状态跃迁提取失败 [%s]: %s", source_name, st_ex)
@@ -775,13 +812,14 @@ def extract_text(
 
 # ── 异步版本（供 asyncio 管道调用，避免嵌套 event loop）───────────────
 
+
 async def extract_text_async(
     text: str,
     ts_code: str,
     source_name: str,
     source_type: str = "uploaded_doc",
     article_ref: str = "",
-    progress_callback: "Callable[[str, float], None] | None" = None,
+    progress_callback: Callable[[str, float], None] | None = None,
     file_path: str | None = None,
     chunk_max_tokens: int = 1024,
     max_chunks: int | None = None,
@@ -801,6 +839,7 @@ async def extract_text_async(
         try:
             import os
             from datetime import date as _date
+
             # 优先 st_ctime（创建时间），fallback st_mtime（修改时间）
             stat = os.stat(file_path)
             file_date = _date.fromtimestamp(stat.st_ctime or stat.st_mtime)
@@ -810,15 +849,20 @@ async def extract_text_async(
             source_file = f"{article_ref}@{_date.today().isoformat()}"
     elif article_ref:
         from datetime import date as _date
+
         source_file = f"{article_ref}@{_date.today().isoformat()}"
 
     chunks = chunk_by_token(text, max_tokens=chunk_max_tokens, overlap_tokens=0)
     if not chunks:
         logger.warning("文本为空，跳过抽取: %s", source_name)
         return {
-            "entities_created": 0, "entities_updated": 0,
-            "relations_created": 0, "relations_updated": 0,
-            "entities": [], "relations": [], "chunks_processed": 0,
+            "entities_created": 0,
+            "entities_updated": 0,
+            "relations_created": 0,
+            "relations_updated": 0,
+            "entities": [],
+            "relations": [],
+            "chunks_processed": 0,
         }
     chunks_total = len(chunks)
     chunk_budget_applied = False
@@ -838,9 +882,9 @@ async def extract_text_async(
     try:
         merged_entities, merged_relations = await rag_extract_async(
             text,
-            chunks=chunks,             # 预分块，与向量写入使用同一批 chunks
-            max_tokens=1024,          # 2026-04-14 重构：512 → 1024，提升实体召回率
-            overlap_tokens=0,         # 无 overlap，抽取场景不需要
+            chunks=chunks,  # 预分块，与向量写入使用同一批 chunks
+            max_tokens=1024,  # 2026-04-14 重构：512 → 1024，提升实体召回率
+            overlap_tokens=0,  # 无 overlap，抽取场景不需要
             callback=progress_callback,
             source_file=source_file,  # 文件名@日期，descriptions.source 标记
             source_type=source_type,  # 决定使用哪个抽取 prompt
@@ -849,15 +893,21 @@ async def extract_text_async(
     except Exception as e:
         logger.warning("RAGExtractor 调用失败 [%s]: %s", source_name, e)
         return {
-            "entities_created": 0, "entities_updated": 0,
-            "relations_created": 0, "relations_updated": 0,
-            "entities": [], "relations": [], "chunks_processed": len(chunks),
+            "entities_created": 0,
+            "entities_updated": 0,
+            "relations_created": 0,
+            "relations_updated": 0,
+            "entities": [],
+            "relations": [],
+            "chunks_processed": len(chunks),
             "error": str(e),
         }
 
     logger.info(
         "RAGExtractor 完成: %s → 实体=%d, 关系=%d",
-        source_name, len(merged_entities), len(merged_relations),
+        source_name,
+        len(merged_entities),
+        len(merged_relations),
     )
     merged_entities, merged_relations, fallback_info = await _apply_announcement_fallback(
         merged_entities,
@@ -895,18 +945,17 @@ async def extract_text_async(
         except Exception as ch_ex:
             chunks_failed += 1
             # 记录失败的向量详细信息，用于补偿
-            failed_vectors.append({
-                "chunk_id": f"{ts_code}:{source_name}:{getattr(ch, 'chunk_id', 0)}",
-                "ts_code": ts_code,
-                "source_name": source_name,
-                "content_snippet": (ch.content[:100] if hasattr(ch, 'content') else str(ch)[:100]) if ch else "",
-                "heading": getattr(ch, "heading", "") or "",
-                "error": str(ch_ex)[:200],
-            })
-            logger.warning(
-                "Chunk 向量写入失败 [%s:%d]: %s",
-                source_name, getattr(ch, "chunk_id", 0), ch_ex
+            failed_vectors.append(
+                {
+                    "chunk_id": f"{ts_code}:{source_name}:{getattr(ch, 'chunk_id', 0)}",
+                    "ts_code": ts_code,
+                    "source_name": source_name,
+                    "content_snippet": (ch.content[:100] if hasattr(ch, "content") else str(ch)[:100]) if ch else "",
+                    "heading": getattr(ch, "heading", "") or "",
+                    "error": str(ch_ex)[:200],
+                }
             )
+            logger.warning("Chunk 向量写入失败 [%s:%d]: %s", source_name, getattr(ch, "chunk_id", 0), ch_ex)
 
     lookup = _build_name_to_id_map(merged_entities, ts_code, disambiguation_context=text[:500])
     today = date.today()
@@ -915,7 +964,6 @@ async def extract_text_async(
     # ── 实体入库 ─────────────────────────────────────────────────
     entities_created = entities_updated = 0
     entity_ids: list[str] = []
-
 
     for e in merged_entities:
         name = e.get("entity_name", "").strip()
@@ -934,13 +982,15 @@ async def extract_text_async(
             "source_type": source_type,
         }
         if metric:
-            props.update({
-                "metric_value": metric.get("value"),
-                "metric_unit": metric.get("unit"),
-                "period": metric.get("period"),
-                "period_type": metric.get("period_type"),
-                "sentiment": metric.get("sentiment"),
-            })
+            props.update(
+                {
+                    "metric_value": metric.get("value"),
+                    "metric_unit": metric.get("unit"),
+                    "period": metric.get("period"),
+                    "period_type": metric.get("period_type"),
+                    "sentiment": metric.get("sentiment"),
+                }
+            )
         entity_id = lookup.get(name) or lookup.get(name.lower()) or _entity_id_from_name(name, e_type)
 
         try:
@@ -1010,7 +1060,7 @@ async def extract_text_async(
         tgt_name = r.get("tgt_id", "").strip()
         rel_desc = r.get("description", "").strip()
         direction = r.get("direction", "neutral")
-        has_conflict = r.get("has_direction_conflict", False)
+        r.get("has_direction_conflict", False)
         stmt_type = r.get("stmt_type", "Fact")
 
         src_eid = lookup.get(src_name) or lookup.get(src_name.lower())
@@ -1042,11 +1092,15 @@ async def extract_text_async(
                 relations_created += 1
             else:
                 relations_updated += 1
-            written_rels.append({
-                "from": src_eid, "to": tgt_eid,
-                "type": "RELATES", "direction": direction,
-                "relation": rel_desc,
-            })
+            written_rels.append(
+                {
+                    "from": src_eid,
+                    "to": tgt_eid,
+                    "type": "RELATES",
+                    "direction": direction,
+                    "relation": rel_desc,
+                }
+            )
 
             # ── 矛盾检测（多源冲突时写入 CONTRADICTS 边）───────────────
             try:
@@ -1065,7 +1119,10 @@ async def extract_text_async(
                     write_contradiction(src_eid, tgt_eid, contradiction)
                     logger.info(
                         "多源冲突 [%s → %s]: %s (%s)",
-                        src_eid, tgt_eid, contradiction.get("type"), source_name,
+                        src_eid,
+                        tgt_eid,
+                        contradiction.get("type"),
+                        source_name,
                     )
             except Exception as contra_err:
                 logger.debug("矛盾检测失败: %s", contra_err)
@@ -1074,9 +1131,11 @@ async def extract_text_async(
             try:
                 upsert_relation_vector(
                     relation_key=f"{src_eid}|{tgt_eid}|{rel_desc[:40]}",
-                    from_name=src_name, to_name=tgt_name,
+                    from_name=src_name,
+                    to_name=tgt_name,
                     description=rel_desc,
-                    from_entity=src_eid, to_entity=tgt_eid,
+                    from_entity=src_eid,
+                    to_entity=tgt_eid,
                     ts_code=ts_code,
                 )
             except Exception as e:
@@ -1096,12 +1155,15 @@ async def extract_text_async(
                 if st.direction == "neutral":
                     continue
                 _write_transition_to_neo4j(ts_code, st, source_name, source_type)
-                state_transitions.append({
-                    "from": st.from_state.value, "to": st.to_state.value,
-                    "direction": st.direction,
-                    "evidence": st.evidence[:100],
-                    "confidence": st.confidence,
-                })
+                state_transitions.append(
+                    {
+                        "from": st.from_state.value,
+                        "to": st.to_state.value,
+                        "direction": st.direction,
+                        "evidence": st.evidence[:100],
+                        "confidence": st.confidence,
+                    }
+                )
             investment_signal = build_transition_signal(raw_transitions)
         except Exception as e:
             logger.warning("状态机转换抽取失败 [%s]: %s", source_name, e)
@@ -1111,8 +1173,10 @@ async def extract_text_async(
         extractor_sig = RuleBasedSignalExtractor()
         signals_result = extractor_sig.extract_sync(text[:10000], source_type, {"ts_code": ts_code})
         company_signals = persist_signals_to_company_props(
-            signals_result, ts_code=ts_code,
-            source_type=source_type, source_document_id=article_ref,
+            signals_result,
+            ts_code=ts_code,
+            source_type=source_type,
+            source_document_id=article_ref,
         )
     except Exception as e:
         logger.warning("信号抽取失败 [%s]: %s", source_name, e)
@@ -1163,7 +1227,11 @@ async def extract_evidence_async(
     source_type = str(evidence.get("source_type") or "unknown")
     subject_hint = evidence.get("subject_hint") or {}
     ts_code = str(subject_hint.get("ts_code") or "UNKNOWN")
-    chunk = type("EvidenceChunk", (), {"content": text, "chunk_id": 0, "heading": str(evidence.get("source_name") or "Evidence")})()
+    chunk = type(
+        "EvidenceChunk",
+        (),
+        {"content": text, "chunk_id": 0, "heading": str(evidence.get("source_name") or "Evidence")},
+    )()
     result = await rag_extract_async(
         text,
         chunks=[chunk],
@@ -1198,13 +1266,15 @@ async def extract_evidence_async(
             "evidence_ids": [evidence.get("evidence_id")],
         }
         if metric:
-            props.update({
-                "metric_value": metric.get("value"),
-                "metric_unit": metric.get("unit"),
-                "period": metric.get("period"),
-                "period_type": metric.get("period_type"),
-                "sentiment": metric.get("sentiment"),
-            })
+            props.update(
+                {
+                    "metric_value": metric.get("value"),
+                    "metric_unit": metric.get("unit"),
+                    "period": metric.get("period"),
+                    "period_type": metric.get("period_type"),
+                    "sentiment": metric.get("sentiment"),
+                }
+            )
         entity_id = lookup.get(name) or lookup.get(name.lower()) or _entity_id_from_name(name, e_type)
         try:
             if e_type == "Company":
@@ -1397,7 +1467,9 @@ async def kg_extraction_task(
         await indexer.mark_done(file_path, entities_count, relations_count, source_type=source_type, doc_type=doc_type)
         logger.info(
             "公告 PDF KG 抽取完成 [%s]: entities=%d relations=%d",
-            cninfo_id, entities_count, relations_count,
+            cninfo_id,
+            entities_count,
+            relations_count,
         )
         return {
             "status": "done",
@@ -1423,7 +1495,7 @@ def extract_document(
     从 async context 调用时应使用 extract_document_async 或 asyncio.to_thread。
     """
     try:
-        loop = asyncio.get_running_loop()
+        asyncio.get_running_loop()
         raise RuntimeError(
             "extract_document 是同步函数，不应在 async 上下文中直接调用。"
             "请使用 extract_document_async 或 asyncio.to_thread(extract_document, ...)"

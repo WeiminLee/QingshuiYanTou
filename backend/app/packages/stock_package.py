@@ -4,29 +4,33 @@
 输入 ts_code → 输出 Markdown 格式的股票基础情报包
 供推理决策层使用
 """
-from datetime import date, datetime, timedelta
-from typing import Optional
 
-from sqlalchemy import select, and_, func
+from datetime import date, datetime, timedelta
+
+from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.models import (
-    Stock, DailyData, DailyBasic,
-    ThsConcept, ThsConceptMember, StockPool,
-    CompanyProfile,
-)
 from app.core.database import async_session
-
+from app.models.models import (
+    CompanyProfile,
+    DailyBasic,
+    DailyData,
+    Stock,
+    StockPool,
+    ThsConcept,
+    ThsConceptMember,
+)
 
 # ── 均值计算 ──────────────────────────────────────
 
-def _ma(closes: list[float], n: int) -> Optional[float]:
+
+def _ma(closes: list[float], n: int) -> float | None:
     if len(closes) < n:
         return None
     return sum(closes[-n:]) / n
 
 
-def _ma_status(closes: list[float], ma5: Optional[float], ma10: Optional[float], ma20: Optional[float]) -> str:
+def _ma_status(closes: list[float], ma5: float | None, ma10: float | None, ma20: float | None) -> str:
     if not (ma5 and ma10 and ma20):
         return "数据不足，无法判断"
     if ma5 > ma10 > ma20:
@@ -38,6 +42,7 @@ def _ma_status(closes: list[float], ma5: Optional[float], ma10: Optional[float],
 
 
 # ── 行情数据整理 ──────────────────────────────────
+
 
 async def _fetch_daily_data(db: AsyncSession, ts_code: str, days: int = 21) -> list[dict]:
     """获取近 N 日行情数据（按日期升序）"""
@@ -60,28 +65,25 @@ async def _fetch_daily_data(db: AsyncSession, ts_code: str, days: int = 21) -> l
 
     data = []
     for r in rows:
-        data.append({
-            "trade_date": r.trade_date,
-            "open": r.open,
-            "high": r.high,
-            "low": r.low,
-            "close": r.close,
-            "pct_chg": r.pct_chg,
-            "vol": r.vol,
-            "amount": r.amount,
-            "is_suspended": r.is_suspended or False,
-        })
+        data.append(
+            {
+                "trade_date": r.trade_date,
+                "open": r.open,
+                "high": r.high,
+                "low": r.low,
+                "close": r.close,
+                "pct_chg": r.pct_chg,
+                "vol": r.vol,
+                "amount": r.amount,
+                "is_suspended": r.is_suspended or False,
+            }
+        )
     return data
 
 
-async def _fetch_latest_basic(db: AsyncSession, ts_code: str) -> Optional[dict]:
+async def _fetch_latest_basic(db: AsyncSession, ts_code: str) -> dict | None:
     """获取最新基本面数据（PE/PB/换手率/市值）"""
-    stmt = (
-        select(DailyBasic)
-        .where(DailyBasic.ts_code == ts_code)
-        .order_by(DailyBasic.trade_date.desc())
-        .limit(1)
-    )
+    stmt = select(DailyBasic).where(DailyBasic.ts_code == ts_code).order_by(DailyBasic.trade_date.desc()).limit(1)
     result = await db.execute(stmt)
     row = result.scalar_one_or_none()
     if not row:
@@ -93,8 +95,8 @@ async def _fetch_latest_basic(db: AsyncSession, ts_code: str) -> Optional[dict]:
         "pe": row.pe,
         "pe_ttm": row.pe_ttm,
         "pb": row.pb,
-        "total_mv": row.total_mv,      # 万元
-        "circ_mv": row.circ_mv,       # 万元
+        "total_mv": row.total_mv,  # 万元
+        "circ_mv": row.circ_mv,  # 万元
     }
 
 
@@ -110,13 +112,9 @@ async def _fetch_concepts(db: AsyncSession, ts_code: str) -> list[str]:
     return [r[0] for r in result.fetchall()]
 
 
-async def _fetch_stockpool_status(db: AsyncSession, ts_code: str) -> Optional[dict]:
+async def _fetch_stockpool_status(db: AsyncSession, ts_code: str) -> dict | None:
     """获取 StockPool 状态"""
-    stmt = (
-        select(StockPool)
-        .where(StockPool.ts_code == ts_code, StockPool.out_date.is_(None))
-        .limit(1)
-    )
+    stmt = select(StockPool).where(StockPool.ts_code == ts_code, StockPool.out_date.is_(None)).limit(1)
     result = await db.execute(stmt)
     row = result.scalar_one_or_none()
     if not row:
@@ -128,7 +126,7 @@ async def _fetch_stockpool_status(db: AsyncSession, ts_code: str) -> Optional[di
     }
 
 
-async def _fetch_company_profile(db: AsyncSession, ts_code: str) -> Optional[dict]:
+async def _fetch_company_profile(db: AsyncSession, ts_code: str) -> dict | None:
     """获取公司概况"""
     stmt = select(CompanyProfile).where(CompanyProfile.ts_code == ts_code)
     result = await db.execute(stmt)
@@ -149,7 +147,8 @@ async def _fetch_company_profile(db: AsyncSession, ts_code: str) -> Optional[dic
 
 # ── 异动标注 ──────────────────────────────────────
 
-def _build_异动标注(daily_data: list[dict], latest_basic: Optional[dict]) -> list[str]:
+
+def _build_异动标注(daily_data: list[dict], latest_basic: dict | None) -> list[str]:
     """生成异动标注（事实陈述，不做判断）"""
     labels = []
 
@@ -178,6 +177,7 @@ def _build_异动标注(daily_data: list[dict], latest_basic: Optional[dict]) ->
 
 
 # ── 主函数 ────────────────────────────────────────
+
 
 async def build_stock_package(ts_code: str) -> str:
     """
@@ -245,13 +245,15 @@ async def build_stock_package(ts_code: str) -> str:
     latest = daily_data[-1]
     lines.append("## 今日行情\n")
     lines.append(f"- **最新价**：`{latest['close']:.2f}`")
-    lines.append(f"- **涨跌幅**：`{latest['pct_chg']:+.2f}%`" if latest.get('pct_chg') is not None else "- **涨跌幅**：暂无")
+    lines.append(
+        f"- **涨跌幅**：`{latest['pct_chg']:+.2f}%`" if latest.get("pct_chg") is not None else "- **涨跌幅**：暂无"
+    )
     lines.append(f"- **涨跌额**：`{latest.get('change', 0):+.2f}`")
     lines.append(f"- **今开**：`{latest['open']:.2f}`")
     lines.append(f"- **最高**：`{latest['high']:.2f}`")
     lines.append(f"- **最低**：`{latest['low']:.2f}`")
-    lines.append(f"- **成交量**：`{latest['vol']:.0f} 手`" if latest['vol'] else "- **成交量**：暂无")
-    lines.append(f"- **成交额**：`{latest['amount']/1000:.2f} 万元`" if latest['amount'] else "- **成交额**：暂无")
+    lines.append(f"- **成交量**：`{latest['vol']:.0f} 手`" if latest["vol"] else "- **成交量**：暂无")
+    lines.append(f"- **成交额**：`{latest['amount'] / 1000:.2f} 万元`" if latest["amount"] else "- **成交额**：暂无")
     if latest_basic and latest_basic.get("turnover_rate"):
         lines.append(f"- **换手率**：`{latest_basic['turnover_rate']:.2f}%`")
     if latest.get("is_suspended"):
@@ -266,8 +268,8 @@ async def build_stock_package(ts_code: str) -> str:
     ma20 = _ma(closes, 20)
 
     lines.append("## 近20日行情（均线）\n")
-    lines.append(f"| 日期 | 开 | 高 | 低 | 收 | 涨跌幅 |")
-    lines.append(f"|------|----|----|----|----|--------|")
+    lines.append("| 日期 | 开 | 高 | 低 | 收 | 涨跌幅 |")
+    lines.append("|------|----|----|----|----|--------|")
     for d in recent_20:
         date_str = d["trade_date"].isoformat() if hasattr(d["trade_date"], "isoformat") else str(d["trade_date"])
         pct_str = f"{d['pct_chg']:+.2f}%" if d["pct_chg"] is not None else "-"
@@ -287,13 +289,17 @@ async def build_stock_package(ts_code: str) -> str:
     lines.append("## 基本面\n")
     if latest_basic:
         lines.append(f"- **收盘价**：`{latest_basic['close']:.2f}`")
-        lines.append(f"- **PE（TTM）**：`{latest_basic['pe_ttm']:.2f}`" if latest_basic.get("pe_ttm") else "- **PE（TTM）**：暂无")
+        lines.append(
+            f"- **PE（TTM）**：`{latest_basic['pe_ttm']:.2f}`"
+            if latest_basic.get("pe_ttm")
+            else "- **PE（TTM）**：暂无"
+        )
         lines.append(f"- **PE**：`{latest_basic['pe']:.2f}`" if latest_basic.get("pe") else "- **PE**：暂无")
         lines.append(f"- **PB**：`{latest_basic['pb']:.2f}`" if latest_basic.get("pb") else "- **PB**：暂无")
         if latest_basic.get("total_mv"):
-            lines.append(f"- **总市值**：`{latest_basic['total_mv']/10000:.2f} 亿元`")
+            lines.append(f"- **总市值**：`{latest_basic['total_mv'] / 10000:.2f} 亿元`")
         if latest_basic.get("circ_mv"):
-            lines.append(f"- **流通市值**：`{latest_basic['circ_mv']/10000:.2f} 亿元`")
+            lines.append(f"- **流通市值**：`{latest_basic['circ_mv'] / 10000:.2f} 亿元`")
     else:
         lines.append("暂无基本面数据（Tushare daily_basic 未同步）")
     lines.append("")
@@ -333,7 +339,11 @@ async def build_stock_package(ts_code: str) -> str:
     # StockPool 状态
     lines.append("## StockPool 状态\n")
     if pool_status:
-        in_date_str = pool_status["in_date"].isoformat() if hasattr(pool_status["in_date"], "isoformat") else str(pool_status["in_date"])
+        in_date_str = (
+            pool_status["in_date"].isoformat()
+            if hasattr(pool_status["in_date"], "isoformat")
+            else str(pool_status["in_date"])
+        )
         lines.append(f"- **所属热门板块**：{pool_status['concept_name']}（{pool_status['concept_code']}）")
         lines.append(f"- **纳入日期**：{in_date_str}")
         lines.append("- **状态**：当前在调研池中")
@@ -355,6 +365,7 @@ async def build_stock_package(ts_code: str) -> str:
 
 
 # ── JSON 版本 ────────────────────────────────────────────────────────────────
+
 
 async def build_stock_package_json(ts_code: str) -> dict:
     """
@@ -469,8 +480,8 @@ async def build_stock_package_json(ts_code: str) -> dict:
                 "pe_ttm": latest_basic.get("pe_ttm"),
                 "pb": latest_basic.get("pb"),
                 "turnover_rate": latest_basic.get("turnover_rate"),
-                "total_mv": latest_basic.get("total_mv"),   # 万元
-                "circ_mv": latest_basic.get("circ_mv"),     # 万元
+                "total_mv": latest_basic.get("total_mv"),  # 万元
+                "circ_mv": latest_basic.get("circ_mv"),  # 万元
             }
             if latest_basic
             else None
@@ -505,7 +516,8 @@ async def build_stock_package_json(ts_code: str) -> dict:
 
 # ── P1-3 新增辅助函数 ────────────────────────────────────
 
-def _build_confidence_summary(fundamentals: Optional[dict]) -> dict:
+
+def _build_confidence_summary(fundamentals: dict | None) -> dict:
     """
     各模块数据来源置信度汇总。
 
@@ -544,7 +556,7 @@ def _build_confidence_summary(fundamentals: Optional[dict]) -> dict:
 
 def _build_core_insight(
     daily_data: list[dict],
-    latest_basic: Optional[dict],
+    latest_basic: dict | None,
     ma_state: str,
     concepts: list[str],
 ) -> dict:
@@ -601,10 +613,7 @@ def _build_core_insight(
         concept_summary = "暂无概念标签"
 
     bull_case = f"{tech_summary}；{concept_summary}。"
-    bear_case = (
-        f"若{trend_direction}被破坏（如放量跌破均线支撑），"
-        f"需重新评估。当前{valuation}，需关注业绩兑现情况。"
-    )
+    bear_case = f"若{trend_direction}被破坏（如放量跌破均线支撑），需重新评估。当前{valuation}，需关注业绩兑现情况。"
     return {
         "tech_summary": tech_summary,
         "valuation_summary": valuation,
@@ -614,14 +623,16 @@ def _build_core_insight(
     }
 
 
-def _build_catalyst_calendar(pool_status: Optional[dict]) -> list[dict]:
+def _build_catalyst_calendar(pool_status: dict | None) -> list[dict]:
     """
     催化剂日历：基于已知事件节点生成未来3-12个月跟踪节点。
 
     目前系统尚未接入财报日历/股权解禁等数据源，
     返回固定提示节点（V1.1 阶段，后续接入真实数据后替换）。
     """
-    from datetime import date as Date, timedelta
+    from datetime import date as Date
+    from datetime import timedelta
+
     today = Date.today()
     events = []
 
@@ -630,28 +641,32 @@ def _build_catalyst_calendar(pool_status: Optional[dict]) -> list[dict]:
         event_date = Date(today.year if today.month < month else today.year, month, 30)
         if event_date < today:
             event_date = Date(today.year + 1, month, 30)
-        events.append({
-            "date": event_date.isoformat(),
-            "event": f"{label}披露截止",
-            "category": "财报季",
-            "impact": "高",
-            "note": "届时关注业绩是否超预期",
-        })
+        events.append(
+            {
+                "date": event_date.isoformat(),
+                "event": f"{label}披露截止",
+                "category": "财报季",
+                "impact": "高",
+                "note": "届时关注业绩是否超预期",
+            }
+        )
 
     # StockPool 纳入提示
     if pool_status and pool_status.get("in_pool"):
-        events.append({
-            "date": (today + timedelta(days=7)).isoformat(),
-            "event": f"关注 {pool_status.get('concept_name', '')} 板块持续性",
-            "category": "板块跟踪",
-            "impact": "中",
-            "note": "若板块热度持续，个股有望获得资金青睐",
-        })
+        events.append(
+            {
+                "date": (today + timedelta(days=7)).isoformat(),
+                "event": f"关注 {pool_status.get('concept_name', '')} 板块持续性",
+                "category": "板块跟踪",
+                "impact": "中",
+                "note": "若板块热度持续，个股有望获得资金青睐",
+            }
+        )
 
     return sorted(events, key=lambda x: x["date"])[:6]
 
 
-def _build_risk_matrix(latest_basic: Optional[dict], ma_state: str) -> list[dict]:
+def _build_risk_matrix(latest_basic: dict | None, ma_state: str) -> list[dict]:
     """
     风险矩阵：列举常见风险项。
 
@@ -662,26 +677,32 @@ def _build_risk_matrix(latest_basic: Optional[dict], ma_state: str) -> list[dict
     if latest_basic:
         pe = latest_basic.get("pe_ttm") or latest_basic.get("pe")
         if pe is not None and pe > 60:
-            risks.append({
-                "risk": "估值偏高",
-                "probability": "中",
-                "severity": "高",
-                "description": f"PE_TTM={pe:.1f}，当前股价已反映较高增长预期",
-            })
+            risks.append(
+                {
+                    "risk": "估值偏高",
+                    "probability": "中",
+                    "severity": "高",
+                    "description": f"PE_TTM={pe:.1f}，当前股价已反映较高增长预期",
+                }
+            )
     if ma_state == "多头排列":
-        risks.append({
-            "risk": "技术性回调风险",
-            "probability": "中",
-            "severity": "中",
-            "description": "均线多头排列后积累较多获利盘，注意短线回调压力",
-        })
+        risks.append(
+            {
+                "risk": "技术性回调风险",
+                "probability": "中",
+                "severity": "中",
+                "description": "均线多头排列后积累较多获利盘，注意短线回调压力",
+            }
+        )
     if not risks:
-        risks.append({
-            "risk": "市场系统性风险",
-            "probability": "低",
-            "severity": "高",
-            "description": "市场整体大幅调整可能拖累个股表现",
-        })
+        risks.append(
+            {
+                "risk": "市场系统性风险",
+                "probability": "低",
+                "severity": "高",
+                "description": "市场整体大幅调整可能拖累个股表现",
+            }
+        )
     return risks
 
 
@@ -693,55 +714,62 @@ def _build_tracking_indicators(daily_data: list[dict]) -> list[dict]:
     """
     indicators = []
     if not daily_data or len(daily_data) < 20:
-        return [{
-            "indicator": "近期行情数据不足",
-            "current": "数据不足",
-            "target": "积累20个交易日数据",
-            "status": "待补充",
-        }]
+        return [
+            {
+                "indicator": "近期行情数据不足",
+                "current": "数据不足",
+                "target": "积累20个交易日数据",
+                "status": "待补充",
+            }
+        ]
 
     recent = daily_data[-20:]
     closes = [d.get("close", 0) or 0 for d in recent]
     vols = [d.get("vol", 0) or 0 for d in recent]
 
     # 5日均线偏离度
-    ma5 = sum(closes[-5:]) / 5
+    sum(closes[-5:]) / 5
     ma20 = sum(closes) / 20
     latest_close = closes[-1] if closes else 0
     deviation = (latest_close - ma20) / ma20 * 100 if ma20 else 0
-    indicators.append({
-        "indicator": "MA5相对MA20偏离度",
-        "current": f"{deviation:.1f}%",
-        "target": "±10%以内为健康范围",
-        "status": "强势" if deviation > 10 else ("弱势" if deviation < -10 else "正常"),
-    })
+    indicators.append(
+        {
+            "indicator": "MA5相对MA20偏离度",
+            "current": f"{deviation:.1f}%",
+            "target": "±10%以内为健康范围",
+            "status": "强势" if deviation > 10 else ("弱势" if deviation < -10 else "正常"),
+        }
+    )
 
     # 量价配合
     avg_vol_5d = sum(vols[-5:]) / 5
     avg_vol_20d = sum(vols) / 20
     vol_ratio = avg_vol_5d / avg_vol_20d if avg_vol_20d else 0
-    indicators.append({
-        "indicator": "量价配合（5日均量/20日均量）",
-        "current": f"{vol_ratio:.2f}x",
-        "target": ">1.5x 为放量，<0.7x 为缩量",
-        "status": "放量" if vol_ratio > 1.5 else ("缩量" if vol_ratio < 0.7 else "正常"),
-    })
+    indicators.append(
+        {
+            "indicator": "量价配合（5日均量/20日均量）",
+            "current": f"{vol_ratio:.2f}x",
+            "target": ">1.5x 为放量，<0.7x 为缩量",
+            "status": "放量" if vol_ratio > 1.5 else ("缩量" if vol_ratio < 0.7 else "正常"),
+        }
+    )
 
     # 近5日涨跌
     pct_5d = (closes[-1] - closes[-6]) / closes[-6] * 100 if len(closes) >= 6 and closes[-6] else 0
-    indicators.append({
-        "indicator": "近5日涨跌幅",
-        "current": f"{pct_5d:+.1f}%",
-        "target": "趋势延续需日均涨幅>0",
-        "status": "上涨" if pct_5d > 0 else "下跌",
-    })
+    indicators.append(
+        {
+            "indicator": "近5日涨跌幅",
+            "current": f"{pct_5d:+.1f}%",
+            "target": "趋势延续需日均涨幅>0",
+            "status": "上涨" if pct_5d > 0 else "下跌",
+        }
+    )
     return indicators
 
 
-def _date_str(val) -> Optional[str]:
+def _date_str(val) -> str | None:
     if val is None:
         return None
     if hasattr(val, "isoformat"):
         return val.isoformat()
     return str(val)
-

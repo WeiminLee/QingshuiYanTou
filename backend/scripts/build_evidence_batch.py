@@ -10,6 +10,7 @@
     python -m scripts.build_evidence_batch --type all
     python -m scripts.build_evidence_batch --type all --limit 1000  # 限制条数
 """
+
 from __future__ import annotations
 
 import argparse
@@ -18,7 +19,6 @@ import logging
 import sys
 import time
 from pathlib import Path
-from typing import Any
 
 # 添加 backend 到 path
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -27,11 +27,11 @@ from sqlalchemy import text
 
 from app.core.database import engine
 from app.core.mongodb import get_mongo_db
-from app.knowledge.evidence_service import EvidenceService
 from app.knowledge.evidence_builders_simple import (
     build_announcement_evidence,
     build_irm_evidence,
 )
+from app.knowledge.evidence_service import EvidenceService
 
 logging.basicConfig(
     level=logging.INFO,
@@ -39,7 +39,8 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-BATCH_SIZE = 100
+BATCH_SIZE = 100  # PostgreSQL 批量大小
+MONGO_BATCH_SIZE = 500  # MongoDB 批量写入大小
 
 
 async def fetch_announcements_batch(
@@ -70,7 +71,7 @@ async def fetch_announcements_batch(
 
 
 async def build_announcement_evidence_batch(limit: int | None = None):
-    """批量构建公告 Evidence"""
+    """批量构建公告 Evidence（使用批量 MongoDB 写入）"""
     service = EvidenceService()
     total = 0
     start_id = 0
@@ -79,12 +80,12 @@ async def build_announcement_evidence_batch(limit: int | None = None):
 
     async with engine.connect() as conn:
         while True:
-            rows = await fetch_announcements_batch(
-                conn, start_id, BATCH_SIZE, "announcement"
-            )
+            rows = await fetch_announcements_batch(conn, start_id, BATCH_SIZE, "announcement")
             if not rows:
                 break
 
+            # 收集所有 evidence inputs
+            all_inputs = []
             for row in rows:
                 record = {
                     "id": row[0],
@@ -97,13 +98,15 @@ async def build_announcement_evidence_batch(limit: int | None = None):
                     "file_path": row[7],
                     "content": row[8],
                 }
-
                 evidence_list = build_announcement_evidence(record)
-                for ei in evidence_list:
-                    await service.upsert_evidence(ei)
+                all_inputs.extend(evidence_list)
 
-                total += 1
+            # 批量写入 MongoDB
+            for i in range(0, len(all_inputs), MONGO_BATCH_SIZE):
+                batch = all_inputs[i : i + MONGO_BATCH_SIZE]
+                await service.bulk_upsert_evidence(batch)
 
+            total += len(rows)
             start_id = rows[-1][0]
             logger.info(f"已处理公告 {total} 条 (last_id={start_id})")
 
@@ -115,7 +118,7 @@ async def build_announcement_evidence_batch(limit: int | None = None):
 
 
 async def build_irm_evidence_batch(limit: int | None = None):
-    """批量构建 IRM Evidence"""
+    """批量构建 IRM Evidence（使用批量 MongoDB 写入）"""
     service = EvidenceService()
     total = 0
     start_id = 0
@@ -124,12 +127,12 @@ async def build_irm_evidence_batch(limit: int | None = None):
 
     async with engine.connect() as conn:
         while True:
-            rows = await fetch_announcements_batch(
-                conn, start_id, BATCH_SIZE, "irm"
-            )
+            rows = await fetch_announcements_batch(conn, start_id, BATCH_SIZE, "irm")
             if not rows:
                 break
 
+            # 收集所有 evidence inputs
+            all_inputs = []
             for row in rows:
                 record = {
                     "id": row[0],
@@ -140,11 +143,15 @@ async def build_irm_evidence_batch(limit: int | None = None):
                     "announcement_type": row[5],
                     "content": row[8],
                 }
-
                 evidence_input = build_irm_evidence(record)
-                await service.upsert_evidence(evidence_input)
-                total += 1
+                all_inputs.append(evidence_input)
 
+            # 批量写入 MongoDB
+            for i in range(0, len(all_inputs), MONGO_BATCH_SIZE):
+                batch = all_inputs[i : i + MONGO_BATCH_SIZE]
+                await service.bulk_upsert_evidence(batch)
+
+            total += len(rows)
             start_id = rows[-1][0]
             logger.info(f"已处理 IRM {total} 条 (last_id={start_id})")
 
@@ -156,19 +163,30 @@ async def build_irm_evidence_batch(limit: int | None = None):
 
 
 async def enqueue_all_jobs():
-    """为所有 pending evidence enqueue jobs"""
+    """为所有 pending evidence enqueue jobs（使用批量 enqueue）"""
     db = get_mongo_db()
     service = EvidenceService()
 
-    count = 0
-    async for doc in db.kg_evidence.find({"extraction_status": None}):
-        await service.enqueue_default_jobs(doc["evidence_id"])
-        count += 1
-        if count % 1000 == 0:
-            logger.info(f"已 enqueue {count} jobs")
+    # 收集需要 enqueue 的 evidence_id
+    evidence_ids = []
+    async for doc in db.kg_evidence.find({"extraction_status.combined": "pending"}, {"evidence_id": 1}):
+        evidence_ids.append(doc["evidence_id"])
 
-    logger.info(f"共 enqueue {count} jobs")
-    return count
+    if not evidence_ids:
+        logger.info("没有需要 enqueue 的 evidence")
+        return 0
+
+    # 批量 enqueue
+    total = 0
+    for i in range(0, len(evidence_ids), MONGO_BATCH_SIZE):
+        batch = evidence_ids[i : i + MONGO_BATCH_SIZE]
+        count = await service.bulk_enqueue_jobs(batch)
+        total += count
+        if (i + MONGO_BATCH_SIZE) % 5000 == 0:
+            logger.info(f"已 enqueue {i + MONGO_BATCH_SIZE}/{len(evidence_ids)}")
+
+    logger.info(f"共 enqueue {total} jobs")
+    return total
 
 
 async def main():

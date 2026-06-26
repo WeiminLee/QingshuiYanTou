@@ -2,6 +2,7 @@
 
 占位测试 — Wave 1+ 各 plan 完成实现后启用。
 """
+
 import pytest
 
 
@@ -10,6 +11,7 @@ class TestFetchAllStocksConcurrency:
 
     def test_concurrency_in_reasonable_range(self):
         from app.data_pipeline.fetcher import STOCK_KLINE_CONCURRENCY
+
         assert 4 <= STOCK_KLINE_CONCURRENCY <= 16
 
 
@@ -18,6 +20,7 @@ class TestBackfillWindow:
 
     def test_backfill_30_days(self):
         from app.data_pipeline.fetcher import STOCK_KLINE_BACKFILL_DAYS
+
         assert STOCK_KLINE_BACKFILL_DAYS == 30
 
 
@@ -48,10 +51,7 @@ class TestPerStockKlineCatchup:
                 return self
 
             def all(self):
-                return [
-                    {"ts_code": ts_code, "latest": latest}
-                    for ts_code, latest in latest_by_code.items()
-                ]
+                return [{"ts_code": ts_code, "latest": latest} for ts_code, latest in latest_by_code.items()]
 
         class FakeConn:
             async def __aenter__(self):
@@ -109,12 +109,20 @@ class TestSaveStockKline:
     @pytest.mark.asyncio
     async def test_save_stock_kline_upsert(self):
         from app.data_pipeline.fetcher import DataFetcher
+
         fetcher = DataFetcher()
         rec = {
-            "date": "2026-05-12", "open": "10.0", "high": "10.5",
-            "low": "9.8", "close": "10.2", "preclose": "10.0",
-            "volume": "1000000", "amount": "10200000",
-            "pctChg": "2.0", "tradestatus": "1", "isST": "0",
+            "date": "2026-05-12",
+            "open": "10.0",
+            "high": "10.5",
+            "low": "9.8",
+            "close": "10.2",
+            "preclose": "10.0",
+            "volume": "1000000",
+            "amount": "10200000",
+            "pctChg": "2.0",
+            "tradestatus": "1",
+            "isST": "0",
         }
         saved = await fetcher._save_stock_kline("600000.SH", "20260512", rec)
         assert saved is True or saved is None
@@ -126,6 +134,7 @@ class TestAkshareThrottleApplied:
     @pytest.mark.asyncio
     async def test_fetch_reports_calls_akshare_limiter(self):
         from unittest.mock import MagicMock, patch
+
         from app.data_pipeline.fetcher import DataFetcher
 
         fetcher = DataFetcher()
@@ -140,12 +149,12 @@ class TestAkshareThrottleApplied:
             return_value=mock_limiter,
         ):
             await fetcher.fetch_reports(trade_date="20260501")
-        assert mock_limiter.wait_and_acquire.called, \
-            "fetch_reports 必须在调用 akshare 前 await wait_and_acquire"
+        assert mock_limiter.wait_and_acquire.called, "fetch_reports 必须在调用 akshare 前 await wait_and_acquire"
 
     @pytest.mark.asyncio
     async def test_fetch_irm_worker_calls_akshare_limiter(self):
-        from unittest.mock import MagicMock, patch, AsyncMock
+        from unittest.mock import AsyncMock, MagicMock, patch
+
         from app.data_pipeline.fetcher import DataFetcher
 
         fetcher = DataFetcher()
@@ -170,6 +179,7 @@ class TestAkshareThrottleApplied:
     def test_fetch_irm_counts_data_source_exception_as_failure(self):
         import asyncio
         from unittest.mock import AsyncMock, MagicMock, patch
+
         from app.data_pipeline.fetcher import DataFetcher
 
         fetcher = DataFetcher()
@@ -193,6 +203,7 @@ class TestAkshareThrottleApplied:
 
     def test_data_source_get_irm_raises_on_fetch_error(self, monkeypatch):
         import pytest
+
         import app.data_pipeline.data_source as data_source_mod
         from app.data_pipeline.data_source import DataSourceClient
 
@@ -208,7 +219,9 @@ class TestAkshareThrottleApplied:
     async def test_fetch_concept_calls_akshare_limiter(self):
         import sys
         from unittest.mock import MagicMock
+
         import pandas as pd
+
         import app.data_pipeline.fetcher as fetcher_mod
         from app.data_pipeline.fetcher import fetch_concept
 
@@ -234,8 +247,7 @@ class TestAkshareThrottleApplied:
                 del sys.modules["akshare"]
             fetcher_mod.get_akshare_limiter = orig_get_limiter
 
-        assert mock_limiter.wait_and_acquire.called, \
-            "fetch_concept 必须在调用 akshare 前 await wait_and_acquire"
+        assert mock_limiter.wait_and_acquire.called, "fetch_concept 必须在调用 akshare 前 await wait_and_acquire"
 
 
 @pytest.mark.integration
@@ -246,6 +258,7 @@ class TestReportSkipExisting:
     async def test_skip_existing_ann_id(self):
         """需要 PostgreSQL，手动 -m integration 才跑。"""
         from app.data_pipeline.fetcher import DataFetcher
+
         fetcher = DataFetcher()
         # smoke: 至少不抛异常。真实验证见 Phase Gate 的 manual 触发。
         result = await fetcher.fetch_reports(trade_date="20010101")  # 远古日期，reports 为空
@@ -259,6 +272,7 @@ class TestIrmCheckpointFilter:
     @pytest.mark.asyncio
     async def test_filter_skips_recent_success(self):
         from unittest.mock import MagicMock, patch
+
         from app.data_pipeline.fetcher import DataFetcher
 
         fetcher = DataFetcher()

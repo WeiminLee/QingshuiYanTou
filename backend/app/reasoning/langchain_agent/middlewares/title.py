@@ -12,6 +12,7 @@ SSE 事件格式：
         "title": "2026年光伏行业投资机会分析"
     }
 """
+
 from __future__ import annotations
 
 import logging
@@ -111,9 +112,7 @@ class TitleMiddleware:
             # 提取文本
             content = getattr(result, "content", None) or ""
             if isinstance(content, list):
-                content = "".join(
-                    b.get("text", "") for b in content if isinstance(b, dict)
-                )
+                content = "".join(b.get("text", "") for b in content if isinstance(b, dict))
 
             title = str(content).strip()
 
@@ -122,22 +121,18 @@ class TitleMiddleware:
                 title = title[: self.max_chars - 3] + "..."
 
             # 清理引号和多余空白
-            title = title.strip().strip('"\'')
+            title = title.strip().strip("\"'")
             if not title:
                 title = _DEFAULT_TITLE_TEMPLATE
 
             self._generated[thread_id] = True
             elapsed = time.monotonic() - start
-            logger.info(
-                f"[TitleMiddleware] 生成标题成功: '{title}' (thread={thread_id}, {elapsed:.1f}s)"
-            )
+            logger.info(f"[TitleMiddleware] 生成标题成功: '{title}' (thread={thread_id}, {elapsed:.1f}s)")
             return title
 
         except Exception as e:
             elapsed = time.monotonic() - start
-            logger.warning(
-                f"[TitleMiddleware] 生成标题失败: {e} (thread={thread_id}, {elapsed:.1f}s)"
-            )
+            logger.warning(f"[TitleMiddleware] 生成标题失败: {e} (thread={thread_id}, {elapsed:.1f}s)")
             self._generated[thread_id] = True
             return _DEFAULT_TITLE_TEMPLATE
 

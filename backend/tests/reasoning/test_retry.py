@@ -6,9 +6,11 @@
 - RetryStrategy 抽象基类
 - ExponentialBackoff / NoRetry 实现
 """
+
 import asyncio
-import pytest
 import time
+
+import pytest
 
 
 class TestJitteredBackoff:
@@ -20,10 +22,11 @@ class TestJitteredBackoff:
         期望：延迟按指数增长（冻结 time_ns 消除随机性）
         """
         from unittest.mock import patch
+
         from app.reasoning.langchain_agent.retry import jittered_backoff
 
         # 冻结 time_ns，每次调用返回固定增量值，消除 jitter 随机性
-        with patch("app.reasoning.langchain_agent.retry.time.time_ns") as mock_ns:
+        with patch("app.core.retry.time.time_ns") as mock_ns:
             mock_ns.return_value = 1_000_000_000
 
             delay1 = jittered_backoff(1, base_delay=1.0, max_delay=60.0)

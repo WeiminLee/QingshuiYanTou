@@ -8,6 +8,7 @@
   # 仅获取公告列表（dry-run）
   python scripts/kg_extract_single_stock.py --ts-code 300593.SZ --dry-run
 """
+
 import argparse
 import asyncio
 import hashlib
@@ -15,11 +16,11 @@ import io
 import logging
 import os
 import sys
-from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from dotenv import load_dotenv
+
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), ".env"), verbose=False)
 
 import requests
@@ -71,6 +72,7 @@ def extract_pdf_text(pdf_bytes: bytes, cninfo_id: str = "") -> str:
 
     try:
         import pdfplumber
+
         with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
             pages = []
             for page in pdf.pages:
@@ -82,6 +84,7 @@ def extract_pdf_text(pdf_bytes: bytes, cninfo_id: str = "") -> str:
         logger.warning("pdfplumber 未安装，尝试 PyPDF2")
         try:
             from PyPDF2 import PdfReader
+
             reader = PdfReader(io.BytesIO(pdf_bytes))
             pages = []
             for page in reader.pages:
@@ -111,7 +114,7 @@ async def extract_stock_kg(
                 WHERE ts_code = :ts_code AND pdf_url IS NOT NULL AND pdf_url != ''
                 LIMIT :n
             """),
-            {"ts_code": ts_code, "n": n}
+            {"ts_code": ts_code, "n": n},
         )
         announcements = result.fetchall()
 
@@ -122,7 +125,7 @@ async def extract_stock_kg(
     total_relations = 0
 
     for i, (cninfo_id, title, pdf_url, ann_type) in enumerate(announcements):
-        logger.info(f"[{i+1}/{len(announcements)}] {title[:50] if title else 'N/A'}...")
+        logger.info(f"[{i + 1}/{len(announcements)}] {title[:50] if title else 'N/A'}...")
 
         # 2. 下载 PDF
         pdf_bytes = download_pdf(cninfo_id, pdf_url)
@@ -168,23 +171,22 @@ async def extract_stock_kg(
             total_relations += len(rels)
 
             logger.info(f"  ✅ KG 结果: {len(ents)} 实体, {len(rels)} 关系")
-            results.append({
-                "cninfo_id": cninfo_id,
-                "title": title[:50],
-                "status": "success",
-                "entities": len(ents),
-                "relations": len(rels),
-                "text_len": len(extracted_text),
-            })
+            results.append(
+                {
+                    "cninfo_id": cninfo_id,
+                    "title": title[:50],
+                    "status": "success",
+                    "entities": len(ents),
+                    "relations": len(rels),
+                    "text_len": len(extracted_text),
+                }
+            )
         except Exception as e:
             logger.exception(f"  ❌ KG 抽取失败: {e}")
             results.append({"cninfo_id": cninfo_id, "status": "kg_failed", "error": str(e)})
 
     success = sum(1 for r in results if r.get("status") == "success")
-    logger.info(
-        f"\n完成：成功 {success}/{len(announcements)} 条 | "
-        f"实体 {total_entities} | 关系 {total_relations}"
-    )
+    logger.info(f"\n完成：成功 {success}/{len(announcements)} 条 | 实体 {total_entities} | 关系 {total_relations}")
 
     await engine.dispose()
     return {
@@ -211,7 +213,7 @@ async def main():
         dry_run=args.dry_run,
     )
 
-    print("\n" + "="*50)
+    print("\n" + "=" * 50)
     print(f"股票: {result['ts_code']}")
     print(f"抽取: {result['success']}/{result['total']} 条")
     print(f"实体: {result['total_entities']} | 关系: {result['total_relations']}")

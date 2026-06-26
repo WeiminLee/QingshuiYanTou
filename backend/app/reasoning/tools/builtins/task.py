@@ -1,4 +1,5 @@
 """SubAgent task tool for bounded investment research delegation."""
+
 from __future__ import annotations
 
 import time
@@ -25,11 +26,13 @@ def _poll_task(task_id: str, timeout_seconds: float = 120.0, interval: float = 0
             raise RuntimeError(f"SubAgent task not found: {task_id}")
         current_status = status.get("status")
         if current_status != last_status:
-            enqueue_task_event(TaskEvent(
-                type=TaskEventType.TASK_RUNNING,
-                task_id=task_id,
-                data={"status": current_status, "agent_name": status.get("agent_name")},
-            ))
+            enqueue_task_event(
+                TaskEvent(
+                    type=TaskEventType.TASK_RUNNING,
+                    task_id=task_id,
+                    data={"status": current_status, "agent_name": status.get("agent_name")},
+                )
+            )
             last_status = current_status
         if current_status in {"completed", "failed", "timed_out", "cancelled"}:
             return status
@@ -56,25 +59,31 @@ def task_tool(
     prompt = task if not context else f"{task}\n\n上下文：\n{context}"
     executor = get_executor()
     task_id = executor.submit(agent_name=agent_name, prompt=prompt)
-    enqueue_task_event(TaskEvent(
-        type=TaskEventType.TASK_STARTED,
-        task_id=task_id,
-        data={"agent_name": agent_name, "title": task[:80]},
-    ))
+    enqueue_task_event(
+        TaskEvent(
+            type=TaskEventType.TASK_STARTED,
+            task_id=task_id,
+            data={"agent_name": agent_name, "title": task[:80]},
+        )
+    )
 
     status = _poll_task(task_id)
     final_status = status.get("status")
     if final_status == "completed":
-        enqueue_task_event(TaskEvent(
-            type=TaskEventType.TASK_COMPLETED,
-            task_id=task_id,
-            data={"agent_name": agent_name},
-        ))
+        enqueue_task_event(
+            TaskEvent(
+                type=TaskEventType.TASK_COMPLETED,
+                task_id=task_id,
+                data={"agent_name": agent_name},
+            )
+        )
         return str(status.get("result") or "")
 
-    enqueue_task_event(TaskEvent(
-        type=TaskEventType.TASK_FAILED,
-        task_id=task_id,
-        data={"agent_name": agent_name, "status": final_status, "error": status.get("error")},
-    ))
+    enqueue_task_event(
+        TaskEvent(
+            type=TaskEventType.TASK_FAILED,
+            task_id=task_id,
+            data={"agent_name": agent_name, "status": final_status, "error": status.get("error")},
+        )
+    )
     return f"SubAgent task {task_id} {final_status}: {status.get('error') or 'no result'}"

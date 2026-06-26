@@ -12,6 +12,7 @@ Bug 描述：
 
 Run: uv run --directory backend python -m pytest tests/reasoning/test_token_estimation.py -v
 """
+
 import pytest
 
 
@@ -25,7 +26,9 @@ class TestTokenEstimationAccuracy:
         中文约 0.8-1 字符/token，用 len//2 会严重低估。
         例如 "分析光模块行业" = 9 字符，len//2 = 4，但实际约 9 token
         """
-        from app.reasoning.langchain_agent.middlewares.context_compressor import _estimate_text_tokens
+        from app.reasoning.langchain_agent.middlewares.context_compressor import (
+            _estimate_text_tokens,
+        )
 
         # 中文测试用例
         chinese_text = "分析光模块行业的竞争格局和技术路线"
@@ -33,6 +36,7 @@ class TestTokenEstimationAccuracy:
         # tiktoken 实际值（如果有）
         try:
             import tiktoken
+
             enc = tiktoken.get_encoding("cl100k_base")
             actual = len(enc.encode(chinese_text))
         except ImportError:
@@ -54,6 +58,7 @@ class TestTokenEstimationAccuracy:
         """tiktoken 可用时应优先使用"""
         try:
             import tiktoken
+
             enc = tiktoken.get_encoding("cl100k_base")
             # tiktoken 可用，函数应返回准确值
             pytest.skip("tiktoken 可用，验证通过")
@@ -64,7 +69,9 @@ class TestTokenEstimationAccuracy:
         """
         验证中文估算准确性（误差 < 30%）
         """
-        from app.reasoning.langchain_agent.middlewares.context_compressor import _estimate_text_tokens
+        from app.reasoning.langchain_agent.middlewares.context_compressor import (
+            _estimate_text_tokens,
+        )
 
         test_cases = [
             "分析",
@@ -77,6 +84,7 @@ class TestTokenEstimationAccuracy:
         for text in test_cases:
             try:
                 import tiktoken
+
                 enc = tiktoken.get_encoding("cl100k_base")
                 actual = len(enc.encode(text))
             except ImportError:
@@ -94,7 +102,9 @@ class TestTokenEstimationAccuracy:
         """
         验证代码/英文估算准确性
         """
-        from app.reasoning.langchain_agent.middlewares.context_compressor import _estimate_text_tokens
+        from app.reasoning.langchain_agent.middlewares.context_compressor import (
+            _estimate_text_tokens,
+        )
 
         code_text = "def calculate_similarity(a, b): return a * b / 100"
         estimated = _estimate_text_tokens(code_text)
@@ -110,7 +120,9 @@ class TestTokenEstimationAccuracy:
         """
         验证中英文混合内容的估算准确性
         """
-        from app.reasoning.langchain_agent.middlewares.context_compressor import _estimate_text_tokens
+        from app.reasoning.langchain_agent.middlewares.context_compressor import (
+            _estimate_text_tokens,
+        )
 
         # 中英文混合
         mixed = "分析 get_kline() 返回的 K 线数据趋势"
@@ -118,6 +130,7 @@ class TestTokenEstimationAccuracy:
 
         try:
             import tiktoken
+
             enc = tiktoken.get_encoding("cl100k_base")
             actual = len(enc.encode(mixed))
         except ImportError:

@@ -4,8 +4,8 @@
 所有数据入库时必须使用以下常量定义，
 确保 source_type / confidence_tier 全系统统一。
 """
-from dataclasses import dataclass
 
+from dataclasses import dataclass
 
 # ── 当前系统支持的数据源 ────────────────────────────────
 
@@ -13,28 +13,28 @@ CURRENT_PARSER_VERSION = "v1.0"
 CURRENT_KG_SCHEMA_VERSION = "v4"
 CURRENT_KG_PARSER_VERSION = "v4"
 
-SOURCE_INTERACTIVE_QA = "interactive_qa"              # 互动易 Q&A
-SOURCE_RESEARCH_REPORT = "research_report"             # 券商研报
-SOURCE_NEWS_FLASH = "news_flash"                       # 新闻快讯（多来源）
-SOURCE_MANUAL_UPLOAD = "manual_upload"                 # 手动上传
-SOURCE_TUSHARE_DAILY = "tushare_daily"                 # Tushare 日线/基本面
-SOURCE_TUSHARE_INDEX = "tushare_index"                 # Tushare 指数
-SOURCE_TUSHARE_CONCEPT = "tushare_concept"             # Tushare/THS 概念板块
-SOURCE_TUSHARE_MAINBZ = "tushare_mainbz"               # Tushare 主营构成
-SOURCE_CLOUD_API = "cloud_api"                         # 外部云 API
-SOURCE_CNINFO_ANNOUNCEMENT = "cninfo_announcement"     # 巨潮公告
-SOURCE_CNINFO_DOCUMENT = "cninfo_document"             # 巨潮文档
-SOURCE_THS_CONCEPT = "ths_concept"                     # 同花顺概念
+SOURCE_INTERACTIVE_QA = "interactive_qa"  # 互动易 Q&A
+SOURCE_RESEARCH_REPORT = "research_report"  # 券商研报
+SOURCE_NEWS_FLASH = "news_flash"  # 新闻快讯（多来源）
+SOURCE_MANUAL_UPLOAD = "manual_upload"  # 手动上传
+SOURCE_TUSHARE_DAILY = "tushare_daily"  # Tushare 日线/基本面
+SOURCE_TUSHARE_INDEX = "tushare_index"  # Tushare 指数
+SOURCE_TUSHARE_CONCEPT = "tushare_concept"  # Tushare/THS 概念板块
+SOURCE_TUSHARE_MAINBZ = "tushare_mainbz"  # Tushare 主营构成
+SOURCE_CLOUD_API = "cloud_api"  # 外部云 API
+SOURCE_CNINFO_ANNOUNCEMENT = "cninfo_announcement"  # 巨潮公告
+SOURCE_CNINFO_DOCUMENT = "cninfo_document"  # 巨潮文档
+SOURCE_THS_CONCEPT = "ths_concept"  # 同花顺概念
 
 
 @dataclass
 class SourceMeta:
     source_type: str
     source_name: str
-    confidence_tier: str      # Tier 0-4
+    confidence_tier: str  # Tier 0-4
     confidence_min: float
     confidence_max: float
-    parser_version: str        # 当前解析器版本
+    parser_version: str  # 当前解析器版本
 
 
 # source_type → 元数据映射表

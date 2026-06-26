@@ -11,11 +11,11 @@ ReasoningValidationMiddleware — 推理验证中间件
 - 不修改 LLM 输出，仅记录
 - 轻量正则匹配，不调用 LLM
 """
+
 from __future__ import annotations
 
 import logging
 import re
-from typing import Any
 
 from langchain.agents.middleware import AgentMiddleware
 from langchain_core.messages import AIMessage
@@ -103,7 +103,7 @@ class ReasoningValidationMiddleware(AgentMiddleware):
         seen = set()
         for pattern in _UNSUPPORTED_PATTERNS:
             for match in pattern.finditer(text):
-                claim = match.group(0)
+                match.group(0)
                 # 取上下文（前后各 10 字符）
                 start = max(0, match.start() - 10)
                 end = min(len(text), match.end() + 10)

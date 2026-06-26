@@ -3,15 +3,15 @@
 
 总分 = 动量分(≤25) + 趋势分(≤30) + 资金面分(≤25) + 概念溢价(≤15) + 估值加分(≤5)
 """
+
 import logging
 from datetime import date
-from typing import Optional
 
 import pandas as pd
-from sqlalchemy import select, func, desc
+from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.models import DailyData, DailyBasic, ThsConceptMember, ThsConcept, ConceptLimit
+from app.models.models import ConceptLimit, DailyBasic, DailyData, ThsConceptMember
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 async def compute_stock_score(
     db: AsyncSession,
     ts_code: str,
-    trade_date: Optional[date] = None,
+    trade_date: date | None = None,
 ) -> dict:
     """
     计算个股综合评分（满分100）
@@ -56,7 +56,11 @@ async def compute_stock_score(
     daily_rows = list(reversed(daily_rows))  # 转为升序
 
     if len(daily_rows) < 5:
-        return {"ts_code": ts_code, "total_score": None, "error": f"数据不足（{len(daily_rows)}条）"}
+        return {
+            "ts_code": ts_code,
+            "total_score": None,
+            "error": f"数据不足（{len(daily_rows)}条）",
+        }
 
     # 读取最新基本面
     basic_stmt = (
@@ -68,10 +72,7 @@ async def compute_stock_score(
     basic = (await db.execute(basic_stmt)).scalar_one_or_none()
 
     # 读取所属概念及其近期涨停数据
-    member_stmt = (
-        select(ThsConceptMember.ts_code)
-        .where(ThsConceptMember.con_code == ts_code)
-    )
+    member_stmt = select(ThsConceptMember.ts_code).where(ThsConceptMember.con_code == ts_code)
     ths_codes = [row[0] for row in (await db.execute(member_stmt)).fetchall()]
 
     limit_data = {}
@@ -86,16 +87,18 @@ async def compute_stock_score(
                 limit_data[code] = {"pct_chg": pct_chg, "up_nums": up_nums}
 
     # ── 转换为 DataFrame ──
-    df = pd.DataFrame([
-        {
-            "close": r.close,
-            "pct_chg": r.pct_chg,
-            "vol": r.vol,
-            "amount": r.amount,
-        }
-        for r in daily_rows
-    ])
-    latest = df.iloc[-1]
+    df = pd.DataFrame(
+        [
+            {
+                "close": r.close,
+                "pct_chg": r.pct_chg,
+                "vol": r.vol,
+                "amount": r.amount,
+            }
+            for r in daily_rows
+        ]
+    )
+    df.iloc[-1]
 
     # ── 1. 动量分（0-25）──
     pct_5d = df["pct_chg"].iloc[-5:].sum() if len(df) >= 5 else df["pct_chg"].sum()
@@ -153,9 +156,9 @@ async def compute_stock_score(
         if ma5 > ma10 > ma20 and current_price > ma5:
             trend_score += 12  # 多头排列
         elif ma5 < ma10 < ma20 and current_price < ma5:
-            trend_score -= 4   # 空头排列
+            trend_score -= 4  # 空头排列
         else:
-            trend_score += 3   # 均线纠结
+            trend_score += 3  # 均线纠结
 
     # 价格与MA20关系
     if ma20:
@@ -287,17 +290,18 @@ async def compute_stock_score(
 
 # ── 辅助函数 ──────────────────────────────────
 
-def _ma(close_arr, window) -> Optional[float]:
+
+def _ma(close_arr, window) -> float | None:
     if len(close_arr) < window:
         return None
     return sum(close_arr[-window:]) / window
 
 
-def _compute_rsi(changes: list, period: int = 14) -> Optional[float]:
+def _compute_rsi(changes: list, period: int = 14) -> float | None:
     if len(changes) <= period:
         return None
-    gains = [c if c > 0 else 0 for c in changes[-period - 1:]]
-    losses = [-c if c < 0 else 0 for c in changes[-period - 1:]]
+    gains = [c if c > 0 else 0 for c in changes[-period - 1 :]]
+    losses = [-c if c < 0 else 0 for c in changes[-period - 1 :]]
     avg_gain = sum(gains) / period
     avg_loss = sum(losses) / period
     if avg_loss == 0:
@@ -318,7 +322,7 @@ def _compute_macd(close_arr, fast=12, slow=26, signal=9):
     return dif, dea
 
 
-def _ema(close_arr: list, period: int) -> Optional[float]:
+def _ema(close_arr: list, period: int) -> float | None:
     if len(close_arr) < period:
         return None
     k = 2 / (period + 1)

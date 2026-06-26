@@ -25,32 +25,33 @@ KG 抽取管道 + 定时扫描脚本
   # 只处理 pending，不扫描新文件
   python scripts/kg_extraction_pipeline.py --once
 """
+
 import argparse
 import asyncio
 import logging
 import os
 import sys
 import time
-from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 os.environ.setdefault("UV_RUN", "1")
 
 from dotenv import load_dotenv
+
 load_dotenv()
 
+
+from app.core.llm_client import chat
 from app.core.mongodb import get_mongo_db
 from app.core.neo4j_client import health_check as neo4j_health_check
+from app.core.task_logger import TaskLogger
 from app.data_pipeline.announcement_filter import classify_title
 from app.data_pipeline.progress import FAILED, PARTIAL, SUCCESS, IngestionProgressTracker
-from app.knowledge.file_indexer import FileIndexer
 from app.knowledge.evidence_builders import build_file_evidence
 from app.knowledge.evidence_service import EvidenceService
-from app.knowledge.kg_extractor import extract_text_async, _extract_text_from_file
-from app.core.llm_client import chat, get_llm_client
-from app.core.task_logger import TaskLogger
-import signal
+from app.knowledge.file_indexer import FileIndexer
+from app.knowledge.kg_extractor import _extract_text_from_file, extract_text_async
 
 logging.basicConfig(
     level=logging.INFO,
@@ -58,10 +59,10 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-BATCH_SIZE = 2          # 每批并发处理文件数
-EXCLUDE_TYPES = set()     # 不再排除 PDF，opendataloader_pdf 已能高效处理
+BATCH_SIZE = 2  # 每批并发处理文件数
+EXCLUDE_TYPES = set()  # 不再排除 PDF，opendataloader_pdf 已能高效处理
 SCAN_INTERVAL = 30 * 60  # 扫描间隔（秒），默认 30 分钟
-FILE_TIMEOUT = 300        # 单文件超时（秒）
+FILE_TIMEOUT = 300  # 单文件超时（秒）
 MAX_PDF_CHUNKS_PER_FILE = int(os.getenv("KG_MAX_PDF_CHUNKS_PER_FILE", "8"))
 
 
@@ -78,7 +79,13 @@ def _normalize_source_and_doc_type(file_info: dict) -> tuple[str, str]:
     else:
         doc_type, _ = classify_title(title)
 
-    if raw_source in {"annual_report", "announcement", "research_report", "uploaded_doc", "interactive_qa"}:
+    if raw_source in {
+        "annual_report",
+        "announcement",
+        "research_report",
+        "uploaded_doc",
+        "interactive_qa",
+    }:
         source_type = raw_source
     elif raw_source in {"cninfo", "cninfo_announcement", "announcement_v4"} or file_info.get("cninfo_id"):
         source_type = "annual_report" if doc_type == "annual_report" else "announcement"
@@ -146,7 +153,14 @@ class KGPipeline:
         limit: int | None = None,
         max_runtime_seconds: int | None = None,
     ) -> dict:
-        result = {"total": 0, "success": 0, "failed": 0, "skipped": 0, "limit_reached": False, "runtime_exhausted": False}
+        result = {
+            "total": 0,
+            "success": 0,
+            "failed": 0,
+            "skipped": 0,
+            "limit_reached": False,
+            "runtime_exhausted": False,
+        }
         if limit is not None and limit <= 0:
             return result
         deadline = time.monotonic() + max_runtime_seconds if max_runtime_seconds and max_runtime_seconds > 0 else None
@@ -185,7 +199,8 @@ class KGPipeline:
                 result["limit_reached"] = True
                 break
             pending = await self._indexer.get_pending_files(
-                limit=batch_limit, exclude_types=EXCLUDE_TYPES,
+                limit=batch_limit,
+                exclude_types=EXCLUDE_TYPES,
             )
             if not pending:
                 break
@@ -217,7 +232,11 @@ class KGPipeline:
 
             await asyncio.sleep(3)  # 避免 LLM 过载
 
-        status = FAILED if result["failed"] and not result["success"] and not result["skipped"] else (PARTIAL if result["failed"] else SUCCESS)
+        status = (
+            FAILED
+            if result["failed"] and not result["success"] and not result["skipped"]
+            else (PARTIAL if result["failed"] else SUCCESS)
+        )
         await tracker.finish_run(
             ctx,
             status=status,
@@ -248,7 +267,12 @@ class KGPipeline:
                 message="PDF 知识抽取开始",
                 item_id=str(file_info.get("cninfo_id") or fname)[:100],
                 item_title=str(file_info.get("title") or fname)[:500],
-                metadata={"file_path": file_path, "source_type": source_type, "doc_type": doc_type, "ts_code": ts_code},
+                metadata={
+                    "file_path": file_path,
+                    "source_type": source_type,
+                    "doc_type": doc_type,
+                    "ts_code": ts_code,
+                },
             )
 
         # 文本长度（用于估算 chunk 数）
@@ -257,8 +281,10 @@ class KGPipeline:
                 text = Path(file_path).read_text(encoding="utf-8", errors="replace")
             elif file_type == "pdf":
                 from app.knowledge.extraction.announcement_filter import (
-                    filter_announcement_pdf, extract_filtered_text,
+                    extract_filtered_text,
+                    filter_announcement_pdf,
                 )
+
                 # 判断类型：文件名含 report/研报 → 研报，全量保留
                 fname_lower = fname.lower()
                 is_report = source_type == "research_report" or "report" in fname_lower or "研报" in fname
@@ -290,9 +316,13 @@ class KGPipeline:
                             )
                         return "skipped"
                     if fr.file_reason == "section_filtered":
-                        logger.info("📋 章节过滤: %s | 保留=%d 跳过=%d | %s",
-                                    fname, fr.sections_kept, fr.sections_skipped,
-                                    " / ".join(fr.kept_chapters[:3]))
+                        logger.info(
+                            "📋 章节过滤: %s | 保留=%d 跳过=%d | %s",
+                            fname,
+                            fr.sections_kept,
+                            fr.sections_skipped,
+                            " / ".join(fr.kept_chapters[:3]),
+                        )
                         filtered = extract_filtered_text(file_path, is_announcement=True)
                         text = filtered if filtered.strip() else _extract_text_from_file(Path(file_path), ".pdf")
                     else:
@@ -301,31 +331,58 @@ class KGPipeline:
             else:
                 await self._indexer.mark_skipped(file_path, f"不支持类型: {file_type}")
                 if tracker and ctx:
-                    await tracker.event(ctx, stage="file_skipped", message="PDF 知识抽取跳过", item_id=str(file_info.get("cninfo_id") or fname)[:100], item_title=fname, metadata={"reason": f"不支持类型: {file_type}"})
+                    await tracker.event(
+                        ctx,
+                        stage="file_skipped",
+                        message="PDF 知识抽取跳过",
+                        item_id=str(file_info.get("cninfo_id") or fname)[:100],
+                        item_title=fname,
+                        metadata={"reason": f"不支持类型: {file_type}"},
+                    )
                 return "skipped"
         except Exception as read_err:
             logger.warning("文件读取失败: %s → %s", fname, read_err)
             await self._indexer.mark_failed(file_path, f"读取失败: {read_err}")
             if tracker and ctx:
-                await tracker.event(ctx, stage="file_error", message="PDF 文件读取失败", item_id=str(file_info.get("cninfo_id") or fname)[:100], item_title=fname, error=str(read_err), metadata={"file_path": file_path})
+                await tracker.event(
+                    ctx,
+                    stage="file_error",
+                    message="PDF 文件读取失败",
+                    item_id=str(file_info.get("cninfo_id") or fname)[:100],
+                    item_title=fname,
+                    error=str(read_err),
+                    metadata={"file_path": file_path},
+                )
             return "failed"
 
         if not text.strip():
             await self._indexer.mark_skipped(file_path, "文件内容为空")
             if tracker and ctx:
-                await tracker.event(ctx, stage="file_skipped", message="PDF 知识抽取跳过", item_id=str(file_info.get("cninfo_id") or fname)[:100], item_title=fname, metadata={"reason": "文件内容为空"})
+                await tracker.event(
+                    ctx,
+                    stage="file_skipped",
+                    message="PDF 知识抽取跳过",
+                    item_id=str(file_info.get("cninfo_id") or fname)[:100],
+                    item_title=fname,
+                    metadata={"reason": "文件内容为空"},
+                )
             return "skipped"
 
         # 估算 chunk 数（512 tokens/块）
         est_chunks = max(1, len(text) // 700)
         chunk_max_tokens = 512 if file_type == "md" else 2048
-        logger.info("▶ 抽取: %s | 字数=%d | 预估chunk≈%d | ts=%s",
-                     fname, len(text), est_chunks, ts_code)
+        logger.info("▶ 抽取: %s | 字数=%d | 预估chunk≈%d | ts=%s", fname, len(text), est_chunks, ts_code)
 
         if self.evidence_first:
             try:
                 result = await self._create_file_evidence_jobs(
-                    file_info, text, source_type, doc_type, ts_code, tracker=tracker, ctx=ctx,
+                    file_info,
+                    text,
+                    source_type,
+                    doc_type,
+                    ts_code,
+                    tracker=tracker,
+                    ctx=ctx,
                     chunk_max_tokens=chunk_max_tokens,
                     max_chunks=MAX_PDF_CHUNKS_PER_FILE if file_type == "pdf" else None,
                 )
@@ -339,13 +396,25 @@ class KGPipeline:
                         item_title=str(file_info.get("title") or fname)[:500],
                         metadata={"file_path": file_path, **result},
                     )
-                logger.info("✅ Evidence-first %s | evidence=%d jobs=%d", fname, result.get("evidence_created_or_updated", 0), result.get("jobs_enqueued", 0))
+                logger.info(
+                    "✅ Evidence-first %s | evidence=%d jobs=%d",
+                    fname,
+                    result.get("evidence_created_or_updated", 0),
+                    result.get("jobs_enqueued", 0),
+                )
                 return "success"
             except Exception as e:
                 logger.warning("❌ Evidence 构建失败: %s → %s", fname, e)
                 await self._indexer.mark_failed(file_path, str(e))
                 if tracker and ctx:
-                    await tracker.event(ctx, stage="file_error", message="PDF Evidence 构建失败", item_id=str(file_info.get("cninfo_id") or fname)[:100], item_title=fname, error=str(e))
+                    await tracker.event(
+                        ctx,
+                        stage="file_error",
+                        message="PDF Evidence 构建失败",
+                        item_id=str(file_info.get("cninfo_id") or fname)[:100],
+                        item_title=fname,
+                        error=str(e),
+                    )
                 raise
 
         def _progress(msg: str, pct: float):
@@ -360,7 +429,7 @@ class KGPipeline:
                 source_type=source_type,
                 article_ref=fname,
                 progress_callback=_progress,
-                file_path=file_path,       # 用于获取文件创建日期，构建 source_file
+                file_path=file_path,  # 用于获取文件创建日期，构建 source_file
                 # Markdown 有标题结构，512 tokens 足够；PDF/TXT 无结构，增大避免 chunk 爆炸
                 chunk_max_tokens=chunk_max_tokens,
                 max_chunks=MAX_PDF_CHUNKS_PER_FILE if file_type == "pdf" else None,
@@ -377,7 +446,11 @@ class KGPipeline:
             chunk_budget_applied = bool(result.get("chunk_budget_applied"))
 
             await self._indexer.mark_done(
-                file_path, n_entities, n_relations, source_type=source_type, doc_type=doc_type,
+                file_path,
+                n_entities,
+                n_relations,
+                source_type=source_type,
+                doc_type=doc_type,
             )
             if tracker and ctx:
                 await tracker.event(
@@ -402,23 +475,45 @@ class KGPipeline:
             state_str = f" | 行业状态={state}" if state else ""
             logger.info(
                 "✅ %s | chunks=%d 实体=%d 关系=%d%s",
-                fname, n_chunks, n_entities, n_relations, state_str,
+                fname,
+                n_chunks,
+                n_entities,
+                n_relations,
+                state_str,
             )
             return "success"
 
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.warning("⏰ 超时: %s (>%ds)，跳过", fname, FILE_TIMEOUT)
             await self._indexer.mark_failed(file_path, f"LLM 超时 ({FILE_TIMEOUT}s)")
             if tracker and ctx:
-                await tracker.event(ctx, stage="file_error", message="PDF 知识抽取超时", item_id=str(file_info.get("cninfo_id") or fname)[:100], item_title=fname, error=f"LLM 超时 ({FILE_TIMEOUT}s)")
+                await tracker.event(
+                    ctx,
+                    stage="file_error",
+                    message="PDF 知识抽取超时",
+                    item_id=str(file_info.get("cninfo_id") or fname)[:100],
+                    item_title=fname,
+                    error=f"LLM 超时 ({FILE_TIMEOUT}s)",
+                )
             return "failed"
         except Exception as e:
             logger.warning("❌ 失败: %s → %s", fname, e)
             await self._indexer.mark_failed(file_path, str(e))
             if tracker and ctx:
-                await tracker.event(ctx, stage="file_error", message="PDF 知识抽取失败", item_id=str(file_info.get("cninfo_id") or fname)[:100], item_title=fname, error=str(e), metadata={"file_path": file_path, "source_type": source_type, "doc_type": doc_type})
+                await tracker.event(
+                    ctx,
+                    stage="file_error",
+                    message="PDF 知识抽取失败",
+                    item_id=str(file_info.get("cninfo_id") or fname)[:100],
+                    item_title=fname,
+                    error=str(e),
+                    metadata={
+                        "file_path": file_path,
+                        "source_type": source_type,
+                        "doc_type": doc_type,
+                    },
+                )
             raise
-
 
     async def _create_file_evidence_jobs(
         self,
@@ -469,14 +564,24 @@ class KGPipeline:
     @staticmethod
     def _guess_ts_code(fname: str) -> str | None:
         from app.knowledge.file_indexer import _parse_ts_code_from_filename
+
         return _parse_ts_code_from_filename(fname)
 
 
-def run_daemon(interval_minutes: int, limit: int | None = None, max_runtime_seconds: int | None = None, evidence_first: bool = True):
+def run_daemon(
+    interval_minutes: int,
+    limit: int | None = None,
+    max_runtime_seconds: int | None = None,
+    evidence_first: bool = True,
+):
     """常驻模式：每 N 分钟扫描一次"""
     interval_sec = interval_minutes * 60
     pipeline = KGPipeline(evidence_first=evidence_first)
-    logger.info("🚀 KG 抽取管道启动（常驻模式，间隔 %d 分钟，evidence_first=%s）", interval_minutes, evidence_first)
+    logger.info(
+        "🚀 KG 抽取管道启动（常驻模式，间隔 %d 分钟，evidence_first=%s）",
+        interval_minutes,
+        evidence_first,
+    )
 
     while True:
         tl = TaskLogger("kg_extraction_pipeline")
@@ -491,8 +596,7 @@ def run_daemon(interval_minutes: int, limit: int | None = None, max_runtime_seco
                 logger.error("本次运行失败: %s", stats["error"])
             else:
                 logger.info(
-                    "📊 本次运行: 新增文件=%d 变化=%d 抽取成功=%d 失败=%d "
-                    "累计 pending=%d done=%d",
+                    "📊 本次运行: 新增文件=%d 变化=%d 抽取成功=%d 失败=%d 累计 pending=%d done=%d",
                     stats.get("scan_new", 0),
                     stats.get("scan_changed", 0),
                     stats.get("success", 0),
@@ -519,7 +623,12 @@ def _llm_health_check() -> bool:
         return False
 
 
-def run_once(scan: bool = True, limit: int | None = None, max_runtime_seconds: int | None = None, evidence_first: bool = True):
+def run_once(
+    scan: bool = True,
+    limit: int | None = None,
+    max_runtime_seconds: int | None = None,
+    evidence_first: bool = True,
+):
     """单次运行"""
     pipeline = KGPipeline(evidence_first=evidence_first)
     tl = TaskLogger("kg_extraction_pipeline")
@@ -536,8 +645,7 @@ def run_once(scan: bool = True, limit: int | None = None, max_runtime_seconds: i
         logger.info("📊 结果: %s", stats)
         if "error" not in stats:
             logger.info(
-                "✅ 完成: 抽取成功=%d 失败=%d "
-                "累计 done=%d pending=%d",
+                "✅ 完成: 抽取成功=%d 失败=%d 累计 done=%d pending=%d",
                 stats.get("success", 0),
                 stats.get("failed", 0),
                 stats.get("done", 0),
@@ -554,19 +662,33 @@ def run_once(scan: bool = True, limit: int | None = None, max_runtime_seconds: i
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="KG 抽取管道")
     parser.add_argument("--daemon", action="store_true", help="常驻模式")
-    parser.add_argument("--interval", type=int, default=30,
-                        help="扫描间隔（分钟，默认 30）")
-    parser.add_argument("--once", action="store_true",
-                        help="只处理 pending 文件，不扫描新文件")
-    parser.add_argument("--limit", type=int, default=None,
-                        help="最多处理 pending 文件数；0 表示只启动并退出，不触发 LLM")
-    parser.add_argument("--max-runtime", type=int, default=None,
-                        help="本次处理最大运行秒数，到时停止领取新文件")
-    parser.add_argument("--legacy-direct-extract", action="store_true",
-                        help="使用旧路径直接 LLM 抽取写 KG；默认走 Evidence-first")
+    parser.add_argument("--interval", type=int, default=30, help="扫描间隔（分钟，默认 30）")
+    parser.add_argument("--once", action="store_true", help="只处理 pending 文件，不扫描新文件")
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        help="最多处理 pending 文件数；0 表示只启动并退出，不触发 LLM",
+    )
+    parser.add_argument("--max-runtime", type=int, default=None, help="本次处理最大运行秒数，到时停止领取新文件")
+    parser.add_argument(
+        "--legacy-direct-extract",
+        action="store_true",
+        help="使用旧路径直接 LLM 抽取写 KG；默认走 Evidence-first",
+    )
     args = parser.parse_args()
 
     if args.daemon:
-        run_daemon(args.interval, limit=args.limit, max_runtime_seconds=args.max_runtime, evidence_first=not args.legacy_direct_extract)
+        run_daemon(
+            args.interval,
+            limit=args.limit,
+            max_runtime_seconds=args.max_runtime,
+            evidence_first=not args.legacy_direct_extract,
+        )
     else:
-        run_once(scan=not args.once, limit=args.limit, max_runtime_seconds=args.max_runtime, evidence_first=not args.legacy_direct_extract)
+        run_once(
+            scan=not args.once,
+            limit=args.limit,
+            max_runtime_seconds=args.max_runtime,
+            evidence_first=not args.legacy_direct_extract,
+        )

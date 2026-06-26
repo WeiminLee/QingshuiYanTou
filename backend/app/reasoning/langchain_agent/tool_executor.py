@@ -15,14 +15,15 @@ Phase 3 特性：
 - 支持超时控制
 - SSE 截断方法
 """
+
 from __future__ import annotations
 
 import asyncio
 import logging
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
-from app.reasoning.langchain_agent.retry import ExponentialBackoff, NoRetry, RetryStrategy
+from app.reasoning.langchain_agent.retry import NoRetry, RetryStrategy
 
 logger = logging.getLogger(__name__)
 
@@ -33,11 +34,13 @@ SLOW_TOOL_THRESHOLD_MS = 5000
 SSE_MAX_LENGTH = 2000
 
 # 永远禁止并发的工具
-NEVER_PARALLEL = frozenset({
-    "clarify",
-    "present_chart",
-    "write_file",
-})
+NEVER_PARALLEL = frozenset(
+    {
+        "clarify",
+        "present_chart",
+        "write_file",
+    }
+)
 
 
 # ── ToolResult ────────────────────────────────────────────────────
@@ -68,10 +71,7 @@ class ToolResult:
 
     def __repr__(self) -> str:
         status = "✓" if self.success else "✗"
-        return (
-            f"ToolResult({self.tool_name} {status} "
-            f"({self.duration_ms:.0f}ms, attempts={self.attempts}))"
-        )
+        return f"ToolResult({self.tool_name} {status} ({self.duration_ms:.0f}ms, attempts={self.attempts}))"
 
     def truncate_for_sse(self, max_length: int = SSE_MAX_LENGTH) -> str:
         """
@@ -119,11 +119,21 @@ def build_preview(tool_name: str, raw_result: str) -> str:
         return f"{tool_name} 无返回结果"
 
     # 错误信息
-    if any(raw_result.startswith(p) for p in ("K线查询失败", "联网检索失败",
-                                                 "公告检索失败", "研报检索失败",
-                                                 "概念板块热度查询失败", "市场宽度查询失败",
-                                                 "图谱查询失败", "股票概况查询失败",
-                                                 "互动易查询失败", "图表渲染失败")):
+    if any(
+        raw_result.startswith(p)
+        for p in (
+            "K线查询失败",
+            "联网检索失败",
+            "公告检索失败",
+            "研报检索失败",
+            "概念板块热度查询失败",
+            "市场宽度查询失败",
+            "图谱查询失败",
+            "股票概况查询失败",
+            "互动易查询失败",
+            "图表渲染失败",
+        )
+    ):
         return raw_result.split("（")[0] if "（" in raw_result else raw_result[:80]
 
     # get_kline: "...，共{num}条..."
@@ -313,9 +323,7 @@ class ToolExecutor:
             duration_ms = (time.perf_counter() - start_time) * 1000
 
             if duration_ms > SLOW_TOOL_THRESHOLD_MS:
-                logger.warning(
-                    f"[ToolExecutor] Slow tool: {tool_name} took {duration_ms:.0f}ms"
-                )
+                logger.warning(f"[ToolExecutor] Slow tool: {tool_name} took {duration_ms:.0f}ms")
 
             return ToolResult(
                 tool_name=tool_name,
@@ -326,7 +334,7 @@ class ToolExecutor:
                 preview=build_preview(tool_name, str(raw_result) if raw_result is not None else ""),
             )
 
-        except asyncio.TimeoutError:
+        except TimeoutError:
             duration_ms = (time.perf_counter() - start_time) * 1000
             logger.warning(f"[ToolExecutor] {tool_name} timed out after {timeout}s")
             return ToolResult(
@@ -386,10 +394,7 @@ class ToolExecutor:
                 continue
             expected_type = properties[param_name].get("type", "string")
             if not _check_type(param_value, expected_type):
-                return (
-                    f"Invalid type for '{param_name}': "
-                    f"expected {expected_type}, got {type(param_value).__name__}"
-                )
+                return f"Invalid type for '{param_name}': expected {expected_type}, got {type(param_value).__name__}"
 
         return None
 
@@ -411,18 +416,20 @@ class ToolExecutor:
 
         # 已知可并发工具（从工具注册表动态获取更佳，当前硬编码已知安全工具）
         # Bug #7 修复：添加 present_chart（遗漏的工具）
-        SAFE_TO_PARALLEL = frozenset({
-            "get_kline",
-            "get_concept_hot",
-            "get_market_breadth",
-            "neo4j_traverse",
-            "tavily_search",
-            "get_stock_profile",
-            "get_irm",
-            "get_research_report",
-            "get_announcement",
-            "present_chart",  # Bug #7 修复：添加缺失的工具
-        })
+        SAFE_TO_PARALLEL = frozenset(
+            {
+                "get_kline",
+                "get_concept_hot",
+                "get_market_breadth",
+                "neo4j_traverse",
+                "tavily_search",
+                "get_stock_profile",
+                "get_irm",
+                "get_research_report",
+                "get_announcement",
+                "present_chart",  # Bug #7 修复：添加缺失的工具
+            }
+        )
         if any(name not in SAFE_TO_PARALLEL for name in names):
             return False
 
@@ -453,10 +460,7 @@ class ToolExecutor:
 
     async def _execute_parallel(self, tool_calls: list[dict]) -> list[ToolResult]:
         """并发执行所有工具"""
-        logger.info(
-            f"[ToolExecutor] 并发执行 {len(tool_calls)} 个工具: "
-            f"{[tc['name'] for tc in tool_calls]}"
-        )
+        logger.info(f"[ToolExecutor] 并发执行 {len(tool_calls)} 个工具: {[tc['name'] for tc in tool_calls]}")
 
         async def _with_semaphore(tc: dict) -> ToolResult:
             async with self._semaphore:
@@ -470,10 +474,7 @@ class ToolExecutor:
 
     async def _execute_serial(self, tool_calls: list[dict]) -> list[ToolResult]:
         """串行执行所有工具"""
-        logger.info(
-            f"[ToolExecutor] 串行执行 {len(tool_calls)} 个工具: "
-            f"{[tc['name'] for tc in tool_calls]}"
-        )
+        logger.info(f"[ToolExecutor] 串行执行 {len(tool_calls)} 个工具: {[tc['name'] for tc in tool_calls]}")
         results = []
         for tc in tool_calls:
             result = await self.execute_single(tc.get("name", ""), tc.get("args", {}))

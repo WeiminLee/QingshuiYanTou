@@ -8,6 +8,7 @@ LangChain Agent — V2.0 Agent 引擎
 - client.py: SSE 桥接层（run_lead_agent 主入口）
 - integrations.py: HarnessConfig 集成配置
 """
+
 from app.reasoning.langchain_agent.prompts.lead_system_prompt import apply_prompt_template
 
 __all__ = [

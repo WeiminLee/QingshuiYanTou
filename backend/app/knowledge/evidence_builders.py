@@ -1,8 +1,9 @@
 """Mechanical Evidence builders for source ingestion paths."""
+
 from __future__ import annotations
 
 import hashlib
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from app.knowledge.evidence import EvidenceInput, default_source_confidence
@@ -10,7 +11,7 @@ from app.knowledge.extraction.chunker import chunk_by_token
 
 
 def _utc_now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def _to_iso_date(value: Any) -> str | None:
@@ -29,13 +30,15 @@ def _as_str(value: Any) -> str:
 
 
 def _irm_content_hash(record: dict[str, Any]) -> str:
-    payload = "\n".join([
-        _as_str(record.get("ts_code")),
-        _as_str(record.get("company_name") or record.get("name")),
-        _as_str(record.get("question") or record.get("title")),
-        _as_str(record.get("answer") or record.get("type")),
-        _as_str(record.get("ann_date")),
-    ])
+    payload = "\n".join(
+        [
+            _as_str(record.get("ts_code")),
+            _as_str(record.get("company_name") or record.get("name")),
+            _as_str(record.get("question") or record.get("title")),
+            _as_str(record.get("answer") or record.get("type")),
+            _as_str(record.get("ann_date")),
+        ]
+    )
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
@@ -71,18 +74,20 @@ def build_text_evidence(
         chunk_id = getattr(chunk, "chunk_id", index)
         heading = getattr(chunk, "heading", "") or ""
         ref.update({"chunk_id": chunk_id, "heading": heading})
-        evidence.append(EvidenceInput(
-            source_type=source_type,
-            source_name=source_name,
-            source_id=source_id,
-            text_excerpt=getattr(chunk, "content", str(chunk)),
-            subject_hint=dict(subject_hint or {}),
-            publish_date=_to_iso_date(publish_date),
-            observed_at=observed_at or _utc_now(),
-            source_ref=ref,
-            confidence=default_source_confidence(source_type),
-            metadata=dict(metadata or {}),
-        ))
+        evidence.append(
+            EvidenceInput(
+                source_type=source_type,
+                source_name=source_name,
+                source_id=source_id,
+                text_excerpt=getattr(chunk, "content", str(chunk)),
+                subject_hint=dict(subject_hint or {}),
+                publish_date=_to_iso_date(publish_date),
+                observed_at=observed_at or _utc_now(),
+                source_ref=ref,
+                confidence=default_source_confidence(source_type),
+                metadata=dict(metadata or {}),
+            )
+        )
     return evidence
 
 

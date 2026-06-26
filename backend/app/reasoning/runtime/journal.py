@@ -1,4 +1,5 @@
 """RunJournal-lite for QingShui agent runtime observability."""
+
 from __future__ import annotations
 
 import contextvars
@@ -7,7 +8,6 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
-
 
 MAX_SUMMARY_CHARS = 500
 
@@ -86,10 +86,7 @@ class RunJournal:
             "status": self.status,
             "token_usage": dict(self.token_usage),
             "error": self.error,
-            "events": [
-                {"type": ev.type, "timestamp": ev.timestamp, "data": ev.data}
-                for ev in self.events
-            ],
+            "events": [{"type": ev.type, "timestamp": ev.timestamp, "data": ev.data} for ev in self.events],
         }
 
 
@@ -116,4 +113,3 @@ def append_journal_event(event_type: str, data: dict[str, Any] | None = None) ->
     journal = get_current_journal()
     if journal is not None:
         journal.append(event_type, data)
-

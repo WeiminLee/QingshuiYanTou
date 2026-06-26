@@ -1,11 +1,12 @@
 """IRM Q&A knowledge extraction for Schema V4."""
+
 from __future__ import annotations
 
-import logging
 import hashlib
+import logging
 import uuid
 from collections.abc import Awaitable, Callable
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from app.core.metadata import CURRENT_KG_PARSER_VERSION, CURRENT_KG_SCHEMA_VERSION
@@ -35,7 +36,7 @@ _IRM_KG_INDEXES_READY = False
 
 
 def _utc_now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 async def _emit(progress_callback: ProgressCallback | None, stage: str, message: str, **kwargs: Any) -> None:
@@ -155,8 +156,10 @@ async def _mark_irm_done(record_key: str, result: dict[str, Any]) -> None:
             "$set": {
                 "status": "done",
                 "result": result,
-                "entities_count": int(result.get("entities_created", 0) or 0) + int(result.get("entities_updated", 0) or 0),
-                "relations_count": int(result.get("relations_created", 0) or 0) + int(result.get("relations_updated", 0) or 0),
+                "entities_count": int(result.get("entities_created", 0) or 0)
+                + int(result.get("entities_updated", 0) or 0),
+                "relations_count": int(result.get("relations_created", 0) or 0)
+                + int(result.get("relations_updated", 0) or 0),
                 "qa_vector_ok": bool(result.get("qa_vector_ok")),
                 "entity_vectors_ok": int(result.get("entity_vectors_ok", 0) or 0),
                 "relation_vectors_ok": int(result.get("relation_vectors_ok", 0) or 0),
@@ -204,16 +207,36 @@ async def upsert_irm_product(name: str, company_id: str) -> tuple[dict, bool]:
         source_name="互动易",
         parser_version=IRM_KG_PARSER_VERSION,
     )
-    upsert_relates(company_id, node["entity_id"], f"互动易提及公司与产品 {name} 相关", source_type="irm", source_name="互动易")
+    upsert_relates(
+        company_id,
+        node["entity_id"],
+        f"互动易提及公司与产品 {name} 相关",
+        source_type="irm",
+        source_name="互动易",
+    )
     return node, is_new
 
 
 async def upsert_irm_application(name: str) -> tuple[dict, bool]:
-    return upsert_entity(generate_entity_id("Product", name), "Product", name, source_type="irm", source_name="互动易", parser_version=IRM_KG_PARSER_VERSION)
+    return upsert_entity(
+        generate_entity_id("Product", name),
+        "Product",
+        name,
+        source_type="irm",
+        source_name="互动易",
+        parser_version=IRM_KG_PARSER_VERSION,
+    )
 
 
 async def upsert_irm_technology(name: str) -> tuple[dict, bool]:
-    return upsert_entity(generate_entity_id("Product", name), "Product", name, source_type="irm", source_name="互动易", parser_version=IRM_KG_PARSER_VERSION)
+    return upsert_entity(
+        generate_entity_id("Product", name),
+        "Product",
+        name,
+        source_type="irm",
+        source_name="互动易",
+        parser_version=IRM_KG_PARSER_VERSION,
+    )
 
 
 async def upsert_irm_metric(name: str, value: Any = None, period: str = "IRM") -> tuple[dict, bool]:
@@ -352,7 +375,10 @@ async def extract_irm_qa(
                 entity_type=entity_type,
                 name=name,
                 ts_code=ts_code if entity_type in {"Company", "Metric"} else None,
-                properties={"description": entity.get("description", ""), "source_text": text[:500]},
+                properties={
+                    "description": entity.get("description", ""),
+                    "source_text": text[:500],
+                },
                 source_type="irm",
                 source_name="互动易",
                 parser_version=IRM_KG_PARSER_VERSION,
@@ -372,7 +398,13 @@ async def extract_irm_qa(
                 entity_vector_fail += 1
             if entity_type != "Company":
                 text_desc = f"互动易问答提及 {name}"
-                upsert_relates(company_id, node["entity_id"], text_desc, source_type="irm", source_name=source_name)
+                upsert_relates(
+                    company_id,
+                    node["entity_id"],
+                    text_desc,
+                    source_type="irm",
+                    source_name=source_name,
+                )
                 mention_relations += 1
                 if upsert_relation_vector(
                     relation_key=f"{source_name}|{company_id}|{node['entity_id']}|mention",

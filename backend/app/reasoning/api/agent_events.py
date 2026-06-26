@@ -458,7 +458,7 @@ async def event_generator(task_id: str) -> AsyncIterator[ReasoningEvent]:
             events = _task_manager.get_events(task_id)
             event_count = len(events)
 
-            if task_state and task_state["status"] in ("done", "failed"):
+            if task_state and task_state["status"] in ("done", "failed", "timed_out"):
                 # 推送剩余事件（含 stream_end + 完整 report_content，由 agent 端发射）
                 for i in range(last_count, event_count):
                     yield events[i].to_sse_dict()

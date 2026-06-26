@@ -7,6 +7,7 @@ SearchStrategy — 自适应搜索策略选择
 - PATH_SEARCH: 路径搜索（最短路径查询）
 - COMMUNITY_SEARCH: 社区搜索（暂不可用，优雅降级）
 """
+
 from __future__ import annotations
 
 import logging
@@ -20,6 +21,7 @@ logger = logging.getLogger(__name__)
 
 class SearchStrategyEnum(Enum):
     """搜索策略枚举。"""
+
     ENTITY_SEARCH = "entity"
     RELATION_SEARCH = "relation"
     PATH_SEARCH = "path"
@@ -65,10 +67,7 @@ class SearchStrategy:
 
         if strategy is None:
             # 未知查询类型，默认实体搜索
-            logger.info(
-                f"[SearchStrategy] Unknown query type '{query_type}', "
-                f"falling back to ENTITY_SEARCH"
-            )
+            logger.info(f"[SearchStrategy] Unknown query type '{query_type}', falling back to ENTITY_SEARCH")
             return SearchStrategyEnum.ENTITY_SEARCH
 
         return strategy

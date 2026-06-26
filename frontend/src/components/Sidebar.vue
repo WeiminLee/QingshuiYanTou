@@ -37,27 +37,27 @@
 </template>
 
 <script setup>
-import { TrendCharts, DataLine, Connection, Document, Search } from '@element-plus/icons-vue'
-import { storeToRefs } from 'pinia'
-import { useUiStore } from '../store/ui.js'
+import { TrendCharts, DataLine, Connection, Document, Search } from "@element-plus/icons-vue";
+import { storeToRefs } from "pinia";
+import { useUiStore } from "../store/ui.js";
 
-const uiStore = useUiStore()
-const { activePanel } = storeToRefs(uiStore)
+const uiStore = useUiStore();
+const { activePanel } = storeToRefs(uiStore);
 
 // Ledger Spine color values
-const ledgerSpineBg = '#1E1C18'
-const ledgerTextColor = 'rgba(255,255,255,0.7)'
-const ledgerActiveTextColor = '#D8D0C0'
+const ledgerSpineBg = "#1E1C18";
+const ledgerTextColor = "rgba(255,255,255,0.7)";
+const ledgerActiveTextColor = "#D8D0C0";
 
 const props = defineProps({
   collapsed: {
     type: Boolean,
     default: false,
   },
-})
+});
 
 function onSelect(index) {
-  uiStore.setActivePanel(index)
+  uiStore.setActivePanel(index);
 }
 </script>
 
@@ -65,7 +65,7 @@ function onSelect(index) {
 .dashboard-sidebar {
   height: 100%;
   border-right: none;
-  background: #1E1C18 !important;
+  background: #1e1c18 !important;
 }
 
 .dashboard-sidebar:not(.el-menu--collapse) {
@@ -74,18 +74,18 @@ function onSelect(index) {
 
 .dashboard-sidebar .el-menu-item {
   border-left: 3px solid transparent;
-  color: rgba(255,255,255,0.7);
+  color: rgba(255, 255, 255, 0.7);
 }
 
 .dashboard-sidebar .el-menu-item.is-active {
-  background-color: #2C2419 !important;
-  border-left-color: #B8860B;
-  color: #D8D0C0;
+  background-color: #2c2419 !important;
+  border-left-color: #b8860b;
+  color: #d8d0c0;
 }
 
 .dashboard-sidebar .el-menu-item:hover {
   background-color: #353028 !important;
-  color: #D8D0C0;
+  color: #d8d0c0;
 }
 
 .dashboard-sidebar .el-menu-item.is-disabled {

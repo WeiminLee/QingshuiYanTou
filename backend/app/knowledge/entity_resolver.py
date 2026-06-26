@@ -9,19 +9,18 @@
 适用类型：Company / Product / Tech
 （Industry / Metric / Event 暂不消解）
 """
+
 from __future__ import annotations
 
-import asyncio
 import logging
-import os
 import re
 from collections import defaultdict
-from dataclasses import dataclass, field
-from typing import Optional
+from dataclasses import dataclass
 
 try:
     import editdistance
 except ModuleNotFoundError:  # pragma: no cover - exercised only when optional dep missing
+
     class _EditDistanceFallback:
         @staticmethod
         def eval(a: str, b: str) -> int:
@@ -31,11 +30,13 @@ except ModuleNotFoundError:  # pragma: no cover - exercised only when optional d
             for i, ca in enumerate(a, start=1):
                 cur = [i]
                 for j, cb in enumerate(b, start=1):
-                    cur.append(min(
-                        prev[j] + 1,
-                        cur[j - 1] + 1,
-                        prev[j - 1] + (ca != cb),
-                    ))
+                    cur.append(
+                        min(
+                            prev[j] + 1,
+                            cur[j - 1] + 1,
+                            prev[j - 1] + (ca != cb),
+                        )
+                    )
                 prev = cur
             return prev[-1]
 
@@ -50,6 +51,7 @@ ENTITY_INDEX_DELIMITER = "<|>"
 RESOLUTION_RESULT_DELIMITER = "&&"
 
 # ── 相似度预过滤 ───────────────────────────────────────────────────────
+
 
 def _is_english(s: str) -> bool:
     try:
@@ -66,13 +68,15 @@ def _cross_language_alias(a: str, b: str) -> bool:
     Delegates to StockNameResolver (PostgreSQL + supplemental_aliases.json).
     """
     from app.knowledge.stock_name_resolver import get_stock_name_resolver
+
     return get_stock_name_resolver().is_same_company(a, b)
 
 
 def _has_digit_in_2gram_diff(a: str, b: str) -> bool:
     """2-gram 数字差异检测：有数字的 n-gram 在两边不同 → 直接排除"""
+
     def to_2gram_set(s):
-        return {s[i:i+2] for i in range(len(s) - 1)}
+        return {s[i : i + 2] for i in range(len(s) - 1)}
 
     set_a = to_2gram_set(a)
     set_b = to_2gram_set(b)
@@ -115,6 +119,7 @@ def _get_sector_tags(entity_name: str, node_metadata: dict | None = None) -> set
     Combines StockNameResolver sector data with node metadata `sector` field.
     """
     from app.knowledge.stock_name_resolver import get_stock_name_resolver
+
     tags: set[str] = set(get_stock_name_resolver().get_sector_tags(entity_name))
     # From node metadata
     if node_metadata:
@@ -181,13 +186,9 @@ def _build_resolution_prompt(entity_type: str, pairs: list[tuple[str, str]]) -> 
     """构建批量消解 Prompt"""
     questions_parts = []
     for i, (a, b) in enumerate(pairs, start=1):
-        questions_parts.append(
-            f"实体 A: {a}\n实体 B: {b}"
-        )
+        questions_parts.append(f"实体 A: {a}\n实体 B: {b}")
 
-    questions_text = "\n\n".join(
-        f"Question {i}: {q}" for i, q in enumerate(questions_parts, start=1)
-    )
+    questions_text = "\n\n".join(f"Question {i}: {q}" for i, q in enumerate(questions_parts, start=1))
 
     return ENTITY_RESOLUTION_PROMPT.format(
         entity_type=entity_type,
@@ -235,9 +236,11 @@ def _parse_resolution_result(
 
 # ── 消解核心 ───────────────────────────────────────────────────────────
 
+
 @dataclass
 class ResolutionPair:
     """候选消解对"""
+
     a: str  # entity_name A
     b: str  # entity_name B
     entity_type: str
@@ -246,6 +249,7 @@ class ResolutionPair:
 @dataclass
 class EntityResolutionResult:
     """消解结果"""
+
     merged_pairs: list[tuple[str, str]]  # [(name_a, name_b), ...] 待合并的对
     total_candidates: int
     resolved_count: int
@@ -308,6 +312,7 @@ async def resolve_entities(
         prompt = _build_resolution_prompt(e_type, pairs_text)
         try:
             from app.core.llm_client import chat_async
+
             response = await chat_async(prompt, temperature=0.1, timeout=60)
         except Exception as e:
             logger.warning("LLM 消解批次 %d 失败: %s", i // BATCH_SIZE + 1, e)
@@ -320,12 +325,15 @@ async def resolve_entities(
 
         logger.debug(
             "批次 %d: %d 候选 → %d 合并",
-            i // BATCH_SIZE + 1, len(batch), len(merged_indices),
+            i // BATCH_SIZE + 1,
+            len(batch),
+            len(merged_indices),
         )
 
     logger.info(
         "实体消解完成: %d 候选 → %d 确认合并",
-        total_candidates, len(all_merged),
+        total_candidates,
+        len(all_merged),
     )
     callback and callback(f"确认合并: {len(all_merged)} 对")
 
@@ -337,6 +345,7 @@ async def resolve_entities(
 
 
 # ── 合并操作（写入 Neo4j）─────────────────────────────────────────────
+
 
 def apply_merges(
     merged_pairs: list[tuple[str, str]],
@@ -356,7 +365,7 @@ def apply_merges(
     if not merged_pairs:
         return 0
 
-    from app.knowledge.entity_service import get_entity, upsert_entity
+    from app.knowledge.entity_service import get_entity
 
     merged_count = 0
     for name_a, name_b in merged_pairs:
@@ -377,7 +386,7 @@ def apply_merges(
         try:
             # 获取被丢弃节点的属性
             discard_node = get_entity(discard_id)
-            keep_node = get_entity(keep_id)
+            get_entity(keep_id)
 
             if discard_node:
                 # 将 discard 的关系迁移到 keep
@@ -432,6 +441,7 @@ def _migrate_relationships(from_id: str, to_id: str):
 def _delete_entity(entity_id: str):
     """删除节点"""
     from app.core.neo4j_client import run_write
+
     run_write(
         "MATCH (n {entity_id: $eid}) DETACH DELETE n",
         eid=entity_id,

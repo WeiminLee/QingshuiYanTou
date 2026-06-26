@@ -33,69 +33,62 @@
     </div>
 
     <!-- Clear all -->
-    <el-button
-      v-if="hasActiveFilters"
-      size="small"
-      link
-      @click="clearAll"
-    >
-      清除筛选
-    </el-button>
+    <el-button v-if="hasActiveFilters" size="small" link @click="clearAll"> 清除筛选 </el-button>
   </div>
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed } from "vue";
 
-const emit = defineEmits(['change'])
+const emit = defineEmits(["change"]);
 
-const activeSources = ref([])
-const activeTiers = ref([])
+const activeSources = ref([]);
+const activeTiers = ref([]);
 
 const sourceOptions = [
-  { key: 'cls', label: '财联社', color: '#ff6b35', bg: '#fff4ef' },
-  { key: 'announcement', label: '公告', color: '#7c3aed', bg: '#f5f3ff' },
-  { key: 'research', label: '研报', color: '#0891b2', bg: '#ecfeff' },
-  { key: 'qa', label: '互动易', color: '#059669', bg: '#ecfdf5' },
-]
+  { key: "cls", label: "财联社", color: "#ff6b35", bg: "#fff4ef" },
+  { key: "announcement", label: "公告", color: "#7c3aed", bg: "#f5f3ff" },
+  { key: "research", label: "研报", color: "#0891b2", bg: "#ecfeff" },
+  { key: "qa", label: "互动易", color: "#059669", bg: "#ecfdf5" },
+];
 
 const tierOptions = [
-  { value: 0, label: 'TIER0', color: '#059669', bg: '#ecfdf5' },
-  { value: 1, label: 'TIER1', color: '#16a34a', bg: '#f0fdf4' },
-  { value: 2, label: 'TIER2', color: '#ca8a04', bg: '#fefce8' },
-  { value: 3, label: 'TIER3', color: '#ea580c', bg: '#fff7ed' },
-  { value: 4, label: 'TIER4', color: '#dc2626', bg: '#fef2f2' },
-]
+  { value: 0, label: "TIER0", color: "#059669", bg: "#ecfdf5" },
+  { value: 1, label: "TIER1", color: "#16a34a", bg: "#f0fdf4" },
+  { value: 2, label: "TIER2", color: "#ca8a04", bg: "#fefce8" },
+  { value: 3, label: "TIER3", color: "#ea580c", bg: "#fff7ed" },
+  { value: 4, label: "TIER4", color: "#dc2626", bg: "#fef2f2" },
+];
 
-const hasActiveFilters = computed(() =>
-  activeSources.value.length > 0 || activeTiers.value.length > 0
-)
+const hasActiveFilters = computed(
+  () => activeSources.value.length > 0 || activeTiers.value.length > 0,
+);
 
 function toggleSource(key) {
-  const idx = activeSources.value.indexOf(key)
-  if (idx >= 0) activeSources.value.splice(idx, 1)
-  else activeSources.value.push(key)
-  emitChange()
+  const idx = activeSources.value.indexOf(key);
+  if (idx >= 0) activeSources.value.splice(idx, 1);
+  else activeSources.value.push(key);
+  emitChange();
 }
 
 function toggleTier(val) {
-  const idx = activeTiers.value.indexOf(val)
-  if (idx >= 0) activeTiers.value.splice(idx, 1)
-  else activeTiers.value.push(val)
-  emitChange()
+  const idx = activeTiers.value.indexOf(val);
+  if (idx >= 0) activeTiers.value.splice(idx, 1);
+  else activeTiers.value.push(val);
+  emitChange();
 }
 
 function clearAll() {
-  activeSources.value = []
-  activeTiers.value = []
-  emitChange()
+  activeSources.value = [];
+  activeTiers.value = [];
+  emitChange();
 }
 
 function emitChange() {
-  emit('change', {
+  emit("change", {
     sources: [...activeSources.value],
     tiers: [...activeTiers.value],
-  })
+  });
 }
 </script>
 

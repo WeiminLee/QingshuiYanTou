@@ -1,5 +1,3 @@
-import pytest
-
 from app.data_pipeline.services.news_service import (
     auto_tag,
     stable_event_id,
@@ -41,8 +39,15 @@ class TestStableEventId:
 class TestFindEventsTool:
     def test_format_output(self):
         from app.reasoning.tools.market_data.events.events import _format_event_list
+
         events = [
-            {"event_id": "EV:abc", "title": "测试事件", "summary": "摘要", "source": "cls", "publish_at": "2026-06-25 08:30"},
+            {
+                "event_id": "EV:abc",
+                "title": "测试事件",
+                "summary": "摘要",
+                "source": "cls",
+                "publish_at": "2026-06-25 08:30",
+            },
         ]
         result = _format_event_list(events, "测试")
         assert "测试事件" in result
@@ -51,6 +56,7 @@ class TestFindEventsTool:
 class TestEventDetailTool:
     def test_format_detail(self):
         from app.reasoning.tools.market_data.events.events import _format_event_detail
+
         event = {
             "event_id": "EV:abc",
             "title": "测试事件",

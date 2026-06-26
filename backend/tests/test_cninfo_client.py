@@ -11,17 +11,16 @@
 测试遵循新项目仅 ``pytest`` 的约定（无 ``pytest-asyncio``），
 async 测试一律用 ``asyncio.run()`` 包装；与 ``tests/test_kg_search.py`` 保持一致。
 """
+
 from __future__ import annotations
 
 import asyncio
 import inspect
-from datetime import date as date_type
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-
 
 # ── Section 1: cninfo_client 模块 ────────────────────────────────
 
@@ -31,17 +30,18 @@ class TestCninfoClientConstants:
 
     def test_cninfo_api_url(self):
         from app.data_pipeline.cninfo_client import CNINFO_QUERY_API
-        assert CNINFO_QUERY_API == (
-            "http://www.cninfo.com.cn/new/hisAnnouncement/query"
-        )
+
+        assert CNINFO_QUERY_API == ("http://www.cninfo.com.cn/new/hisAnnouncement/query")
 
     def test_cninfo_pdf_base(self):
         from app.data_pipeline.cninfo_client import CNINFO_PDF_BASE
+
         assert CNINFO_PDF_BASE == "http://static.cninfo.com.cn/"
         assert CNINFO_PDF_BASE.endswith("/"), "PDF base 必须带尾斜杠便于直接拼接 adjunctUrl"
 
     def test_cninfo_headers(self):
         from app.data_pipeline.cninfo_client import CNINFO_HEADERS
+
         # cninfo 反爬要求模拟浏览器请求
         assert "User-Agent" in CNINFO_HEADERS
         assert "Mozilla" in CNINFO_HEADERS["User-Agent"]
@@ -55,50 +55,60 @@ class TestCninfoStaticHelpers:
 
     def test_get_announcement_id(self):
         from app.data_pipeline.cninfo_client import CninfoClient
+
         ann = {"announcementId": "1220118326"}
         assert CninfoClient.get_announcement_id(ann) == "1220118326"
 
     def test_get_announcement_id_missing_returns_empty(self):
         from app.data_pipeline.cninfo_client import CninfoClient
+
         assert CninfoClient.get_announcement_id({}) == ""
 
     def test_get_title(self):
         from app.data_pipeline.cninfo_client import CninfoClient
+
         ann = {"announcementTitle": "2024年年度报告"}
         assert CninfoClient.get_title(ann) == "2024年年度报告"
 
     def test_get_ts_code_szmain(self):
         from app.data_pipeline.cninfo_client import CninfoClient
+
         # 0 开头 -> SZ
         assert CninfoClient.get_ts_code({"secCode": "000001"}) == "000001.SZ"
 
     def test_get_ts_code_szchinext(self):
         from app.data_pipeline.cninfo_client import CninfoClient
+
         # 3 开头 -> SZ（创业板）
         assert CninfoClient.get_ts_code({"secCode": "300001"}) == "300001.SZ"
 
     def test_get_ts_code_sh(self):
         from app.data_pipeline.cninfo_client import CninfoClient
+
         # 6 开头 -> SH
         assert CninfoClient.get_ts_code({"secCode": "600000"}) == "600000.SH"
 
     def test_get_ts_code_bj(self):
         from app.data_pipeline.cninfo_client import CninfoClient
+
         # 8 开头 -> BJ（北交所）
         assert CninfoClient.get_ts_code({"secCode": "830000"}) == "830000.BJ"
 
     def test_get_ts_code_zfill(self):
         from app.data_pipeline.cninfo_client import CninfoClient
+
         # 不足 6 位补零（cninfo "576" 实际是深市 000576）
         assert CninfoClient.get_ts_code({"secCode": "576"}) == "000576.SZ"
 
     def test_get_ts_code_empty(self):
         from app.data_pipeline.cninfo_client import CninfoClient
+
         assert CninfoClient.get_ts_code({"secCode": ""}) == ""
         assert CninfoClient.get_ts_code({}) == ""
 
     def test_get_ann_date_milliseconds(self):
         from app.data_pipeline.cninfo_client import CninfoClient
+
         # 2024-05-17 12:00:00 CST 对应的毫秒时间戳（local time）
         # 用本地时区 localtime；只断言长度+前缀，避开运行环境时区差异
         ann = {"announcementTime": 1715918400000}
@@ -110,28 +120,31 @@ class TestCninfoStaticHelpers:
 
     def test_get_ann_date_missing(self):
         from app.data_pipeline.cninfo_client import CninfoClient
+
         assert CninfoClient.get_ann_date({}) == ""
         assert CninfoClient.get_ann_date({"announcementTime": 0}) == ""
 
     def test_get_ann_date_dirty_data(self):
         """脏 announcementTime 不应让整批解析中断（Plan 03-01 Rule 2 fix）。"""
         from app.data_pipeline.cninfo_client import CninfoClient
+
         assert CninfoClient.get_ann_date({"announcementTime": "not-a-number"}) == ""
 
     def test_get_pdf_url_normal(self):
         from app.data_pipeline.cninfo_client import CninfoClient
+
         ann = {"adjunctUrl": "finalpage/2024-05-17/1220118326.PDF"}
-        assert CninfoClient.get_pdf_url(ann) == (
-            "http://static.cninfo.com.cn/finalpage/2024-05-17/1220118326.PDF"
-        )
+        assert CninfoClient.get_pdf_url(ann) == ("http://static.cninfo.com.cn/finalpage/2024-05-17/1220118326.PDF")
 
     def test_get_pdf_url_missing(self):
         from app.data_pipeline.cninfo_client import CninfoClient
+
         assert CninfoClient.get_pdf_url({}) == ""
         assert CninfoClient.get_pdf_url({"adjunctUrl": ""}) == ""
 
     def test_get_title_strips_cninfo_highlight_tags(self):
         from app.data_pipeline.cninfo_client import CninfoClient
+
         ann = {"announcementTitle": "关于<em>新雷能</em>2025年年度报告"}
         assert CninfoClient.get_title(ann) == "关于新雷能2025年年度报告"
 
@@ -141,6 +154,7 @@ class TestCninfoBuildPayload:
 
     def test_payload_format_basic(self):
         from app.data_pipeline.cninfo_client import CninfoClient
+
         client = CninfoClient()
         with patch.object(
             CninfoClient,
@@ -162,6 +176,7 @@ class TestCninfoBuildPayload:
 
     def test_payload_falls_back_to_plain_code_without_org_id(self):
         from app.data_pipeline.cninfo_client import CninfoClient
+
         client = CninfoClient()
         with patch.object(CninfoClient, "_get_stock_org_map_sync", return_value={}):
             payload = client._build_payload(
@@ -176,17 +191,25 @@ class TestCninfoBuildPayload:
     def test_payload_rejects_invalid_date(self):
         """Plan 03-01 Rule 2 fix：``2024-05-16`` 这类带横线的输入直接 ValueError。"""
         from app.data_pipeline.cninfo_client import CninfoClient
+
         client = CninfoClient()
         with pytest.raises(ValueError, match="YYYYMMDD"):
             client._build_payload(
-                ann_date="2024-05-17", ts_code=None, page=1, page_size=100,
+                ann_date="2024-05-17",
+                ts_code=None,
+                page=1,
+                page_size=100,
             )
 
     def test_payload_no_date_no_stock(self):
         from app.data_pipeline.cninfo_client import CninfoClient
+
         client = CninfoClient()
         payload = client._build_payload(
-            ann_date=None, ts_code=None, page=1, page_size=100,
+            ann_date=None,
+            ts_code=None,
+            page=1,
+            page_size=100,
         )
         assert payload["stock"] == ""
         assert payload["seDate"] == ""
@@ -244,6 +267,7 @@ def test_get_announcements_stops_at_max_pages(monkeypatch):
     else:
         raise AssertionError("expected CninfoClientError")
 
+
 # ── Section 2: announcement_filter 模块 ─────────────────────────
 
 
@@ -255,6 +279,7 @@ class TestClassifyTitle:
             DOC_TYPE_SAVE,
             classify_title,
         )
+
         # 标题不能含 "半年" / "季度" 关键词，否则会先匹配它们
         doc_type, action = classify_title("2024年年度报告")
         assert doc_type == "annual_report"
@@ -266,56 +291,67 @@ class TestClassifyTitle:
             DOC_TYPE_SAVE,
             classify_title,
         )
+
         doc_type, action = classify_title("2024年半年度报告")
-        assert doc_type == "half_report", (
-            "'半年度报告' 必须先于 '年度报告' 匹配，否则会被错分为 annual_report"
-        )
+        assert doc_type == "half_report", "'半年度报告' 必须先于 '年度报告' 匹配，否则会被错分为 annual_report"
         assert action == DOC_TYPE_SAVE
 
     def test_classify_half_report_express(self):
         from app.data_pipeline.announcement_filter import (
-            DOC_TYPE_SAVE, classify_title,
+            DOC_TYPE_SAVE,
+            classify_title,
         )
+
         doc_type, action = classify_title("2024年半年度业绩快报")
         assert doc_type == "half_report"
         assert action == DOC_TYPE_SAVE
 
     def test_classify_quarter_report_q1(self):
         from app.data_pipeline.announcement_filter import (
-            DOC_TYPE_SAVE, classify_title,
+            DOC_TYPE_SAVE,
+            classify_title,
         )
+
         doc_type, action = classify_title("2024年第一季度报告")
         assert doc_type == "quarter_report"
         assert action == DOC_TYPE_SAVE
 
     def test_classify_quarter_report_q3(self):
         from app.data_pipeline.announcement_filter import (
-            DOC_TYPE_SAVE, classify_title,
+            DOC_TYPE_SAVE,
+            classify_title,
         )
+
         doc_type, action = classify_title("2024年第三季度报告")
         assert doc_type == "quarter_report"
         assert action == DOC_TYPE_SAVE
 
     def test_classify_research_survey(self):
         from app.data_pipeline.announcement_filter import (
-            DOC_TYPE_SAVE, classify_title,
+            DOC_TYPE_SAVE,
+            classify_title,
         )
+
         doc_type, action = classify_title("投资者关系活动记录表")
         assert doc_type == "research_survey"
         assert action == DOC_TYPE_SAVE
 
     def test_classify_ma_activity(self):
         from app.data_pipeline.announcement_filter import (
-            DOC_TYPE_SAVE, classify_title,
+            DOC_TYPE_SAVE,
+            classify_title,
         )
+
         doc_type, action = classify_title("关于重大资产重组的进展公告")
         assert doc_type == "ma_activity"
         assert action == DOC_TYPE_SAVE
 
     def test_classify_investment(self):
         from app.data_pipeline.announcement_filter import (
-            DOC_TYPE_SAVE, classify_title,
+            DOC_TYPE_SAVE,
+            classify_title,
         )
+
         doc_type, action = classify_title("关于对外投资设立全资子公司的公告")
         # "对外投资" 关键词最先命中
         assert doc_type == "investment"
@@ -323,33 +359,40 @@ class TestClassifyTitle:
 
     def test_classify_other_default_skip(self):
         from app.data_pipeline.announcement_filter import (
-            DOC_TYPE_SKIP, classify_title,
+            DOC_TYPE_SKIP,
+            classify_title,
         )
+
         doc_type, action = classify_title("简式权益变动报告书")
         assert doc_type == "other"
         assert action == DOC_TYPE_SKIP
 
     def test_classify_empty_title(self):
         from app.data_pipeline.announcement_filter import (
-            DOC_TYPE_SKIP, classify_title,
+            DOC_TYPE_SKIP,
+            classify_title,
         )
+
         doc_type, action = classify_title("")
         assert doc_type == "unknown"
         assert action == DOC_TYPE_SKIP
 
     def test_should_download_save(self):
         from app.data_pipeline.announcement_filter import should_download
+
         assert should_download("2024年年度报告") is True
         assert should_download("2024年半年度报告") is True
         assert should_download("投资者关系活动记录表") is True
 
     def test_should_download_skip(self):
         from app.data_pipeline.announcement_filter import should_download
+
         assert should_download("简式权益变动报告书") is False
         assert should_download("") is False
 
     def test_get_doc_type_helper(self):
         from app.data_pipeline.announcement_filter import get_doc_type
+
         assert get_doc_type("2024年年度报告") == "annual_report"
         assert get_doc_type("2024年半年度报告") == "half_report"
         assert get_doc_type("简式权益变动报告书") == "other"
@@ -366,6 +409,7 @@ class TestCninfoApiLimiter:
             AsyncRateLimiter,
             get_cninfo_api_limiter,
         )
+
         limiter = get_cninfo_api_limiter()
         assert isinstance(limiter, AsyncRateLimiter)
         assert limiter.max_requests == 1
@@ -374,6 +418,7 @@ class TestCninfoApiLimiter:
 
     def test_singleton_semantics(self):
         from app.data_pipeline.rate_limiter import get_cninfo_api_limiter
+
         a = get_cninfo_api_limiter()
         b = get_cninfo_api_limiter()
         assert a is b, "limiter 应该是单例"
@@ -387,6 +432,7 @@ class TestCninfoPdfLimiter:
             RateLimiter,
             get_cninfo_pdf_limiter,
         )
+
         limiter = get_cninfo_pdf_limiter()
         assert isinstance(limiter, RateLimiter)
         assert limiter.max_requests == 1
@@ -401,13 +447,13 @@ class TestSchedulerCninfoRegistration:
 
     def test_cninfo_fetch_hour_constant(self):
         from app.data_pipeline.scheduler import CNINFO_FETCH_HOUR
+
         assert CNINFO_FETCH_HOUR == 23, "D-05: 收盘后 23:00 触发"
 
     def test_run_cninfo_job_is_coroutine(self):
         from app.data_pipeline.scheduler import _run_cninfo_job
-        assert inspect.iscoroutinefunction(_run_cninfo_job), (
-            "_run_cninfo_job 必须是 async 协程函数"
-        )
+
+        assert inspect.iscoroutinefunction(_run_cninfo_job), "_run_cninfo_job 必须是 async 协程函数"
 
     def test_cninfo_enqueue_registered_at_2300(self):
         """需要事件循环才能 ``AsyncIOScheduler.start()``"""
@@ -448,8 +494,11 @@ class TestRunCninfoJobBehavior:
         from app.data_pipeline import scheduler as sched_mod
 
         fake_result = {
-            "total": 30, "success": 28, "skipped": 2,
-            "downloaded": 5, "fail": 0,
+            "total": 30,
+            "success": 28,
+            "skipped": 2,
+            "downloaded": 5,
+            "fail": 0,
         }
 
         # patch 三个 import targets：monitor、fetcher、dingtalk
@@ -463,6 +512,7 @@ class TestRunCninfoJobBehavior:
             SUCCESS = "success"
             PARTIAL = "partial"
             FAILED = "failed"
+
         mock_monitor.TaskStatus = _TS
 
         mock_fetcher_mod = MagicMock()
@@ -475,11 +525,14 @@ class TestRunCninfoJobBehavior:
         mock_dingtalk.notify_task_success = MagicMock()
         mock_dingtalk.notify_task_failed = MagicMock()
 
-        with patch.dict("sys.modules", {
-            "app.data_pipeline.monitor": mock_monitor,
-            "app.data_pipeline.fetcher": mock_fetcher_mod,
-            "app.data_pipeline.dingtalk": mock_dingtalk,
-        }):
+        with patch.dict(
+            "sys.modules",
+            {
+                "app.data_pipeline.monitor": mock_monitor,
+                "app.data_pipeline.fetcher": mock_fetcher_mod,
+                "app.data_pipeline.dingtalk": mock_dingtalk,
+            },
+        ):
             asyncio.run(sched_mod._run_cninfo_job())
 
         # 必须调用 fetch_announcements 一次
@@ -493,7 +546,10 @@ class TestRunCninfoJobBehavior:
         assert args[0] == "cninfo"
         assert args[1] == _TS.SUCCESS
         assert kwargs == {
-            "total": 30, "success": 28, "skipped": 2, "fail": 0,
+            "total": 30,
+            "success": 28,
+            "skipped": 2,
+            "fail": 0,
         }
         # notify_task_start / notify_task_success 被调用
         mock_dingtalk.notify_task_start.assert_called_once_with("巨潮公告同步")
@@ -505,8 +561,11 @@ class TestRunCninfoJobBehavior:
         from app.data_pipeline import scheduler as sched_mod
 
         fake_result = {
-            "total": 10, "success": 8, "skipped": 0,
-            "downloaded": 2, "fail": 2,
+            "total": 10,
+            "success": 8,
+            "skipped": 0,
+            "downloaded": 2,
+            "fail": 2,
         }
 
         mock_monitor = MagicMock()
@@ -518,6 +577,7 @@ class TestRunCninfoJobBehavior:
             SUCCESS = "success"
             PARTIAL = "partial"
             FAILED = "failed"
+
         mock_monitor.TaskStatus = _TS
 
         mock_fetcher_mod = MagicMock()
@@ -530,11 +590,14 @@ class TestRunCninfoJobBehavior:
         mock_dingtalk.notify_task_success = MagicMock()
         mock_dingtalk.notify_task_failed = MagicMock()
 
-        with patch.dict("sys.modules", {
-            "app.data_pipeline.monitor": mock_monitor,
-            "app.data_pipeline.fetcher": mock_fetcher_mod,
-            "app.data_pipeline.dingtalk": mock_dingtalk,
-        }):
+        with patch.dict(
+            "sys.modules",
+            {
+                "app.data_pipeline.monitor": mock_monitor,
+                "app.data_pipeline.fetcher": mock_fetcher_mod,
+                "app.data_pipeline.dingtalk": mock_dingtalk,
+            },
+        ):
             asyncio.run(sched_mod._run_cninfo_job())
 
         args = mock_monitor.record_task_result.await_args.args
@@ -553,6 +616,7 @@ class TestRunCninfoJobBehavior:
             SUCCESS = "success"
             PARTIAL = "partial"
             FAILED = "failed"
+
         mock_monitor.TaskStatus = _TS
 
         mock_fetcher_mod = MagicMock()
@@ -567,11 +631,14 @@ class TestRunCninfoJobBehavior:
         mock_dingtalk.notify_task_success = MagicMock()
         mock_dingtalk.notify_task_failed = MagicMock()
 
-        with patch.dict("sys.modules", {
-            "app.data_pipeline.monitor": mock_monitor,
-            "app.data_pipeline.fetcher": mock_fetcher_mod,
-            "app.data_pipeline.dingtalk": mock_dingtalk,
-        }):
+        with patch.dict(
+            "sys.modules",
+            {
+                "app.data_pipeline.monitor": mock_monitor,
+                "app.data_pipeline.fetcher": mock_fetcher_mod,
+                "app.data_pipeline.dingtalk": mock_dingtalk,
+            },
+        ):
             with pytest.raises(RuntimeError, match="boom"):
                 asyncio.run(sched_mod._run_cninfo_job())
 
@@ -583,7 +650,8 @@ class TestRunCninfoJobBehavior:
         assert kwargs.get("error_message") == "boom"
 
         mock_dingtalk.notify_task_failed.assert_called_once_with(
-            "巨潮公告同步", "boom",
+            "巨潮公告同步",
+            "boom",
         )
         mock_dingtalk.notify_task_success.assert_not_called()
 
@@ -652,8 +720,10 @@ class TestFetchAnnouncementsE2E:
         fetcher.audit_logger = MagicMock()
         fetcher.audit_logger.ainfo = AsyncMock()
 
-        with patch("app.data_pipeline.fetcher.engine", engine_mock), \
-             patch("app.data_pipeline.fetcher.IngestionProgressTracker", _FakeTracker):
+        with (
+            patch("app.data_pipeline.fetcher.engine", engine_mock),
+            patch("app.data_pipeline.fetcher.IngestionProgressTracker", _FakeTracker),
+        ):
             result = asyncio.run(
                 fetcher.fetch_announcements(ann_date="20240517"),
             )
@@ -701,8 +771,10 @@ class TestFetchAnnouncementsE2E:
         fetcher.audit_logger = MagicMock()
         fetcher.audit_logger.ainfo = AsyncMock()
 
-        with patch("app.data_pipeline.fetcher.engine", engine_mock), \
-             patch("app.data_pipeline.fetcher.IngestionProgressTracker", _FakeTracker):
+        with (
+            patch("app.data_pipeline.fetcher.engine", engine_mock),
+            patch("app.data_pipeline.fetcher.IngestionProgressTracker", _FakeTracker),
+        ):
             result = asyncio.run(
                 fetcher.fetch_announcements(ann_date="20240517"),
             )
@@ -737,8 +809,10 @@ class TestFetchAnnouncementsE2E:
         fetcher.storage.download_notice = MagicMock(return_value=Path("/tmp/history-kg.pdf"))
         fetcher._on_pdf_download_complete = AsyncMock()
 
-        with patch("app.data_pipeline.fetcher.engine", engine_mock), \
-             patch("app.data_pipeline.fetcher.IngestionProgressTracker", _FakeTracker):
+        with (
+            patch("app.data_pipeline.fetcher.engine", engine_mock),
+            patch("app.data_pipeline.fetcher.IngestionProgressTracker", _FakeTracker),
+        ):
             result = asyncio.run(
                 fetcher.fetch_announcements_history(
                     start_date="20240517",
@@ -778,8 +852,10 @@ class TestFetchAnnouncementsE2E:
         fetcher.storage.download_notice = MagicMock(return_value=Path("/tmp/history-repair.pdf"))
         fetcher._on_pdf_download_complete = AsyncMock()
 
-        with patch("app.data_pipeline.fetcher.engine", engine_mock), \
-             patch("app.data_pipeline.fetcher.IngestionProgressTracker", _FakeTracker):
+        with (
+            patch("app.data_pipeline.fetcher.engine", engine_mock),
+            patch("app.data_pipeline.fetcher.IngestionProgressTracker", _FakeTracker),
+        ):
             result = asyncio.run(
                 fetcher.fetch_announcements_history(
                     start_date="20240517",
@@ -815,8 +891,10 @@ class TestFetchAnnouncementsE2E:
         fetcher._update_announcement_file_path = AsyncMock(return_value=False)
         fetcher._on_pdf_download_complete = AsyncMock()
 
-        with patch("app.data_pipeline.fetcher.engine", engine_mock), \
-             patch("app.data_pipeline.fetcher.IngestionProgressTracker", _FakeTracker):
+        with (
+            patch("app.data_pipeline.fetcher.engine", engine_mock),
+            patch("app.data_pipeline.fetcher.IngestionProgressTracker", _FakeTracker),
+        ):
             result = asyncio.run(
                 fetcher.fetch_announcements_history(
                     start_date="20240517",
@@ -891,17 +969,17 @@ class TestFetchAnnouncementsE2E:
         engine_mock.connect = lambda: _FakeConnCM({})
         engine_mock.begin = lambda: _FakeConnCM({}, write=True)
 
-        with patch("app.data_pipeline.fetcher.engine", engine_mock), \
-             patch("app.data_pipeline.fetcher.IngestionProgressTracker", _FakeTracker):
+        with (
+            patch("app.data_pipeline.fetcher.engine", engine_mock),
+            patch("app.data_pipeline.fetcher.IngestionProgressTracker", _FakeTracker),
+        ):
             result = asyncio.run(fetcher.fetch_announcements())
 
         assert result["total"] == 0
         # 验证 cninfo_client.get_announcements 收到的 ann_date 是 YYYYMMDD 8 位数字
         called_kwargs = fetcher.cninfo_client.get_announcements.call_args.kwargs
         ann_date = called_kwargs["ann_date"]
-        assert len(ann_date) == 8 and ann_date.isdigit(), (
-            f"默认 ann_date 应为 YYYYMMDD: {ann_date!r}"
-        )
+        assert len(ann_date) == 8 and ann_date.isdigit(), f"默认 ann_date 应为 YYYYMMDD: {ann_date!r}"
 
     def test_fetch_announcements_cninfo_exception_returns_fail(self):
         """cninfo 抓取异常 -> 返回 fail=1，不让 scheduler 整体崩溃。"""
@@ -918,7 +996,11 @@ class TestFetchAnnouncementsE2E:
         with patch("app.data_pipeline.fetcher.IngestionProgressTracker", _FakeTracker):
             result = asyncio.run(fetcher.fetch_announcements(ann_date="20240517"))
         assert result == {
-            "total": 0, "success": 0, "skipped": 0, "downloaded": 0, "fail": 1,
+            "total": 0,
+            "success": 0,
+            "skipped": 0,
+            "downloaded": 0,
+            "fail": 1,
         }
 
 
@@ -981,11 +1063,7 @@ class _FakeConn:
                 return _FakeResult(rows=[(self._existing[cid],)])
             return _FakeResult(rows=[])
         if "SELECT cninfo_id, file_path" in sql_text and "file_path IS NOT NULL" in sql_text:
-            rows = [
-                (cid, path)
-                for cid, path in self._existing.items()
-                if path
-            ]
+            rows = [(cid, path) for cid, path in self._existing.items() if path]
             return _FakeResult(rows=rows)
         if "UPDATE announcements" in sql_text and "file_path = NULL" in sql_text:
             cid = (params or {}).get("cninfo_id")

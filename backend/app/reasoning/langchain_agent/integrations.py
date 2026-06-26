@@ -7,12 +7,12 @@ Harness 集成模块
 Phase 1：创建接口框架，所有能力默认关闭，不影响现有逻辑。
 Phase 2+：逐步接入具体实现。
 """
+
 from __future__ import annotations
 
-import asyncio
 import logging
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -28,17 +28,18 @@ class HarnessConfig:
     所有能力默认关闭（向后兼容），
     在确认各能力稳定后再逐步开启。
     """
+
     budget_enabled: bool = False
     memory_enabled: bool = False
     kg_anchors_enabled: bool = False
 
     # Budget 参数（BudgetEnforcer）
-    per_tool_cap: int = 50_000      # 单个工具结果上限（字符）
-    per_turn_cap: int = 200_000    # 单轮总额上限（字符）
-    preview_size: int = 1_500       # 截断预览 snippet 长度
+    per_tool_cap: int = 50_000  # 单个工具结果上限（字符）
+    per_turn_cap: int = 200_000  # 单轮总额上限（字符）
+    preview_size: int = 1_500  # 截断预览 snippet 长度
 
     # Memory 参数（MemoryManager）
-    debounce_seconds: float = 5.0   # 防抖窗口（秒）
+    debounce_seconds: float = 5.0  # 防抖窗口（秒）
 
 
 # ── HarnessManager ────────────────────────────────────────────────────────────────
@@ -86,7 +87,8 @@ class HarnessManager:
     def _init_budget(self) -> None:
         """惰性初始化 BudgetEnforcer"""
         try:
-            from app.reasoning.harness.budget import BudgetEnforcer, BudgetConfig
+            from app.reasoning.harness.budget import BudgetConfig, BudgetEnforcer
+
             cfg = BudgetConfig(
                 per_tool_cap=self.config.per_tool_cap,
                 per_turn_cap=self.config.per_turn_cap,
@@ -103,6 +105,7 @@ class HarnessManager:
         """惰性初始化 MemoryManager"""
         try:
             from app.reasoning.harness.memory import MemoryManager
+
             self._memory_manager = MemoryManager(
                 debounce_seconds=self.config.debounce_seconds,
             )
@@ -217,11 +220,26 @@ class HarnessManager:
 _STOCK_PATTERN = re.compile(r"\b(\d{6})\.(SH|SZ|BJ)\b")
 # 产品/技术词（追加识别）
 _PRODUCT_PATTERNS = [
-    re.compile(fr"\b{kw}\b") for kw in [
-        "光模块", "光通信", "激光雷达", "CPO", "硅光",
-        "光伏", "锂电", "储能", "功率半导体", "碳化硅",
-        "AI芯片", "GPU", "HBM", "先进封装",
-        "机器人", "减速器", "控制器", "传感器",
+    re.compile(rf"\b{kw}\b")
+    for kw in [
+        "光模块",
+        "光通信",
+        "激光雷达",
+        "CPO",
+        "硅光",
+        "光伏",
+        "锂电",
+        "储能",
+        "功率半导体",
+        "碳化硅",
+        "AI芯片",
+        "GPU",
+        "HBM",
+        "先进封装",
+        "机器人",
+        "减速器",
+        "控制器",
+        "传感器",
     ]
 ]
 
@@ -241,6 +259,7 @@ def _do_track_entities(text: str, thread_id: str, patterns: list[re.Pattern]) ->
     def _worker():
         try:
             import asyncio
+
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             try:
@@ -293,6 +312,7 @@ def format_kg_anchors(thread_id: str) -> str:
     """
     try:
         from app.reasoning.harness.memory import format_kg_anchors_for_prompt
+
         return format_kg_anchors_for_prompt(thread_id)
     except Exception as e:
         logger.warning(f"[Harness] format_kg_anchors failed: {e}")

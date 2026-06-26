@@ -10,19 +10,20 @@ eval_runs 清理脚本
   python scripts/cleanup_eval_runs.py --dry-run
   python scripts/cleanup_eval_runs.py --days 60
 """
+
 import argparse
 import logging
-import sys
 import os
-from datetime import datetime, date
-from typing import Optional
+import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from dotenv import load_dotenv
+
 load_dotenv()
 
 from sqlalchemy import text
+
 from app.core.database import async_session
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -79,6 +80,7 @@ async def delete_automated_daily_older_than(days: int = DEFAULT_DAYS, dry_run: b
 def run_cleanup(days: int = DEFAULT_DAYS, dry_run: bool = False) -> None:
     """同步入口（供 cron 调用）"""
     import asyncio
+
     try:
         count = asyncio.run(delete_automated_daily_older_than(days=days, dry_run=dry_run))
         if not dry_run:

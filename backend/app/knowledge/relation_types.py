@@ -6,25 +6,27 @@
 
 # ── 关系类型常量 ──────────────────────────────────────
 
-RELATIONSHIP_TYPES = frozenset({
-    "BELONGS_TO",
-    "PRODUCES",
-    "DIRECTLY_SUPPLIES_TO",
-    "SUPPLIES_TO",
-    "USES",
-    "APPLIES_TO",
-    "COMPETES_WITH",
-    "STATE_TRANSITION",
-    "DISCLOSES",
-    "CATALYZES",
-    "CONSTRAINS",
-    "CONTRADICTS",
-    "SUBSTITUTES",
-    "INVESTS_IN",
-    "PARTNERS_WITH",
-    "ACQUIRES",
-    "SUPPLIES",
-})
+RELATIONSHIP_TYPES = frozenset(
+    {
+        "BELONGS_TO",
+        "PRODUCES",
+        "DIRECTLY_SUPPLIES_TO",
+        "SUPPLIES_TO",
+        "USES",
+        "APPLIES_TO",
+        "COMPETES_WITH",
+        "STATE_TRANSITION",
+        "DISCLOSES",
+        "CATALYZES",
+        "CONSTRAINS",
+        "CONTRADICTS",
+        "SUBSTITUTES",
+        "INVESTS_IN",
+        "PARTNERS_WITH",
+        "ACQUIRES",
+        "SUPPLIES",
+    }
+)
 
 # 关系描述
 RELATIONSHIP_DESCRIPTIONS = {

@@ -1,4 +1,5 @@
 """MemoryQueue-lite for post-run investment research memory updates."""
+
 from __future__ import annotations
 
 import threading
@@ -16,8 +17,7 @@ class MemoryJob:
 
 
 class MemoryUpdaterProtocol(Protocol):
-    def update(self, thread_id: str, agent_name: str | None, messages: list[dict]) -> None:
-        ...
+    def update(self, thread_id: str, agent_name: str | None, messages: list[dict]) -> None: ...
 
 
 class MemoryQueueLite:
@@ -71,4 +71,3 @@ class MemoryQueueLite:
     def pending_count(self) -> int:
         with self._lock:
             return len(self._jobs)
-

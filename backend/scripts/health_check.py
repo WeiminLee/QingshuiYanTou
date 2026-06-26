@@ -10,12 +10,12 @@
 
 任意一项失败 → 输出警告，不启动后端。
 """
+
 from __future__ import annotations
 
 import asyncio
-import json
-import sys
 import os
+import sys
 
 # 确保 backend 在路径中
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -32,8 +32,9 @@ async def main() -> int:
     print("  清水投研系统 · 启动前自检")
     print("=" * 50 + "\n")
 
-    import requests
     import asyncpg
+    import requests
+
     from app.config import settings
 
     all_ok = True
@@ -68,9 +69,7 @@ async def main() -> int:
     try:
         raw_url = settings.database_url
         # asyncpg 不支持 postgresql+asyncpg:// 格式，转为 postgres://
-        url = raw_url.replace("postgresql+asyncpg://", "postgres://").replace(
-            "postgresql://", "postgres://"
-        )
+        url = raw_url.replace("postgresql+asyncpg://", "postgres://").replace("postgresql://", "postgres://")
         conn = await asyncpg.connect(url, timeout=5)
         # 测试真实查询
         result = await conn.fetchval("SELECT 1")
@@ -127,7 +126,11 @@ async def main() -> int:
                     print("  ✗ 致命：LLM 响应异常，Agent 无法分析")
                     all_ok = False
             else:
-                error_msg = r.json().get("error", {}).get("message", r.text) if r.headers.get("content-type", "").startswith("application/json") else r.text
+                error_msg = (
+                    r.json().get("error", {}).get("message", r.text)
+                    if r.headers.get("content-type", "").startswith("application/json")
+                    else r.text
+                )
                 all_ok &= check("LLM", False, f"HTTP {r.status_code}: {error_msg[:100]}")
                 print("  ✗ 致命：LLM API 调用失败，Agent 无法分析")
                 print(f"     错误详情: {error_msg[:200]}")

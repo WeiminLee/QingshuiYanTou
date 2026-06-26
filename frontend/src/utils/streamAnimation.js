@@ -16,79 +16,79 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 /** @type {Map<string, object>} */
-const _plugins = new Map()
+const _plugins = new Map();
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 内置加载动画（thinking / tool 面板标题使用）
 // ─────────────────────────────────────────────────────────────────────────────
 
 registerStreamAnimation({
-  name: 'shimmer-color',
-  type: 'loading',
-  containerClass: 'persona-shimmer-color',
+  name: "shimmer-color",
+  type: "loading",
+  containerClass: "persona-shimmer-color",
   apply(el) {
-    el.classList.add('persona-shimmer-color')
-    return () => el.classList.remove('persona-shimmer-color')
+    el.classList.add("persona-shimmer-color");
+    return () => el.classList.remove("persona-shimmer-color");
   },
-})
+});
 
 registerStreamAnimation({
-  name: 'shimmer',
-  type: 'loading',
-  containerClass: 'persona-shimmer',
+  name: "shimmer",
+  type: "loading",
+  containerClass: "persona-shimmer",
   apply(el) {
-    el.classList.add('persona-shimmer')
-    return () => el.classList.remove('persona-shimmer')
+    el.classList.add("persona-shimmer");
+    return () => el.classList.remove("persona-shimmer");
   },
-})
+});
 
 registerStreamAnimation({
-  name: 'pulse',
-  type: 'loading',
-  containerClass: 'persona-pulse',
+  name: "pulse",
+  type: "loading",
+  containerClass: "persona-pulse",
   apply(el) {
-    el.classList.add('persona-pulse')
-    return () => el.classList.remove('persona-pulse')
+    el.classList.add("persona-pulse");
+    return () => el.classList.remove("persona-pulse");
   },
-})
+});
 
 registerStreamAnimation({
-  name: 'rainbow',
-  type: 'loading',
-  containerClass: 'persona-rainbow',
+  name: "rainbow",
+  type: "loading",
+  containerClass: "persona-rainbow",
   apply(el) {
-    el.classList.add('persona-rainbow')
-    return () => el.classList.remove('persona-rainbow')
+    el.classList.add("persona-rainbow");
+    return () => el.classList.remove("persona-rainbow");
   },
-})
+});
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 内置流式动画
 // ─────────────────────────────────────────────────────────────────────────────
 
 registerStreamAnimation({
-  name: 'word-fade',
-  type: 'stream',
-  containerClass: 'persona-stream-word-fade',
-  wrap: 'word',
-  skipTags: new Set(['pre', 'code', 'a', 'script', 'style', 'img', 'table']),
+  name: "word-fade",
+  type: "stream",
+  containerClass: "persona-stream-word-fade",
+  wrap: "word",
+  skipTags: new Set(["pre", "code", "a", "script", "style", "img", "table"]),
   useCaret: true,
   wrapContent(html, messageId, opts = {}) {
-    return wrapStreamAnimation(html, 'word', messageId, opts)
+    return wrapStreamAnimation(html, "word", messageId, opts);
   },
-})
+});
 
 registerStreamAnimation({
-  name: 'typewriter',
-  type: 'stream',
-  containerClass: 'persona-stream-typewriter',
-  wrap: 'char',
-  skipTags: new Set(['pre', 'code']),
+  name: "typewriter",
+  type: "stream",
+  containerClass: "persona-stream-typewriter",
+  wrap: "char",
+  skipTags: new Set(["pre", "code"]),
   useCaret: true,
   wrapContent(html, messageId, opts = {}) {
-    return wrapStreamAnimation(html, 'char', messageId, opts)
+    return wrapStreamAnimation(html, "char", messageId, opts);
   },
-})
+});
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 核心 API
@@ -107,8 +107,8 @@ registerStreamAnimation({
  * @param {function} [plugin.wrapContent] - stream 动画 wrapContent(html, id, opts)
  */
 export function registerStreamAnimation(plugin) {
-  if (!plugin.name) throw new Error('[streamAnimation] plugin.name is required')
-  _plugins.set(plugin.name, plugin)
+  if (!plugin.name) throw new Error("[streamAnimation] plugin.name is required");
+  _plugins.set(plugin.name, plugin);
 }
 
 /**
@@ -117,7 +117,7 @@ export function registerStreamAnimation(plugin) {
  * @returns {object|undefined}
  */
 export function getStreamAnimation(name) {
-  return _plugins.get(name)
+  return _plugins.get(name);
 }
 
 /**
@@ -125,9 +125,9 @@ export function getStreamAnimation(name) {
  * @param {'loading'|'stream'|null} type
  */
 export function getAllAnimations(type = null) {
-  const all = [..._plugins.values()]
-  if (!type) return all
-  return all.filter(p => p.type === type)
+  const all = [..._plugins.values()];
+  if (!type) return all;
+  return all.filter((p) => p.type === type);
 }
 
 /**
@@ -138,13 +138,13 @@ export function getAllAnimations(type = null) {
  * @returns {function|null} cleanup 函数
  */
 export function applyLoadingAnimation(el, name, context) {
-  const plugin = _plugins.get(name)
-  if (!plugin || plugin.type !== 'loading') {
-    console.warn(`[streamAnimation] Unknown loading animation: ${name}`)
-    return null
+  const plugin = _plugins.get(name);
+  if (!plugin || plugin.type !== "loading") {
+    console.warn(`[streamAnimation] Unknown loading animation: ${name}`);
+    return null;
   }
-  if (typeof plugin.apply !== 'function') return null
-  return plugin.apply(el, context)
+  if (typeof plugin.apply !== "function") return null;
+  return plugin.apply(el, context);
 }
 
 /**
@@ -152,10 +152,10 @@ export function applyLoadingAnimation(el, name, context) {
  * @returns {HTMLElement}
  */
 export function createStreamCaret() {
-  const span = document.createElement('span')
-  span.className = 'persona-stream-caret'
-  span.setAttribute('aria-hidden', 'true')
-  return span
+  const span = document.createElement("span");
+  span.className = "persona-stream-caret";
+  span.setAttribute("aria-hidden", "true");
+  return span;
 }
 
 /**
@@ -170,13 +170,13 @@ export function createStreamCaret() {
  * @returns {string} 包裹后的 HTML
  */
 export function wrapStreamAnimation(html, wrap, messageId, opts = {}) {
-  const skipTags = opts.skipTags || new Set(['pre', 'code'])
-  const useCaret = opts.useCaret !== undefined ? opts.useCaret : true
+  const skipTags = opts.skipTags || new Set(["pre", "code"]);
+  const useCaret = opts.useCaret !== undefined ? opts.useCaret : true;
 
-  if (wrap === 'none' || !html) return html
-  if (wrap === 'word') return _wrapByWord(html, messageId, skipTags)
-  if (wrap === 'char') return _wrapByChar(html, messageId, skipTags)
-  return html
+  if (wrap === "none" || !html) return html;
+  if (wrap === "word") return _wrapByWord(html, messageId, skipTags);
+  if (wrap === "char") return _wrapByChar(html, messageId, skipTags);
+  return html;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -184,96 +184,109 @@ export function wrapStreamAnimation(html, wrap, messageId, opts = {}) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 function _wrapByWord(html, messageId, skipTags) {
-  const tmpl = document.createElement('template')
-  tmpl.innerHTML = html
-  const frag = tmpl.content
+  const tmpl = document.createElement("template");
+  tmpl.innerHTML = html;
+  const frag = tmpl.content;
 
   function walk(node) {
     if (node.nodeType === Node.ELEMENT_NODE) {
-      const tag = node.tagName.toLowerCase()
-      if (skipTags.has(tag)) return
-      Array.from(node.childNodes).forEach(walk)
-      return
+      const tag = node.tagName.toLowerCase();
+      if (skipTags.has(tag)) return;
+      Array.from(node.childNodes).forEach(walk);
+      return;
     }
-    if (node.nodeType !== Node.TEXT_NODE) return
-    const text = node.textContent
-    if (!text.trim()) return
+    if (node.nodeType !== Node.TEXT_NODE) return;
+    const text = node.textContent;
+    if (!text.trim()) return;
 
-    const wrapper = document.createElement('span')
-    wrapper.className = 'persona-word-stream'
-    wrapper.setAttribute('data-msg', messageId)
+    const wrapper = document.createElement("span");
+    wrapper.className = "persona-word-stream";
+    wrapper.setAttribute("data-msg", messageId);
 
-    const words = text.split(/(\s+)/)
-    const docFrag = document.createDocumentFragment()
+    const words = text.split(/(\s+)/);
+    const docFrag = document.createDocumentFragment();
     words.forEach((word) => {
       if (/^\s+$/.test(word)) {
-        docFrag.appendChild(document.createTextNode(word))
+        docFrag.appendChild(document.createTextNode(word));
       } else {
-        const span = document.createElement('span')
-        span.className = 'word-span'
-        span.textContent = word
-        docFrag.appendChild(span)
+        const span = document.createElement("span");
+        span.className = "word-span";
+        span.textContent = word;
+        docFrag.appendChild(span);
       }
-    })
+    });
 
-    node.parentNode.replaceChild(wrapper, node)
-    wrapper.appendChild(docFrag)
+    node.parentNode.replaceChild(wrapper, node);
+    wrapper.appendChild(docFrag);
   }
 
-  Array.from(frag.childNodes).forEach(walk)
+  Array.from(frag.childNodes).forEach(walk);
   // 返回序列化后的 HTML
-  const div = document.createElement('div')
-  div.appendChild(frag)
-  return div.innerHTML
+  const div = document.createElement("div");
+  div.appendChild(frag);
+  return div.innerHTML;
 }
 
 function _wrapByChar(html, messageId, skipTags) {
   // 字符级包裹：先提取标签，再包裹纯文本
-  const parts = []
-  let lastIdx = 0
-  const regex = /<(\/?)([\w-]+)[^>]*>/g
-  let match
+  const parts = [];
+  let lastIdx = 0;
+  const regex = /<(\/?)([\w-]+)[^>]*>/g;
+  let match;
 
   while ((match = regex.exec(html)) !== null) {
     // 包裹前面的纯文本
-    const before = html.slice(lastIdx, match.index)
+    const before = html.slice(lastIdx, match.index);
     if (before) {
-      parts.push(_charWrapText(before, messageId))
+      parts.push(_charWrapText(before, messageId));
     }
-    parts.push(match[0])
-    lastIdx = match.index + match[0].length
+    parts.push(match[0]);
+    lastIdx = match.index + match[0].length;
   }
 
   // 剩余文本
-  const rest = html.slice(lastIdx)
-  if (rest) parts.push(_charWrapText(rest, messageId))
+  const rest = html.slice(lastIdx);
+  if (rest) parts.push(_charWrapText(rest, messageId));
 
-  return parts.join('')
+  return parts.join("");
 }
 
 function _charWrapText(text, messageId) {
-  let result = ''
-  let inTag = false
-  let currentTag = ''
+  let result = "";
+  let inTag = false;
+  let currentTag = "";
 
   for (let i = 0; i < text.length; i++) {
-    const ch = text[i]
-    if (ch === '<') { inTag = true; currentTag = ch; continue }
-    if (ch === '>') { inTag = false; currentTag += ch; result += currentTag; currentTag = ''; continue }
+    const ch = text[i];
+    if (ch === "<") {
+      inTag = true;
+      currentTag = ch;
+      continue;
+    }
+    if (ch === ">") {
+      inTag = false;
+      currentTag += ch;
+      result += currentTag;
+      currentTag = "";
+      continue;
+    }
 
-    if (inTag) { currentTag += ch; continue }
+    if (inTag) {
+      currentTag += ch;
+      continue;
+    }
 
-    result += `<span class="char-span" data-msg="${messageId}">${_escapeHtml(ch)}</span>`
+    result += `<span class="char-span" data-msg="${messageId}">${_escapeHtml(ch)}</span>`;
   }
-  return result
+  return result;
 }
 
 function _escapeHtml(str) {
   return str
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -350,4 +363,4 @@ export const ANIMATION_CSS = `
   0%, 100% { opacity: 1; }
   50%       { opacity: 0; }
 }
-`
+`;

@@ -241,11 +241,7 @@ def test_worker_marks_success(monkeypatch) -> None:
 
     monkeypatch.setattr(job_worker, "execute_ingestion_job", fake_execute)
 
-    result = asyncio.run(
-        job_worker.IngestionJobWorker(queue=queue, worker_id="test-worker").run_once(
-            limit=5
-        )
-    )
+    result = asyncio.run(job_worker.IngestionJobWorker(queue=queue, worker_id="test-worker").run_once(limit=5))
 
     assert result == {
         "claimed": 1,
@@ -285,9 +281,7 @@ def test_worker_marks_failure_on_exception(monkeypatch) -> None:
 
     monkeypatch.setattr(job_worker, "execute_ingestion_job", fake_execute)
 
-    result = asyncio.run(
-        job_worker.IngestionJobWorker(queue=queue, worker_id="test-worker").run_once()
-    )
+    result = asyncio.run(job_worker.IngestionJobWorker(queue=queue, worker_id="test-worker").run_once())
 
     assert result == {
         "claimed": 1,
@@ -333,11 +327,7 @@ def test_worker_retries_partial_fetcher_result(monkeypatch) -> None:
 
     monkeypatch.setattr(job_worker, "execute_ingestion_job", fake_execute)
 
-    result = asyncio.run(
-        job_worker.IngestionJobWorker(queue=queue, worker_id="test-worker").run_once(
-            limit=5
-        )
-    )
+    result = asyncio.run(job_worker.IngestionJobWorker(queue=queue, worker_id="test-worker").run_once(limit=5))
 
     assert result["failed"] == 1
     queue.mark_failure.assert_awaited_once_with(
@@ -379,9 +369,7 @@ def test_worker_marks_partial(monkeypatch) -> None:
 
     monkeypatch.setattr(job_worker, "execute_ingestion_job", fake_execute)
 
-    result = asyncio.run(
-        job_worker.IngestionJobWorker(queue=queue, worker_id="test-worker").run_once()
-    )
+    result = asyncio.run(job_worker.IngestionJobWorker(queue=queue, worker_id="test-worker").run_once())
 
     assert result == {
         "claimed": 1,
@@ -425,9 +413,7 @@ def test_worker_counts_lost_lock_when_success_mark_loses_lock(monkeypatch) -> No
 
     monkeypatch.setattr(job_worker, "execute_ingestion_job", fake_execute)
 
-    result = asyncio.run(
-        job_worker.IngestionJobWorker(queue=queue, worker_id="test-worker").run_once()
-    )
+    result = asyncio.run(job_worker.IngestionJobWorker(queue=queue, worker_id="test-worker").run_once())
 
     assert result == {
         "claimed": 1,
@@ -470,9 +456,7 @@ def test_worker_counts_lost_lock_when_partial_mark_loses_lock(monkeypatch) -> No
 
     monkeypatch.setattr(job_worker, "execute_ingestion_job", fake_execute)
 
-    result = asyncio.run(
-        job_worker.IngestionJobWorker(queue=queue, worker_id="test-worker").run_once()
-    )
+    result = asyncio.run(job_worker.IngestionJobWorker(queue=queue, worker_id="test-worker").run_once())
 
     assert result == {
         "claimed": 1,
@@ -515,9 +499,7 @@ def test_worker_counts_lost_lock_when_failure_mark_loses_lock(monkeypatch) -> No
 
     monkeypatch.setattr(job_worker, "execute_ingestion_job", fake_execute)
 
-    result = asyncio.run(
-        job_worker.IngestionJobWorker(queue=queue, worker_id="test-worker").run_once()
-    )
+    result = asyncio.run(job_worker.IngestionJobWorker(queue=queue, worker_id="test-worker").run_once())
 
     assert result == {
         "claimed": 1,

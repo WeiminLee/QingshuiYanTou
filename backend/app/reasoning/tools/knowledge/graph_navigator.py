@@ -4,12 +4,12 @@ resolve + expand — 图谱导航工具。
 resolve: 将自然语言查询锚定到图谱中的具体实体。
 expand:  受控展开图谱子图，按需选择查询字段和过滤条件。
 """
+
 from __future__ import annotations
 
 import logging
 import re
 import unicodedata
-from typing import Annotated
 
 from langchain_core.tools import tool
 
@@ -17,10 +17,19 @@ logger = logging.getLogger(__name__)
 
 # ── 常量 ───────────────────────────────────────────────────────
 
-_SELECT_FIELDS = frozenset({
-    "properties", "relations", "metrics", "products",
-    "companies", "upstream", "downstream", "peers", "divergence",
-})
+_SELECT_FIELDS = frozenset(
+    {
+        "properties",
+        "relations",
+        "metrics",
+        "products",
+        "companies",
+        "upstream",
+        "downstream",
+        "peers",
+        "divergence",
+    }
+)
 
 _UPSTREAM_SUBTYPES = {"supplied_by", "provided_by", "purchased_from", "sourced_from"}
 _DOWNSTREAM_SUBTYPES = {"supplies_to", "provides_to", "sells_to", "produces"}
@@ -73,12 +82,14 @@ def _search_entity_by_name(query: str, entity_type: str | None = None) -> list[d
             labels = row.get("labels", [])
             # 取第一个非空 label 作为 type
             etype = next((l for l in labels if l in _ENTITY_TYPE_PREFIX), labels[0] if labels else "Unknown")
-            results.append({
-                "entity_id": row["entity_id"],
-                "name": row.get("name", norm),
-                "type": etype,
-                "score": 1.0,
-            })
+            results.append(
+                {
+                    "entity_id": row["entity_id"],
+                    "name": row.get("name", norm),
+                    "type": etype,
+                    "score": 1.0,
+                }
+            )
 
     if results:
         return results
@@ -87,7 +98,7 @@ def _search_entity_by_name(query: str, entity_type: str | None = None) -> list[d
     cypher = "MATCH (n) WHERE n.name CONTAINS $query"
     params: dict = {"query": norm}
     if entity_type:
-        cypher += f" AND ANY(l IN labels(n) WHERE l = $etype)"
+        cypher += " AND ANY(l IN labels(n) WHERE l = $etype)"
         params["etype"] = entity_type
     cypher += " RETURN n.entity_id AS entity_id, n.name AS name, labels(n) AS labels LIMIT 10"
     rows = run(cypher, params)
@@ -96,12 +107,14 @@ def _search_entity_by_name(query: str, entity_type: str | None = None) -> list[d
         etype = next((l for l in labels if l in _ENTITY_TYPE_PREFIX), labels[0] if labels else "Unknown")
         # 简单评分：完全匹配 0.9，包含匹配 0.7
         score = 0.9 if row.get("name") == norm else 0.7
-        results.append({
-            "entity_id": row["entity_id"],
-            "name": row.get("name", ""),
-            "type": etype,
-            "score": score,
-        })
+        results.append(
+            {
+                "entity_id": row["entity_id"],
+                "name": row.get("name", ""),
+                "type": etype,
+                "score": score,
+            }
+        )
 
     return results
 
@@ -192,23 +205,25 @@ def _fetch_typed_neighbors(entity_id: str, neighbor_type: str, filter_: dict | N
         cypher += " AND r.relation_subtype IN $subtypes"
         params["subtypes"] = subtypes
 
-    cypher += f" RETURN b.entity_id AS entity_id, b.name AS name, labels(b) AS labels, r.text AS text, r.weight AS weight, r.stmt_type AS stmt_type, r.relation_subtype AS relation_subtype, r.source AS source, r.confidence AS confidence ORDER BY r.weight DESC LIMIT 50"
+    cypher += " RETURN b.entity_id AS entity_id, b.name AS name, labels(b) AS labels, r.text AS text, r.weight AS weight, r.stmt_type AS stmt_type, r.relation_subtype AS relation_subtype, r.source AS source, r.confidence AS confidence ORDER BY r.weight DESC LIMIT 50"
     rows = run(cypher, params)
     result = []
     for row in rows:
         labels = row.get("labels", [])
         etype = next((l for l in labels if l in _ENTITY_TYPE_PREFIX), neighbor_type)
-        result.append({
-            "entity_id": row["entity_id"],
-            "name": row.get("name", ""),
-            "type": etype,
-            "stmt_type": row.get("stmt_type", ""),
-            "text": row.get("text", ""),
-            "weight": row.get("weight", 0),
-            "relation_subtype": row.get("relation_subtype", ""),
-            "source": row.get("source", ""),
-            "confidence": row.get("confidence"),
-        })
+        result.append(
+            {
+                "entity_id": row["entity_id"],
+                "name": row.get("name", ""),
+                "type": etype,
+                "stmt_type": row.get("stmt_type", ""),
+                "text": row.get("text", ""),
+                "weight": row.get("weight", 0),
+                "relation_subtype": row.get("relation_subtype", ""),
+                "source": row.get("source", ""),
+                "confidence": row.get("confidence"),
+            }
+        )
     return result
 
 
@@ -230,13 +245,15 @@ def _fetch_peers(entity_id: str, limit: int = 10) -> list[dict]:
     for row in rows:
         labels = row.get("labels", [])
         etype = next((l for l in labels if l in _ENTITY_TYPE_PREFIX), "Company")
-        result.append({
-            "entity_id": row["entity_id"],
-            "name": row.get("name", ""),
-            "type": etype,
-            "shared_count": row.get("shared_count", 0),
-            "shared_products": row.get("shared_products", []),
-        })
+        result.append(
+            {
+                "entity_id": row["entity_id"],
+                "name": row.get("name", ""),
+                "type": etype,
+                "shared_count": row.get("shared_count", 0),
+                "shared_products": row.get("shared_products", []),
+            }
+        )
     return result
 
 
@@ -253,7 +270,8 @@ def _fetch_chain(entity_id: str, direction: str, depth: int = 3, limit: int = 10
         subtypes = list(_UPSTREAM_SUBTYPES | _DOWNSTREAM_SUBTYPES)
 
     max_depth = min(depth, 5)
-    cypher = """
+    cypher = (
+        """
     MATCH path = (start)-[r:RELATES*1..%d]->(end)
     WHERE start.entity_id = $eid
       AND ALL(rel IN r WHERE rel.relation_subtype IN $subtypes)
@@ -262,7 +280,9 @@ def _fetch_chain(entity_id: str, direction: str, depth: int = 3, limit: int = 10
           text: rel.text, subtype: rel.relation_subtype, stmt_type: rel.stmt_type, weight: rel.weight}] AS edge_list
     RETURN node_list AS nodes, edge_list AS edges
     LIMIT $limit
-    """ % max_depth
+    """
+        % max_depth
+    )
     rows = run(cypher, {"eid": entity_id, "subtypes": subtypes, "limit": limit})
     return [{"nodes": r.get("nodes", []), "edges": r.get("edges", [])} for r in rows]
 
@@ -407,10 +427,7 @@ def expand(entity_id: str, select: list[str], filter_: dict | None = None) -> di
         return {"error": f"无效的 select 字段。可选值: {sorted(_SELECT_FIELDS)}"}
 
     # 构建 filter 子集，按需传递
-    rel_filter = {
-        k: v for k, v in filter_dict.items()
-        if k in ("stmt_types", "relation_subtypes")
-    } or None
+    rel_filter = {k: v for k, v in filter_dict.items() if k in ("stmt_types", "relation_subtypes")} or None
 
     for field in valid_selects:
         if field == "properties":

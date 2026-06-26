@@ -1,10 +1,10 @@
 """account 子包配置：读 users.yaml、派生 token 密钥、校验主密码"""
+
 from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List
 
 import yaml
 
@@ -21,7 +21,7 @@ def _settings():
     return _cfg.settings
 
 
-def load_users_from_yaml(path: Path | None = None) -> List[YamlUser]:
+def load_users_from_yaml(path: Path | None = None) -> list[YamlUser]:
     """读取 users.yaml，返回用户列表；文件不存在或解析失败抛错"""
     p = path or _settings().users_yaml_path
     if not p.exists():
@@ -30,7 +30,7 @@ def load_users_from_yaml(path: Path | None = None) -> List[YamlUser]:
     raw_users = data.get("users", [])
     if not isinstance(raw_users, list):
         raise ValueError("users.yaml 顶层 users 字段必须是列表")
-    out: List[YamlUser] = []
+    out: list[YamlUser] = []
     for item in raw_users:
         if not isinstance(item, dict):
             raise ValueError(f"users.yaml 条目必须是 dict: {item!r}")

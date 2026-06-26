@@ -6,15 +6,15 @@ tests/test_new_tools.py — Phase 2: 新工具单元测试
 - sandbox 文件工具（ls/read_file/write_file）
 - ask_clarification 澄清工具
 """
+
 from __future__ import annotations
 
 import os
 import tempfile
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
-
 
 # ── web_fetch ────────────────────────────────────────────────────────────────
 
@@ -102,10 +102,12 @@ class TestLsTool:
 
         # 设置 thread_id
         with patch.dict(os.environ, {"REASONING_THREAD_ID": "test_ls_001"}):
-            result = ls_tool.invoke({
-                "description": "测试",
-                "path": "/mnt/user-data/workspace/nonexistent_dir_xyz",
-            })
+            result = ls_tool.invoke(
+                {
+                    "description": "测试",
+                    "path": "/mnt/user-data/workspace/nonexistent_dir_xyz",
+                }
+            )
             assert "错误" in result or "不存在" in result
 
     def test_ls_empty_dir(self):
@@ -119,10 +121,12 @@ class TestLsTool:
                     ws = Path(td) / "test_ls_002" / "workspace"
                     ws.mkdir(parents=True)
 
-                    result = ls_tool.invoke({
-                        "description": "测试",
-                        "path": "/mnt/user-data/workspace",
-                    })
+                    result = ls_tool.invoke(
+                        {
+                            "description": "测试",
+                            "path": "/mnt/user-data/workspace",
+                        }
+                    )
                     assert "empty" in result or "(empty)" in result
 
 
@@ -134,10 +138,12 @@ class TestReadFileTool:
         from app.reasoning.tools.sandbox.file_tools import read_file_tool
 
         with patch.dict(os.environ, {"REASONING_THREAD_ID": "test_read_001"}):
-            result = read_file_tool.invoke({
-                "description": "测试",
-                "path": "/mnt/user-data/workspace/nonexistent.txt",
-            })
+            result = read_file_tool.invoke(
+                {
+                    "description": "测试",
+                    "path": "/mnt/user-data/workspace/nonexistent.txt",
+                }
+            )
             assert "错误" in result or "不存在" in result
 
     def test_read_file_success(self):
@@ -152,10 +158,12 @@ class TestReadFileTool:
                     f.parent.mkdir(parents=True)
                     f.write_text("Hello World", encoding="utf-8")
 
-                    result = read_file_tool.invoke({
-                        "description": "测试读取",
-                        "path": "/mnt/user-data/workspace/hello.txt",
-                    })
+                    result = read_file_tool.invoke(
+                        {
+                            "description": "测试读取",
+                            "path": "/mnt/user-data/workspace/hello.txt",
+                        }
+                    )
                     assert "Hello World" in result
                     assert "hello.txt" in result
 
@@ -172,12 +180,14 @@ class TestReadFileTool:
                     f.parent.mkdir(parents=True)
                     f.write_text(content, encoding="utf-8")
 
-                    result = read_file_tool.invoke({
-                        "description": "测试行范围",
-                        "path": "/mnt/user-data/workspace/multiline.txt",
-                        "start_line": 5,
-                        "end_line": 10,
-                    })
+                    result = read_file_tool.invoke(
+                        {
+                            "description": "测试行范围",
+                            "path": "/mnt/user-data/workspace/multiline.txt",
+                            "start_line": 5,
+                            "end_line": 10,
+                        }
+                    )
                     assert "line 5" in result
                     assert "line 10" in result
                     # "line 1\n" 不应出现在文件内容中（行1-4不在范围内）
@@ -194,11 +204,13 @@ class TestWriteFileTool:
         with tempfile.TemporaryDirectory() as td:
             with patch("app.reasoning.tools.sandbox.file_tools._STORAGE_ROOT", Path(td)):
                 with patch.dict(os.environ, {"REASONING_THREAD_ID": "test_write_001"}):
-                    result = write_file_tool.invoke({
-                        "description": "测试写入",
-                        "path": "/mnt/user-data/workspace/test.txt",
-                        "content": "Hello from test",
-                    })
+                    result = write_file_tool.invoke(
+                        {
+                            "description": "测试写入",
+                            "path": "/mnt/user-data/workspace/test.txt",
+                            "content": "Hello from test",
+                        }
+                    )
                     assert "成功" in result
 
                     # 验证文件存在
@@ -217,12 +229,14 @@ class TestWriteFileTool:
                     f.parent.mkdir(parents=True)
                     f.write_text("Line 1\n", encoding="utf-8")
 
-                    write_file_tool.invoke({
-                        "description": "测试追加",
-                        "path": "/mnt/user-data/workspace/append.txt",
-                        "content": "Line 2\n",
-                        "append": True,
-                    })
+                    write_file_tool.invoke(
+                        {
+                            "description": "测试追加",
+                            "path": "/mnt/user-data/workspace/append.txt",
+                            "content": "Line 2\n",
+                            "append": True,
+                        }
+                    )
 
                     content = f.read_text(encoding="utf-8")
                     assert "Line 1" in content
@@ -237,23 +251,28 @@ class TestAskClarificationTool:
 
     def test_ask_clarification_returns_pending_message(self):
         """ask_clarification 应返回等待提示"""
-        from app.reasoning.tools.builtins.clarification import ask_clarification, clear_clarifications
+        from app.reasoning.tools.builtins.clarification import (
+            ask_clarification,
+            clear_clarifications,
+        )
 
         clear_clarifications()
 
-        result = ask_clarification.invoke({
-            "question": "请问您想分析哪只股票？",
-            "clarification_type": "missing_info",
-        })
+        result = ask_clarification.invoke(
+            {
+                "question": "请问您想分析哪只股票？",
+                "clarification_type": "missing_info",
+            }
+        )
         assert "澄清请求" in result
         assert "请问您想分析哪只股票？" in result
 
     def test_push_and_pop_clarification(self):
         """push_clarification / pop_clarification 应成对工作"""
         from app.reasoning.tools.builtins.clarification import (
-            push_clarification,
-            pop_clarification,
             clear_clarifications,
+            pop_clarification,
+            push_clarification,
         )
 
         clear_clarifications()
@@ -282,10 +301,10 @@ class TestAskClarificationTool:
     def test_has_pending_clarification(self):
         """has_pending_clarification 应正确反映队列状态"""
         from app.reasoning.tools.builtins.clarification import (
-            push_clarification,
-            pop_clarification,
-            has_pending_clarification,
             clear_clarifications,
+            has_pending_clarification,
+            pop_clarification,
+            push_clarification,
         )
 
         clear_clarifications()

@@ -18,6 +18,7 @@ TDesign SuggestionItem 格式要求：
 - title: 显示给用户的选项文本（简短、清晰）
 - prompt: 用户点击后发送给 AI 的内容（可选，默认使用 title）
 """
+
 from __future__ import annotations
 
 import logging
@@ -30,10 +31,10 @@ logger = logging.getLogger(__name__)
 _PENDING_CLARIFICATIONS: dict[str, dict] = {}
 
 ClarificationType = Literal[
-    "missing_info",      # 缺少必要信息
-    "ambiguous",         # 需求模糊
-    "approach_choice",   # 需要选择方案
-    "risk_confirmation", # 需要确认风险
+    "missing_info",  # 缺少必要信息
+    "ambiguous",  # 需求模糊
+    "approach_choice",  # 需要选择方案
+    "risk_confirmation",  # 需要确认风险
 ]
 
 
@@ -75,7 +76,7 @@ def ask_clarification(
     ],
     options: Annotated[
         list[dict] | None,
-        "选项列表，每个选项为 {\"title\": \"显示文本\", \"prompt\": \"点击后发送内容\"}。"
+        '选项列表，每个选项为 {"title": "显示文本", "prompt": "点击后发送内容"}。'
         "仅用于 approach_choice 类型，提供2-4个选项。title 不超过15字。",
     ] = None,
     context: Annotated[
@@ -114,7 +115,7 @@ def ask_clarification(
     # 格式化澄清消息（中间件会拦截并格式化，这里返回原始数据）
     options_str = ""
     if options and clarification_type == "approach_choice":
-        options_str = "\\n".join([f"  {i+1}. {opt.get('title', opt)}" for i, opt in enumerate(options[:4])])
+        options_str = "\\n".join([f"  {i + 1}. {opt.get('title', opt)}" for i, opt in enumerate(options[:4])])
 
     clarification_id = push_clarification(
         question=question,

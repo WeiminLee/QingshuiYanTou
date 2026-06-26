@@ -3,6 +3,7 @@ DataFetcher - 数据获取服务
 
 协调 DataSourceClient 抓数 + PostgreSQL 入库 + 文件落盘。
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -11,10 +12,10 @@ import logging
 import math
 import random
 import uuid
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 from functools import partial
 from pathlib import Path
-from typing import Any, Iterable, Optional
+from typing import Any
 
 import pytz
 from sqlalchemy import text
@@ -24,19 +25,14 @@ from app.core.database import engine
 from app.core.mongodb import get_mongo_db
 from app.data_pipeline.announcement_filter import (
     DOC_TYPE_SAVE as ANN_DOC_TYPE_SAVE,
-    classify_title as classify_ann_title,
-    get_doc_type as get_ann_doc_type,
-    should_download,
 )
-from app.data_pipeline.report_filter import (
-    classify_title as classify_report_title,
-    get_doc_type as get_report_doc_type,
-    should_save,
+from app.data_pipeline.announcement_filter import (
+    classify_title as classify_ann_title,
 )
 from app.data_pipeline.cninfo_client import CninfoClient
 from app.data_pipeline.data_source import DataSourceClient
-from app.data_pipeline.minishare_client import DataSourceClientMinishare
 from app.data_pipeline.file_storage import FileStorage
+from app.data_pipeline.minishare_client import DataSourceClientMinishare
 from app.data_pipeline.progress import (
     FAILED,
     PARTIAL,
@@ -46,6 +42,9 @@ from app.data_pipeline.progress import (
 from app.data_pipeline.rate_limiter import (
     get_akshare_limiter,
 )
+from app.data_pipeline.report_filter import (
+    should_save,
+)
 from app.logging.logger import AsyncAuditLogger, generate_task_id, set_task_id
 
 logger = logging.getLogger(__name__)
@@ -53,29 +52,30 @@ logger = logging.getLogger(__name__)
 
 # ── 常量 ───────────────────────────────────────────────
 
-IRM_CONCURRENCY = 4                # 互动易并发抓取度（保护接口 & 避免被反爬）
-IRM_SLEEP_BASE = 1.0               # 每只股票最小间隔（秒）
-IRM_SLEEP_JITTER = 1.0             # 附加随机抖动
-IRM_PROGRESS_EVERY = 10            # 互动易接入进度事件节流
-CONCEPT_CODE_PREFIX = "CN_"        # 自造概念板块代码前缀，避免与 THS TI 代码冲突
+IRM_CONCURRENCY = 4  # 互动易并发抓取度（保护接口 & 避免被反爬）
+IRM_SLEEP_BASE = 1.0  # 每只股票最小间隔（秒）
+IRM_SLEEP_JITTER = 1.0  # 附加随机抖动
+IRM_PROGRESS_EVERY = 10  # 互动易接入进度事件节流
+CONCEPT_CODE_PREFIX = "CN_"  # 自造概念板块代码前缀，避免与 THS TI 代码冲突
 CNINFO_PROGRESS_EVERY = 50
 
 # Phase 31 D-A2/A5 — 全市场个股 K 线采集
-STOCK_KLINE_CONCURRENCY = 8           # baostock 服务端可承受的并发（保守值，可 4-16 调整）
-STOCK_KLINE_SLEEP_BASE = 0.3          # worker 内 sleep 基线（秒）
-STOCK_KLINE_SLEEP_JITTER = 0.4        # worker sleep 随机抖动上限
-STOCK_KLINE_RECONNECT_EVERY = 500     # 每 N 只重连一次（防 baostock 长连接 broken pipe）
-STOCK_KLINE_BACKFILL_DAYS = 30        # 首次回填窗口（D-A5：agent 分析常用窗口）
+STOCK_KLINE_CONCURRENCY = 8  # baostock 服务端可承受的并发（保守值，可 4-16 调整）
+STOCK_KLINE_SLEEP_BASE = 0.3  # worker 内 sleep 基线（秒）
+STOCK_KLINE_SLEEP_JITTER = 0.4  # worker sleep 随机抖动上限
+STOCK_KLINE_RECONNECT_EVERY = 500  # 每 N 只重连一次（防 baostock 长连接 broken pipe）
+STOCK_KLINE_BACKFILL_DAYS = 30  # 首次回填窗口（D-A5：agent 分析常用窗口）
 
 # Phase 31 I: IRM MongoDB checkpoint
 IRM_CHECKPOINT_COLLECTION = "irm_checkpoint"
-IRM_CHECKPOINT_WINDOW_HOURS = 20   # 20 小时内成功过的 ts_code 跳过
+IRM_CHECKPOINT_WINDOW_HOURS = 20  # 20 小时内成功过的 ts_code 跳过
 
 # 中国时区常量（用于 IRM checkpoint 等时间敏感操作）
 SH_TZ = pytz.timezone("Asia/Shanghai")
 
 
 # ── 工具函数 ────────────────────────────────────────────
+
 
 def _stable_id(prefix: str, *parts: str) -> str:
     """生成确定性唯一ID（进程重启后不变）。"""
@@ -135,6 +135,7 @@ def _concept_code(concept_name: str) -> str:
 
 # ── DataFetcher ────────────────────────────────────────
 
+
 class DataFetcher:
     """数据获取服务"""
 
@@ -181,14 +182,16 @@ class DataFetcher:
             if not ann_id:
                 ann_id = _stable_id("report", trade_date, title, inst_csname)
 
-            candidates.append({
-                "ann_id": ann_id,
-                "ts_code": ts_code,
-                "title": title,
-                "inst_csname": inst_csname,
-                "author": author,
-                "url": url,
-            })
+            candidates.append(
+                {
+                    "ann_id": ann_id,
+                    "ts_code": ts_code,
+                    "title": title,
+                    "inst_csname": inst_csname,
+                    "author": author,
+                    "url": url,
+                }
+            )
 
         # ── G 修复第 2 步：批量 EXISTS 预查询 ──
         candidate_ann_ids = [c["ann_id"] for c in candidates]
@@ -212,14 +215,13 @@ class DataFetcher:
                 skipped += 1
                 continue
 
-            file_path: Path | None = None
             if c["url"]:
                 safe_title = c["title"][:50].replace("/", "_").replace(" ", "")
                 if not safe_title.lower().endswith(".pdf"):
                     safe_title += ".pdf"
                 filename = f"{c['ann_id']}_{safe_title}"
                 # Phase 31 CR-02 fix: offload synchronous FileStorage.download_report to thread pool
-                file_path = await asyncio.to_thread(
+                await asyncio.to_thread(
                     self.storage.download_report,
                     url=c["url"],
                     ts_code=c["ts_code"],
@@ -246,7 +248,11 @@ class DataFetcher:
 
         logger.info(
             "研报获取完成: 总 %d，预跳过 %d，总跳过 %d，新增 %d，失败 %d",
-            total, len(existing), skipped, success, fail,
+            total,
+            len(existing),
+            skipped,
+            success,
+            fail,
         )
         return {"total": total, "success": success, "skipped": skipped, "fail": fail}
 
@@ -307,14 +313,16 @@ class DataFetcher:
             if not ann_id:
                 ann_id = _stable_id("ms_report", trade_date, title, inst_csname)
 
-            candidates.append({
-                "ann_id": ann_id,
-                "ts_code": ts_code_val,
-                "title": title,
-                "inst_csname": inst_csname,
-                "author": author,
-                "url": url,
-            })
+            candidates.append(
+                {
+                    "ann_id": ann_id,
+                    "ts_code": ts_code_val,
+                    "title": title,
+                    "inst_csname": inst_csname,
+                    "author": author,
+                    "url": url,
+                }
+            )
 
         candidate_ann_ids = [c["ann_id"] for c in candidates]
         existing: set[str] = set()
@@ -354,9 +362,18 @@ class DataFetcher:
 
         logger.info(
             "minishare 研报获取完成: 总 %d，新增 %d，跳过 %d，失败 %d",
-            total, success, skipped, fail,
+            total,
+            success,
+            skipped,
+            fail,
         )
-        return {"total": total, "success": success, "skipped": skipped, "fail": fail, "source": "minishare"}
+        return {
+            "total": total,
+            "success": success,
+            "skipped": skipped,
+            "fail": fail,
+            "source": "minishare",
+        }
 
     async def fetch_minishare_reports_history(
         self,
@@ -381,7 +398,14 @@ class DataFetcher:
 
         if not self.minishare_client.research_available:
             logger.warning("minishare 研报 token 未配置，跳过")
-            return {"total_days": 0, "success": 0, "skipped": 0, "downloaded": 0, "fail": 0, "source": "minishare"}
+            return {
+                "total_days": 0,
+                "success": 0,
+                "skipped": 0,
+                "downloaded": 0,
+                "fail": 0,
+                "source": "minishare",
+            }
 
         tracker = IngestionProgressTracker(
             source="minishare",
@@ -436,7 +460,7 @@ class DataFetcher:
             if not reports:
                 await tracker.save_checkpoint(
                     last_success_watermark=date_str,
-                    last_success_at=datetime.now(timezone.utc),
+                    last_success_at=datetime.now(UTC),
                     last_status="running",
                 )
                 await tracker.update_run(
@@ -471,14 +495,16 @@ class DataFetcher:
                 if not ann_id:
                     ann_id = _stable_id("ms_report", date_str, title, inst_csname)
 
-                candidates.append({
-                    "ann_id": ann_id,
-                    "ts_code": ts_code_val,
-                    "title": title,
-                    "inst_csname": inst_csname,
-                    "author": author,
-                    "url": url,
-                })
+                candidates.append(
+                    {
+                        "ann_id": ann_id,
+                        "ts_code": ts_code_val,
+                        "title": title,
+                        "inst_csname": inst_csname,
+                        "author": author,
+                        "url": url,
+                    }
+                )
 
             candidate_ids = [c["ann_id"] for c in candidates]
             existing: set[str] = set()
@@ -542,7 +568,7 @@ class DataFetcher:
             # 保存断点
             await tracker.save_checkpoint(
                 last_success_watermark=date_str,
-                last_success_at=datetime.now(timezone.utc),
+                last_success_at=datetime.now(UTC),
                 last_status="running",
             )
             await tracker.update_run(
@@ -590,7 +616,13 @@ class DataFetcher:
 
         logger.info(
             "minishare 研报历史同步完成: %s~%s，日期 %d 天，入库 %d，跳过 %d，下载 %d，失败 %d",
-            resume_start, end_date, total_days, total_success, total_skipped, total_downloaded, total_fail,
+            resume_start,
+            end_date,
+            total_days,
+            total_success,
+            total_skipped,
+            total_downloaded,
+            total_fail,
         )
         return {
             "total_days": total_days,
@@ -633,7 +665,9 @@ class DataFetcher:
             records = self.minishare_client.get_announcements(ann_date=ann_date)
         elif ts_code and start_date and end_date:
             records = self.minishare_client.get_announcements(
-                ts_code=ts_code, start_date=start_date, end_date=end_date,
+                ts_code=ts_code,
+                start_date=start_date,
+                end_date=end_date,
             )
         else:
             logger.warning("fetch_minishare_announcements 需要 ann_date 或 ts_code+日期范围")
@@ -642,6 +676,7 @@ class DataFetcher:
         success = skipped = fail = 0
         # 白名单过滤：scope=tech_mvp 时仅处理白名单股票公告
         from app.data_pipeline.backfill_config import load_backfill_settings
+
         bf_cfg = load_backfill_settings()
         for rec in records:
             title = str(rec.get("title") or "")
@@ -664,7 +699,10 @@ class DataFetcher:
 
         logger.info(
             "minishare 公告同步完成: %s，入库 %d，跳过 %d，失败 %d",
-            ann_date or f"{ts_code}({start_date}~{end_date})", success, skipped, fail,
+            ann_date or f"{ts_code}({start_date}~{end_date})",
+            success,
+            skipped,
+            fail,
         )
         return {"success": success, "skipped": skipped, "fail": fail, "source": "minishare"}
 
@@ -738,7 +776,7 @@ class DataFetcher:
             if not records:
                 await tracker.save_checkpoint(
                     last_success_watermark=date_str,
-                    last_success_at=datetime.now(timezone.utc),
+                    last_success_at=datetime.now(UTC),
                     last_status="running",
                 )
                 await tracker.update_run(
@@ -753,6 +791,7 @@ class DataFetcher:
             day_success = day_skipped = day_fail = 0
             # 白名单过滤：scope=tech_mvp 时仅处理白名单股票公告
             from app.data_pipeline.backfill_config import load_backfill_settings
+
             bf_cfg = load_backfill_settings()
             for rec in records:
                 title = str(rec.get("title") or "")
@@ -780,7 +819,7 @@ class DataFetcher:
 
             await tracker.save_checkpoint(
                 last_success_watermark=date_str,
-                last_success_at=datetime.now(timezone.utc),
+                last_success_at=datetime.now(UTC),
                 last_status="running",
             )
             await tracker.update_run(
@@ -821,7 +860,12 @@ class DataFetcher:
 
         logger.info(
             "minishare 公告历史同步完成: %s~%s，日期 %d 天，入库 %d，跳过 %d，失败 %d",
-            resume_start, end_date, total_days, total_success, total_skipped, total_fail,
+            resume_start,
+            end_date,
+            total_days,
+            total_success,
+            total_skipped,
+            total_fail,
         )
         return {
             "total_days": total_days,
@@ -950,6 +994,7 @@ class DataFetcher:
 
         # 默认范围由 backfill_config 决定（scope=tech_mvp 时仅白名单股票）
         from app.data_pipeline.backfill_config import load_backfill_settings
+
         bf_cfg = load_backfill_settings()
         requested_scope = "all_market" if ts_codes is None else ",".join(ts_codes[:5])
         if ts_codes is None:
@@ -960,7 +1005,8 @@ class DataFetcher:
                 ts_codes = [c for c in ts_codes if c in bf_cfg.ts_codes]
                 logger.info(
                     "fetch_irm: backfill scope=tech_mvp, %d/%d 命中白名单",
-                    len(ts_codes), before,
+                    len(ts_codes),
+                    before,
                 )
                 requested_scope = f"tech_mvp({len(ts_codes)})"
         elif len(ts_codes) > 5:
@@ -983,8 +1029,12 @@ class DataFetcher:
                 "requested_scope": requested_scope,
             },
         )
-        logger.info("开始获取互动易: %d 只（原 %d，checkpoint 跳过 %d）",
-                    total, raw_total, raw_total - total)
+        logger.info(
+            "开始获取互动易: %d 只（原 %d，checkpoint 跳过 %d）",
+            total,
+            raw_total,
+            raw_total - total,
+        )
 
         semaphore = asyncio.Semaphore(IRM_CONCURRENCY)
         counter_lock = asyncio.Lock()
@@ -1101,7 +1151,9 @@ class DataFetcher:
 
         logger.info(
             "互动易完成: 入库 %d，失败 %d，无数据 %d",
-            counters["success"], counters["fail"], counters["skipped"],
+            counters["success"],
+            counters["fail"],
+            counters["skipped"],
         )
         result = {
             "total": total,
@@ -1115,6 +1167,7 @@ class DataFetcher:
         if extract_to_kg and ts_codes:
             try:
                 from app.data_pipeline.irm_pipeline import process_irm_batch
+
                 await tracker.event(
                     run_ctx,
                     stage="kg_start",
@@ -1132,10 +1185,12 @@ class DataFetcher:
                 db = get_mongo_db()
                 await db[IRM_CHECKPOINT_COLLECTION].update_one(
                     {"_id": "irm_kg"},
-                    {"$set": {
-                        "last_extraction_at": datetime.now(timezone.utc),
-                        "stats": kg_result,
-                    }},
+                    {
+                        "$set": {
+                            "last_extraction_at": datetime.now(UTC),
+                            "stats": kg_result,
+                        }
+                    },
                     upsert=True,
                 )
                 logger.info("互动易 KG 构建完成: %s", kg_result)
@@ -1164,7 +1219,9 @@ class DataFetcher:
                     fail_count=counters["fail"],
                     error=str(exc),
                 )
-        final_status = FAILED if counters["fail"] and not counters["success"] else (PARTIAL if counters["fail"] else SUCCESS)
+        final_status = (
+            FAILED if counters["fail"] and not counters["success"] else (PARTIAL if counters["fail"] else SUCCESS)
+        )
         await tracker.finish_run(
             run_ctx,
             status=final_status,
@@ -1205,8 +1262,9 @@ class DataFetcher:
 
         # 解析中文日期格式: "2026年05月08日 09:00" -> date
         # P1 修复：使用北京时间，避免凌晨抓取时日期错位
-        from datetime import date as date_type
         import re
+        from datetime import date as date_type
+
         ann_date_obj = datetime.now(SH_TZ).date()
         parsed = False
         if question_time:
@@ -1291,7 +1349,9 @@ class DataFetcher:
             if done_set:
                 logger.info(
                     "IRM checkpoint 跳过 %d/%d 只（%dh 窗口内已成功）",
-                    len(done_set), len(ts_codes), IRM_CHECKPOINT_WINDOW_HOURS,
+                    len(done_set),
+                    len(ts_codes),
+                    IRM_CHECKPOINT_WINDOW_HOURS,
                 )
             return [c for c in ts_codes if c not in done_set]
         except Exception as exc:
@@ -1355,6 +1415,7 @@ class DataFetcher:
 
         # ── 白名单过滤 ──
         from app.data_pipeline.backfill_config import load_backfill_settings
+
         bf_cfg = load_backfill_settings()
 
         # ── 预查询：批量过滤已入库 cninfo_id ──
@@ -1368,25 +1429,24 @@ class DataFetcher:
             if bf_cfg.scope == "tech_mvp" and ts_code_raw not in bf_cfg.ts_codes:
                 continue
             candidate_ids.append(cninfo_id)
-            prepared.append({
-                "raw": ann,
-                "cninfo_id": cninfo_id,
-                "title": CninfoClient.get_title(ann),
-                "ts_code": CninfoClient.get_ts_code(ann),
-                "ann_date_str": CninfoClient.get_ann_date(ann) or default_date,
-                "name": str(ann.get("secName", "")),
-                "pdf_url": CninfoClient.get_pdf_url(ann),
-            })
+            prepared.append(
+                {
+                    "raw": ann,
+                    "cninfo_id": cninfo_id,
+                    "title": CninfoClient.get_title(ann),
+                    "ts_code": CninfoClient.get_ts_code(ann),
+                    "ann_date_str": CninfoClient.get_ann_date(ann) or default_date,
+                    "name": str(ann.get("secName", "")),
+                    "pdf_url": CninfoClient.get_pdf_url(ann),
+                }
+            )
 
         existing: dict[str, str | None] = {}
         if candidate_ids:
             try:
                 async with engine.connect() as conn:
                     rows = await conn.execute(
-                        text(
-                            "SELECT cninfo_id, file_path FROM announcements "
-                            "WHERE cninfo_id = ANY(:ids)"
-                        ),
+                        text("SELECT cninfo_id, file_path FROM announcements WHERE cninfo_id = ANY(:ids)"),
                         {"ids": candidate_ids},
                     )
                     existing = {r[0]: r[1] for r in rows.fetchall()}
@@ -1395,8 +1455,8 @@ class DataFetcher:
 
         success = skipped = downloaded = fail = 0
         for idx, item in enumerate(prepared, start=1):
-            doc_type, action = classify_title(item["title"])
-            need_download = action == DOC_TYPE_SAVE
+            doc_type, action = classify_ann_title(item["title"])
+            need_download = action == ANN_DOC_TYPE_SAVE
             cninfo_id = item["cninfo_id"]
 
             if cninfo_id in existing:
@@ -1413,15 +1473,23 @@ class DataFetcher:
                             downloaded += 1
                             updated = await self._update_announcement_file_path(cninfo_id, repaired_path)
                             if updated is True:
-                                await self._on_pdf_download_complete(cninfo_id, repaired_path, item["ts_code"], item["title"])
+                                await self._on_pdf_download_complete(
+                                    cninfo_id, repaired_path, item["ts_code"], item["title"]
+                                )
                             elif updated is False:
                                 fail += 1
                                 await tracker.event(
-                                    run_ctx, stage="item_error", message="公告 PDF 路径回写失败",
-                                    total_items=total, processed_items=idx,
-                                    success_count=success, skipped_count=skipped,
-                                    downloaded_count=downloaded, fail_count=fail,
-                                    item_id=cninfo_id, item_title=item["title"],
+                                    run_ctx,
+                                    stage="item_error",
+                                    message="公告 PDF 路径回写失败",
+                                    total_items=total,
+                                    processed_items=idx,
+                                    success_count=success,
+                                    skipped_count=skipped,
+                                    downloaded_count=downloaded,
+                                    fail_count=fail,
+                                    item_id=cninfo_id,
+                                    item_title=item["title"],
                                 )
             else:
                 file_path: Path | None = None
@@ -1449,26 +1517,40 @@ class DataFetcher:
                 else:
                     fail += 1
                     await tracker.event(
-                        run_ctx, stage="item_error", message="公告元数据入库失败",
-                        total_items=total, processed_items=idx,
-                        success_count=success, skipped_count=skipped,
-                        downloaded_count=downloaded, fail_count=fail,
-                        item_id=cninfo_id, item_title=item["title"],
+                        run_ctx,
+                        stage="item_error",
+                        message="公告元数据入库失败",
+                        total_items=total,
+                        processed_items=idx,
+                        success_count=success,
+                        skipped_count=skipped,
+                        downloaded_count=downloaded,
+                        fail_count=fail,
+                        item_id=cninfo_id,
+                        item_title=item["title"],
                     )
 
             if idx % CNINFO_PROGRESS_EVERY == 0 or idx == total:
                 await tracker.update_run(
                     run_ctx,
-                    total_items=total, processed_items=idx,
-                    success_count=success, skipped_count=skipped,
-                    downloaded_count=downloaded, fail_count=fail,
+                    total_items=total,
+                    processed_items=idx,
+                    success_count=success,
+                    skipped_count=skipped,
+                    downloaded_count=downloaded,
+                    fail_count=fail,
                     last_item_id=cninfo_id,
                 )
                 await tracker.event(
-                    run_ctx, stage="process_batch", message="公告处理进展",
-                    total_items=total, processed_items=idx,
-                    success_count=success, skipped_count=skipped,
-                    downloaded_count=downloaded, fail_count=fail,
+                    run_ctx,
+                    stage="process_batch",
+                    message="公告处理进展",
+                    total_items=total,
+                    processed_items=idx,
+                    success_count=success,
+                    skipped_count=skipped,
+                    downloaded_count=downloaded,
+                    fail_count=fail,
                     item_id=cninfo_id,
                 )
 
@@ -1601,7 +1683,12 @@ class DataFetcher:
         )
         logger.info(
             "巨潮公告完成 [%s]: 总 %d，新增 %d，跳过 %d，下载 PDF %d，失败 %d",
-            ann_date, result["total"], result["success"], result["skipped"], result["downloaded"], result["fail"],
+            ann_date,
+            result["total"],
+            result["success"],
+            result["skipped"],
+            result["downloaded"],
+            result["fail"],
         )
         return result
 
@@ -1715,11 +1802,7 @@ class DataFetcher:
         try:
             async with engine.begin() as conn:
                 result = await conn.execute(
-                    text(
-                        "UPDATE announcements "
-                        "SET file_path = :file_path "
-                        "WHERE cninfo_id = :cninfo_id"
-                    ),
+                    text("UPDATE announcements SET file_path = :file_path WHERE cninfo_id = :cninfo_id"),
                     {
                         "cninfo_id": cninfo_id,
                         "file_path": str(file_path),
@@ -1735,11 +1818,7 @@ class DataFetcher:
         try:
             async with engine.begin() as conn:
                 result = await conn.execute(
-                    text(
-                        "UPDATE announcements "
-                        "SET file_path = NULL "
-                        "WHERE cninfo_id = :cninfo_id"
-                    ),
+                    text("UPDATE announcements SET file_path = NULL WHERE cninfo_id = :cninfo_id"),
                     {"cninfo_id": cninfo_id},
                 )
             return bool(result.rowcount and result.rowcount > 0)
@@ -1757,10 +1836,7 @@ class DataFetcher:
             async with engine.connect() as conn:
                 row = (
                     await conn.execute(
-                        text(
-                            "SELECT file_path FROM announcements "
-                            "WHERE cninfo_id = :cninfo_id"
-                        ),
+                        text("SELECT file_path FROM announcements WHERE cninfo_id = :cninfo_id"),
                         {"cninfo_id": cninfo_id},
                     )
                 ).first()
@@ -1903,7 +1979,13 @@ class DataFetcher:
         )
         logger.info(
             "历史公告完成 [%s~%s]: 总 %d，新增 %d，跳过 %d，下载 %d，失败 %d",
-            start_date, end_date, result["total"], result["success"], result["skipped"], result["downloaded"], result["fail"],
+            start_date,
+            end_date,
+            result["total"],
+            result["success"],
+            result["skipped"],
+            result["downloaded"],
+            result["fail"],
         )
         return result
 
@@ -1950,8 +2032,7 @@ class DataFetcher:
                 fail += 1
                 logger.warning("保存指数K线失败 [%s %s]: %s", index_code, trade_date, exc)
 
-        logger.info("指数K线 %s 完成: 入库 %d，跳过 %d，失败 %d",
-                    index_code, success, skipped, fail)
+        logger.info("指数K线 %s 完成: 入库 %d，跳过 %d，失败 %d", index_code, success, skipped, fail)
         return {"total": len(records), "success": success, "skipped": skipped, "fail": fail}
 
     async def _save_index_kline(
@@ -2025,7 +2106,7 @@ class DataFetcher:
         preclose = _safe_float(rec.get("preclose"))
         change = (close - preclose) if (close is not None and preclose is not None) else None
         # baostock tradestatus："1" 正常 / "0" 停牌（白名单转换，T-A-baostock-dirty mitigation）
-        is_suspended = (str(rec.get("tradestatus", "1")) == "0")
+        is_suspended = str(rec.get("tradestatus", "1")) == "0"
 
         sql = """
         INSERT INTO daily_data (
@@ -2082,7 +2163,9 @@ class DataFetcher:
         """单只个股 K 线 orchestration（Phase 31 D-A1）。"""
         today = datetime.now()
         end = datetime.strptime(end_date, "%Y%m%d") if end_date else today - timedelta(days=1)
-        start = datetime.strptime(start_date, "%Y%m%d") if start_date else end - timedelta(days=STOCK_KLINE_BACKFILL_DAYS)
+        start = (
+            datetime.strptime(start_date, "%Y%m%d") if start_date else end - timedelta(days=STOCK_KLINE_BACKFILL_DAYS)
+        )
         start_str = start.strftime("%Y%m%d")
         end_str = end.strftime("%Y%m%d")
 
@@ -2139,13 +2222,15 @@ class DataFetcher:
         ts_codes = [s["ts_code"] for s in all_stocks if s.get("ts_code")]
         # 白名单过滤：scope=tech_mvp 时仅保留白名单股票
         from app.data_pipeline.backfill_config import load_backfill_settings
+
         bf_cfg = load_backfill_settings()
         if bf_cfg.scope == "tech_mvp" and bf_cfg.ts_codes:
             before = len(ts_codes)
             ts_codes = [c for c in ts_codes if c in bf_cfg.ts_codes]
             logger.info(
                 "fetch_all_stocks_kline: backfill scope=tech_mvp, %d/%d 命中白名单",
-                len(ts_codes), before,
+                len(ts_codes),
+                before,
             )
         total = len(ts_codes)
         if total == 0:
@@ -2195,10 +2280,13 @@ class DataFetcher:
                 kline_jobs.append((code, start_day, end_day))
             logger.info(
                 "全市场 K 线补齐计划: 待抓取 %d/%d，只股票已最新 %d，无历史 %d",
-                len(kline_jobs), total, up_to_date, missing_history,
+                len(kline_jobs),
+                total,
+                up_to_date,
+                missing_history,
             )
 
-        end_str = end.strftime("%Y%m%d")
+        end.strftime("%Y%m%d")
 
         semaphore = asyncio.Semaphore(STOCK_KLINE_CONCURRENCY)
         counters = {
@@ -2240,7 +2328,7 @@ class DataFetcher:
         async def worker(idx: int, code: str, start_day: date, end_day: date) -> None:
             nonlocal processed_count
             async with semaphore:
-                force_reconnect = (processed_count > 0 and processed_count % STOCK_KLINE_RECONNECT_EVERY == 0)
+                force_reconnect = processed_count > 0 and processed_count % STOCK_KLINE_RECONNECT_EVERY == 0
                 try:
                     start_str = start_day.strftime("%Y%m%d")
                     end_str = end_day.strftime("%Y%m%d")
@@ -2277,8 +2365,12 @@ class DataFetcher:
         await asyncio.gather(*(worker(i, code, start, end) for i, (code, start, end) in enumerate(kline_jobs)))
         logger.info(
             "全市场 K 线完成: 处理 %d/%d，入库 %d 条，跳过 %d，失败 %d，已最新 %d",
-            counters["processed"], total, counters["success"],
-            counters["skipped"], counters["fail"], counters["up_to_date"],
+            counters["processed"],
+            total,
+            counters["success"],
+            counters["skipped"],
+            counters["fail"],
+            counters["up_to_date"],
         )
         return {"total": total, **counters}
 
@@ -2317,6 +2409,7 @@ class DataFetcher:
 
 
 # ── 股票同步 ───────────────────────────────────────────
+
 
 async def async_sync_stocks() -> dict[str, int]:
     """同步股票列表到 PostgreSQL。"""
@@ -2361,6 +2454,7 @@ def sync_stocks() -> dict[str, int]:
 
 # ── 概念板块同步 ───────────────────────────────────────
 
+
 async def fetch_concept() -> dict[str, int]:
     """
     获取概念板块数据（涨停股所在概念）。
@@ -2401,7 +2495,8 @@ async def fetch_concept() -> dict[str, int]:
             if not name:
                 continue
             entry = concept_counts.setdefault(
-                name, {"count": 0, "pct_chg": 0.0},
+                name,
+                {"count": 0, "pct_chg": 0.0},
             )
             entry["count"] += 1
             entry["pct_chg"] = max(entry["pct_chg"], pct_chg)

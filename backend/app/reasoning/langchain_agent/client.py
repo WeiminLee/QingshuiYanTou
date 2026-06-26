@@ -253,7 +253,11 @@ async def run_lead_agent(
 
             # Memory Context 注入
             if memory_manager is not None:
-                memory_context = await memory_manager.prefetch_all(question)
+                try:
+                    memory_context = await memory_manager.prefetch_all(question)
+                except Exception:
+                    logger.warning("[Memory] prefetch_all failed, running without memory context")
+                    memory_context = ""
             else:
                 memory_context = await _load_memory_context(thread_id)
 
@@ -496,7 +500,10 @@ async def run_lead_agent(
                                 asst_text = t
                                 break
                     if asst_text and asst_text != _last_synced_asst:
-                        await memory_manager.sync_all(question, asst_text)
+                        try:
+                            await memory_manager.sync_all(question, asst_text)
+                        except Exception:
+                            logger.warning("[Memory] sync_all failed, skipping turn sync")
                         _last_synced_asst = asst_text
 
                 if is_clarified:
@@ -572,7 +579,10 @@ async def run_lead_agent(
             harness.stop()
 
         if memory_manager is not None:
-            await memory_manager.shutdown_all()
+            try:
+                await memory_manager.shutdown_all()
+            except Exception:
+                logger.warning("[Memory] shutdown_all failed")
 
         result = {
             "content": "".join(full_content),

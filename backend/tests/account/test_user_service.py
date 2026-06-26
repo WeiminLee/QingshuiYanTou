@@ -1,10 +1,11 @@
 """user_service: yaml 同步、活跃用户查询"""
+
 import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from app.models.models import User
 from app.account.services import user_service
+from app.models.models import User
 
 
 @pytest_asyncio.fixture

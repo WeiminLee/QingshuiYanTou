@@ -1,4 +1,5 @@
 """MemoryQueue-lite and research memory tests."""
+
 from __future__ import annotations
 
 
@@ -44,4 +45,3 @@ def test_research_memory_categories_for_safe_text():
     assert "关注标的" in categories
     assert "风险因素" in categories
     assert "待跟踪催化" in categories
-

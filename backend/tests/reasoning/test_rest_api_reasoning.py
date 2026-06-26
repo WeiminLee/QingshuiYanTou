@@ -12,8 +12,6 @@ Bug 描述：
 
 Run: uv run --directory backend python -m pytest tests/reasoning/test_rest_api_reasoning.py -v
 """
-import pytest
-from unittest.mock import patch, AsyncMock
 
 
 class TestRestApiReasoningContent:
@@ -61,8 +59,9 @@ class TestRestApiReasoningContent:
 
         这个测试验证流式端点的正确性
         """
-        from app.reasoning.api.agent import _run_stream_report
         import inspect
+
+        from app.reasoning.api.agent import _run_stream_report
 
         source = inspect.getsource(_run_stream_report)
 

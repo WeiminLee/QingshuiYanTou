@@ -3,6 +3,7 @@
 
 将状态机推断的行业状态和状态跃迁写入 Neo4j。
 """
+
 import logging
 from typing import TYPE_CHECKING
 
@@ -14,12 +15,7 @@ logger = logging.getLogger(__name__)
 
 def _looks_like_ts_code(s: str) -> bool:
     """判断字符串是否为股票代码格式"""
-    return bool(
-        s
-        and len(s) >= 8
-        and "." in s
-        and s.replace(".", "").replace("-", "").isalnum()
-    )
+    return bool(s and len(s) >= 8 and "." in s and s.replace(".", "").replace("-", "").isalnum())
 
 
 def write_state_to_neo4j(
@@ -68,7 +64,6 @@ def write_transition_to_neo4j(
     """
     try:
         from app.core.neo4j_client import run_write
-        from app.knowledge.state_machine import describe_state
 
         entity_id = f"C:{ts_code}" if _looks_like_ts_code(ts_code) else f"CO:{ts_code}"
 

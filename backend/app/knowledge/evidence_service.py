@@ -1,17 +1,18 @@
 """Mongo-backed Evidence and extraction job service."""
+
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from pymongo import ReturnDocument
+from pymongo import ReturnDocument, UpdateOne
 
 from app.core.mongodb import get_mongo_db
 from app.knowledge.evidence import (
     EVIDENCE_COLLECTION,
-    EXTRACTOR_VERSION,
     EXTRACTION_JOBS_COLLECTION,
+    EXTRACTOR_VERSION,
     JOB_COMBINED,
     JOB_VECTOR,
     STATUS_DONE,
@@ -29,7 +30,7 @@ logger = logging.getLogger(__name__)
 
 
 def _utc_now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 class EvidenceService:
@@ -143,6 +144,99 @@ class EvidenceService:
             await self.enqueue_job(evidence_id, JOB_VECTOR),
         ]
 
+    # ── 批量写入 ────────────────────────────────────────────────
+
+    async def bulk_upsert_evidence(self, inputs: list[EvidenceInput]) -> int:
+        """批量 upsert Evidence 记录（高并发优化）
+
+        注意: build_announcement_evidence 已经将每个 chunk 拆分为独立的 EvidenceInput，
+        所以这里直接处理每个 input 即可。
+        """
+        if not inputs:
+            return 0
+        await self.ensure_indexes()
+        now = _utc_now()
+        operations = []
+        for input in inputs:
+            # 每个 EvidenceInput 代表一个 chunk
+            evidence_id = stable_evidence_id(input.source_type, input.source_id, 0, input.text_excerpt)
+            checksum = text_checksum(input.text_excerpt)
+            confidence = input.confidence or default_source_confidence(input.source_type)
+            source_ref = dict(input.source_ref or {})
+            source_ref.setdefault("chunk_index", 0)
+            doc = {
+                "evidence_id": evidence_id,
+                "source_type": input.source_type,
+                "source_name": input.source_name,
+                "source_id": input.source_id,
+                "subject_hint": dict(input.subject_hint or {}),
+                "publish_date": input.publish_date,
+                "observed_at": input.observed_at or now,
+                "text_excerpt": input.text_excerpt,
+                "source_ref": source_ref,
+                "checksum": checksum,
+                "confidence": float(confidence),
+                "metadata": dict(input.metadata or {}),
+                "updated_at": now,
+            }
+            set_on_insert = {
+                "created_at": now,
+                "extraction_status": {
+                    JOB_COMBINED: STATUS_PENDING,
+                    JOB_VECTOR: STATUS_PENDING,
+                    "last_extracted_at": None,
+                    "extractor_version": EXTRACTOR_VERSION,
+                },
+            }
+            operations.append(
+                UpdateOne(
+                    {"evidence_id": evidence_id},
+                    {"$set": doc, "$setOnInsert": set_on_insert},
+                    upsert=True,
+                )
+            )
+        if operations:
+            result = await self._evidence.bulk_write(operations, ordered=False)
+            return result.upserted_count + result.modified_count
+        return 0
+
+    async def bulk_enqueue_jobs(self, evidence_ids: list[str]) -> int:
+        """批量 enqueue extraction jobs（高并发优化）"""
+        if not evidence_ids:
+            return 0
+        await self.ensure_indexes()
+        now = _utc_now()
+        operations = []
+        for evidence_id in evidence_ids:
+            for job_type in [JOB_COMBINED, JOB_VECTOR]:
+                job_id = stable_job_id(evidence_id, job_type, EXTRACTOR_VERSION)
+                doc = {
+                    "job_id": job_id,
+                    "evidence_id": evidence_id,
+                    "job_type": job_type,
+                    "status": STATUS_PENDING,
+                    "retry_count": 0,
+                    "error": None,
+                    "extractor_version": EXTRACTOR_VERSION,
+                    "locked_by": None,
+                    "locked_at": None,
+                    "started_at": None,
+                    "finished_at": None,
+                    "created_at": now,
+                    "updated_at": now,
+                }
+                operations.append(
+                    UpdateOne(
+                        {"job_id": job_id},
+                        {"$setOnInsert": doc},
+                        upsert=True,
+                    )
+                )
+        if operations:
+            result = await self._jobs.bulk_write(operations, ordered=False)
+            return result.upserted_count
+        return 0
+
     async def claim_next_job(
         self,
         job_type: str | None = None,
@@ -184,13 +278,15 @@ class EvidenceService:
         doc = await self._jobs.find_one({"job_id": job_id}, {"_id": 0})
         await self._jobs.update_one(
             {"job_id": job_id},
-            {"$set": {
-                "status": STATUS_DONE,
-                "result": result or {},
-                "error": None,
-                "finished_at": now,
-                "updated_at": now,
-            }},
+            {
+                "$set": {
+                    "status": STATUS_DONE,
+                    "result": result or {},
+                    "error": None,
+                    "finished_at": now,
+                    "updated_at": now,
+                }
+            },
         )
         if doc:
             await self.update_evidence_status(
@@ -207,15 +303,17 @@ class EvidenceService:
         status = STATUS_FAILED if retry_count >= max_retries else STATUS_PENDING
         await self._jobs.update_one(
             {"job_id": job_id},
-            {"$set": {
-                "status": status,
-                "error": error[:1000],
-                "retry_count": retry_count,
-                "locked_by": None,
-                "locked_at": None,
-                "finished_at": now if status == STATUS_FAILED else None,
-                "updated_at": now,
-            }},
+            {
+                "$set": {
+                    "status": status,
+                    "error": error[:1000],
+                    "retry_count": retry_count,
+                    "locked_by": None,
+                    "locked_at": None,
+                    "finished_at": now if status == STATUS_FAILED else None,
+                    "updated_at": now,
+                }
+            },
         )
         if doc:
             await self.update_evidence_status(
@@ -247,13 +345,15 @@ class EvidenceService:
         cutoff = now - timedelta(minutes=older_than_minutes)
         result = await self._jobs.update_many(
             {"status": STATUS_RUNNING, "locked_at": {"$lt": cutoff}},
-            {"$set": {
-                "status": STATUS_PENDING,
-                "locked_by": None,
-                "locked_at": None,
-                "error": "stale running job reset",
-                "updated_at": now,
-            }},
+            {
+                "$set": {
+                    "status": STATUS_PENDING,
+                    "locked_by": None,
+                    "locked_at": None,
+                    "error": "stale running job reset",
+                    "updated_at": now,
+                }
+            },
         )
         return int(getattr(result, "modified_count", 0))
 
@@ -261,9 +361,11 @@ class EvidenceService:
         evidence_count = await self._evidence.count_documents({})
         jobs_total = await self._jobs.count_documents({})
         by_status: dict[str, int] = {}
-        async for row in self._jobs.aggregate([
-            {"$group": {"_id": "$status", "count": {"$sum": 1}}},
-        ]):
+        async for row in self._jobs.aggregate(
+            [
+                {"$group": {"_id": "$status", "count": {"$sum": 1}}},
+            ]
+        ):
             by_status[str(row["_id"])] = int(row["count"])
         return {
             "evidence": evidence_count,

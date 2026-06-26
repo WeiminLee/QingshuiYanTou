@@ -4,16 +4,16 @@
 数据来源：本地 PostgreSQL（通过 services 层查询）
 
 """
+
 import logging
 from datetime import datetime, timedelta
-from typing import Optional
 
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.models.models import Stock, DailyData
 from app.data_pipeline.services.kline_service import get_kline_service
+from app.models.models import DailyData, Stock
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -22,15 +22,15 @@ logger = logging.getLogger(__name__)
 @router.get("/daily/{ts_code}")
 async def get_daily_data(
     ts_code: str,
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
+    start_date: str | None = None,
+    end_date: str | None = None,
     limit: int = 100,
     db: AsyncSession = Depends(get_db),
 ):
     """
     获取日线数据（本地 PostgreSQL）。
     """
-    from sqlalchemy import select, and_
+    from sqlalchemy import and_, select
 
     if end_date is None:
         end_date = datetime.now().strftime("%Y%m%d")
@@ -40,13 +40,18 @@ async def get_daily_data(
     start = datetime.strptime(start_date, "%Y%m%d").date()
     end = datetime.strptime(end_date, "%Y%m%d").date()
 
-    stmt = select(DailyData).where(
-        and_(
-            DailyData.ts_code == ts_code,
-            DailyData.trade_date >= start,
-            DailyData.trade_date <= end,
+    stmt = (
+        select(DailyData)
+        .where(
+            and_(
+                DailyData.ts_code == ts_code,
+                DailyData.trade_date >= start,
+                DailyData.trade_date <= end,
+            )
         )
-    ).order_by(DailyData.trade_date).limit(limit)
+        .order_by(DailyData.trade_date)
+        .limit(limit)
+    )
 
     result = await db.execute(stmt)
     data = result.scalars().all()
@@ -76,8 +81,8 @@ async def get_daily_data(
 @router.get("/daily-raw/{ts_code}")
 async def get_daily_raw(
     ts_code: str,
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
+    start_date: str | None = None,
+    end_date: str | None = None,
     limit: int = 60,
 ):
     """
@@ -108,7 +113,7 @@ async def get_daily_raw(
 @router.get("/status")
 async def get_data_status(db: AsyncSession = Depends(get_db)):
     """获取本地数据状态"""
-    from sqlalchemy import select, func
+    from sqlalchemy import func, select
 
     stmt = select(func.count(Stock.ts_code))
     result = await db.execute(stmt)

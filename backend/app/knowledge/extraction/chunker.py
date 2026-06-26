@@ -16,11 +16,13 @@ chunk size 设计（2026-04-14 重构）：
 - 清水知识抽取: 1024 tokens（投研文档信息密度高，扩展上下文提升实体召回率）
 - 投研文档段落较长，1024 tokens ≈ 1500-2500 中文字符
 """
+
 from __future__ import annotations
 
 import re
-import tiktoken
 from typing import NamedTuple
+
+import tiktoken
 
 
 class Chunk(NamedTuple):
@@ -33,6 +35,7 @@ class Chunk(NamedTuple):
         chunk_id:    块编号（全局唯一）
         heading:     所属段落的标题/小标题（用于溯源和上下文还原）
     """
+
     content: str
     token_count: int
     chunk_id: int
@@ -143,6 +146,7 @@ def _split_by_headings(text: str) -> list[tuple[str, str, int]]:
 
 # ── 按段落+句末标点 贪婪合并至 max_tokens ────────────────────────────────────
 
+
 def _split_block_to_chunks(
     block_text: str,
     heading: str,
@@ -178,12 +182,14 @@ def _split_block_to_chunks(
         nonlocal current_paras, current_tokens, chunk_id
         if not current_paras:
             return
-        chunks.append(Chunk(
-            content="\n\n".join(current_paras),
-            token_count=current_tokens,
-            chunk_id=chunk_id,
-            heading=heading,
-        ))
+        chunks.append(
+            Chunk(
+                content="\n\n".join(current_paras),
+                token_count=current_tokens,
+                chunk_id=chunk_id,
+                heading=heading,
+            )
+        )
         chunk_id += 1
         current_paras = []
         current_tokens = 0
@@ -196,12 +202,14 @@ def _split_block_to_chunks(
             _flush()
             sub_chunks = _split_long_section(section, max_tokens, enc, heading)
             for sc in sub_chunks:
-                chunks.append(Chunk(
-                    content=sc,
-                    token_count=num_tokens(sc),
-                    chunk_id=chunk_id,
-                    heading=heading,
-                ))
+                chunks.append(
+                    Chunk(
+                        content=sc,
+                        token_count=num_tokens(sc),
+                        chunk_id=chunk_id,
+                        heading=heading,
+                    )
+                )
                 chunk_id += 1
             continue
 
@@ -271,6 +279,7 @@ def _split_long_section(
 
 # ── 主分块函数 ────────────────────────────────────────────────────────────────
 
+
 def chunk_by_token(
     text: str,
     max_tokens: int = DEFAULT_CHUNK_TOKEN_NUM,
@@ -326,19 +335,24 @@ def chunk_by_token(
 
             if block_tokens <= max_tokens:
                 # 整体块不超过限制，直接作为一个 chunk
-                chunks.append(Chunk(
-                    content=block_text,
-                    token_count=block_tokens,
-                    chunk_id=chunk_id,
-                    heading=heading,
-                ))
+                chunks.append(
+                    Chunk(
+                        content=block_text,
+                        token_count=block_tokens,
+                        chunk_id=chunk_id,
+                        heading=heading,
+                    )
+                )
                 chunk_id += 1
                 # 保留末尾 overlap
                 overlap_text = _extract_tail_text(block_text, overlap_tokens, enc)
             else:
                 # 超限 → 按段落+句末标点拆分
                 sub_chunks = _split_block_to_chunks(
-                    block_text, heading, max_tokens, chunk_id,
+                    block_text,
+                    heading,
+                    max_tokens,
+                    chunk_id,
                 )
                 chunks.extend(sub_chunks)
                 chunk_id += len(sub_chunks)
@@ -376,6 +390,7 @@ def _extract_tail_text(text: str, overlap_tokens: int, enc: tiktoken.Encoding) -
 
 # ── 保留旧接口（用于非 Markdown 或测试）───────────────────────────────────────
 
+
 def chunk_by_paragraph(
     text: str,
     max_tokens: int = DEFAULT_CHUNK_TOKEN_NUM,
@@ -397,11 +412,13 @@ def chunk_by_paragraph(
     for para in paragraphs:
         para_toks = num_tokens(para)
         if current_tokens + para_toks > max_tokens and current:
-            chunks.append(Chunk(
-                content="\n".join(current),
-                token_count=current_tokens,
-                chunk_id=chunk_id,
-            ))
+            chunks.append(
+                Chunk(
+                    content="\n".join(current),
+                    token_count=current_tokens,
+                    chunk_id=chunk_id,
+                )
+            )
             chunk_id += 1
             current = []
             current_tokens = 0
@@ -409,10 +426,12 @@ def chunk_by_paragraph(
         current_tokens += para_toks
 
     if current:
-        chunks.append(Chunk(
-            content="\n".join(current),
-            token_count=current_tokens,
-            chunk_id=chunk_id,
-        ))
+        chunks.append(
+            Chunk(
+                content="\n".join(current),
+                token_count=current_tokens,
+                chunk_id=chunk_id,
+            )
+        )
 
     return chunks

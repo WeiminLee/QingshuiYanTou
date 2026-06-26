@@ -1,11 +1,12 @@
 """Pydantic schemas 的字段和校验"""
+
 import pytest
 from pydantic import ValidationError
 
 from app.account.schemas import (
     LoginRequest,
-    SwitchUserRequest,
     PortfolioAddRequest,
+    SwitchUserRequest,
 )
 
 

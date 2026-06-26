@@ -1,14 +1,13 @@
 """认证服务：主密码校验 + master_token 签发/校验"""
+
 from __future__ import annotations
 
 import time
-from typing import Optional
 
 import jwt
 
 import app.config as _cfg
 from app.account import config as account_cfg
-
 
 TOKEN_TYPE_MASTER = "master"
 
@@ -25,6 +24,7 @@ def verify_master_password(password: str) -> bool:
     if not expected:
         return False
     import hmac
+
     return hmac.compare_digest(password.encode("utf-8"), expected.encode("utf-8"))
 
 
@@ -40,7 +40,7 @@ def issue_master_token() -> str:
     return jwt.encode(payload, secret, algorithm="HS256")
 
 
-def verify_master_token(token: Optional[str]) -> bool:
+def verify_master_token(token: str | None) -> bool:
     """校验 token：签名、过期、类型"""
     if not token:
         return False

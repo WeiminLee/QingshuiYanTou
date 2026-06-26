@@ -3,18 +3,19 @@
 
 路由前缀：/api/v1/knowledge/entity
 """
+
 import asyncio
-from fastapi import APIRouter, Depends, HTTPException, Query
+
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
-from typing import Optional
 
 from app.knowledge.entity_service import (
-    upsert_entity,
+    ENTITY_TYPES,
     batch_upsert_entities,
+    generate_entity_id,
     get_entity,
     query_entities,
-    generate_entity_id,
-    ENTITY_TYPES,
+    upsert_entity,
 )
 
 router = APIRouter(prefix="/api/v1/knowledge/entity", tags=["知识构建层"])
@@ -22,19 +23,20 @@ router = APIRouter(prefix="/api/v1/knowledge/entity", tags=["知识构建层"])
 
 # ── Request / Response Models ────────────────────────────────
 
+
 class EntityCreate(BaseModel):
     entity_type: str
     name: str
-    ts_code: Optional[str] = None
-    metric_name: Optional[str] = None
-    event_date: Optional[str] = None
-    properties: Optional[dict] = None
+    ts_code: str | None = None
+    metric_name: str | None = None
+    event_date: str | None = None
+    properties: dict | None = None
     confidence: float = 0.80
-    source_type: Optional[str] = None
-    source_name: Optional[str] = None
-    evidence_url: Optional[str] = None
-    valid_from: Optional[str] = None  # YYYY-MM-DD
-    valid_to: Optional[str] = None
+    source_type: str | None = None
+    source_name: str | None = None
+    evidence_url: str | None = None
+    valid_from: str | None = None  # YYYY-MM-DD
+    valid_to: str | None = None
     parser_version: str = "v1.0"
 
 
@@ -46,15 +48,15 @@ class EntityResponse(BaseModel):
     entity_id: str
     entity_type: str
     name: str
-    ts_code: Optional[str]
+    ts_code: str | None
     properties: dict
     confidence: float
-    source_type: Optional[str]
-    source_name: Optional[str]
-    evidence_url: Optional[str]
-    valid_from: Optional[str]
-    valid_to: Optional[str]
-    superseded_by: Optional[str]
+    source_type: str | None
+    source_name: str | None
+    evidence_url: str | None
+    valid_from: str | None
+    valid_to: str | None
+    superseded_by: str | None
 
     @classmethod
     def from_orm(cls, e):
@@ -99,6 +101,7 @@ class BatchResult(BaseModel):
 
 # ── 路由 ────────────────────────────────────────────────
 
+
 @router.post("", response_model=EntityResponse)
 async def create_or_update_entity(body: EntityCreate):
     """创建或更新一条实体（自动生成 entity_id）"""
@@ -114,6 +117,7 @@ async def create_or_update_entity(body: EntityCreate):
     )
 
     from datetime import date
+
     valid_from = date.fromisoformat(body.valid_from) if body.valid_from else None
     valid_to = date.fromisoformat(body.valid_to) if body.valid_to else None
 
@@ -134,7 +138,7 @@ async def create_or_update_entity(body: EntityCreate):
             valid_from=valid_from,
             valid_to=valid_to,
             parser_version=body.parser_version,
-        )
+        ),
     )
     return EntityResponse.from_orm(entity)
 
@@ -143,6 +147,7 @@ async def create_or_update_entity(body: EntityCreate):
 async def batch_create_entities(body: EntityBatchCreate):
     """批量创建/更新实体"""
     from datetime import date as _date
+
     results = []
     for item in body.entities:
         if item.entity_type not in ENTITY_TYPES:
@@ -156,25 +161,25 @@ async def batch_create_entities(body: EntityBatchCreate):
         )
         valid_from = _date.fromisoformat(item.valid_from) if item.valid_from else None
         valid_to = _date.fromisoformat(item.valid_to) if item.valid_to else None
-        results.append(dict(
-            entity_id=entity_id,
-            entity_type=item.entity_type,
-            name=item.name,
-            ts_code=item.ts_code,
-            properties=item.properties,
-            confidence=item.confidence,
-            source_type=item.source_type,
-            source_name=item.source_name,
-            evidence_url=item.evidence_url,
-            valid_from=valid_from,
-            valid_to=valid_to,
-            parser_version=item.parser_version,
-        ))
+        results.append(
+            dict(
+                entity_id=entity_id,
+                entity_type=item.entity_type,
+                name=item.name,
+                ts_code=item.ts_code,
+                properties=item.properties,
+                confidence=item.confidence,
+                source_type=item.source_type,
+                source_name=item.source_name,
+                evidence_url=item.evidence_url,
+                valid_from=valid_from,
+                valid_to=valid_to,
+                parser_version=item.parser_version,
+            )
+        )
 
     loop = asyncio.get_event_loop()
-    inserted, updated = await loop.run_in_executor(
-        None, lambda: batch_upsert_entities(results)
-    )
+    inserted, updated = await loop.run_in_executor(None, lambda: batch_upsert_entities(results))
     return BatchResult(inserted=inserted, updated=updated)
 
 
@@ -190,9 +195,9 @@ async def get_entity_by_id(entity_id: str):
 
 @router.get("", response_model=list[EntityResponse])
 async def list_entities(
-    entity_type: Optional[str] = Query(None),
-    ts_code: Optional[str] = Query(None),
-    name_keyword: Optional[str] = Query(None),
+    entity_type: str | None = Query(None),
+    ts_code: str | None = Query(None),
+    name_keyword: str | None = Query(None),
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
 ):

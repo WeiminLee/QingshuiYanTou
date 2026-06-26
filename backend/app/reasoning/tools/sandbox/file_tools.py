@@ -16,6 +16,7 @@ sandbox/file_tools — 虚拟路径沙箱文件工具集
 - 路径中包含 .. 则拒绝（_reject_path_traversal）
 - 实际路径必须在允许根目录下（validate_resolved_path）
 """
+
 from __future__ import annotations
 
 import logging
@@ -80,7 +81,7 @@ def _resolve_virtual_path(virtual_path: str) -> Path:
         raise PermissionError(f"仅允许 {VIRTUAL_PREFIX} 路径，当前: {virtual_path}")
 
     # 解析虚拟子路径
-    relative = virtual_path[len(VIRTUAL_PREFIX):].lstrip("/")
+    relative = virtual_path[len(VIRTUAL_PREFIX) :].lstrip("/")
     if not relative:
         raise PermissionError(f"虚拟路径不能是根目录: {virtual_path}")
 
@@ -138,7 +139,7 @@ def ls_tool(
                     if len(sub_entries) > 20:
                         lines.append(f"    ... ({len(sub_entries) - 20} more)")
                 except PermissionError:
-                    lines.append(f"    (权限不足)")
+                    lines.append("    (权限不足)")
             else:
                 size = _format_size(entry.stat().st_size)
                 lines.append(f"  {entry.name}  {size}")

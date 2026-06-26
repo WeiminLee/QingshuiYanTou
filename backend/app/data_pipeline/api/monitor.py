@@ -6,22 +6,19 @@
 - 告警管理
 - 数据同步任务状态（新）
 """
-from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, text
 
-from app.core.database import get_db, engine
-from app.models.models import MonitorRule, Alert, Watchlist, Stock
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import select, text
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.database import engine, get_db
+from app.models.models import Alert, MonitorRule
 
 router = APIRouter()
 
 
 @router.get("/rules")
-async def get_monitor_rules(
-    ts_code: Optional[str] = None,
-    db: AsyncSession = Depends(get_db)
-):
+async def get_monitor_rules(ts_code: str | None = None, db: AsyncSession = Depends(get_db)):
     """获取监控规则列表"""
     if ts_code:
         stmt = select(MonitorRule).where(MonitorRule.ts_code == ts_code)
@@ -47,12 +44,7 @@ async def get_monitor_rules(
 
 
 @router.post("/rules")
-async def create_monitor_rule(
-    ts_code: str,
-    rule_type: str,
-    threshold: float,
-    db: AsyncSession = Depends(get_db)
-):
+async def create_monitor_rule(ts_code: str, rule_type: str, threshold: float, db: AsyncSession = Depends(get_db)):
     """创建监控规则"""
     # 检查是否已存在相同规则
     stmt = select(MonitorRule).where(
@@ -98,17 +90,17 @@ async def delete_monitor_rule(rule_id: int, db: AsyncSession = Depends(get_db)):
 
 @router.get("/alerts")
 async def get_alerts(
-    ts_code: Optional[str] = None,
+    ts_code: str | None = None,
     unread_only: bool = False,
     limit: int = 50,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
 ):
     """获取告警列表"""
     conditions = []
     if ts_code:
         conditions.append(Alert.ts_code == ts_code)
     if unread_only:
-        conditions.append(Alert.is_read == False)
+        conditions.append(not Alert.is_read)
 
     if conditions:
         stmt = select(Alert).where(*conditions)
@@ -153,7 +145,7 @@ async def mark_alert_read(alert_id: int, db: AsyncSession = Depends(get_db)):
 @router.get("/alerts/unread-count")
 async def get_unread_count(db: AsyncSession = Depends(get_db)):
     """获取未读告警数量"""
-    stmt = select(Alert).where(Alert.is_read == False)
+    stmt = select(Alert).where(not Alert.is_read)
     result = await db.execute(stmt)
     alerts = result.scalars().all()
 
@@ -162,19 +154,24 @@ async def get_unread_count(db: AsyncSession = Depends(get_db)):
 
 # ── 数据同步任务监控 API ─────────────────────────────────
 
+
 @router.get("/sync/jobs/summary")
 async def get_ingestion_job_summary():
     async with engine.connect() as conn:
         rows = (
-            await conn.execute(
-                text("""
+            (
+                await conn.execute(
+                    text("""
                     SELECT job_type, status, COUNT(*) AS count
                     FROM ingestion_jobs
                     GROUP BY job_type, status
                     ORDER BY job_type, status
                 """)
+                )
             )
-        ).mappings().all()
+            .mappings()
+            .all()
+        )
     summary: dict[str, dict[str, int]] = {}
     for row in rows:
         summary.setdefault(row["job_type"], {})[row["status"]] = int(row["count"])
@@ -185,8 +182,9 @@ async def get_ingestion_job_summary():
 async def list_ingestion_job_failures(limit: int = 100):
     async with engine.connect() as conn:
         rows = (
-            await conn.execute(
-                text("""
+            (
+                await conn.execute(
+                    text("""
                     SELECT id, job_type, job_key, status, attempt_count, max_attempts,
                            next_run_at, last_error, result_summary, updated_at
                     FROM ingestion_jobs
@@ -194,20 +192,24 @@ async def list_ingestion_job_failures(limit: int = 100):
                     ORDER BY updated_at DESC
                     LIMIT :limit
                 """),
-                {"limit": min(max(limit, 1), 500)},
+                    {"limit": min(max(limit, 1), 500)},
+                )
             )
-        ).mappings().all()
+            .mappings()
+            .all()
+        )
     return [dict(row) for row in rows]
 
 
 @router.get("/sync/status")
 async def get_sync_status():
     """获取数据同步整体状态"""
-    from datetime import datetime, timedelta
+    from datetime import datetime
 
     # 获取任务汇总
     async with engine.connect() as conn:
-        result = await conn.execute(text("""
+        result = await conn.execute(
+            text("""
             SELECT
                 task_name,
                 status,
@@ -219,7 +221,8 @@ async def get_sync_status():
             WHERE started_at >= NOW() - INTERVAL '7 days'
             GROUP BY task_name, status
             ORDER BY task_name, MAX(started_at) DESC
-        """))
+        """)
+        )
         rows = result.fetchall()
 
     summary = {}
@@ -237,13 +240,15 @@ async def get_sync_status():
 
     # 获取最近告警
     async with engine.connect() as conn:
-        result = await conn.execute(text("""
+        result = await conn.execute(
+            text("""
             SELECT task_name, alert_level, message, details, created_at
             FROM sync_alerts
             WHERE created_at >= NOW() - INTERVAL '24 hours'
             ORDER BY created_at DESC
             LIMIT 50
-        """))
+        """)
+        )
         alert_rows = result.fetchall()
 
     recent_alerts = [
@@ -259,6 +264,7 @@ async def get_sync_status():
 
     # 限流器状态
     from app.data_pipeline.rate_limiter import get_akshare_limiter
+
     limiter = get_akshare_limiter()
 
     return {
@@ -275,7 +281,7 @@ async def get_sync_status():
 @router.get("/sync/alerts")
 async def get_sync_alerts(
     hours: int = Query(24, ge=1, le=168, description="查询最近多少小时的告警"),
-    level: Optional[str] = Query(None, description="告警级别: info, warning, error"),
+    level: str | None = Query(None, description="告警级别: info, warning, error"),
 ):
     """获取数据同步告警日志"""
     sql = """
@@ -317,7 +323,8 @@ async def get_sync_task_history(
 ):
     """获取特定同步任务的执行历史"""
     async with engine.connect() as conn:
-        result = await conn.execute(text("""
+        result = await conn.execute(
+            text("""
             SELECT id, status, started_at, completed_at,
                    total_items, success_count, skipped_count, fail_count,
                    error_message, consecutive_failures
@@ -326,7 +333,9 @@ async def get_sync_task_history(
               AND started_at >= NOW() - INTERVAL ':days days'
             ORDER BY started_at DESC
             LIMIT 50
-        """), {"task_name": task_name, "days": days})
+        """),
+            {"task_name": task_name, "days": days},
+        )
         rows = result.fetchall()
 
     return {
@@ -351,12 +360,13 @@ async def get_sync_task_history(
 
 # ── 数据接入进度 / checkpoint API ─────────────────────────
 
+
 @router.get("/ingestion/runs")
 async def list_ingestion_runs(
-    source: Optional[str] = Query(None, description="数据源，如 cninfo"),
-    task_name: Optional[str] = Query(None, description="任务名，如 announcements"),
-    scope: Optional[str] = Query(None, description="同步范围，如日期或 ts_code"),
-    status: Optional[str] = Query(None, description="running/success/partial/failed"),
+    source: str | None = Query(None, description="数据源，如 cninfo"),
+    task_name: str | None = Query(None, description="任务名，如 announcements"),
+    scope: str | None = Query(None, description="同步范围，如日期或 ts_code"),
+    status: str | None = Query(None, description="running/success/partial/failed"),
     limit: int = Query(50, ge=1, le=200),
 ):
     """查询数据接入运行记录。"""
@@ -469,9 +479,9 @@ async def get_ingestion_run_detail(
 
 @router.get("/ingestion/checkpoints")
 async def list_ingestion_checkpoints(
-    source: Optional[str] = Query(None, description="数据源，如 cninfo"),
-    task_name: Optional[str] = Query(None, description="任务名，如 announcements"),
-    scope: Optional[str] = Query(None, description="同步范围，如日期或 ts_code"),
+    source: str | None = Query(None, description="数据源，如 cninfo"),
+    task_name: str | None = Query(None, description="任务名，如 announcements"),
+    scope: str | None = Query(None, description="同步范围，如日期或 ts_code"),
 ):
     """查询数据接入 checkpoint。"""
     conditions = []

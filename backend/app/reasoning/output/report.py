@@ -15,14 +15,15 @@ Layer 4 — 决策输出层
 
 输出格式：JSON + Markdown 双轨
 """
+
 from dataclasses import dataclass, field
-from datetime import datetime, date
-from typing import Any, Optional
+from datetime import datetime
 from enum import Enum
 
 
 class ConfidenceLevel(Enum):
     """置信度等级（对应 TIER0-4）"""
+
     TIER0_LEGAL = "TIER0_LEGAL"  # 法规文件，≥0.90
     TIER1_OFFICIAL = "TIER1_OFFICIAL"  # 监管背书，0.75-0.90
     TIER2_THIRD_PARTY = "TIER2_THIRD_PARTY"  # 第三方客观数据，0.65-0.85
@@ -33,59 +34,65 @@ class ConfidenceLevel(Enum):
 @dataclass
 class EvidenceRef:
     """证据引用"""
-    source_type: str       # source_type 来源类型
-    source_name: str      # 来源主体
-    content: str          # 原文片段（截取关键句）
-    timestamp: str        # 发布时间
-    confidence: str      # 置信度 TIER0-4
-    url: str = ""         # 原文链接（可选）
+
+    source_type: str  # source_type 来源类型
+    source_name: str  # 来源主体
+    content: str  # 原文片段（截取关键句）
+    timestamp: str  # 发布时间
+    confidence: str  # 置信度 TIER0-4
+    url: str = ""  # 原文链接（可选）
 
 
 @dataclass
 class Conclusion:
     """单条分析结论"""
-    id: str                       # 结论编号
-    statement: str                 # 结论内容
-    confidence: str               # TIER0-4
-    confidence_score: float        # 0.0-1.0 置信度分值
+
+    id: str  # 结论编号
+    statement: str  # 结论内容
+    confidence: str  # TIER0-4
+    confidence_score: float  # 0.0-1.0 置信度分值
     evidence: list[EvidenceRef]  # 证据引用列表
-    is_inference: bool            # 是否为推断（True = 推断，False = 事实）
-    falsification: str = ""       # 反向证伪："什么情况下此结论不成立"
+    is_inference: bool  # 是否为推断（True = 推断，False = 事实）
+    falsification: str = ""  # 反向证伪："什么情况下此结论不成立"
 
 
 @dataclass
 class Catalyst:
     """催化剂/关键节点"""
-    event: str            # 事件描述
-    expected_date: str    # 预期时间（YYYY-MM 或 YYYY-QX）
-    importance: str        # high / medium / low
-    source: str           # 信息来源
+
+    event: str  # 事件描述
+    expected_date: str  # 预期时间（YYYY-MM 或 YYYY-QX）
+    importance: str  # high / medium / low
+    source: str  # 信息来源
 
 
 @dataclass
 class RiskItem:
     """风险矩阵项"""
-    category: str     # 技术迭代 / 供应链 / 政策 / 估值 / 流动性 / 竞争
+
+    category: str  # 技术迭代 / 供应链 / 政策 / 估值 / 流动性 / 竞争
     description: str  # 风险描述
-    severity: str     # high / medium / low
+    severity: str  # high / medium / low
     evidence: str = ""  # 证据（可选）
 
 
 @dataclass
 class TrackingIndicator:
     """跟踪指标"""
-    indicator: str       # 指标名称
-    description: str     # 关注什么
+
+    indicator: str  # 指标名称
+    description: str  # 关注什么
     threshold: str = ""  # 触发阈值（如有）
 
 
 @dataclass
 class ScenarioProjection:
     """情景推演（简化版）"""
-    scenario: str     # Bull / Base / Bear
+
+    scenario: str  # Bull / Base / Bear
     description: str  # 情景描述
-    assumption: str   # 关键假设
-    outcome: str      # 对应结论/业绩影响
+    assumption: str  # 关键假设
+    outcome: str  # 对应结论/业绩影响
 
 
 @dataclass
@@ -97,15 +104,16 @@ class AnalysisReport:
     - to_dict() → JSON 格式
     - to_markdown() → Markdown 格式
     """
+
     # ── 报告基本信息 ──────────────────────
     report_id: str
-    topic: str                  # 分析主题（用户原始问题）
-    ts_code: str = ""          # 股票代码（可选）
-    company_name: str = ""      # 公司名称（可选）
-    generated_at: str = ""      # 生成时间
+    topic: str  # 分析主题（用户原始问题）
+    ts_code: str = ""  # 股票代码（可选）
+    company_name: str = ""  # 公司名称（可选）
+    generated_at: str = ""  # 生成时间
 
     # ── 报告正文 ──────────────────────────
-    core_logic: str = ""        # 核心逻辑链（3句话）
+    core_logic: str = ""  # 核心逻辑链（3句话）
 
     conclusions: list[Conclusion] = field(default_factory=list)
     catalysts: list[Catalyst] = field(default_factory=list)
@@ -116,27 +124,29 @@ class AnalysisReport:
     # ── 元信息 ────────────────────────────
     overall_confidence: str = "TIER3_ANALYSIS"  # 整体置信度
     overall_confidence_score: float = 0.60
-    validity_period: str = ""   # 有效期（如 "下季度财报披露前"）
-    update_trigger: str = ""    # 触发更新条件
-    traceable: bool = True      # 是否可溯源
+    validity_period: str = ""  # 有效期（如 "下季度财报披露前"）
+    update_trigger: str = ""  # 触发更新条件
+    traceable: bool = True  # 是否可溯源
 
     # ── 合规 ─────────────────────────────
     compliance_declared: bool = False
 
     # ── 原始分析内容 ────────────────────
-    raw_analysis: str = ""      # 原始 deliberation 输出
-    graph_data: Optional[dict] = None  # 图谱可视化数据 {nodes, edges}
+    raw_analysis: str = ""  # 原始 deliberation 输出
+    graph_data: dict | None = None  # 图谱可视化数据 {nodes, edges}
 
     def __post_init__(self):
         if not self.generated_at:
             self.generated_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         if not self.report_id:
             import uuid
+
             self.report_id = str(uuid.uuid4())[:8]
         # 计算整体置信度（从 conclusions 的 evidence 汇聚）
         if self.conclusions and not self.overall_confidence:
             try:
                 from app.reasoning.output.confidence import merge_conclusion_confidence
+
                 tier, score = merge_conclusion_confidence(self.conclusions)
                 self.overall_confidence = tier
                 self.overall_confidence_score = score
@@ -240,33 +250,43 @@ class AnalysisReport:
         # 置信度标签
         conf_icon = self._confidence_icon(self.overall_confidence)
         conf_label = self._confidence_label(self.overall_confidence)
-        lines.extend([
-            f"## 整体置信度 {conf_icon}",
-            f"**{conf_label}**（{self.overall_confidence_score:.0%}）",
-            "",
-        ])
+        lines.extend(
+            [
+                f"## 整体置信度 {conf_icon}",
+                f"**{conf_label}**（{self.overall_confidence_score:.0%}）",
+                "",
+            ]
+        )
 
         # 核心逻辑链
         if self.core_logic:
-            lines.extend([
-                "## 核心逻辑链",
-                "",
-                self.core_logic,
-                "",
-            ])
+            lines.extend(
+                [
+                    "## 核心逻辑链",
+                    "",
+                    self.core_logic,
+                    "",
+                ]
+            )
 
         # 降级渲染：所有结构化字段都为空时，直接输出 raw_analysis
         has_structured = bool(
-            self.conclusions or self.catalysts or self.risks
-            or self.scenarios or self.tracking_indicators or self.core_logic
+            self.conclusions
+            or self.catalysts
+            or self.risks
+            or self.scenarios
+            or self.tracking_indicators
+            or self.core_logic
         )
         if not has_structured and self.raw_analysis:
-            lines.extend([
-                "## 分析内容",
-                "",
-                self.raw_analysis,
-                "",
-            ])
+            lines.extend(
+                [
+                    "## 分析内容",
+                    "",
+                    self.raw_analysis,
+                    "",
+                ]
+            )
 
         # 结论
         if self.conclusions:
@@ -376,6 +396,7 @@ class AnalysisReport:
 
 
 # ── 工厂函数 ──────────────────────────────────────
+
 
 def build_report_from_analysis(
     topic: str,

@@ -14,8 +14,12 @@ logger = logging.getLogger(__name__)
 
 @tool("find_events")
 def find_events(
-    query: Annotated[str | None, "搜索关键词，越精确越好（如 'AI芯片 制裁 中际旭创'）。query 和 tags 可选至少传一个"] = None,
-    tags: Annotated[list[str] | None, "板块/概念标签过滤（如 ['芯片概念', '华为概念']）。事件入库时会自动打标签，可用来精确筛选"] = None,
+    query: Annotated[
+        str | None, "搜索关键词，越精确越好（如 'AI芯片 制裁 中际旭创'）。query 和 tags 可选至少传一个"
+    ] = None,
+    tags: Annotated[
+        list[str] | None, "板块/概念标签过滤（如 ['芯片概念', '华为概念']）。事件入库时会自动打标签，可用来精确筛选"
+    ] = None,
     date_from: Annotated[str | None, "开始日期 YYYYMMDD，不传则不限制"] = None,
     date_to: Annotated[str | None, "结束日期 YYYYMMDD，不传则到今天"] = None,
     top_n: Annotated[int, "返回条数，默认 10，最多 30"] = 10,
@@ -98,7 +102,7 @@ def _format_event_list(events: list[dict], query: str) -> str:
     for i, ev in enumerate(events, 1):
         lines.append(f"**{i}.** {ev['title']}")
         lines.append(f"   📅 {ev['publish_at']}  |  来源：{ev['source']}")
-        if ev['summary']:
+        if ev["summary"]:
             lines.append(f"   摘要：{ev['summary'][:150]}")
         lines.append(f"   ID: `{ev['event_id']}`")
         lines.append("")
@@ -124,13 +128,15 @@ async def _get_event_detail(event_id: str) -> str:
     if not row:
         return f"未找到事件: {event_id}"
 
-    return _format_event_detail({
-        "event_id": row[0],
-        "title": row[1],
-        "content": row[2] or "（无全文内容）",
-        "source": row[3],
-        "publish_at": str(row[4]) if row[4] else "",
-    })
+    return _format_event_detail(
+        {
+            "event_id": row[0],
+            "title": row[1],
+            "content": row[2] or "（无全文内容）",
+            "source": row[3],
+            "publish_at": str(row[4]) if row[4] else "",
+        }
+    )
 
 
 def _format_event_detail(event: dict) -> str:

@@ -8,6 +8,7 @@
 
 依赖：pdfplumber（纯规则，无 LLM 调用）
 """
+
 import os
 import re
 from dataclasses import dataclass, field
@@ -33,68 +34,122 @@ _RE_SUBSTANTIVE_KW = re.compile(
 # ── 文件名级 Skip ──────────────────────────────────────────────────────────────
 
 SKIP_TITLE_KW = [
-    "管理制度", "管理办法", "工作细则", "工作规程",
-    "审计报告", "审计意见", "内部控制评价", "内部控制审计",
-    "业绩说明会纪要", "续租办公楼", "金融服务协议",
-    "内幕信息知情人", "员工持股计划", "股权激励计划",
-    "信息披露管理制度", "信息披露暂缓与豁免管理制度",
+    "管理制度",
+    "管理办法",
+    "工作细则",
+    "工作规程",
+    "审计报告",
+    "审计意见",
+    "内部控制评价",
+    "内部控制审计",
+    "业绩说明会纪要",
+    "续租办公楼",
+    "金融服务协议",
+    "内幕信息知情人",
+    "员工持股计划",
+    "股权激励计划",
+    "信息披露管理制度",
+    "信息披露暂缓与豁免管理制度",
     "外部信息使用人管理制度",
-    "董事局审计委员会",   # 治理委员会工作规程
+    "董事局审计委员会",  # 治理委员会工作规程
 ]
 
 # ── 章节级关键词 ────────────────────────────────────────────────────────────────
 
 # 公告：噪音章节（标题含这些 → SKIP）
 SKIP_CHAPTER_KW = [
-    "会计师事务所",    # 审计程序模板
-    "其他相关说明",   # 通用模板
-    "特此公告", "敬请", "广大投资者",   # 结尾声明
-    "风险因素", "防范投资风险", "投资风险",   # 通用风险免责
-    "独立董事",       # 法律意见模板
-    "内部控制",       # 治理
-    "累计投票", "网络投票",   # 治理程序
-    "信息披露", "暂缓", "豁免",   # 信息披露
-    "募集资金",       # 募资使用（模板类）
+    "会计师事务所",  # 审计程序模板
+    "其他相关说明",  # 通用模板
+    "特此公告",
+    "敬请",
+    "广大投资者",  # 结尾声明
+    "风险因素",
+    "防范投资风险",
+    "投资风险",  # 通用风险免责
+    "独立董事",  # 法律意见模板
+    "内部控制",  # 治理
+    "累计投票",
+    "网络投票",  # 治理程序
+    "信息披露",
+    "暂缓",
+    "豁免",  # 信息披露
+    "募集资金",  # 募资使用（模板类）
 ]
 
 # 公告：实质性章节（标题含这些 → KEEP）
 KEEP_CHAPTER_KW = [
-    "业绩", "变动原因", "变动说明",   # 业绩相关
-    "本次交易", "重组", "收购", "发行股份", "交易对方", "交易标的", "交易概述",   # 并购重组
-    "中标", "合同", "订单", "协议",   # 商业合同
-    "股权", "标的资产", "出资", "增资", "参股",   # 股权
-    "备考财务", "财务数据",   # 财务数据
-    "业务", "产品", "市场", "盈利", "营收",   # 业务实质
-    "投资者关系",   # 投资者交流记录，含核心业务信息
+    "业绩",
+    "变动原因",
+    "变动说明",  # 业绩相关
+    "本次交易",
+    "重组",
+    "收购",
+    "发行股份",
+    "交易对方",
+    "交易标的",
+    "交易概述",  # 并购重组
+    "中标",
+    "合同",
+    "订单",
+    "协议",  # 商业合同
+    "股权",
+    "标的资产",
+    "出资",
+    "增资",
+    "参股",  # 股权
+    "备考财务",
+    "财务数据",  # 财务数据
+    "业务",
+    "产品",
+    "市场",
+    "盈利",
+    "营收",  # 业务实质
+    "投资者关系",  # 投资者交流记录，含核心业务信息
 ]
 
 # 研报：噪音章节
 SKIP_CHAPTER_KW_REPORT = [
-    "免责声明", "法律声明", "评级说明", "估值方法",
-    "附录", "数据来源",
+    "免责声明",
+    "法律声明",
+    "评级说明",
+    "估值方法",
+    "附录",
+    "数据来源",
 ]
 
 # 研报：实质性章节
 KEEP_CHAPTER_KW_REPORT = [
-    "宏观", "行业", "公司", "业务", "产品",
-    "盈利预测", "竞争优势", "护城河", "市场份额",
-    "风险提示", "投资评级", "目标价", "估值",
+    "宏观",
+    "行业",
+    "公司",
+    "业务",
+    "产品",
+    "盈利预测",
+    "竞争优势",
+    "护城河",
+    "市场份额",
+    "风险提示",
+    "投资评级",
+    "目标价",
+    "估值",
 ]
 
 
 # ── 数据结构 ───────────────────────────────────────────────────────────────────
 
+
 @dataclass
 class FilterResult:
     decision: Literal["process", "skip"]
-    file_reason: str = ""          # 文件级 skip 原因
-    sections_kept: int = 0         # 保留章节数
-    sections_skipped: int = 0      # 跳过章节数
-    kept_chapters: list[str] = field(default_factory=list)   # 保留的章节标题
+    file_reason: str = ""  # 文件级 skip 原因
+    sections_kept: int = 0  # 保留章节数
+    sections_skipped: int = 0  # 跳过章节数
+    kept_chapters: list[str] = field(default_factory=list)  # 保留的章节标题
     detail: str = ""
 
 
 # ── PDF 读取 ───────────────────────────────────────────────────────────────────
+
 
 def _read_first_pages(path: str, n_pages: int = 5) -> list[str]:
     """读取 PDF 前 n 页文本"""
@@ -146,25 +201,30 @@ def _parse_sections(text: str) -> list[dict]:
                 if _H1_PAT.match(lines[j].strip()) or _H2_PAT.match(lines[j].strip()):
                     break
                 body_lines.append(lines[j])
-            sections.append({
-                "level": 1,
-                "title": raw,
-                "body": "\n".join(body_lines),
-                "h1_idx": len(sections),
-            })
+            sections.append(
+                {
+                    "level": 1,
+                    "title": raw,
+                    "body": "\n".join(body_lines),
+                    "h1_idx": len(sections),
+                }
+            )
             current_h1_idx = len(sections) - 1
 
         elif h2_m and current_h1_idx is not None:
-            sections.append({
-                "level": 2,
-                "title": raw,
-                "parent_idx": current_h1_idx,
-            })
+            sections.append(
+                {
+                    "level": 2,
+                    "title": raw,
+                    "parent_idx": current_h1_idx,
+                }
+            )
 
     return sections
 
 
 # ── 章节分类 ───────────────────────────────────────────────────────────────────
+
 
 def _classify_title(title: str) -> Literal["keep", "skip"]:
     """
@@ -193,8 +253,6 @@ def _classify_with_inheritance(
 
     正文兜底：H1 标记 skip，但正文含实质性关键词 → keep。
     """
-    kw_skip = SKIP_CHAPTER_KW if is_announcement else SKIP_CHAPTER_KW_REPORT
-    kw_keep = KEEP_CHAPTER_KW if is_announcement else KEEP_CHAPTER_KW_REPORT
     result = []
     h1_class: Literal["keep", "skip"] | None = None
 
@@ -219,6 +277,7 @@ def _classify_with_inheritance(
 
 
 # ── 主过滤函数 ─────────────────────────────────────────────────────────────────
+
 
 def filter_announcement_pdf(
     file_path: str,
@@ -260,19 +319,16 @@ def filter_announcement_pdf(
     if not sections:
         # 无法解析章节 → 检查文件名/标题是否含实质性关键词
         if _RE_STOCK_CODE.search(short_combined) or _RE_AMOUNT.search(short_combined):
-            return FilterResult("process", "no_sections",
-                              detail="无可解析章节，全量抽取（标准格式/含金额）")
+            return FilterResult("process", "no_sections", detail="无可解析章节，全量抽取（标准格式/含金额）")
         if "投资者关系" in fname:
-            return FilterResult("process", "no_sections",
-                              detail="投资者关系记录表，全量抽取")
+            return FilterResult("process", "no_sections", detail="投资者关系记录表，全量抽取")
         return FilterResult("skip", "no_sections")
 
     classified = _classify_with_inheritance(sections, is_announcement)
 
     kept = [s for s in classified if s["_class"] == "keep"]
     if not kept:
-        return FilterResult("skip", "no_substantive_sections",
-                            detail=f"无可保留章节（{len(sections)}个章节全跳）")
+        return FilterResult("skip", "no_substantive_sections", detail=f"无可保留章节（{len(sections)}个章节全跳）")
 
     return FilterResult(
         decision="process",

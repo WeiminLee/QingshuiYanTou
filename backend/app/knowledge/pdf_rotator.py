@@ -1,8 +1,9 @@
 """Two-year local PDF rotation while retaining KG entities."""
+
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -14,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 
 def _utc_now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 async def get_files_older_than(cutoff_date: datetime, limit: int = 1000) -> list[dict[str, Any]]:
@@ -91,12 +92,14 @@ async def rotate_old_pdfs(days_threshold: int = 730, dry_run: bool = False) -> d
                 if not cleared and file_path:
                     await db[indexer.COLLECTION].update_one(
                         {"file_path": file_path},
-                        {"$set": {
-                            "file_path": None,
-                            "status": "rotated",
-                            "rotated_at": _utc_now(),
-                            "updated_at": _utc_now(),
-                        }},
+                        {
+                            "$set": {
+                                "file_path": None,
+                                "status": "rotated",
+                                "rotated_at": _utc_now(),
+                                "updated_at": _utc_now(),
+                            }
+                        },
                     )
                     cleared = True
                 _mark_neo4j_pdf_rotated(cninfo_id, file_path)

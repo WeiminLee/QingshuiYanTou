@@ -6,6 +6,7 @@ Tests cover:
 2. merge_aliases — preserves existing manual entries, adds new entries correctly
 3. Full flow — fetch → transform → merge → write
 """
+
 import json
 import sys
 from pathlib import Path
@@ -18,11 +19,10 @@ BACKEND_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(BACKEND_DIR))
 
 from scripts.build_alias_table import (  # noqa: E402
+    _is_manual_entry,
     fetch_and_transform,
     merge_aliases,
-    _is_manual_entry,
 )
-
 
 # ── Fixtures ────────────────────────────────────────────────────────────────
 
@@ -186,9 +186,7 @@ def test_is_manual_entry_cloud_sourced():
 # ── Test merge_aliases (Incremental Mode) ────────────────────────────────────
 
 
-def test_merge_aliases_incremental_preserves_existing(
-    existing_manual_aliases, existing_cloud_aliases
-):
+def test_merge_aliases_incremental_preserves_existing(existing_manual_aliases, existing_cloud_aliases):
     """Incremental mode never overwrites existing entries."""
     existing = {**existing_manual_aliases, **existing_cloud_aliases}
 
@@ -255,9 +253,7 @@ def test_merge_aliases_incremental_adds_new_only(
 # ── Test merge_aliases (Full Rebuild Mode) ───────────────────────────────────
 
 
-def test_merge_aliases_full_rebuild_preserves_manual(
-    existing_manual_aliases, existing_cloud_aliases
-):
+def test_merge_aliases_full_rebuild_preserves_manual(existing_manual_aliases, existing_cloud_aliases):
     """Full rebuild preserves manual entries, replaces cloud-sourced."""
     existing = {**existing_manual_aliases, **existing_cloud_aliases}
 
@@ -328,9 +324,7 @@ def test_merge_aliases_full_rebuild_no_manual_entries(
 
 
 @patch("scripts.build_alias_table.CloudDataClient")
-def test_full_flow_incremental(
-    mock_client_class, mock_cloud_stocks, existing_manual_aliases, tmp_path
-):
+def test_full_flow_incremental(mock_client_class, mock_cloud_stocks, existing_manual_aliases, tmp_path):
     """Test complete flow: fetch → transform → merge → write."""
     # Setup mock
     mock_instance = MagicMock()

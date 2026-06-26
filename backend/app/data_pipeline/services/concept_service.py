@@ -3,6 +3,7 @@ ConceptService - 概念板块查询服务
 
 从本地 PostgreSQL 查询概念板块热度数据，供 Agent 工具调用。
 """
+
 import logging
 from typing import Any
 
@@ -34,12 +35,7 @@ class ConceptService:
         Returns:
             概念板块列表
         """
-        date_stmt = (
-            select(ConceptLimit.trade_date)
-            .distinct()
-            .order_by(desc(ConceptLimit.trade_date))
-            .limit(days)
-        )
+        date_stmt = select(ConceptLimit.trade_date).distinct().order_by(desc(ConceptLimit.trade_date)).limit(days)
 
         try:
             async with engine.connect() as conn:
@@ -53,16 +49,13 @@ class ConceptService:
             logger.warning("无概念交易日数据")
             return []
 
-        data_stmt = (
-            select(
-                ConceptLimit.concept_code,
-                ConceptLimit.concept_name,
-                ConceptLimit.trade_date,
-                ConceptLimit.up_nums,
-                ConceptLimit.pct_chg,
-            )
-            .where(ConceptLimit.trade_date.in_(trade_dates))
-        )
+        data_stmt = select(
+            ConceptLimit.concept_code,
+            ConceptLimit.concept_name,
+            ConceptLimit.trade_date,
+            ConceptLimit.up_nums,
+            ConceptLimit.pct_chg,
+        ).where(ConceptLimit.trade_date.in_(trade_dates))
 
         try:
             async with engine.connect() as conn:
@@ -72,7 +65,7 @@ class ConceptService:
             logger.warning(f"查询概念数据失败: {e}")
             return []
 
-        date_weight = {d: 1.0 / (2 ** idx) for idx, d in enumerate(trade_dates)}
+        date_weight = {d: 1.0 / (2**idx) for idx, d in enumerate(trade_dates)}
 
         concept_scores: dict[str, dict] = {}
         for row in rows:

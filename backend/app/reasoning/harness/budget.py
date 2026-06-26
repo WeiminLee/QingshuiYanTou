@@ -11,36 +11,38 @@ BudgetEnforcer — 三层 Budget 防御
   - 防止一轮内所有工具结果堆积超限
   - 提供持久化存储大结果的机制（结果存储到 MongoDB，prompt 中只返回指针）
 """
+
 from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import Any
 
 logger = logging.getLogger(__name__)
 
 # ── 常量 ──────────────────────────────────────────────────────────────────────
 
-DEFAULT_PER_TOOL_CAP      = 50_000   # 单个工具结果上限（字符）
-DEFAULT_PER_TURN_CAP      = 200_000  # 单轮总额上限（字符）
-DEFAULT_PREVIEW_SIZE      = 1_500    # 截断预览 snippet 长度
+DEFAULT_PER_TOOL_CAP = 50_000  # 单个工具结果上限（字符）
+DEFAULT_PER_TURN_CAP = 200_000  # 单轮总额上限（字符）
+DEFAULT_PREVIEW_SIZE = 1_500  # 截断预览 snippet 长度
 DEFAULT_STORAGE_COLLECTION = "harness_tool_results"
 
 
 @dataclass
 class ToolResultBudget:
     """单个工具的结果预算记录"""
+
     tool_name: str
     char_count: int
     original: str
-    truncated: str = ""          # 截断后的预览文本
-    persisted_key: str = ""      # 持久化存储 key（超限大结果时）
+    truncated: str = ""  # 截断后的预览文本
+    persisted_key: str = ""  # 持久化存储 key（超限大结果时）
     was_truncated: bool = False
 
 
 @dataclass
 class TurnBudget:
     """单轮预算状态"""
+
     turn: int
     turn_cap: int = DEFAULT_PER_TURN_CAP
     total_chars: int = 0
@@ -57,15 +59,17 @@ class TurnBudget:
 @dataclass
 class BudgetConfig:
     """Budget 配置"""
-    per_tool_cap: int    = DEFAULT_PER_TOOL_CAP
-    per_turn_cap: int    = DEFAULT_PER_TURN_CAP
-    preview_size: int    = DEFAULT_PREVIEW_SIZE
+
+    per_tool_cap: int = DEFAULT_PER_TOOL_CAP
+    per_turn_cap: int = DEFAULT_PER_TURN_CAP
+    preview_size: int = DEFAULT_PREVIEW_SIZE
     # 持久化配置（MongoDB 存储大结果，prompt 只返回指针）
     persist_enabled: bool = True
     persist_collection: str = DEFAULT_STORAGE_COLLECTION
 
 
 # ── 持久化存储 ────────────────────────────────────────────────────────────────
+
 
 async def _persist_result(key: str, content: str, thread_id: str) -> str:
     """
@@ -74,6 +78,7 @@ async def _persist_result(key: str, content: str, thread_id: str) -> str:
     """
     try:
         from datetime import datetime
+
         from app.core.mongodb import get_mongo_db
 
         db = get_mongo_db()
@@ -112,6 +117,7 @@ async def _load_persisted_result(key: str) -> str:
 
 
 # ── BudgetEnforcer ─────────────────────────────────────────────────────────────
+
 
 class BudgetEnforcer:
     """
@@ -185,8 +191,7 @@ class BudgetEnforcer:
             budget.truncated = truncated
             budget.was_truncated = True
             logger.info(
-                f"[Budget] Layer1 per-tool cap hit: {tool_name} "
-                f"({char_count} → {self.config.per_tool_cap} chars)"
+                f"[Budget] Layer1 per-tool cap hit: {tool_name} ({char_count} → {self.config.per_tool_cap} chars)"
             )
         else:
             budget.truncated = raw_result
@@ -205,7 +210,7 @@ class BudgetEnforcer:
                     budget.persisted_key = stored_key
                     budget.truncated = (
                         f"【结果已存储（{char_count} chars），key={stored_key}，"
-                        f"如需完整结果请调用 tool_result(key=\"{stored_key}\")】"
+                        f'如需完整结果请调用 tool_result(key="{stored_key}")】'
                     )
                     budget.was_truncated = True
                     logger.info(
@@ -239,16 +244,10 @@ class BudgetEnforcer:
         if not self._turn_history:
             return {"turns": 0, "total_chars": 0, "truncated_tools": 0}
 
-        truncated = sum(
-            1 for tb in self._turn_history
-            for r in tb.tool_results if r.was_truncated
-        )
+        truncated = sum(1 for tb in self._turn_history for r in tb.tool_results if r.was_truncated)
         return {
             "turns": len(self._turn_history),
             "total_chars": sum(tb.total_chars for tb in self._turn_history),
             "truncated_tools": truncated,
-            "persisted_keys": sum(
-                1 for tb in self._turn_history
-                for r in tb.tool_results if r.persisted_key
-            ),
+            "persisted_keys": sum(1 for tb in self._turn_history for r in tb.tool_results if r.persisted_key),
         }

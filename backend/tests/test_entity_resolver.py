@@ -3,6 +3,7 @@ Tests for entity_resolver.py sector-aware disambiguation.
 
 Run: python -m pytest backend/tests/test_entity_resolver.py -v
 """
+
 import asyncio
 import os
 import sys
@@ -12,11 +13,11 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from app.knowledge.entity_resolver import (
-    _is_english,
-    _has_digit_in_2gram_diff,
-    is_similarity,
     _get_sector_tags,
+    _has_digit_in_2gram_diff,
+    _is_english,
     _sectors_disjoint,
+    is_similarity,
 )
 from app.knowledge.stock_name_resolver import StockNameResolver, get_stock_name_resolver
 

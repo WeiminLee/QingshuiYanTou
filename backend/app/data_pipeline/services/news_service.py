@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 import tushare as ts
@@ -44,8 +44,10 @@ class NewsService:
     async def _load_concept_names(self) -> list[str]:
         if self._concept_names is not None:
             return self._concept_names
-        from app.models.models import ThsConcept
         from sqlalchemy import select
+
+        from app.models.models import ThsConcept
+
         async with engine.connect() as conn:
             result = await conn.execute(select(ThsConcept.name))
             names = [r[0] for r in result.fetchall()]
@@ -100,15 +102,18 @@ class NewsService:
                     VALUES (:event_id, :title, :summary, :source, :url, :publish_at, :metadata::jsonb)
                     ON CONFLICT (event_id) DO NOTHING
                 """)
-                result = await conn.execute(pg_stmt, {
-                    "event_id": eid,
-                    "title": title,
-                    "summary": str(row.get("content") or row.get("summary") or ""),
-                    "source": "cls",
-                    "url": str(row.get("url") or ""),
-                    "publish_at": publish_at,
-                    "metadata": json.dumps(metadata, ensure_ascii=False),
-                })
+                result = await conn.execute(
+                    pg_stmt,
+                    {
+                        "event_id": eid,
+                        "title": title,
+                        "summary": str(row.get("content") or row.get("summary") or ""),
+                        "source": "cls",
+                        "url": str(row.get("url") or ""),
+                        "publish_at": publish_at,
+                        "metadata": json.dumps(metadata, ensure_ascii=False),
+                    },
+                )
                 if result.rowcount > 0:
                     inserted += 1
                 else:
@@ -122,15 +127,15 @@ class NewsService:
 def _parse_datetime(val: Any) -> datetime:
     if isinstance(val, datetime):
         if val.tzinfo is None:
-            val = val.replace(tzinfo=timezone.utc)
+            val = val.replace(tzinfo=UTC)
         return val
     if isinstance(val, str):
         for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y/%m/%d %H:%M:%S", "%Y-%m-%d"):
             try:
-                return datetime.strptime(val, fmt).replace(tzinfo=timezone.utc)
+                return datetime.strptime(val, fmt).replace(tzinfo=UTC)
             except ValueError:
                 continue
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 _news_service: NewsService | None = None

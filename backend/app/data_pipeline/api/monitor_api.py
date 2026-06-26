@@ -3,17 +3,18 @@
 
 提供任务状态、告警日志、数据量统计等接口
 """
-from fastapi import APIRouter, Query
-from pydantic import BaseModel
-from typing import Optional
+
 from datetime import datetime
 
-from app.data_pipeline.monitor import (
-    get_task_status_summary,
-    get_recent_alerts,
-    AlertLevel,
-)
+from fastapi import APIRouter, Query
+from pydantic import BaseModel
+
 from app.core.database import engine
+from app.data_pipeline.monitor import (
+    AlertLevel,
+    get_recent_alerts,
+    get_task_status_summary,
+)
 
 router = APIRouter(prefix="/api/v1/monitor", tags=["监控"])
 
@@ -21,9 +22,9 @@ router = APIRouter(prefix="/api/v1/monitor", tags=["监控"])
 class TaskStatusResponse(BaseModel):
     task_name: str
     status: str
-    last_run: Optional[datetime]
-    last_total: Optional[int]
-    last_success: Optional[int]
+    last_run: datetime | None
+    last_total: int | None
+    last_success: int | None
     consecutive_failures: int
 
 
@@ -31,7 +32,7 @@ class AlertResponse(BaseModel):
     task_name: str
     level: str
     message: str
-    details: Optional[dict]
+    details: dict | None
     created_at: datetime
 
 
@@ -73,11 +74,12 @@ async def get_sync_status():
 
     # 限流器状态
     from app.data_pipeline.rate_limiter import get_akshare_limiter
+
     limiter = get_akshare_limiter()
     rate_limiter_status = {
         "requests_per_minute": limiter.max_per_minute,
         "current_count": limiter.count,
-        "reset_at": limiter._window_start.isoformat() if hasattr(limiter, '_window_start') else None,
+        "reset_at": limiter._window_start.isoformat() if hasattr(limiter, "_window_start") else None,
     }
 
     return SyncStatsResponse(
@@ -90,7 +92,7 @@ async def get_sync_status():
 @router.get("/alerts")
 async def list_alerts(
     hours: int = Query(24, ge=1, le=168, description="查询最近多少小时的告警"),
-    level: Optional[str] = Query(None, description="告警级别: info, warning, error"),
+    level: str | None = Query(None, description="告警级别: info, warning, error"),
 ):
     """获取告警日志"""
     alert_level = AlertLevel(level) if level else None
@@ -121,7 +123,7 @@ async def get_task_detail(
                 ORDER BY started_at DESC
                 LIMIT 50
             """),
-            {"task_name": task_name, "days": days}
+            {"task_name": task_name, "days": days},
         )
         rows = result.fetchall()
 
@@ -141,5 +143,5 @@ async def get_task_detail(
                 "consecutive_failures": r[9],
             }
             for r in rows
-        ]
+        ],
     }

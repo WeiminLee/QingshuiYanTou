@@ -12,17 +12,18 @@
 
 关系类型详见 relation_types.py
 """
+
 from __future__ import annotations
 
 import logging
 import re
 from datetime import date, datetime, timedelta
-from typing import Any, Optional
+from typing import Any
 
-from app.core.neo4j_client import run, run_write, run_single, write_transaction
-from app.knowledge.entity_service import ENTITY_TYPES
+from app.core.neo4j_client import run, run_single, run_write, write_transaction
+
 run, run_write, run_single, write_transaction
-from app.knowledge.relation_types import RELATIONSHIP_TYPES, RELATIONSHIP_DESCRIPTIONS
+from app.knowledge.relation_types import RELATIONSHIP_TYPES
 
 logger = logging.getLogger(__name__)
 
@@ -70,17 +71,11 @@ def _safe_rel_type(rel_type: str) -> str:
         raise ValueError(f"relationship_type 必须是字符串: {rel_type!r}")
 
     if rel_type not in RELATIONSHIP_TYPES:
-        raise ValueError(
-            f"无效 relationship_type: {rel_type}，"
-            f"有效值: {sorted(RELATIONSHIP_TYPES)}"
-        )
+        raise ValueError(f"无效 relationship_type: {rel_type}，有效值: {sorted(RELATIONSHIP_TYPES)}")
 
     # 验证格式（防止注入）
     if not _REL_TYPE_PATTERN.match(rel_type):
-        raise ValueError(
-            f"relationship_type 包含非法字符: {rel_type!r}，"
-            f"仅允许 A-Z 和下划线"
-        )
+        raise ValueError(f"relationship_type 包含非法字符: {rel_type!r}，仅允许 A-Z 和下划线")
 
     return rel_type
 
@@ -175,6 +170,7 @@ def infer_relation_type(description: str) -> str:
 
 # ── 关系 → dict 互转 ──────────────────────────────────
 
+
 def _rel_to_dict(rel: Any) -> dict:
     """将 Neo4j Relationship 对象转为 plain dict"""
     if rel is None:
@@ -188,20 +184,21 @@ def _rel_to_dict(rel: Any) -> dict:
 
 # ── 关系服务 ──────────────────────────────────────────
 
+
 def upsert_relation(
     from_entity: str,
     to_entity: str,
     relationship_type: str,
-    properties: Optional[dict] = None,
+    properties: dict | None = None,
     confidence: float = 0.80,
-    source_type: Optional[str] = None,
-    source_name: Optional[str] = None,
-    evidence_url: Optional[str] = None,
-    article_ref: Optional[str] = None,
-    notes: Optional[str] = None,
-    valid_from: Optional[date] = None,
-    valid_to: Optional[date] = None,
-    superseded_by: Optional[int] = None,
+    source_type: str | None = None,
+    source_name: str | None = None,
+    evidence_url: str | None = None,
+    article_ref: str | None = None,
+    notes: str | None = None,
+    valid_from: date | None = None,
+    valid_to: date | None = None,
+    superseded_by: int | None = None,
 ) -> tuple[dict, bool]:
     """
     Upsert 单条关系边。
@@ -249,10 +246,7 @@ def upsert_relation(
                     first_in_dict = isinstance(incoming[0], dict) if incoming else False
                     if first_in_dict:
                         # 新旧都是 dict 格式：按 text 去重
-                        seen_texts = {
-                            d.get("text", "") for d in existing_descs
-                            if isinstance(d, dict)
-                        }
+                        seen_texts = {d.get("text", "") for d in existing_descs if isinstance(d, dict)}
                         for item in incoming:
                             if not isinstance(item, dict):
                                 continue
@@ -344,7 +338,12 @@ def upsert_relation(
                  AND r.valid_to IS NULL
                SET r.valid_to = $yesterday, r.updated_at = $now
             """,
-            {"from_entity": from_entity, "to_entity": to_entity, "yesterday": yesterday, "now": now},
+            {
+                "from_entity": from_entity,
+                "to_entity": to_entity,
+                "yesterday": yesterday,
+                "now": now,
+            },
         )
         # 创建新关系
         tx.run(
@@ -378,10 +377,7 @@ def _serialize_state_history(state_history: list[dict] | None) -> list[str]:
     for item in state_history or []:
         if not isinstance(item, dict):
             continue
-        items.append(
-            f"{item.get('valid_from') or ''}~{item.get('valid_to') or ''}:"
-            f"{item.get('text') or ''}"
-        )
+        items.append(f"{item.get('valid_from') or ''}~{item.get('valid_to') or ''}:{item.get('text') or ''}")
     return items
 
 
@@ -400,11 +396,13 @@ def _parse_state_history(items: Any) -> list[dict]:
                 valid_from, valid_to = period.split("~", 1)
             else:
                 valid_from, valid_to = period, ""
-            parsed.append({
-                "valid_from": valid_from or None,
-                "valid_to": valid_to or None,
-                "text": desc.strip(),
-            })
+            parsed.append(
+                {
+                    "valid_from": valid_from or None,
+                    "valid_to": valid_to or None,
+                    "text": desc.strip(),
+                }
+            )
     return parsed
 
 
@@ -477,11 +475,13 @@ def merge_relations(
                     valid_from, valid_to = [p.strip() for p in period.split("~", 1)]
                 else:
                     valid_from, valid_to = period.strip(), ""
-                parsed_history.append({
-                    "valid_from": valid_from or None,
-                    "valid_to": None if valid_to in ("", "None", "null") else valid_to,
-                    "text": desc.strip(),
-                })
+                parsed_history.append(
+                    {
+                        "valid_from": valid_from or None,
+                        "valid_to": None if valid_to in ("", "None", "null") else valid_to,
+                        "text": desc.strip(),
+                    }
+                )
         if parsed_text:
             merged["text"] = parsed_text[:100]
         if parsed_history:
@@ -513,17 +513,13 @@ def batch_upsert_relations_unwind(relations: list[dict]) -> dict:
             "elapsed_seconds": float
         }
     """
-    import time
     import datetime as dt
+    import time
 
     start = time.monotonic()
-    failed = 0
 
     # 过滤无效记录
-    valid_relations = [
-        r for r in relations
-        if r.get("from_entity") and r.get("to_entity")
-    ]
+    valid_relations = [r for r in relations if r.get("from_entity") and r.get("to_entity")]
 
     if not valid_relations:
         elapsed = time.monotonic() - start
@@ -546,22 +542,24 @@ def batch_upsert_relations_unwind(relations: list[dict]) -> dict:
         direction = rel.get("direction", "neutral")
         source_label = f"[{source_file}]{direction}: {rel.get('text', '')}"
 
-        rows.append({
-            "from_entity": rel["from_entity"],
-            "to_entity": rel["to_entity"],
-            "text": rel.get("text", ""),
-            "weight": float(rel.get("weight", 1.0)),
-            "direction": direction,
-            "descriptions": [source_label],
-            "source_type": rel.get("source_type", "unknown"),
-            "source_name": rel.get("source_name", "unknown"),
-            "source_chunk": rel.get("source_chunk", ""),
-            "source_file": source_file,
-            "valid_from": valid_from_str,
-            "valid_to": valid_to_str,
-            "now": now,
-            "yesterday": yesterday,
-        })
+        rows.append(
+            {
+                "from_entity": rel["from_entity"],
+                "to_entity": rel["to_entity"],
+                "text": rel.get("text", ""),
+                "weight": float(rel.get("weight", 1.0)),
+                "direction": direction,
+                "descriptions": [source_label],
+                "source_type": rel.get("source_type", "unknown"),
+                "source_name": rel.get("source_name", "unknown"),
+                "source_chunk": rel.get("source_chunk", ""),
+                "source_file": source_file,
+                "valid_from": valid_from_str,
+                "valid_to": valid_to_str,
+                "now": now,
+                "yesterday": yesterday,
+            }
+        )
 
     # Stage 1: 关闭已有开放边
     close_cypher = """
@@ -629,11 +627,11 @@ def batch_upsert_relations_unwind(relations: list[dict]) -> dict:
 
 
 def query_relations(
-    from_entity: Optional[str] = None,
-    to_entity: Optional[str] = None,
-    relationship_type: Optional[str] = None,
-    ts_code: Optional[str] = None,
-    valid_at: Optional[date] = None,
+    from_entity: str | None = None,
+    to_entity: str | None = None,
+    relationship_type: str | None = None,
+    ts_code: str | None = None,
+    valid_at: date | None = None,
     active_only: bool = True,
     limit: int = 100,
     offset: int = 0,
@@ -670,17 +668,12 @@ def query_relations(
         rel_label = "r"
 
     if ts_code:
-        where_parts.append(
-            "(a.entity_id CONTAINS $ts_code OR b.entity_id CONTAINS $ts_code)"
-        )
+        where_parts.append("(a.entity_id CONTAINS $ts_code OR b.entity_id CONTAINS $ts_code)")
         params["ts_code"] = ts_code
 
     if valid_at:
         valid_at_str = str(valid_at)
-        where_parts.append(
-            "r.valid_from <= $valid_at "
-            "AND (r.valid_to IS NULL OR r.valid_to >= $valid_at)"
-        )
+        where_parts.append("r.valid_from <= $valid_at AND (r.valid_to IS NULL OR r.valid_to >= $valid_at)")
         params["valid_at"] = valid_at_str
     elif active_only:
         # 默认：仅返回当前有效关系
@@ -709,8 +702,8 @@ def query_relations(
 
 def get_company_relations(
     ts_code: str,
-    rel_type: Optional[str] = None,
-    valid_at: Optional[date] = None,
+    rel_type: str | None = None,
+    valid_at: date | None = None,
 ) -> list[dict]:
     return query_relations(
         from_entity=f"C:{ts_code}",
@@ -726,8 +719,8 @@ def link_company_to_industry(
     industry_name: str,
     source_type: str,
     source_name: str,
-    valid_from: Optional[date] = None,
-    properties: Optional[dict] = None,
+    valid_from: date | None = None,
+    properties: dict | None = None,
 ) -> tuple[dict, bool]:
     if valid_from is None:
         valid_from = date.today()
@@ -747,6 +740,7 @@ def link_company_to_industry(
 
 
 # ── 统一 RELATES 关系（2026-04-14 Schema 重构）───────────────────────────────
+
 
 def upsert_relates(
     from_entity: str,
@@ -818,6 +812,7 @@ def upsert_relates(
         if entity_id.startswith("M:"):
             return True
         return False
+
     if not _validate_entity_type(from_entity) or not _validate_entity_type(to_entity):
         raise ValueError(f"关系包含非法实体类型: src={from_entity}, tgt={to_entity}，仅允许Company/Product/Metric")
 
@@ -852,8 +847,7 @@ def upsert_relates(
         existing_descs: list = merged.get("descriptions", [])
         # 兼容旧 dict 格式 entries（迁移前遗留）
         if existing_descs and isinstance(existing_descs[0], dict):
-            existing_descs = [d.get("text", "") if isinstance(d, dict) else str(d)
-                             for d in existing_descs]
+            existing_descs = [d.get("text", "") if isinstance(d, dict) else str(d) for d in existing_descs]
         seen_texts = set(existing_descs)
         if text not in seen_texts:
             existing_descs.append(new_desc_str)
@@ -881,8 +875,12 @@ def upsert_relates(
             merged["relation_subtype"] = relation_subtype
 
         # 元数据首次写入不覆盖
-        for field, val in [("source_type", source_type), ("source_name", source_name),
-                           ("source_chunk", source_chunk), ("source_file", source_file)]:
+        for field, val in [
+            ("source_type", source_type),
+            ("source_name", source_name),
+            ("source_chunk", source_chunk),
+            ("source_file", source_file),
+        ]:
             if val and val != "unknown" and not merged.get(field):
                 merged[field] = val
         if valid_to_str and not merged.get("valid_to"):
@@ -939,9 +937,7 @@ def upsert_relates(
         "evidence_ids": list(dict.fromkeys(evidence_ids or [])),
         "stmt_type": stmt_type,
         "relation_subtype": relation_subtype or "",
-        "state_history": _serialize_state_history(
-            _default_state_history(text, valid_from_str, valid_to_str)
-        ),
+        "state_history": _serialize_state_history(_default_state_history(text, valid_from_str, valid_to_str)),
         "created_at": now,
         "updated_at": now,
     }

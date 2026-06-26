@@ -6,8 +6,8 @@ Layer 4 — 置信度标注模块
 2. 多源结论汇聚时的置信度融合
 3. 冲突检测时的置信度降级
 """
+
 import logging
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -34,11 +34,11 @@ SOURCE_TO_TIER: dict[str, str] = {
     "research_report": "TIER4_ANALYSIS",
     "cls_news": "TIER4_ANALYSIS",
     # 内部生成
-    "neo4j_graph": "TIER2_THIRD_PARTY",   # 图谱节点，取决于原始 source
-    "vector_db": "TIER4_ANALYSIS",          # 向量库，语义相似性
-    "postgres": "TIER2_THIRD_PARTY",         # PostgreSQL 评分数据
-    "mongodb": "TIER4_ANALYSIS",            # MongoDB 情报，置信度不等
-    "deliberation": "TIER4_ANALYSIS",      # LLM deliberation 结论
+    "neo4j_graph": "TIER2_THIRD_PARTY",  # 图谱节点，取决于原始 source
+    "vector_db": "TIER4_ANALYSIS",  # 向量库，语义相似性
+    "postgres": "TIER2_THIRD_PARTY",  # PostgreSQL 评分数据
+    "mongodb": "TIER4_ANALYSIS",  # MongoDB 情报，置信度不等
+    "deliberation": "TIER4_ANALYSIS",  # LLM deliberation 结论
 }
 
 # ── TIER → 分值映射 ────────────────────────────────────
@@ -149,8 +149,7 @@ def downgrade_for_conflict(
     new_score = (score_range[0] + score_range[1]) / 2
 
     logger.info(
-        f"[Confidence] Downgraded: {current_tier} → {new_tier} "
-        f"(conflicts={conflict_count}, score={new_score:.2f})"
+        f"[Confidence] Downgraded: {current_tier} → {new_tier} (conflicts={conflict_count}, score={new_score:.2f})"
     )
     return new_tier, new_score
 

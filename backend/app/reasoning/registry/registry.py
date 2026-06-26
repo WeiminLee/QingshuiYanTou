@@ -9,6 +9,7 @@ ToolRegistry — 统一工具注册表单例
 - get_configs_by_group(group)    — 按分组获取配置
 - get_enabled_names()            — 获取已启用的工具名列表
 """
+
 from __future__ import annotations
 
 import logging
@@ -21,11 +22,11 @@ logger = logging.getLogger(__name__)
 
 # ── 全局单例 ───────────────────────────────────────────────────────────────
 
-_registry: "ToolRegistry | None" = None
+_registry: ToolRegistry | None = None
 _registry_lock = threading.RLock()
 
 
-def get_registry() -> "ToolRegistry":
+def get_registry() -> ToolRegistry:
     global _registry
     if _registry is None:
         with _registry_lock:
@@ -100,10 +101,7 @@ class ToolRegistry:
     def get_configs_by_group(self, group: ToolGroup | str) -> list[ToolConfig]:
         """按分组获取配置"""
         with self._lock:
-            return [
-                c for c in self._configs.values()
-                if c.enabled and c.group == group
-            ]
+            return [c for c in self._configs.values() if c.enabled and c.group == group]
 
     def get_enabled_names(self) -> list[str]:
         """获取已启用的工具名列表"""
@@ -120,7 +118,8 @@ class ToolRegistry:
         with self._lock:
             if names is None:
                 instances = [
-                    inst for name, inst in self._instances.items()
+                    inst
+                    for name, inst in self._instances.items()
                     if name in self._configs and self._configs[name].enabled
                 ]
             else:

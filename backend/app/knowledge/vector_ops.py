@@ -6,22 +6,23 @@ Provides:
 - async_upsert_*(): Semaphore-gated async upsert wrappers
 - reindex_missing_vectors(): Batch reindex for nightly job
 """
+
 from __future__ import annotations
 
 import asyncio
 import logging
 import uuid
-from typing import Optional
+from datetime import UTC
 
 from app.knowledge.vector_client import (
-    COLLECTION_ENTITIES,
-    COLLECTION_RELATIONS,
     COLLECTION_CHUNKS,
+    COLLECTION_ENTITIES,
     COLLECTION_QA,
-    VectorRecord,
+    COLLECTION_RELATIONS,
     SearchResult,
-    get_vector_client,
+    VectorRecord,
     get_embedding_model,
+    get_vector_client,
 )
 
 logger = logging.getLogger(__name__)
@@ -74,7 +75,7 @@ async def hybrid_vector_search(
     query: str,
     top_k_per_collection: int = 5,
     global_top_k: int = 10,
-    filter_expr: Optional[str] = None,
+    filter_expr: str | None = None,
 ) -> list[SearchResult]:
     """
     Parallel search across all 4 Qdrant collections with RRF merge.
@@ -270,6 +271,7 @@ async def reindex_missing_vectors(batch_size: int = 100) -> int:
 
 # ── 向量补偿机制 ───────────────────────────────────────────────────────
 
+
 async def retry_failed_vectors(
     failed_vectors: list[dict],
     max_retries: int = 2,
@@ -330,28 +332,31 @@ async def retry_failed_vectors(
                 client.upsert(COLLECTION_CHUNKS, [record])
 
                 success += 1
-                details.append({
-                    "chunk_id": chunk_id,
-                    "status": "success",
-                    "attempts": attempt,
-                })
+                details.append(
+                    {
+                        "chunk_id": chunk_id,
+                        "status": "success",
+                        "attempts": attempt,
+                    }
+                )
                 break
 
             except Exception as e:
                 if attempt >= max_retries:
                     still_failed += 1
-                    details.append({
-                        "chunk_id": chunk_id,
-                        "status": "failed",
-                        "error": str(e)[:200],
-                        "attempts": attempt,
-                    })
+                    details.append(
+                        {
+                            "chunk_id": chunk_id,
+                            "status": "failed",
+                            "error": str(e)[:200],
+                            "attempts": attempt,
+                        }
+                    )
                     logger.warning("向量重试失败 [%s]: %s", chunk_id, e)
                 else:
                     await asyncio.sleep(2 * attempt)  # 简单退避
 
-    logger.info("向量补偿完成: retried=%d, success=%d, still_failed=%d",
-                retried, success, still_failed)
+    logger.info("向量补偿完成: retried=%d, success=%d, still_failed=%d", retried, success, still_failed)
 
     return {
         "retried": retried,
@@ -377,13 +382,14 @@ def enqueue_vector_retry_jobs(
         return 0
 
     try:
+        from datetime import datetime
+
         from app.core.mongodb import get_mongo_db
-        from datetime import datetime, timezone
 
         db = get_mongo_db()
         col = db["kg_vector_retry_queue"]
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         enqueued = 0
 
         for fv in failed_vectors:

@@ -1,9 +1,11 @@
 """验证 Sub-Project 1 的 ORM 模型定义正确"""
+
 from sqlalchemy import inspect
 
 
 def test_user_model_exists():
     from app.models.models import User
+
     cols = {c.name for c in inspect(User).columns}
     assert "user_id" in cols
     assert "display_name" in cols
@@ -16,6 +18,7 @@ def test_user_model_exists():
 
 def test_portfolio_position_model_exists():
     from app.models.models import PortfolioPosition
+
     cols = {c.name for c in inspect(PortfolioPosition).columns}
     assert "id" in cols
     assert "user_id" in cols
@@ -26,6 +29,7 @@ def test_portfolio_position_model_exists():
 
 def test_portfolio_position_unique_constraint():
     from app.models.models import PortfolioPosition
+
     table = PortfolioPosition.__table__
     uqs = set()
     for uc in table.constraints:

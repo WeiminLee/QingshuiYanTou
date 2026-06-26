@@ -4,6 +4,7 @@ ReportService - 研报/公告/互动易查询服务
 从本地 PostgreSQL 查询研报和公告数据，供 Agent 工具调用。
 互动易复用 announcements 表，靠 announcement_type 前缀 'irm:' 标识。
 """
+
 from __future__ import annotations
 
 import logging
@@ -46,10 +47,10 @@ class ReportService:
         if keyword:
             sql += " AND title LIKE :keyword"
             params["keyword"] = f"%{keyword}%"
-        if (sd := _parse_yyyymmdd(start_date)):
+        if sd := _parse_yyyymmdd(start_date):
             sql += " AND trade_date >= :start_date"
             params["start_date"] = sd
-        if (ed := _parse_yyyymmdd(end_date)):
+        if ed := _parse_yyyymmdd(end_date):
             sql += " AND trade_date <= :end_date"
             params["end_date"] = ed
 
@@ -96,10 +97,10 @@ class ReportService:
         if keyword:
             sql += " AND title LIKE :keyword"
             params["keyword"] = f"%{keyword}%"
-        if (sd := _parse_yyyymmdd(start_date)):
+        if sd := _parse_yyyymmdd(start_date):
             sql += " AND ann_date >= :start_date"
             params["start_date"] = sd
-        if (ed := _parse_yyyymmdd(end_date)):
+        if ed := _parse_yyyymmdd(end_date):
             sql += " AND ann_date <= :end_date"
             params["end_date"] = ed
 
@@ -146,10 +147,10 @@ class ReportService:
         if keyword:
             sql += " AND (title LIKE :keyword OR type LIKE :keyword)"
             params["keyword"] = f"%{keyword}%"
-        if (sd := _parse_yyyymmdd(start_date)):
+        if sd := _parse_yyyymmdd(start_date):
             sql += " AND ann_date >= :start_date"
             params["start_date"] = sd
-        if (ed := _parse_yyyymmdd(end_date)):
+        if ed := _parse_yyyymmdd(end_date):
             sql += " AND ann_date <= :end_date"
             params["end_date"] = ed
 

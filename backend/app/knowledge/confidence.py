@@ -3,27 +3,30 @@
 
 定义数据源置信度等级和配置。
 """
+
 from dataclasses import dataclass
 from enum import IntEnum
 
 
 class ConfidenceTier(IntEnum):
     """置信度等级（数值越高越可信）"""
-    TIER4_MEDIA     = 1   # 自媒体/无来源
-    TIER3_NEWS      = 2   # 新闻/产业链资讯
-    TIER2_ANALYSIS  = 3   # 研报/分析师报告
-    TIER1_OFFICIAL  = 4   # 互动易Q&A/公告/调研纪要
-    TIER0_LEGAL     = 5   # 年报/招股书（法律效力，最可信）
+
+    TIER4_MEDIA = 1  # 自媒体/无来源
+    TIER3_NEWS = 2  # 新闻/产业链资讯
+    TIER2_ANALYSIS = 3  # 研报/分析师报告
+    TIER1_OFFICIAL = 4  # 互动易Q&A/公告/调研纪要
+    TIER0_LEGAL = 5  # 年报/招股书（法律效力，最可信）
 
 
 @dataclass
 class SourceConfig:
     """数据源配置"""
-    source_type: str          # 来源标识
-    tier: ConfidenceTier        # 置信度等级
-    weight: float              # 基础置信度分值（0-1）
-    description: str           # 来源说明
-    examples: list[str]        # 典型示例
+
+    source_type: str  # 来源标识
+    tier: ConfidenceTier  # 置信度等级
+    weight: float  # 基础置信度分值（0-1）
+    description: str  # 来源说明
+    examples: list[str]  # 典型示例
 
 
 # 完整数据源配置表
@@ -50,7 +53,6 @@ SOURCE_CONFIG: dict[str, SourceConfig] = {
         description="海外上市公司招股书",
         examples=["F-1招股书", "港股招股书"],
     ),
-
     # ── Tier 1：官方信息披露 ─────────────────────────────────────────
     "announcement": SourceConfig(
         source_type="announcement",
@@ -73,7 +75,6 @@ SOURCE_CONFIG: dict[str, SourceConfig] = {
         description="机构调研纪要（公司管理层直接交流）",
         examples=["特定对象调研", "业绩说明会纪要"],
     ),
-
     # ── Tier 2：分析报告 ─────────────────────────────────────────────
     "research_report": SourceConfig(
         source_type="research_report",
@@ -89,7 +90,6 @@ SOURCE_CONFIG: dict[str, SourceConfig] = {
         description="用户上传的研报/分析文档",
         examples=["用户上传PDF", "自选研报"],
     ),
-
     # ── Tier 3：新闻资讯 ─────────────────────────────────────────────
     "news_flash": SourceConfig(
         source_type="news_flash",
@@ -112,7 +112,6 @@ SOURCE_CONFIG: dict[str, SourceConfig] = {
         description="财联社电报新闻",
         examples=["财联社快讯", "CLS News"],
     ),
-
     # ── Tier 4：自媒体 ─────────────────────────────────────────────
     "social_media": SourceConfig(
         source_type="social_media",

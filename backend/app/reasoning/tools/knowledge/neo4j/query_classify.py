@@ -6,6 +6,7 @@ QueryClassifier — 规则驱动的查询分类与实体提取
 
 设计参考 RAGFlow query_analyze_prompt.py，但 P0 版本不使用 LLM。
 """
+
 from __future__ import annotations
 
 import logging
@@ -18,6 +19,7 @@ logger = logging.getLogger(__name__)
 @dataclass(frozen=True)
 class QueryIntent:
     """查询意图分析结果。"""
+
     entities: list[str] = field(default_factory=list)
     query_type: str = "entity_search"
     intent: str = "find_entity"
@@ -36,30 +38,94 @@ _COMPANY_SUFFIXES = re.compile(
 
 # 行业关键词
 _INDUSTRY_KEYWORDS = [
-    "新能源", "半导体", "医药", "光伏", "锂电", "储能", "碳化硅",
-    "人工智能", "AI", "芯片", "光通信", "光模块", "激光雷达", "CPO", "硅光",
-    "功率半导体", "HBM", "先进封装", "机器人", "减速器", "传感器",
-    "消费电子", "白酒", "食品饮料", "银行", "保险", "证券", "房地产",
-    "军工", "航空航天", "新能源汽车", "充电桩", "风电", "核电",
-    "5G", "物联网", "云计算", "大数据", "区块链", "数字货币",
-    "稀土", "有色金属", "钢铁", "煤炭", "石油", "化工",
+    "新能源",
+    "半导体",
+    "医药",
+    "光伏",
+    "锂电",
+    "储能",
+    "碳化硅",
+    "人工智能",
+    "AI",
+    "芯片",
+    "光通信",
+    "光模块",
+    "激光雷达",
+    "CPO",
+    "硅光",
+    "功率半导体",
+    "HBM",
+    "先进封装",
+    "机器人",
+    "减速器",
+    "传感器",
+    "消费电子",
+    "白酒",
+    "食品饮料",
+    "银行",
+    "保险",
+    "证券",
+    "房地产",
+    "军工",
+    "航空航天",
+    "新能源汽车",
+    "充电桩",
+    "风电",
+    "核电",
+    "5G",
+    "物联网",
+    "云计算",
+    "大数据",
+    "区块链",
+    "数字货币",
+    "稀土",
+    "有色金属",
+    "钢铁",
+    "煤炭",
+    "石油",
+    "化工",
 ]
 
 # 关系查询关键词
 _RELATION_KEYWORDS = [
-    "关系", "关联", "联系", "影响", "供应商", "客户", "合作伙伴",
-    "竞争对手", "上下游", "产业链", "供应链", "传导",
+    "关系",
+    "关联",
+    "联系",
+    "影响",
+    "供应商",
+    "客户",
+    "合作伙伴",
+    "竞争对手",
+    "上下游",
+    "产业链",
+    "供应链",
+    "传导",
 ]
 
 # 路径查询关键词
 _PATH_KEYWORDS = [
-    "路径", "连接", "从.*到", "之间", "和.*的关系", "与.*的关系",
+    "路径",
+    "连接",
+    "从.*到",
+    "之间",
+    "和.*的关系",
+    "与.*的关系",
 ]
 
 # 行业状态查询关键词
 _STATE_KEYWORDS = [
-    "行业", "现状", "趋势", "概况", "动态", "发展", "前景", "展望",
-    "板块", "领域", "赛道", "景气度",
+    "行业",
+    "现状",
+    "趋势",
+    "概况",
+    "动态",
+    "发展",
+    "前景",
+    "展望",
+    "板块",
+    "领域",
+    "赛道",
+    "景气度",
 ]
 
 
@@ -73,21 +139,13 @@ class QueryClassifier:
 
     def __init__(self) -> None:
         # 编译行业关键词为正则
-        self._industry_pattern = re.compile(
-            "|".join(re.escape(kw) for kw in _INDUSTRY_KEYWORDS)
-        )
+        self._industry_pattern = re.compile("|".join(re.escape(kw) for kw in _INDUSTRY_KEYWORDS))
         # 编译关系关键词
-        self._relation_pattern = re.compile(
-            "|".join(re.escape(kw) for kw in _RELATION_KEYWORDS)
-        )
+        self._relation_pattern = re.compile("|".join(re.escape(kw) for kw in _RELATION_KEYWORDS))
         # 编译路径关键词
-        self._path_pattern = re.compile(
-            "|".join(_PATH_KEYWORDS)
-        )
+        self._path_pattern = re.compile("|".join(_PATH_KEYWORDS))
         # 编译状态关键词
-        self._state_pattern = re.compile(
-            "|".join(re.escape(kw) for kw in _STATE_KEYWORDS)
-        )
+        self._state_pattern = re.compile("|".join(re.escape(kw) for kw in _STATE_KEYWORDS))
 
     def extract_entities(self, query: str) -> QueryIntent:
         """
@@ -120,6 +178,7 @@ class QueryClassifier:
             return entities
         try:
             from app.knowledge.stock_name_resolver import get_stock_name_resolver
+
             resolver = get_stock_name_resolver()
         except Exception as e:
             logger.warning("StockNameResolver 不可用，跳过 ts_code 解析: %s", e)
@@ -171,12 +230,15 @@ class QueryClassifier:
         connector_match = connector_pattern.search(query)
         if connector_match:
             # 左侧实体：从连接词向左提取 CJK 字符
-            left_text = query[:connector_match.start()]
+            left_text = query[: connector_match.start()]
             left_cjk = re.search(r"([一-鿿]{2,6})$", left_text)
             # 右侧实体：从连接词向右提取，遇到虚词边界停止
-            right_text = query[connector_match.end():]
+            right_text = query[connector_match.end() :]
             # 提取连续 CJK 字符，直到遇到虚词或非 CJK 字符
-            right_cjk = re.match(r"([一-鿿]+?)(?:的|了|是|在|有|等|及|与|和|跟|[a-zA-Z0\d]|[，。！？：；]|$)", right_text)
+            right_cjk = re.match(
+                r"([一-鿿]+?)(?:的|了|是|在|有|等|及|与|和|跟|[a-zA-Z0\d]|[，。！？：；]|$)",
+                right_text,
+            )
 
             if left_cjk and right_cjk and len(right_cjk.group(1)) >= 2:
                 left_entity = left_cjk.group(1)
@@ -207,9 +269,7 @@ class QueryClassifier:
         return entities
 
     @staticmethod
-    def _overlaps_matched(
-        start: int, end: int, spans: list[tuple[int, int]]
-    ) -> bool:
+    def _overlaps_matched(start: int, end: int, spans: list[tuple[int, int]]) -> bool:
         """检查位置范围是否与已匹配区域重叠。"""
         for s, e in spans:
             if start < e and end > s:

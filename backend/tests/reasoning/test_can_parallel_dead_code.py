@@ -16,7 +16,6 @@ Bug 描述：
 
 Run: uv run --directory backend python -m pytest tests/reasoning/test_can_parallel_dead_code.py -v
 """
-import pytest
 
 
 class TestCanParallelPathConflictDeadCode:
@@ -79,6 +78,7 @@ class TestCanParallelPathConflictDeadCode:
         from app.reasoning.langchain_agent.middlewares.context_compressor import (
             can_parallel,
         )
+
         tool_calls = [
             {"name": "get_kline", "args": {"code": "000001"}},
             {"name": "get_kline", "args": {"code": "000001"}},
@@ -90,6 +90,7 @@ class TestCanParallelPathConflictDeadCode:
         from app.reasoning.langchain_agent.middlewares.context_compressor import (
             can_parallel,
         )
+
         tool_calls = [
             {"name": "get_kline", "args": {"code": "000001"}},
             {"name": "get_kline", "args": {"code": "000002"}},
@@ -111,13 +112,12 @@ class TestCanParallelPathConflictDeadCode:
         from app.reasoning.langchain_agent.middlewares.context_compressor import (
             can_parallel,
         )
+
         tool_calls = [
             {"name": "get_kline", "args": {"code": "000001"}},
             {"name": "get_kline", "args": {"ts_code": "000001"}},  # 同一只股票，不同字段名
         ]
-        assert can_parallel(tool_calls) is False, (
-            "code='000001' 和 ts_code='000001' 查的是同一只股票，应检测为冲突"
-        )
+        assert can_parallel(tool_calls) is False, "code='000001' 和 ts_code='000001' 查的是同一只股票，应检测为冲突"
 
     def test_duplicate_via_symbol_field(self):
         """
@@ -126,19 +126,19 @@ class TestCanParallelPathConflictDeadCode:
         from app.reasoning.langchain_agent.middlewares.context_compressor import (
             can_parallel,
         )
+
         tool_calls = [
             {"name": "get_kline", "args": {"code": "300308"}},
             {"name": "get_kline", "args": {"symbol": "300308"}},
         ]
-        assert can_parallel(tool_calls) is False, (
-            "code='300308' 和 symbol='300308' 查的是同一只股票，应检测为冲突"
-        )
+        assert can_parallel(tool_calls) is False, "code='300308' 和 symbol='300308' 查的是同一只股票，应检测为冲突"
 
     def test_empty_args_no_conflict(self):
         """空 args 可以并发"""
         from app.reasoning.langchain_agent.middlewares.context_compressor import (
             can_parallel,
         )
+
         tool_calls = [
             {"name": "get_kline", "args": {}},
             {"name": "get_concept_hot", "args": {}},
@@ -150,6 +150,7 @@ class TestCanParallelPathConflictDeadCode:
         from app.reasoning.langchain_agent.middlewares.context_compressor import (
             can_parallel,
         )
+
         tool_calls = [
             {"name": "get_kline", "args": {"start_date": "20240101"}},
             {"name": "get_kline", "args": {"start": "20240101"}},

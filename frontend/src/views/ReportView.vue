@@ -54,12 +54,7 @@
 
     <!-- Active chat area -->
     <div v-if="taskId" class="streaming-section">
-      <ChatList
-        :data="tdesignItems"
-        :is-stream-load="isLoading"
-        layout="both"
-        auto-scroll
-      >
+      <ChatList :data="tdesignItems" :is-stream-load="isLoading" layout="both" auto-scroll>
         <template #reasoning="{ item }">
           <ThinkingPanel
             v-if="item.reasoning"
@@ -97,9 +92,9 @@
       <div v-if="reportContent" class="report-section">
         <div class="report-divider">
           <svg width="48" height="12" viewBox="0 0 48 12">
-            <line x1="0" y1="6" x2="20" y2="6" stroke="#d0ccc6" stroke-width="1"/>
-            <circle cx="24" cy="6" r="3" fill="none" stroke="#c9943a" stroke-width="1"/>
-            <line x1="28" y1="6" x2="48" y2="6" stroke="#d0ccc6" stroke-width="1"/>
+            <line x1="0" y1="6" x2="20" y2="6" stroke="#d0ccc6" stroke-width="1" />
+            <circle cx="24" cy="6" r="3" fill="none" stroke="#c9943a" stroke-width="1" />
+            <line x1="28" y1="6" x2="48" y2="6" stroke="#d0ccc6" stroke-width="1" />
           </svg>
         </div>
         <CustomMarkdownRenderer :content="reportContent" class="report-body" />
@@ -132,54 +127,52 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, onMounted } from 'vue'
-import { useRoute } from 'vue-router'
-import { ElMessage } from 'element-plus'
-import { ArrowLeft } from '@element-plus/icons-vue'
-import { getTaskResult } from '../api/agent.js'
-import { useChatSession } from '@/composables/useChatSession'
-import { useTDesignAdapter } from '@/composables/useTDesignAdapter'
-import { ChatList, ChatSender } from '@tdesign-vue-next/chat'
-import '@tdesign-vue-next/chat/es/style/index.css'
-import { Sparkles, UserRound } from 'lucide-vue-next'
-import ThinkingPanel from '@/components/ThinkingPanel.vue'
-import ToolCallStep from '@/components/ToolCallStep.vue'
-import CustomMarkdownRenderer from '@/components/CustomMarkdownRenderer.vue'
+import { ref, watch, onMounted } from "vue";
+import { useRoute } from "vue-router";
+import { ElMessage } from "element-plus";
+import { ArrowLeft } from "@element-plus/icons-vue";
+import { getTaskResult } from "../api/agent.js";
+import { useChatSession } from "@/composables/useChatSession";
+import { useTDesignAdapter } from "@/composables/useTDesignAdapter";
+import { ChatList, ChatSender } from "@tdesign-vue-next/chat";
+import "@tdesign-vue-next/chat/es/style/index.css";
+import { Sparkles, UserRound } from "lucide-vue-next";
+import ThinkingPanel from "@/components/ThinkingPanel.vue";
+import ToolCallStep from "@/components/ToolCallStep.vue";
+import CustomMarkdownRenderer from "@/components/CustomMarkdownRenderer.vue";
 
-const route = useRoute()
+const route = useRoute();
 
 // Chat session (unified SSE + message state)
-const {
-  messages, taskId, isLoading, error, thinkingCollapsed,
-  sendMessage, stop, reset
-} = useChatSession()
+const { messages, taskId, isLoading, error, thinkingCollapsed, sendMessage, stop, reset } =
+  useChatSession();
 
 // TDesign adapter
-const { tdesignItems } = useTDesignAdapter(messages)
+const { tdesignItems } = useTDesignAdapter(messages);
 
 // Input state for ChatSender
-const inputText = ref('')
+const inputText = ref("");
 
 // Report state (separate from chat messages — report is a final artifact)
-const reportContent = ref('')
-const lastTaskId = ref('')
-const lastQuestion = ref('')
+const reportContent = ref("");
+const lastTaskId = ref("");
+const lastQuestion = ref("");
 
 // Watch for stream completion → fetch final report
 watch([isLoading, taskId], async ([loading, tid], oldVals) => {
-  const prevLoading = oldVals?.[0] ?? false
+  const prevLoading = oldVals?.[0] ?? false;
   if (prevLoading && !loading && tid && tid !== lastTaskId.value) {
-    lastTaskId.value = tid
-    await fetchFinalReport(tid)
+    lastTaskId.value = tid;
+    await fetchFinalReport(tid);
   }
-})
+});
 
 async function fetchFinalReport(tid: string) {
   try {
-    const res = await getTaskResult(tid)
-    const raw = res.reportContent || res.content || ''
+    const res = await getTaskResult(tid);
+    const raw = res.reportContent || res.content || "";
     if (raw) {
-      reportContent.value = raw
+      reportContent.value = raw;
     }
   } catch {
     // Report fetch failed — content already streamed via ChatMessageList
@@ -187,57 +180,60 @@ async function fetchFinalReport(tid: string) {
 }
 
 // Question input state
-const question = ref('')
+const question = ref("");
 
 const quickQuestions = [
-  '中际旭创的竞争格局如何？',
-  '光伏行业2025年景气度展望',
-  '低空经济投资机会分析',
-]
+  "中际旭创的竞争格局如何？",
+  "光伏行业2025年景气度展望",
+  "低空经济投资机会分析",
+];
 
 // Actions
 function handleSend(text: string) {
-  reportContent.value = ''
-  lastTaskId.value = ''
-  lastQuestion.value = text.trim()
-  question.value = ''
-  inputText.value = ''
-  sendMessage(text.trim())
+  reportContent.value = "";
+  lastTaskId.value = "";
+  lastQuestion.value = text.trim();
+  question.value = "";
+  inputText.value = "";
+  sendMessage(text.trim());
 }
 
 function handleReset() {
-  reportContent.value = ''
-  lastTaskId.value = ''
-  lastQuestion.value = ''
-  question.value = ''
-  inputText.value = ''
-  reset()
+  reportContent.value = "";
+  lastTaskId.value = "";
+  lastQuestion.value = "";
+  question.value = "";
+  inputText.value = "";
+  reset();
 }
 
 function handleRetry() {
   if (lastQuestion.value) {
-    handleSend(lastQuestion.value)
+    handleSend(lastQuestion.value);
   }
 }
 
 function handleCopyReport() {
   if (reportContent.value) {
-    navigator.clipboard.writeText(reportContent.value).then(() => {
-      ElMessage.success('已复制到剪贴板')
-    }).catch(() => {
-      ElMessage.error('复制失败')
-    })
+    navigator.clipboard
+      .writeText(reportContent.value)
+      .then(() => {
+        ElMessage.success("已复制到剪贴板");
+      })
+      .catch(() => {
+        ElMessage.error("复制失败");
+      });
   }
 }
 
 // Init from route query
 onMounted(() => {
   if (route.query.q) {
-    const q = String(route.query.q)
-    question.value = q
-    handleSend(q)
+    const q = String(route.query.q);
+    question.value = q;
+    handleSend(q);
   }
-})
+});
 </script>
 
 <style scoped>
@@ -270,7 +266,9 @@ onMounted(() => {
   transition: color 0.2s;
 }
 
-.back-link:hover { color: var(--ledger-gold); }
+.back-link:hover {
+  color: var(--ledger-gold);
+}
 
 .task-status {
   display: flex;
@@ -284,7 +282,7 @@ onMounted(() => {
   border: 1px solid var(--ledger-rule);
   border-radius: 4px;
   padding: 32px;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
 }
 
 .question-title {
@@ -323,7 +321,10 @@ onMounted(() => {
   flex-wrap: wrap;
 }
 
-.hint-label { font-size: 13px; color: var(--text-main-3); }
+.hint-label {
+  font-size: 13px;
+  color: var(--text-main-3);
+}
 .quick-tag {
   cursor: pointer;
   background: var(--ledger-entry);
@@ -354,7 +355,11 @@ onMounted(() => {
 }
 
 /* Report section */
-.report-section { display: flex; flex-direction: column; gap: 0; }
+.report-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
 
 .report-divider {
   display: flex;
@@ -364,7 +369,9 @@ onMounted(() => {
   opacity: 0.8;
 }
 
-.report-body { animation: fade-in 0.4s ease both; }
+.report-body {
+  animation: fade-in 0.4s ease both;
+}
 
 /* report-body styles moved to App.vue */
 
@@ -388,10 +395,10 @@ onMounted(() => {
   letter-spacing: 0.5px;
 }
 .compliance-stamp::before {
-  content: '';
+  content: "";
   position: absolute;
   inset: 4px;
-  border: 1px solid rgba(184,134,11,0.3);
+  border: 1px solid rgba(184, 134, 11, 0.3);
   border-radius: 2px;
   pointer-events: none;
 }
@@ -416,7 +423,9 @@ onMounted(() => {
   font-size: 13px;
 }
 
-.error-card span { flex: 1; }
+.error-card span {
+  flex: 1;
+}
 
 .btn-retry {
   padding: 5px 14px;
@@ -430,10 +439,17 @@ onMounted(() => {
   white-space: nowrap;
 }
 
-.btn-retry:hover { background: var(--ledger-red); color: #fff; }
+.btn-retry:hover {
+  background: var(--ledger-red);
+  color: #fff;
+}
 
 @keyframes fade-in {
-  from { opacity: 0; }
-  to   { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 </style>

@@ -5,14 +5,13 @@
 - 公告列表查询（PostgreSQL announcements）
 - 研报元数据查询（PostgreSQL research_report_meta）
 """
-import logging
-import uuid
-from datetime import datetime
-from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+import logging
+from datetime import datetime
+
+from fastapi import APIRouter, Depends, Query
+from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, desc
 
 from app.core.database import get_db
 from app.core.mongodb import get_mongo_db
@@ -23,6 +22,7 @@ logger = logging.getLogger(__name__)
 
 
 # ── 财联社电报 ────────────────────────────────────────
+
 
 @router.get("/cls-news")
 async def get_cls_news(
@@ -38,31 +38,40 @@ async def get_cls_news(
 
     total = await collection.count_documents({})
 
-    cursor = collection.find(
-        {},
-        {"_id": 0},
-    ).sort("pub_date", -1).sort("pub_time", -1).skip(skip).limit(limit)
+    cursor = (
+        collection.find(
+            {},
+            {"_id": 0},
+        )
+        .sort("pub_date", -1)
+        .sort("pub_time", -1)
+        .skip(skip)
+        .limit(limit)
+    )
 
     items = []
     async for doc in cursor:
-        items.append({
-            "title": doc.get("title"),
-            "content": doc.get("content"),
-            "pub_date": doc.get("pub_date"),
-            "pub_time": doc.get("pub_time"),
-            "full_datetime": doc.get("full_datetime"),
-            "category": doc.get("category"),
-            "signals": doc.get("signals", []),
-        })
+        items.append(
+            {
+                "title": doc.get("title"),
+                "content": doc.get("content"),
+                "pub_date": doc.get("pub_date"),
+                "pub_time": doc.get("pub_time"),
+                "full_datetime": doc.get("full_datetime"),
+                "category": doc.get("category"),
+                "signals": doc.get("signals", []),
+            }
+        )
 
     return {"items": items, "total": total}
 
 
 # ── 互动易Q&A ────────────────────────────────────────
 
+
 @router.get("/qa")
 async def get_qa_interactive_all(
-    ts_code: Optional[str] = None,
+    ts_code: str | None = None,
     limit: int = Query(50, ge=1, le=200),
     skip: int = Query(0, ge=0),
 ):
@@ -79,24 +88,31 @@ async def get_qa_interactive_all(
 
     total = await collection.count_documents(query)
 
-    cursor = collection.find(
-        query,
-        {"_id": 0},
-    ).sort("ann_date", -1).skip(skip).limit(limit)
+    cursor = (
+        collection.find(
+            query,
+            {"_id": 0},
+        )
+        .sort("ann_date", -1)
+        .skip(skip)
+        .limit(limit)
+    )
 
     items = []
     async for doc in cursor:
-        items.append({
-            "exchange": doc.get("exchange"),
-            "ts_code": doc.get("ts_code"),
-            "ann_date": doc.get("ann_date"),
-            "question": doc.get("question"),
-            "answer": doc.get("answer"),
-            "q_time": doc.get("q_time"),
-            "a_time": doc.get("a_time"),
-            "signals": doc.get("signals", []),
-            "analysis_status": doc.get("analysis_status", "pending"),
-        })
+        items.append(
+            {
+                "exchange": doc.get("exchange"),
+                "ts_code": doc.get("ts_code"),
+                "ann_date": doc.get("ann_date"),
+                "question": doc.get("question"),
+                "answer": doc.get("answer"),
+                "q_time": doc.get("q_time"),
+                "a_time": doc.get("a_time"),
+                "signals": doc.get("signals", []),
+                "analysis_status": doc.get("analysis_status", "pending"),
+            }
+        )
 
     return {"items": items, "total": total}
 
@@ -114,35 +130,43 @@ async def get_qa_interactive(
     db = get_mongo_db()
     collection = db["qa_interactive"]
 
-    cursor = collection.find(
-        {"ts_code": ts_code},
-        {"_id": 0},
-    ).sort("ann_date", -1).skip(skip).limit(limit)
+    cursor = (
+        collection.find(
+            {"ts_code": ts_code},
+            {"_id": 0},
+        )
+        .sort("ann_date", -1)
+        .skip(skip)
+        .limit(limit)
+    )
 
     items = []
     async for doc in cursor:
-        items.append({
-            "exchange": doc.get("exchange"),
-            "ts_code": doc.get("ts_code"),
-            "ann_date": doc.get("ann_date"),
-            "question": doc.get("question"),
-            "answer": doc.get("answer"),
-            "q_time": doc.get("q_time"),
-            "a_time": doc.get("a_time"),
-            "signals": doc.get("signals", []),
-            "analysis_status": doc.get("analysis_status", "pending"),
-        })
+        items.append(
+            {
+                "exchange": doc.get("exchange"),
+                "ts_code": doc.get("ts_code"),
+                "ann_date": doc.get("ann_date"),
+                "question": doc.get("question"),
+                "answer": doc.get("answer"),
+                "q_time": doc.get("q_time"),
+                "a_time": doc.get("a_time"),
+                "signals": doc.get("signals", []),
+                "analysis_status": doc.get("analysis_status", "pending"),
+            }
+        )
 
     return {"ts_code": ts_code, "items": items, "total": len(items)}
 
 
 # ── 公告列表 ─────────────────────────────────────────
 
+
 @router.get("/announcements/{ts_code}")
 async def get_announcements(
     ts_code: str,
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
+    start_date: str | None = None,
+    end_date: str | None = None,
     limit: int = Query(50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
 ):
@@ -181,8 +205,8 @@ async def get_announcements(
 
 @router.get("/announcements")
 async def list_announcements(
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
+    start_date: str | None = None,
+    end_date: str | None = None,
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
@@ -221,10 +245,11 @@ async def list_announcements(
 
 # ── 研报元数据 ───────────────────────────────────────
 
+
 @router.get("/research-reports")
 async def list_research_reports(
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
+    start_date: str | None = None,
+    end_date: str | None = None,
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
@@ -262,8 +287,8 @@ async def list_research_reports(
 @router.get("/research-reports/{ts_code}")
 async def get_research_reports_by_stock(
     ts_code: str,
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
+    start_date: str | None = None,
+    end_date: str | None = None,
     limit: int = Query(50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
 ):

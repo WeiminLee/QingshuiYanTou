@@ -1,10 +1,8 @@
 <template>
-  <div class="info-detail-panel" v-if="info">
+  <div v-if="info" class="info-detail-panel">
     <!-- Back button -->
     <div class="detail-back">
-      <el-button size="small" @click="uiStore.clearInfoSelection()">
-        ← 返回列表
-      </el-button>
+      <el-button size="small" @click="uiStore.clearInfoSelection()"> ← 返回列表 </el-button>
     </div>
 
     <!-- Source + time header -->
@@ -20,7 +18,7 @@
 
     <!-- Content -->
     <div class="detail-content">
-      {{ info.content || info.summary || '暂无正文内容' }}
+      {{ info.content || info.summary || "暂无正文内容" }}
     </div>
 
     <!-- Related concepts -->
@@ -56,52 +54,56 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
-import { storeToRefs } from 'pinia'
-import { useUiStore } from '../store/ui.js'
+import { computed } from "vue";
+import { storeToRefs } from "pinia";
+import { useUiStore } from "../store/ui.js";
 
-const uiStore = useUiStore()
-const { selectedInfo } = storeToRefs(uiStore)
+const uiStore = useUiStore();
+const { selectedInfo } = storeToRefs(uiStore);
 
-const info = computed(() =>
-  selectedInfo.value?.type === 'info' ? selectedInfo.value.data : null
-)
+const info = computed(() => selectedInfo.value);
 
 function navigateToSector(c) {
-  uiStore.setSelectedSector(c)
+  uiStore.setSelectedSector(c);
 }
 
 function navigateToStock(s) {
-  uiStore.setSelectedStock(s)
+  uiStore.setSelectedStock(s);
 }
 
 function sourceLabel(source) {
-  const map = { cls: '财联社', announcement: '公告', research: '研报', qa: '互动易' }
-  return map[source] || source || ''
+  const map = { cls: "财联社", announcement: "公告", research: "研报", qa: "互动易" };
+  return map[source] || source || "";
 }
 
 function sourceStyle(source) {
   const styles = {
-    cls: { background: '#fff4ef', color: '#ff6b35' },
-    announcement: { background: '#f5f3ff', color: '#7c3aed' },
-    research: { background: '#ecfeff', color: '#0891b2' },
-    qa: { background: '#ecfdf5', color: '#059669' },
-  }
-  return styles[source] || { background: '#f5f7fa', color: '#909399' }
+    cls: { background: "#fff4ef", color: "#ff6b35" },
+    announcement: { background: "#f5f3ff", color: "#7c3aed" },
+    research: { background: "#ecfeff", color: "#0891b2" },
+    qa: { background: "#ecfdf5", color: "#059669" },
+  };
+  return styles[source] || { background: "#f5f7fa", color: "#909399" };
 }
 
 function formatTime(ts) {
-  if (!ts) return ''
-  const d = new Date(ts)
-  if (isNaN(d)) return String(ts)
-  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`
+  if (!ts) return "";
+  const d = new Date(ts);
+  if (isNaN(d)) return String(ts);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
 </script>
 
 <style scoped>
-.info-detail-panel { display: flex; flex-direction: column; gap: 12px; }
+.info-detail-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
 
-.detail-back { margin-bottom: 4px; }
+.detail-back {
+  margin-bottom: 4px;
+}
 
 .detail-header {
   display: flex;
@@ -117,7 +119,11 @@ function formatTime(ts) {
   font-weight: 500;
 }
 
-.detail-time { font-size: 12px; color: #909399; margin-left: auto; }
+.detail-time {
+  font-size: 12px;
+  color: #909399;
+  margin-left: auto;
+}
 
 .detail-title {
   font-size: 16px;
@@ -139,11 +145,29 @@ function formatTime(ts) {
   border-radius: 6px;
 }
 
-.related-section { display: flex; flex-direction: column; gap: 8px; }
-.related-label { font-size: 12px; font-weight: 600; color: #606266; }
-.related-tags { display: flex; flex-wrap: wrap; gap: 6px; }
+.related-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.related-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #606266;
+}
+.related-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
 
-.related-tag { cursor: pointer; }
-.related-tag:hover { opacity: 0.8; }
-.stock-tag { color: #303133; }
+.related-tag {
+  cursor: pointer;
+}
+.related-tag:hover {
+  opacity: 0.8;
+}
+.stock-tag {
+  color: #303133;
+}
 </style>

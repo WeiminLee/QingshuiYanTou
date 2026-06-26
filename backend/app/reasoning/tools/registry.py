@@ -1,4 +1,5 @@
 """Lightweight tool health registry for reasoning tools."""
+
 from __future__ import annotations
 
 import time
@@ -62,4 +63,3 @@ _tool_health_registry = ToolHealthRegistry()
 
 def get_tool_health_registry() -> ToolHealthRegistry:
     return _tool_health_registry
-

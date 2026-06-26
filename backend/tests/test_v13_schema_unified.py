@@ -1,10 +1,9 @@
 """Test that V1.3 Schema is unified — no V4 remnants in prompts."""
-import re
+
 from app.knowledge.extraction.rag_prompts import (
-    EXTRACTION_PROMPT_V13,
-    RELATES_EXTRACTION_PROMPT,
-    ENTITY_TYPES,
     DEFAULT_ENTITY_TYPES,
+    ENTITY_TYPES,
+    EXTRACTION_PROMPT_V13,
     get_extraction_prompt,
 )
 
@@ -22,6 +21,7 @@ def test_default_entity_types_is_v13():
 def test_no_entity_types_v4_exported():
     """ENTITY_TYPES_V4 must not exist in the module."""
     from app.knowledge.extraction import rag_prompts
+
     assert not hasattr(rag_prompts, "ENTITY_TYPES_V4")
 
 
@@ -69,8 +69,16 @@ def test_v13_prompt_has_noise_rules():
 
 def test_get_extraction_prompt_returns_v13_for_all_source_types():
     """get_extraction_prompt must return V1.3 prompt for all source types."""
-    for source_type in ("cninfo", "irm", "cninfo_announcement", "announcement",
-                        "annual_report", "prospectus", "招股书", "research"):
+    for source_type in (
+        "cninfo",
+        "irm",
+        "cninfo_announcement",
+        "announcement",
+        "annual_report",
+        "prospectus",
+        "招股书",
+        "research",
+    ):
         prompt = get_extraction_prompt(source_type)
         assert "Company" in prompt
         assert "Category（分类）" not in prompt
@@ -86,6 +94,7 @@ def test_no_announcement_v4_source_type():
 def test_relation_service_no_v4_function_names():
     """relation_service must not have upsert_relates_v4."""
     from app.knowledge import relation_service
+
     assert not hasattr(relation_service, "upsert_relates_v4")
     assert hasattr(relation_service, "upsert_relates")
 
@@ -93,6 +102,7 @@ def test_relation_service_no_v4_function_names():
 def test_rag_extractor_no_v4_function_names():
     """rag_extractor must not have _v4 suffixed function names."""
     from app.knowledge.extraction import rag_extractor
+
     assert not hasattr(rag_extractor, "_parse_relates_v4")
     assert not hasattr(rag_extractor, "_parse_metrics_v4")
     assert not hasattr(rag_extractor, "_parse_chunk_output_v4")
@@ -104,4 +114,5 @@ def test_rag_extractor_no_v4_function_names():
 def test_rag_extractor_valid_entity_types_is_v13():
     """VALID_ENTITY_TYPES must only contain 3 types."""
     from app.knowledge.extraction.rag_extractor import VALID_ENTITY_TYPES
+
     assert VALID_ENTITY_TYPES == frozenset({"Company", "Product", "Metric"})

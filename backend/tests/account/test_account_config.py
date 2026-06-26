@@ -1,5 +1,7 @@
 """测试 account 子包的 config：yaml 加载、token 盐派生、主密码校验"""
+
 import pytest
+
 from app.account import config as account_cfg
 
 
@@ -28,7 +30,9 @@ def test_validate_master_password_ok(master_password_env):
 def test_validate_master_password_too_short(monkeypatch):
     monkeypatch.setenv("MASTER_PASSWORD", "short")
     from importlib import reload
+
     import app.config
+
     reload(app.config)
     with pytest.raises(ValueError, match="长度"):
         account_cfg.validate_master_password()

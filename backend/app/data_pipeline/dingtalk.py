@@ -4,12 +4,12 @@
 使用钉钉自定义机器人 Webhook 推送告警消息。
 配置方式：在 .env 中设置 DINGTALK_WEBHOOK_URL 和 DINGTALK_SECRET（加签模式）
 """
+
 import base64
 import hashlib
 import hmac
 import logging
 import time
-from typing import Optional
 
 import httpx
 
@@ -18,8 +18,9 @@ from app.config import settings
 logger = logging.getLogger(__name__)
 
 # 钉钉 Webhook URL（从环境变量或配置读取）
-DINGTALK_WEBHOOK_URL = getattr(settings, 'dingtalk_webhook_url', '') or ''
-DINGTALK_SECRET = getattr(settings, 'dingtalk_secret', '') or ''
+DINGTALK_WEBHOOK_URL = getattr(settings, "dingtalk_webhook_url", "") or ""
+DINGTALK_SECRET = getattr(settings, "dingtalk_secret", "") or ""
+
 
 # 消息类型
 class MsgType:
@@ -29,7 +30,7 @@ class MsgType:
 
 def is_configured() -> bool:
     """检查是否已配置钉钉"""
-    return bool(DINGTALK_WEBHOOK_URL and DINGTALK_WEBHOOK_URL.startswith('https://'))
+    return bool(DINGTALK_WEBHOOK_URL and DINGTALK_WEBHOOK_URL.startswith("https://"))
 
 
 def _generate_sign(secret: str) -> tuple[str, str]:
@@ -40,11 +41,11 @@ def _generate_sign(secret: str) -> tuple[str, str]:
         (timestamp, sign) - 时间戳和签名
     """
     timestamp = str(round(time.time() * 1000))
-    secret_enc = secret.encode('utf-8')
-    string_to_sign = f'{timestamp}\n{secret}'
-    string_to_sign_enc = string_to_sign.encode('utf-8')
+    secret_enc = secret.encode("utf-8")
+    string_to_sign = f"{timestamp}\n{secret}"
+    string_to_sign_enc = string_to_sign.encode("utf-8")
     hmac_code = hmac.new(secret_enc, string_to_sign_enc, digestmod=hashlib.sha256).digest()
-    sign = base64.b64encode(hmac_code).decode('utf-8')
+    sign = base64.b64encode(hmac_code).decode("utf-8")
     return timestamp, sign
 
 
@@ -54,7 +55,7 @@ def _get_webhook_url() -> str:
         return DINGTALK_WEBHOOK_URL
 
     timestamp, sign = _generate_sign(DINGTALK_SECRET)
-    separator = '&' if '?' in DINGTALK_WEBHOOK_URL else '?'
+    separator = "&" if "?" in DINGTALK_WEBHOOK_URL else "?"
     return f"{DINGTALK_WEBHOOK_URL}{separator}timestamp={timestamp}&sign={sign}"
 
 
@@ -146,6 +147,7 @@ def _send(payload: dict) -> bool:
 
 
 # ── 快捷函数 ─────────────────────────────────────────────
+
 
 def notify_task_start(task_name: str) -> bool:
     """通知任务开始"""

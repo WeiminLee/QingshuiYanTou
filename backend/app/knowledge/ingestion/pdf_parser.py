@@ -8,10 +8,10 @@ RAGFlow 风格 PDF 解析器
 
 投研文档优先保留表格结构（财务数据/产能/产品参数）
 """
+
 import logging
 import re
-from dataclasses import dataclass, field
-from typing import Optional
+from dataclasses import dataclass
 
 import pdfplumber
 
@@ -30,6 +30,7 @@ class PdfSection:
         table_str: 表格的 markdown 字符串（is_table=True 时有效）
         page_num: 所在页码（1-indexed）
     """
+
     text: str
     pos: str = ""
     is_table: bool = False
@@ -41,17 +42,16 @@ class PdfSection:
 
 # 常见页眉页脚模式（用于过滤）
 _HEADER_FOOTER_PATTERNS = [
-    re.compile(r"^\d+\s*/\s*\d+$"),          # "1 / 3"
-    re.compile(r"^-\s*\d+\s*-$"),            # "- 3 -"
-    re.compile(r"^\*{3,}$"),                 # "***"
-    re.compile(r"^第\d+页$"),                # "第3页"
-    re.compile(r"^\[\s*\d+\s*\]$"),          # "[3]"
-    re.compile(r"^[A-Z]{2,}\s*\d{4}.*$"),   # "AA1234 ...", confidentiality headers
+    re.compile(r"^\d+\s*/\s*\d+$"),  # "1 / 3"
+    re.compile(r"^-\s*\d+\s*-$"),  # "- 3 -"
+    re.compile(r"^\*{3,}$"),  # "***"
+    re.compile(r"^第\d+页$"),  # "第3页"
+    re.compile(r"^\[\s*\d+\s*\]$"),  # "[3]"
+    re.compile(r"^[A-Z]{2,}\s*\d{4}.*$"),  # "AA1234 ...", confidentiality headers
 ]
 
 
-def _is_header_footer(text: str, page_width: float, page_height: float,
-                       x0: float, top: float, bottom: float) -> bool:
+def _is_header_footer(text: str, page_width: float, page_height: float, x0: float, top: float, bottom: float) -> bool:
     """
     综合判断文本块是否为页眉/页脚。
 
@@ -118,7 +118,14 @@ def _clean_text(text: str) -> str:
         before = m.group(1)
         after = m.group(2)
         # 如果任一边是标点符号，保留换行（可能用于列表）
-        if before.strip() in {"•", "-", "*", "+", "·", "|"} or after.strip() in {"•", "-", "*", "+", "·", "|"}:
+        if before.strip() in {"•", "-", "*", "+", "·", "|"} or after.strip() in {
+            "•",
+            "-",
+            "*",
+            "+",
+            "·",
+            "|",
+        }:
             return "\n"
         # 如果后面是列表标记开头，保留换行
         if re.match(r"^\s*[•\-*+·\d]+\s", after):
@@ -131,6 +138,7 @@ def _clean_text(text: str) -> str:
 
 
 # ── PDF 文本提取 ─────────────────────────────────────────────────────────────
+
 
 def extract_pdf_sections(
     pdf_path: str,
@@ -181,13 +189,15 @@ def extract_pdf_sections(
                                     tbl_md = _deduplicate_table_header(tbl_md, seen_table_headers)
                                     if not tbl_md:  # 表头已去重，表体为空则跳过
                                         continue
-                                    sections.append(PdfSection(
-                                        text=tbl_md,
-                                        pos=f"p{page_num}",
-                                        is_table=True,
-                                        table_str=tbl_md,
-                                        page_num=page_num,
-                                    ))
+                                    sections.append(
+                                        PdfSection(
+                                            text=tbl_md,
+                                            pos=f"p{page_num}",
+                                            is_table=True,
+                                            table_str=tbl_md,
+                                            page_num=page_num,
+                                        )
+                                    )
                     except Exception as tbl_err:
                         logger.debug("PDF 表格提取失败 [%s p%d]: %s", pdf_path, page_num, tbl_err)
 
@@ -216,11 +226,13 @@ def extract_pdf_sections(
                     is_title = _detect_title(line_text, page_width, x0)
                     pos = f"p{page_num}" + ("(title)" if is_title else "")
 
-                    sections.append(PdfSection(
-                        text=line_text,
-                        pos=pos,
-                        page_num=page_num,
-                    ))
+                    sections.append(
+                        PdfSection(
+                            text=line_text,
+                            pos=pos,
+                            page_num=page_num,
+                        )
+                    )
 
     except Exception as e:
         logger.error("PDF 解析失败 [%s]: %s", pdf_path, e)
@@ -292,7 +304,7 @@ def _detect_title(text: str, page_width: float, x0: float) -> bool:
     # 居中判断：文本左边界在页面中间附近（容忍 20% 偏移）
     # 注意：x0 是文本块左边界，不是文本中心，所以容忍度需要更大
     if page_width > 0:
-        center = page_width / 2
+        page_width / 2
         # 文本左边界在页面宽度的 30%-70% 之间，认为是居中
         left_ratio = x0 / page_width
         if 0.30 <= left_ratio <= 0.70 and len(text) < 80:
@@ -302,6 +314,7 @@ def _detect_title(text: str, page_width: float, x0: float) -> bool:
 
 
 # ── 表格转 Markdown ────────────────────────────────────────────────────────
+
 
 def _deduplicate_table_header(table_md: str, seen_headers: set[str]) -> str:
     """
@@ -329,7 +342,7 @@ def _deduplicate_table_header(table_md: str, seen_headers: set[str]) -> str:
         return table_md
 
 
-def _table_to_markdown(table_data: list[list[Optional[str]]]) -> str:
+def _table_to_markdown(table_data: list[list[str | None]]) -> str:
     """
     将 pdfplumber 表格数据转换为 Markdown 格式。
 
@@ -368,6 +381,7 @@ def _table_to_markdown(table_data: list[list[Optional[str]]]) -> str:
 
 
 # ── 主入口 ─────────────────────────────────────────────────────────────────
+
 
 def extract_text_from_pdf(
     pdf_path: str,

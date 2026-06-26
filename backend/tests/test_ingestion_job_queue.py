@@ -1,4 +1,5 @@
 """Tests for durable ingestion job queue."""
+
 from __future__ import annotations
 
 import asyncio
@@ -10,7 +11,7 @@ class FakeAsyncResult:
         self._rows = rows or []
         self.rowcount = rowcount
 
-    def mappings(self) -> "FakeAsyncResult":
+    def mappings(self) -> FakeAsyncResult:
         return self
 
     def all(self) -> list[dict]:
@@ -79,10 +80,7 @@ def test_ingestion_job_model_declares_queue_contract() -> None:
     }
     assert unique_constraints["uq_ingestion_jobs_type_key"] == ["job_type", "job_key"]
 
-    indexes = {
-        index.name: [column.name for column in index.columns]
-        for index in table.indexes
-    }
+    indexes = {index.name: [column.name for column in index.columns] for index in table.indexes}
     assert indexes["idx_ingestion_jobs_claim"] == [
         "status",
         "next_run_at",

@@ -12,14 +12,16 @@ CninfoClient - 巨潮资讯网 API 异步客户端
 Plan: 03-01 (phase 03-cninfoclient)
 Decisions referenced: D-01 (官方 API), D-06 (1 req/sec 限流)
 """
+
 from __future__ import annotations
 
 import asyncio
-import re
 import logging
-import time
+import re
 import threading
-from typing import Any, Awaitable, Callable
+import time
+from collections.abc import Awaitable, Callable
+from typing import Any
 
 import requests
 
@@ -39,10 +41,7 @@ CNINFO_HEADERS: dict[str, str] = {
     "Accept-Language": "zh-CN,zh;q=0.9",
     "Host": "www.cninfo.com.cn",
     "Origin": "http://www.cninfo.com.cn",
-    "Referer": (
-        "http://www.cninfo.com.cn/new/commonUrl/pageOfSearch"
-        "?url=disclosure/list/search"
-    ),
+    "Referer": ("http://www.cninfo.com.cn/new/commonUrl/pageOfSearch?url=disclosure/list/search"),
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
         "AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -144,16 +143,12 @@ class CninfoClient:
         se_date = ""
         if ann_date:
             if len(ann_date) != 8 or not ann_date.isdigit():
-                raise ValueError(
-                    f"ann_date 必须是 YYYYMMDD 格式（8位数字），收到: {ann_date!r}"
-                )
+                raise ValueError(f"ann_date 必须是 YYYYMMDD 格式（8位数字），收到: {ann_date!r}")
             start_formatted = f"{ann_date[:4]}-{ann_date[4:6]}-{ann_date[6:8]}"
             if ann_date_end and ann_date_end != ann_date:
                 # 范围查询
                 if len(ann_date_end) != 8 or not ann_date_end.isdigit():
-                    raise ValueError(
-                        f"ann_date_end 必须是 YYYYMMDD 格式（8位数字），收到: {ann_date_end!r}"
-                    )
+                    raise ValueError(f"ann_date_end 必须是 YYYYMMDD 格式（8位数字），收到: {ann_date_end!r}")
                 end_formatted = f"{ann_date_end[:4]}-{ann_date_end[4:6]}-{ann_date_end[6:8]}"
                 se_date = f"{start_formatted}~{end_formatted}"
             else:
@@ -214,16 +209,10 @@ class CninfoClient:
                 code,
                 data.get("message", ""),
             )
-            raise CninfoClientError(
-                f"巨潮 API 返回错误: code={code} message={data.get('message', '')}"
-            )
+            raise CninfoClientError(f"巨潮 API 返回错误: code={code} message={data.get('message', '')}")
 
         announcements = data.get("announcements") or []
-        total = int(
-            data.get("totalRecordNum")
-            or data.get("totalAnnouncement")
-            or 0
-        )
+        total = int(data.get("totalRecordNum") or data.get("totalAnnouncement") or 0)
         return {
             "total": total,
             "list": announcements,
@@ -306,14 +295,16 @@ class CninfoClient:
             has_more = bool(resp.get("has_more"))
             results.extend(announcements)
             if progress_callback is not None:
-                await progress_callback({
-                    "page": page,
-                    "page_items": len(announcements),
-                    "fetched_items": len(results),
-                    "total_items": total,
-                    "has_more": has_more,
-                    "total_pages": resp.get("total_pages"),
-                })
+                await progress_callback(
+                    {
+                        "page": page,
+                        "page_items": len(announcements),
+                        "fetched_items": len(results),
+                        "total_items": total,
+                        "has_more": has_more,
+                        "total_pages": resp.get("total_pages"),
+                    }
+                )
 
             if page % 10 == 1:
                 logger.info(

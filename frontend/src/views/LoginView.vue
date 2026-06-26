@@ -15,12 +15,7 @@
             @keyup.enter="onSubmit"
           />
         </el-form-item>
-        <el-button
-          type="primary"
-          :loading="loading"
-          data-testid="login-button"
-          @click="onSubmit"
-        >
+        <el-button type="primary" :loading="loading" data-testid="login-button" @click="onSubmit">
           登录
         </el-button>
         <p v-if="error" class="error" data-testid="error-text">{{ error }}</p>

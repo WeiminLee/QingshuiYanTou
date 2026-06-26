@@ -42,6 +42,8 @@ from app.reasoning.langchain_agent.hitl_store import get_hitl_store
 from app.utils.auth import verify_api_key, verify_api_key_query
 from langchain_core.messages import BaseMessage, HumanMessage
 
+_RESUME_TIMEOUT_SECONDS = 600  # 10 min — matching hermes-agent; closes SSE if user doesn't respond
+
 router = APIRouter(tags=["Agent分析"])
 logger = logging.getLogger(__name__)
 
@@ -519,12 +521,14 @@ async def _run_stream_report(task_id: str, thread_id: str, question: str, max_tu
             result = await run_lead_agent(
                 question=question,
                 thread_id=thread_id,
+                task_id=task_id,
                 model_name=model_name,
                 max_turns=max_turns,
                 emit_fn=emit_fn,
             )
             if result and result.get("status") == "paused":
                 _task_manager.mark_paused(task_id)
+                asyncio.create_task(_schedule_resume_timeout(task_id))
                 return
             logger.info(f"[Agent] run_lead_agent 完成，task_id={task_id}")
         except Exception as e:
@@ -619,6 +623,7 @@ async def _resume_stream_report(
         result = await run_lead_agent(
             question="",
             thread_id=thread_id,
+            task_id=task_id,
             model_name=run_config.get("model_name"),
             max_turns=run_config.get("max_turns", 8),
             emit_fn=emit_fn,
@@ -630,7 +635,7 @@ async def _resume_stream_report(
         raw_analysis = result.get("content", "") if result else ""
         report = AnalysisReport(
             report_id=task_id[:8],
-            topic="继续分析",
+            topic=run_config.get("question", "继续分析"),
             generated_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             raw_analysis=raw_analysis,
         )
@@ -648,6 +653,19 @@ async def _resume_stream_report(
         logger.exception(f"[Resume] resume agent exception: {e}")
         await emit_fn("error", {"error": str(e)})
         _task_manager.update_status(task_id, "failed")
+
+
+async def _schedule_resume_timeout(task_id: str, timeout: int = _RESUME_TIMEOUT_SECONDS):
+    """Emit timeout stream_end if user doesn't resume within the timeout window."""
+    try:
+        await asyncio.sleep(timeout)
+        if _task_manager.is_paused(task_id):
+            logger.info(f"[ResumeTimeout] Resume timeout for task {task_id}, cleaning up")
+            store = get_hitl_store()
+            await store.pop(task_id)
+            await _task_manager.emit_timeout_end(task_id)
+    except asyncio.CancelledError:
+        pass
 
 
 # ── V2 LangChain Agent 端点（显式 V2 前缀） ─────────────────────────────────

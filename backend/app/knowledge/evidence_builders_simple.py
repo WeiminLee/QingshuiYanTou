@@ -3,27 +3,26 @@
 公告: 读取本地 PDF → 按章节分块 → 每个章节一个 EvidenceInput
 互动易: 每条 Q&A → 一个 EvidenceInput（不分块）
 """
+
 from __future__ import annotations
 
 import os
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from typing import Any
 
 from app.knowledge.evidence import EvidenceInput, default_source_confidence
-from app.knowledge.ingestion.pdf_parser import extract_text_from_pdf
 from app.knowledge.ingestion.chunker import SmartChunker
+from app.knowledge.ingestion.pdf_parser import extract_text_from_pdf
 
 logger = __import__("logging").getLogger(__name__)
 
 
 def _utc_now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 # 旧路径前缀 → 新路径前缀
-PATH_PREFIX_MAP = {
-    "/home/lwm/qingshui_data": "/run/media/lwm/0E27099B0E27099B/qingshui_data"
-}
+PATH_PREFIX_MAP = {"/home/lwm/qingshui_data": "/run/media/lwm/0E27099B0E27099B/qingshui_data"}
 
 
 def _map_file_path(file_path: str | None) -> str | None:
@@ -118,31 +117,33 @@ def build_announcement_evidence(
     evidence_list: list[EvidenceInput] = []
     for i, ch in enumerate(chapters):
         chunk_text = f"# {ch['heading']}\n\n{ch['body']}" if ch["heading"] else ch["body"]
-        evidence_list.append(EvidenceInput(
-            source_type="announcement",
-            source_name=f"公告:{ts_code}" if ts_code else "公告",
-            source_id=source_id,
-            text_excerpt=chunk_text,
-            subject_hint={
-                "ts_code": ts_code,
-                "name": company_name,
-                "ann_type": ann_type,
-                "title": title,
-            },
-            publish_date=ann_date,
-            observed_at=_utc_now(),
-            source_ref={
-                "source_table": "announcements",
-                "ann_id": ann_id,
-                "ann_date": ann_date,
-                "local_pdf": local_pdf if has_local_pdf else None,
-                "pdf_url": pdf_url,
-                "chapter_index": i,
-                "chapter_heading": ch["heading"],
-            },
-            confidence=default_source_confidence("announcement"),
-            metadata={"title": title, "chapter_count": len(chapters), "has_pdf": has_local_pdf},
-        ))
+        evidence_list.append(
+            EvidenceInput(
+                source_type="announcement",
+                source_name=f"公告:{ts_code}" if ts_code else "公告",
+                source_id=source_id,
+                text_excerpt=chunk_text,
+                subject_hint={
+                    "ts_code": ts_code,
+                    "name": company_name,
+                    "ann_type": ann_type,
+                    "title": title,
+                },
+                publish_date=ann_date,
+                observed_at=_utc_now(),
+                source_ref={
+                    "source_table": "announcements",
+                    "ann_id": ann_id,
+                    "ann_date": ann_date,
+                    "local_pdf": local_pdf if has_local_pdf else None,
+                    "pdf_url": pdf_url,
+                    "chapter_index": i,
+                    "chapter_heading": ch["heading"],
+                },
+                confidence=default_source_confidence("announcement"),
+                metadata={"title": title, "chapter_count": len(chapters), "has_pdf": has_local_pdf},
+            )
+        )
 
     return evidence_list
 
@@ -154,11 +155,12 @@ def build_irm_evidence(record: dict[str, Any]) -> EvidenceInput:
 
     IRM 数据结构：
     - title: 问题内容
-    - content: 回答内容
+    - type: 回答内容（注意：不是 content 字段！）
     """
     ann_id = record.get("id") or ""
     question = (record.get("title") or "").strip()
-    answer = (record.get("content") or "").strip()
+    # IRM 回答在 type 字段，不是 content 字段
+    answer = (record.get("type") or "").strip()
     ts_code = (record.get("ts_code") or "").strip()
     ann_date_raw = record.get("ann_date")
     if ann_date_raw is None:

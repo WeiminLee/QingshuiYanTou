@@ -3,6 +3,7 @@ KlineService - K线查询服务
 
 从本地 PostgreSQL 查询 K线数据，供 Agent 工具调用。
 """
+
 import logging
 from typing import Any
 

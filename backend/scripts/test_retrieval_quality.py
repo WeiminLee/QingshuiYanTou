@@ -9,7 +9,9 @@ SOCKS proxy interference with localhost connections.
 Run:
   uv run --directory backend python scripts/test_retrieval_quality.py --iterations 20
 """
+
 import os as _no_proxy_os
+
 for _k in ("HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "all_proxy", "ALL_PROXY"):
     _no_proxy_os.environ[_k] = ""
 
@@ -26,6 +28,7 @@ logger = logging.getLogger(__name__)
 
 # ── Load settings (qdrant_url, qdrant_collection) ──────────────────────────
 
+
 def _load_env():
     env_path = Path(__file__).resolve().parent.parent / ".env"
     if env_path.exists():
@@ -35,10 +38,12 @@ def _load_env():
                 k, _, v = line.partition("=")
                 _no_proxy_os.environ.setdefault(k.strip(), v.strip())
 
+
 _load_env()
 
 try:
     from app.config import settings
+
     QDRANT_URL = getattr(settings, "qdrant_url", "http://localhost:6333")
     COLLECTION = getattr(settings, "qdrant_collection", "qingshui")
 except Exception:
@@ -50,13 +55,16 @@ except Exception:
 _client = None
 _vector_size = None
 
+
 def _get_client():
     global _client, _vector_size
     if _client is None:
         from qdrant_client import QdrantClient
+
         _client = QdrantClient(url=QDRANT_URL, prefer_grpc=True)
         logger.info("Qdrant client initialised at %s", QDRANT_URL)
     return _client
+
 
 def _discover_collection():
     """Find first available collection and its vector size."""
@@ -67,12 +75,13 @@ def _discover_collection():
             info = client.get_collection(c.name)
             # VectorParams.size gives the dimension
             params = info.config.params
-            size = getattr(params.vectors, 'size', None)
+            size = getattr(params.vectors, "size", None)
             if size:
                 return c.name, size
         except Exception:
             pass
     return None, None
+
 
 # ── Test queries (semiconductor / optical sector terms) ──────────────────────
 
@@ -102,6 +111,7 @@ def _search_via_grpc(query_vector, collection, limit=10):
 def _search_via_rest(query_vector, collection, limit=10):
     """Fallback REST search via httpx."""
     import httpx
+
     with httpx.Client(timeout=10.0) as http:
         resp = http.post(
             f"{QDRANT_URL}/collections/{collection}/points/search",
@@ -170,8 +180,7 @@ def compute_stats(latencies: list[float]) -> dict:
 
 def main():
     parser = argparse.ArgumentParser(description="Qdrant P99 latency test")
-    parser.add_argument("--iterations", type=int, default=20,
-                        help="Number of search iterations (default: 20)")
+    parser.add_argument("--iterations", type=int, default=20, help="Number of search iterations (default: 20)")
     args = parser.parse_args()
 
     print("=" * 60)
@@ -184,12 +193,12 @@ def main():
 
     print()
     print(f"  Iterations : {stats['count']}")
-    print(f"  Min        : {stats['min']*1000:.1f}ms")
-    print(f"  Mean       : {stats['mean']*1000:.1f}ms")
-    print(f"  Max        : {stats['max']*1000:.1f}ms")
-    print(f"  P50        : {stats['p50']*1000:.1f}ms")
-    print(f"  P90        : {stats['p90']*1000:.1f}ms")
-    print(f"  P99        : {stats['p99']*1000:.1f}ms")
+    print(f"  Min        : {stats['min'] * 1000:.1f}ms")
+    print(f"  Mean       : {stats['mean'] * 1000:.1f}ms")
+    print(f"  Max        : {stats['max'] * 1000:.1f}ms")
+    print(f"  P50        : {stats['p50'] * 1000:.1f}ms")
+    print(f"  P90        : {stats['p90'] * 1000:.1f}ms")
+    print(f"  P99        : {stats['p99'] * 1000:.1f}ms")
     print()
 
     P99_MS = stats["p99"] * 1000

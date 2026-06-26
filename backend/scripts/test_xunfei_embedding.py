@@ -14,11 +14,13 @@
     print(f'dim={len(vec)}, 前5维={vec[:5]}')
     "
 """
+
 import sys
+
 sys.path.insert(0, "/home/10241671/code/LocalProjects/QingShuiTouYan/backend")
 
-from app.knowledge.vector_client import XunfeiEmbedding
 from app.config import settings
+from app.knowledge.vector_client import XunfeiEmbedding
 
 emb = XunfeiEmbedding(
     appid=settings.xunfei_emb_appid,
@@ -32,7 +34,9 @@ vec1 = emb.embed("中际旭创的光模块业务")
 print(f"  dim={len(vec1)}, 前5维={vec1[:5]}")
 
 print("测试 2: 长文本（para domain）")
-vec2 = emb.embed("中际旭创主要从事光通信收发模块的研发、生产和销售，产品覆盖100G/400G/800G高速光模块，广泛应用于数据中心和电信网络。受益于AI算力建设带来的光互联需求爆发，公司2024年业绩高速增长。")
+vec2 = emb.embed(
+    "中际旭创主要从事光通信收发模块的研发、生产和销售，产品覆盖100G/400G/800G高速光模块，广泛应用于数据中心和电信网络。受益于AI算力建设带来的光互联需求爆发，公司2024年业绩高速增长。"
+)
 print(f"  dim={len(vec2)}, 前5维={vec2[:5]}")
 
 print("测试 3: 批量")

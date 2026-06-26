@@ -1,4 +1,5 @@
 """IRM Q&A to KG orchestration."""
+
 from __future__ import annotations
 
 import asyncio
@@ -57,7 +58,14 @@ async def process_irm_for_company(
                 item_id=ts_code,
                 metadata={"records": 0},
             )
-        return {"companies": 1, "records": 0, "entities": 0, "relations": 0, "fail": 0, "skipped": 0}
+        return {
+            "companies": 1,
+            "records": 0,
+            "entities": 0,
+            "relations": 0,
+            "fail": 0,
+            "skipped": 0,
+        }
     if progress_callback:
         await progress_callback(
             stage="company_start",
@@ -85,7 +93,9 @@ async def process_irm_for_company(
     return {"companies": 1, **result}
 
 
-async def process_irm_batch(ts_codes: list[str], max_concurrency: int = 4, evidence_first: bool = True) -> dict[str, int]:
+async def process_irm_batch(
+    ts_codes: list[str], max_concurrency: int = 4, evidence_first: bool = True
+) -> dict[str, int]:
     semaphore = asyncio.Semaphore(max_concurrency)
     scope = ",".join(ts_codes[:5]) if len(ts_codes) <= 5 else f"{len(ts_codes)}_companies"
     tracker = IngestionProgressTracker(
@@ -94,7 +104,11 @@ async def process_irm_batch(ts_codes: list[str], max_concurrency: int = 4, evide
         scope=scope,
     )
     run_ctx = await tracker.start_run(
-        metadata={"companies": ts_codes, "max_concurrency": max_concurrency, "evidence_first": evidence_first},
+        metadata={
+            "companies": ts_codes,
+            "max_concurrency": max_concurrency,
+            "evidence_first": evidence_first,
+        },
     )
     total_companies = len(ts_codes)
     totals = {
@@ -126,7 +140,14 @@ async def process_irm_batch(ts_codes: list[str], max_concurrency: int = 4, evide
                     item_id=code,
                     error=str(exc),
                 )
-                return {"companies": 1, "records": 0, "entities": 0, "relations": 0, "fail": 1, "skipped": 0}
+                return {
+                    "companies": 1,
+                    "records": 0,
+                    "entities": 0,
+                    "relations": 0,
+                    "fail": 1,
+                    "skipped": 0,
+                }
 
     async def tracked_worker(code: str) -> dict[str, int]:
         result = await worker(code)

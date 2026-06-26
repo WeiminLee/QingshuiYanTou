@@ -18,8 +18,8 @@
         :debounce="300"
         clearable
         class="search"
-        @select="onSelect"
         data-testid="stock-search"
+        @select="onSelect"
       >
         <template #default="{ item }">
           <div class="search-item">
@@ -40,7 +40,7 @@
 
       <el-divider />
 
-      <el-table :data="positions" v-loading="loading" empty-text="还没有持仓，搜索添加第一只">
+      <el-table v-loading="loading" :data="positions" empty-text="还没有持仓，搜索添加第一只">
         <el-table-column prop="ts_code" label="代码" width="120" />
         <el-table-column prop="stock_name" label="名称" />
         <el-table-column prop="created_at" label="加入时间" width="200">
@@ -50,12 +50,7 @@
         </el-table-column>
         <el-table-column label="操作" width="100" align="right">
           <template #default="{ row }">
-            <el-button
-              type="danger"
-              text
-              data-testid="remove-button"
-              @click="confirmRemove(row)"
-            >
+            <el-button type="danger" text data-testid="remove-button" @click="confirmRemove(row)">
               删除
             </el-button>
           </template>
@@ -66,7 +61,7 @@
 </template>
 
 <script setup>
-import { onMounted, ref } from "vue";
+import { onMounted, onUnmounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import { ElMessage, ElMessageBox } from "element-plus";
 import {
@@ -163,8 +158,12 @@ onMounted(async () => {
   await refresh();
 });
 
-window.addEventListener("account:unauthorized", () => {
+function onUnauthorized() {
   router.push("/login");
+}
+window.addEventListener("account:unauthorized", onUnauthorized);
+onUnmounted(() => {
+  window.removeEventListener("account:unauthorized", onUnauthorized);
 });
 </script>
 

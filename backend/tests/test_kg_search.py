@@ -7,14 +7,13 @@ Tests for:
 - SearchStrategy: strategy selection and parameter generation
 - KGSearchEngine: end-to-end search pipeline
 """
+
 from __future__ import annotations
 
-import pytest
-from dataclasses import asdict
-from unittest.mock import AsyncMock, MagicMock, patch
 import asyncio
+from unittest.mock import AsyncMock, MagicMock
 
-from langchain_core.messages import HumanMessage
+import pytest
 
 # =============================================================================
 # QueryClassifier Tests
@@ -127,9 +126,7 @@ class TestRelevanceScorer:
         entity_results = {
             "EntityA": MagicMock(
                 sim=0.8,
-                n_hop_ents=[
-                    {"path": ["EntityA", "EntityB", "EntityC"], "weights": [0.8, 0.6]}
-                ]
+                n_hop_ents=[{"path": ["EntityA", "EntityB", "EntityC"], "weights": [0.8, 0.6]}],
             )
         }
 
@@ -141,8 +138,9 @@ class TestRelevanceScorer:
 
     def test_time_decay_applied(self):
         """Should apply exponential time decay based on update_time."""
-        from app.reasoning.tools.knowledge.neo4j.relevance import RelevanceScorer
         from datetime import datetime, timedelta
+
+        from app.reasoning.tools.knowledge.neo4j.relevance import RelevanceScorer
 
         scorer = RelevanceScorer(time_decay=True)
 
@@ -188,7 +186,10 @@ class TestSearchStrategy:
 
     def test_select_entity_search_strategy(self):
         """Should select ENTITY_SEARCH for entity_lookup intent."""
-        from app.reasoning.tools.knowledge.neo4j.search_strategy import SearchStrategy, SearchStrategyEnum
+        from app.reasoning.tools.knowledge.neo4j.search_strategy import (
+            SearchStrategy,
+            SearchStrategyEnum,
+        )
 
         strategy = SearchStrategy()
         result = strategy.select_strategy("entity_search")
@@ -197,7 +198,10 @@ class TestSearchStrategy:
 
     def test_select_relation_search_strategy(self):
         """Should select RELATION_SEARCH for relation queries."""
-        from app.reasoning.tools.knowledge.neo4j.search_strategy import SearchStrategy, SearchStrategyEnum
+        from app.reasoning.tools.knowledge.neo4j.search_strategy import (
+            SearchStrategy,
+            SearchStrategyEnum,
+        )
 
         strategy = SearchStrategy()
         result = strategy.select_strategy("entity_relation")
@@ -206,7 +210,10 @@ class TestSearchStrategy:
 
     def test_select_path_search_strategy(self):
         """Should select PATH_SEARCH for path_finding queries."""
-        from app.reasoning.tools.knowledge.neo4j.search_strategy import SearchStrategy, SearchStrategyEnum
+        from app.reasoning.tools.knowledge.neo4j.search_strategy import (
+            SearchStrategy,
+            SearchStrategyEnum,
+        )
 
         strategy = SearchStrategy()
         result = strategy.select_strategy("path_finding")
@@ -225,8 +232,11 @@ class TestSearchStrategy:
 
     def test_get_search_params_returns_cypher_template(self):
         """Should return Cypher template name and parameters."""
-        from app.reasoning.tools.knowledge.neo4j.search_strategy import SearchStrategy, SearchStrategyEnum
         from app.reasoning.tools.knowledge.neo4j.query_classify import QueryIntent
+        from app.reasoning.tools.knowledge.neo4j.search_strategy import (
+            SearchStrategy,
+            SearchStrategyEnum,
+        )
 
         strategy = SearchStrategy()
         query_intent = QueryIntent(entities=["test"], query_type="entity_search", intent="find_entity")
@@ -251,9 +261,16 @@ class TestKGSearchEngine:
         mock_session = AsyncMock()
 
         # Mock execute_query to return sample data
-        mock_client.execute_query = AsyncMock(return_value=[
-            {"name": "TestEntity", "labels": ["Company"], "rank": 1.5, "description": "Test description"}
-        ])
+        mock_client.execute_query = AsyncMock(
+            return_value=[
+                {
+                    "name": "TestEntity",
+                    "labels": ["Company"],
+                    "rank": 1.5,
+                    "description": "Test description",
+                }
+            ]
+        )
 
         # Mock session for full-text index operations
         mock_client._get_session = AsyncMock(return_value=mock_session)
@@ -292,10 +309,12 @@ class TestKGSearchEngine:
         from app.reasoning.tools.knowledge.neo4j.kg_search import KGSearchEngine
 
         # Mock results with different scores
-        mock_neo4j_client.execute_query = AsyncMock(return_value=[
-            {"name": "LowScore", "sim": 0.3, "pagerank": 1.0},
-            {"name": "HighScore", "sim": 0.9, "pagerank": 2.0},
-        ])
+        mock_neo4j_client.execute_query = AsyncMock(
+            return_value=[
+                {"name": "LowScore", "sim": 0.3, "pagerank": 1.0},
+                {"name": "HighScore", "sim": 0.9, "pagerank": 2.0},
+            ]
+        )
 
         engine = KGSearchEngine(mock_neo4j_client)
         result = await engine.search("test", max_results=10)
@@ -338,7 +357,7 @@ class TestKGSearchEngine:
             results=[{"name": f"Entity{i}", "description": "x" * 500} for i in range(20)],
             strategy="entity",
             query_analysis=QueryIntent(entities=["test"], query_type="entity_search", intent="find_entity"),
-            total=20
+            total=20,
         )
 
         # Format with small token budget
@@ -346,6 +365,7 @@ class TestKGSearchEngine:
 
         # Should be truncated
         import tiktoken
+
         enc = tiktoken.get_encoding("cl100k_base")
         token_count = len(enc.encode(formatted))
 
@@ -374,10 +394,12 @@ class TestKGSearchEngine:
         from app.reasoning.tools.knowledge.neo4j.kg_search import KGSearchEngine
 
         # Mock full-text index failure
-        mock_neo4j_client.execute_query = AsyncMock(side_effect=[
-            Exception("Index not found"),  # First call fails
-            [{"name": "FallbackEntity"}],   # Second call (CONTAINS) succeeds
-        ])
+        mock_neo4j_client.execute_query = AsyncMock(
+            side_effect=[
+                Exception("Index not found"),  # First call fails
+                [{"name": "FallbackEntity"}],  # Second call (CONTAINS) succeeds
+            ]
+        )
 
         engine = KGSearchEngine(mock_neo4j_client)
         result = await engine.search("test", max_results=5)
@@ -407,11 +429,11 @@ class TestKGSearchIntegration:
         """Should export all new classes and functions from __init__.py."""
         from app.reasoning.tools.knowledge.neo4j import (
             KGSearchEngine,
+            KGSearchResult,
+            QueryClassifier,
+            QueryIntent,
             RelevanceScorer,
             SearchStrategy,
-            QueryClassifier,
-            KGSearchResult,
-            QueryIntent,
             neo4j_kg_search,
         )
 
@@ -426,10 +448,10 @@ class TestKGSearchIntegration:
     def test_existing_tools_still_exported(self):
         """Should preserve existing Neo4j tool exports."""
         from app.reasoning.tools.knowledge.neo4j import (
-            neo4j_traverse,
             neo4j_entity_info,
-            neo4j_path,
             neo4j_industry_state,
+            neo4j_path,
+            neo4j_traverse,
         )
 
         # LangChain @tool creates StructuredTool objects with .name
@@ -440,7 +462,6 @@ class TestKGSearchIntegration:
 
 
 # =============================================================================
-
 
 
 # =============================================================================
@@ -462,8 +483,8 @@ class TestToolRegistryIntegration:
 
     def test_tool_loadable_from_registry(self):
         """Should be able to load neo4j_kg_search tool from registry."""
-        from app.reasoning.registry.loader import load_tools_from_config
         from app.reasoning.registry.config import ToolConfig, ToolGroup
+        from app.reasoning.registry.loader import load_tools_from_config
 
         # Create a minimal config with just the new tool
         configs = [
@@ -479,6 +500,8 @@ class TestToolRegistryIntegration:
 
         assert len(loaded) >= 1
         assert loaded[0].name == "neo4j_kg_search"
+
+
 # =============================================================================
 # Graph Context — client.py 预处理测试（GraphContextMiddleware 已移除）
 # =============================================================================
@@ -507,4 +530,3 @@ class TestGraphContextPreprocess:
 
         result = asyncio.run(_fetch_graph_context_async("你好，请问今天的天气如何？"))
         assert result == ""
-

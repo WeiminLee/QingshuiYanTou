@@ -13,25 +13,26 @@
 - 增大 token 限制，减少强制切分
 - 合并相邻同类型内容
 """
+
 from __future__ import annotations
 
 import logging
 import re
 from dataclasses import dataclass
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
 # ── 分块参数常量 ────────────────────────────────────────────────
 
-MAX_CHUNK_TOKENS = 6000      # 单块最大 token 数（增大减少强制切分）
-MIN_CHUNK_TOKENS = 200       # 小于此值考虑合并
-MERGE_TARGET_TOKENS = 2000   # 合并目标大小
+MAX_CHUNK_TOKENS = 6000  # 单块最大 token 数（增大减少强制切分）
+MIN_CHUNK_TOKENS = 200  # 小于此值考虑合并
+MERGE_TARGET_TOKENS = 2000  # 合并目标大小
 
 # ── Token 计算 ─────────────────────────────────────────────────
 
 try:
     import tiktoken
+
     _enc = None  # 延迟初始化
 
     def _get_encoder():
@@ -46,19 +47,20 @@ try:
 except ImportError:
     # Fallback: 粗略估算 (中文字符约 1.5 tokens)
     def count_tokens(text: str) -> int:
-        chinese = sum(1 for c in text if '一' <= c <= '鿿')
+        chinese = sum(1 for c in text if "一" <= c <= "鿿")
         other = len(text) - chinese
         return int(chinese * 1.5 + other * 0.25)
 
 
 # ── 辅助函数 ───────────────────────────────────────────────────
 
+
 def _is_table_line(line: str) -> bool:
     """判断是否表格行"""
-    if '|' in line:
+    if "|" in line:
         return True
     # 包含大量数字或百分比的行（表格单元格）
-    if len(line) > 20 and len(re.findall(r'[\d%,]', line)) > len(line) * 0.3:
+    if len(line) > 20 and len(re.findall(r"[\d%,]", line)) > len(line) * 0.3:
         return True
     return False
 
@@ -69,10 +71,10 @@ def _is_prose_line(line: str) -> bool:
     if not stripped:
         return False
     # 如果包含句号、逗号等正文特征，可能是正文
-    if '，' in stripped or '。' in stripped:
+    if "，" in stripped or "。" in stripped:
         return True
     # 如果不是以标题特征开头，且有正文特征，可能是正文
-    if not re.match(r'^[第#一二三四五六七八九十\d]+', stripped):
+    if not re.match(r"^[第#一二三四五六七八九十\d]+", stripped):
         if len(stripped) > 15:
             return True
     return False
@@ -93,14 +95,14 @@ def _is_truncated_paragraph(para: str, prev_body: str) -> bool:
     # 如果上一段以句号/逗号结尾，不是截断
     if prev_body:
         last_chars = prev_body.strip()[-3:] if len(prev_body) >= 3 else prev_body.strip()
-        if any(c in last_chars for c in '。！？，；'):
+        if any(c in last_chars for c in "。！？，；"):
             return False
 
     # 当前段落不以标题特征开头
-    first_line = para.split('\n')[0].strip()
-    if re.match(r'^[第#一二三四五六七八九十\d]', first_line):
+    first_line = para.split("\n")[0].strip()
+    if re.match(r"^[第#一二三四五六七八九十\d]", first_line):
         return False
-    if re.match(r'^\d+[\.、]\s', first_line):
+    if re.match(r"^\d+[\.、]\s", first_line):
         return False
 
     return True
@@ -113,13 +115,13 @@ def _is_valid_heading(heading: str) -> bool:
     if _is_table_line(heading):
         return False
     # 纯数字/百分比
-    if re.match(r'^[\d\s%\.%,]+$', heading):
+    if re.match(r"^[\d\s%\.%,]+$", heading):
         return False
     # 过短
     if len(heading) < 3:
         return False
     # 投资者关系表格
-    if '投资者关系活动' in heading:
+    if "投资者关系活动" in heading:
         return False
     return True
 
@@ -130,24 +132,25 @@ def _is_valid_chunk(text: str, heading: str) -> bool:
         return False
     # 纯表格（无标题时）
     if not heading:
-        first_line = text.strip().split('\n')[0] if text else ""
-        if first_line.startswith('|'):
+        first_line = text.strip().split("\n")[0] if text else ""
+        if first_line.startswith("|"):
             return False
     return True
 
 
 # ── Markdown 标题正则 ──────────────────────────────────────────
 
-_MARKDOWN_PATTERN = re.compile(r'^(#{1,6})\s+(.{2,60})', re.MULTILINE)
+_MARKDOWN_PATTERN = re.compile(r"^(#{1,6})\s+(.{2,60})", re.MULTILINE)
 
 # ── 句子边界 ───────────────────────────────────────────────────
 
-_SENTENCE_DELIMITERS = r'[。！？；\n]'
+_SENTENCE_DELIMITERS = r"[。！？；\n]"
 
 
 @dataclass
 class Chapter:
     """单个章节"""
+
     heading: str
     body: str
     level: int = 1  # 标题层级
@@ -161,6 +164,7 @@ class Chapter:
 @dataclass
 class Chunk:
     """单个文本块"""
+
     text: str
     heading: str = ""
     tokens: int = 0
@@ -171,7 +175,7 @@ class Chunk:
             self.tokens = count_tokens(self.text)
 
 
-def _match_heading(line: str) -> tuple[Optional[str], int]:
+def _match_heading(line: str) -> tuple[str | None, int]:
     """
     尝试匹配标题模式
 
@@ -195,12 +199,12 @@ def _match_heading(line: str) -> tuple[Optional[str], int]:
     # 中文序号标题（严格匹配）
     # 匹配: "一、公司简介", "一.公司简介", "第一节 业务", "第一章 总则"
     # 标题部分在遇到句号、逗号、冒号等正文标点时结束
-    m = re.match(r'^([一二三四五六七八九十百零]+)\s*([章节条、\.])\s*([^\n，。、；：]*?)[\s　]*$', line)
+    m = re.match(r"^([一二三四五六七八九十百零]+)\s*([章节条、\.])\s*([^\n，。、；：]*?)[\s　]*$", line)
     if m:
         prefix = m.group(1)
         separator = m.group(2)
         title = m.group(3).strip()
-        level = 2 if '节' in separator else 1
+        level = 2 if "节" in separator else 1
         if not title:
             title = f"第{prefix}{separator}"
         return title, level
@@ -208,11 +212,11 @@ def _match_heading(line: str) -> tuple[Optional[str], int]:
     # 阿拉伯数字标题（严格匹配）
     # 匹配: "1. 公司概况", "1.1 主要业务"
     # 标题部分在遇到正文标点时结束
-    m = re.match(r'^(\d+(?:\.\d+)*)\s*[\.、]\s*([^\n，。、；：]+)[\s　]*$', line)
+    m = re.match(r"^(\d+(?:\.\d+)*)\s*[\.、]\s*([^\n，。、；：]+)[\s　]*$", line)
     if m:
         prefix = m.group(1)
         title = m.group(2).strip()
-        level = prefix.count('.') + 1
+        level = prefix.count(".") + 1
         if not title:
             return None, 0  # 只有 "1." 而没有标题，不作为章节
         # 标题不能太长（正文被误识别）
@@ -229,7 +233,7 @@ def _match_heading(line: str) -> tuple[Optional[str], int]:
 
 def _group_into_paragraphs(text: str) -> list[str]:
     """将文本按段落（连续非空行）分组"""
-    raw_lines = text.split('\n')
+    raw_lines = text.split("\n")
     paragraphs: list[str] = []
     current_lines: list[str] = []
 
@@ -238,10 +242,10 @@ def _group_into_paragraphs(text: str) -> list[str]:
             current_lines.append(line)
         else:
             if current_lines:
-                paragraphs.append('\n'.join(current_lines))
+                paragraphs.append("\n".join(current_lines))
                 current_lines = []
     if current_lines:
-        paragraphs.append('\n'.join(current_lines))
+        paragraphs.append("\n".join(current_lines))
 
     return paragraphs
 
@@ -278,18 +282,20 @@ def split_by_chapters(text: str) -> list[Chapter]:
         if current_body_paragraphs:
             body = "\n\n".join(current_body_paragraphs).strip()
             if body:
-                chapters.append(Chapter(
-                    heading=heading,
-                    body=body,
-                    level=level,
-                ))
+                chapters.append(
+                    Chapter(
+                        heading=heading,
+                        body=body,
+                        level=level,
+                    )
+                )
             current_body_paragraphs = []
 
     prev_body = ""  # 用于检测截断段落
 
     for para in paragraphs:
         # 只在段落开头检测标题
-        lines = para.split('\n')
+        lines = para.split("\n")
         first_line = lines[0] if lines else ""
         heading, level = _match_heading(first_line)
 
@@ -325,11 +331,13 @@ def split_by_chapters(text: str) -> list[Chapter]:
 
     # 如果没有检测到任何标题，将全文作为一个章节
     if not chapters:
-        chapters.append(Chapter(
-            heading="",
-            body=text.strip(),
-            level=0,
-        ))
+        chapters.append(
+            Chapter(
+                heading="",
+                body=text.strip(),
+                level=0,
+            )
+        )
 
     return chapters
 
@@ -352,17 +360,19 @@ def _split_oversized_chapter(chapter: Chapter, max_tokens: int) -> list[Chunk]:
         # 如果单个段落就超过 max_tokens，按句子切分
         if para_tokens > max_tokens:
             if current_para:
-                chunks.append(Chunk(
-                    text=current_para,
-                    heading=chapter.heading,
-                    tokens=count_tokens(current_para),
-                    source="split",
-                ))
+                chunks.append(
+                    Chunk(
+                        text=current_para,
+                        heading=chapter.heading,
+                        tokens=count_tokens(current_para),
+                        source="split",
+                    )
+                )
                 current_para = ""
                 current_tokens = 0
 
             # 按句子边界切分超长段落
-            sentences = re.split(f'({_SENTENCE_DELIMITERS}+)', para)
+            sentences = re.split(f"({_SENTENCE_DELIMITERS}+)", para)
             for i in range(0, len(sentences), 2):
                 sentence = sentences[i]
                 delimiter = sentences[i + 1] if i + 1 < len(sentences) else ""
@@ -372,34 +382,40 @@ def _split_oversized_chapter(chapter: Chapter, max_tokens: int) -> list[Chunk]:
                 if sent_tokens > max_tokens:
                     # 超长句子保留原样
                     if full_sentence.strip():
-                        chunks.append(Chunk(
-                            text=full_sentence.strip(),
-                            heading=chapter.heading,
-                            tokens=sent_tokens,
-                            source="split",
-                        ))
+                        chunks.append(
+                            Chunk(
+                                text=full_sentence.strip(),
+                                heading=chapter.heading,
+                                tokens=sent_tokens,
+                                source="split",
+                            )
+                        )
                 else:
                     current_para += full_sentence
                     current_tokens += sent_tokens
                     if current_tokens >= max_tokens:
-                        chunks.append(Chunk(
-                            text=current_para.strip(),
-                            heading=chapter.heading,
-                            tokens=current_tokens,
-                            source="split",
-                        ))
+                        chunks.append(
+                            Chunk(
+                                text=current_para.strip(),
+                                heading=chapter.heading,
+                                tokens=current_tokens,
+                                source="split",
+                            )
+                        )
                         current_para = ""
                         current_tokens = 0
         else:
             # 普通段落累加
             if current_tokens + para_tokens > max_tokens:
                 if current_para:
-                    chunks.append(Chunk(
-                        text=current_para.strip(),
-                        heading=chapter.heading,
-                        tokens=current_tokens,
-                        source="split",
-                    ))
+                    chunks.append(
+                        Chunk(
+                            text=current_para.strip(),
+                            heading=chapter.heading,
+                            tokens=current_tokens,
+                            source="split",
+                        )
+                    )
                 current_para = para
                 current_tokens = para_tokens
             else:
@@ -411,12 +427,14 @@ def _split_oversized_chapter(chapter: Chapter, max_tokens: int) -> list[Chunk]:
 
     # 处理剩余内容
     if current_para.strip():
-        chunks.append(Chunk(
-            text=current_para.strip(),
-            heading=chapter.heading,
-            tokens=count_tokens(current_para.strip()),
-            source="split",
-        ))
+        chunks.append(
+            Chunk(
+                text=current_para.strip(),
+                heading=chapter.heading,
+                tokens=count_tokens(current_para.strip()),
+                source="split",
+            )
+        )
 
     return chunks
 
@@ -446,11 +464,13 @@ def merge_small_chunks(chapters: list[Chapter], target_tokens: int = MERGE_TARGE
             combined_body = "\n\n".join(c.body for c in buffer)
             first_heading = buffer[0].heading
             min_level = min(c.level for c in buffer)
-            merged.append(Chapter(
-                heading=first_heading,
-                body=combined_body,
-                level=min_level,
-            ))
+            merged.append(
+                Chapter(
+                    heading=first_heading,
+                    body=combined_body,
+                    level=min_level,
+                )
+            )
         buffer = []
         buffer_tokens = 0
 
@@ -504,12 +524,14 @@ def chunk_text(text: str, max_tokens: int = MAX_CHUNK_TOKENS) -> list[Chunk]:
 
     for chapter in chapters:
         if chapter.tokens <= max_tokens:
-            result_chunks.append(Chunk(
-                text=f"{chapter.heading}\n\n{chapter.body}" if chapter.heading else chapter.body,
-                heading=chapter.heading,
-                tokens=chapter.tokens,
-                source="chapter",
-            ))
+            result_chunks.append(
+                Chunk(
+                    text=f"{chapter.heading}\n\n{chapter.body}" if chapter.heading else chapter.body,
+                    heading=chapter.heading,
+                    tokens=chapter.tokens,
+                    source="chapter",
+                )
+            )
         else:
             sub_chunks = _split_oversized_chapter(chapter, max_tokens)
             result_chunks.extend(sub_chunks)
@@ -524,8 +546,8 @@ def filter_invalid_chunks(chunks: list[Chunk]) -> list[Chunk]:
         if _is_valid_chunk(chunk.text, chunk.heading):
             # 过滤纯表格内容（无标题时）
             if not chunk.heading:
-                first_line = chunk.text.strip().split('\n')[0] if chunk.text else ""
-                if first_line.startswith('|'):
+                first_line = chunk.text.strip().split("\n")[0] if chunk.text else ""
+                if first_line.startswith("|"):
                     continue
             result.append(chunk)
     return result

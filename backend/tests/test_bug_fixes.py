@@ -9,9 +9,11 @@ BUG 修复测试套件
 - BUG-12: 关系方向丢失、失败计数
 - BUG-19: Embedding 默认值读取
 """
-import pytest
-import re
+
 import os
+import re
+
+import pytest
 
 
 class TestBug1CypherInjection:
@@ -46,7 +48,7 @@ class TestBug1CypherInjection:
         if not os.path.exists(source_file):
             pytest.skip("relation_service.py not found")
 
-        with open(source_file, "r") as f:
+        with open(source_file) as f:
             source = f.read()
 
         assert "_safe_rel_type" in source, "relation_service.py 应包含 _safe_rel_type 函数"
@@ -93,11 +95,12 @@ class TestBug11EntityIdValidation:
         if not os.path.exists(source_file):
             pytest.skip("feedback_service.py not found")
 
-        with open(source_file, "r") as f:
+        with open(source_file) as f:
             source = f.read()
 
-        assert "ENTITY_ID_PATTERN" in source or "entity_id" in source.lower(), \
+        assert "ENTITY_ID_PATTERN" in source or "entity_id" in source.lower(), (
             "feedback_service.py 应包含 entity_id 格式验证"
+        )
 
 
 class TestBug12RelationshipDirection:
@@ -109,13 +112,12 @@ class TestBug12RelationshipDirection:
         if not os.path.exists(source_file):
             pytest.skip("entity_resolver.py not found")
 
-        with open(source_file, "r") as f:
+        with open(source_file) as f:
             source = f.read()
 
         # 检查包含双向处理逻辑
-        has_bidirectional = (
-            ("cypher_outgoing" in source or "cypher_incoming" in source) or
-            ("outgoing" in source.lower() and "incoming" in source.lower())
+        has_bidirectional = ("cypher_outgoing" in source or "cypher_incoming" in source) or (
+            "outgoing" in source.lower() and "incoming" in source.lower()
         )
         assert has_bidirectional, "entity_resolver.py 应包含双向关系处理逻辑"
         assert "BUG-12" in source, "应有 BUG-12 修复标记"
@@ -126,11 +128,12 @@ class TestBug12RelationshipDirection:
         if not os.path.exists(source_file):
             pytest.skip("kg_extractor.py not found")
 
-        with open(source_file, "r") as f:
+        with open(source_file) as f:
             source = f.read()
 
-        assert "chunks_failed" in source or "chunks_written" in source, \
+        assert "chunks_failed" in source or "chunks_written" in source, (
             "kg_extractor.py 应包含 chunk 向量写入失败计数器"
+        )
 
 
 class TestBug19EmbeddingDefaults:
@@ -142,7 +145,7 @@ class TestBug19EmbeddingDefaults:
         if not os.path.exists(source_file):
             pytest.skip("vector_client.py not found")
 
-        with open(source_file, "r") as f:
+        with open(source_file) as f:
             source = f.read()
 
         assert "settings" in source, "vector_client.py 应使用 settings"
@@ -154,7 +157,7 @@ class TestBug19EmbeddingDefaults:
         if not os.path.exists(source_file):
             pytest.skip("vector_client.py not found")
 
-        with open(source_file, "r") as f:
+        with open(source_file) as f:
             source = f.read()
 
         assert "BUG-19" in source, "应有 BUG-19 修复标记"
@@ -169,7 +172,7 @@ class TestBug9TransactionAtomicity:
         if not os.path.exists(source_file):
             pytest.skip("neo4j_client.py not found")
 
-        with open(source_file, "r") as f:
+        with open(source_file) as f:
             source = f.read()
 
         assert "write_transaction" in source, "neo4j_client.py 应包含 write_transaction"
@@ -180,7 +183,7 @@ class TestBug9TransactionAtomicity:
         if not os.path.exists(source_file):
             pytest.skip("relation_service.py not found")
 
-        with open(source_file, "r") as f:
+        with open(source_file) as f:
             source = f.read()
 
         assert "write_transaction" in source, "relation_service.py 应使用事务"
@@ -195,11 +198,12 @@ class TestBug6N1Query:
         if not os.path.exists(source_file):
             pytest.skip("entity_service.py not found")
 
-        with open(source_file, "r") as f:
+        with open(source_file) as f:
             source = f.read()
 
-        assert "batch_upsert_entities_unwind" in source or "UNWIND" in source, \
+        assert "batch_upsert_entities_unwind" in source or "UNWIND" in source, (
             "entity_service.py 应包含 UNWIND 批量方法"
+        )
         assert "BUG-6" in source, "应有 BUG-6 修复标记"
 
     def test_batch_upsert_delegates_to_unwind(self):
@@ -208,7 +212,7 @@ class TestBug6N1Query:
         if not os.path.exists(source_file):
             pytest.skip("entity_service.py not found")
 
-        with open(source_file, "r") as f:
+        with open(source_file) as f:
             source = f.read()
 
         # 检查 batch_upsert_entities 函数委托给 unwind 方法
@@ -221,8 +225,9 @@ class TestBug6N1Query:
             batch_func_body = source[batch_func_start:next_func]
 
             # 验证委托给 unwind 方法
-            assert "batch_upsert_entities_unwind" in batch_func_body or "UNWIND" in batch_func_body, \
+            assert "batch_upsert_entities_unwind" in batch_func_body or "UNWIND" in batch_func_body, (
                 "batch_upsert_entities 应委托给 UNWIND 方法"
+            )
 
 
 # 运行测试的便捷函数

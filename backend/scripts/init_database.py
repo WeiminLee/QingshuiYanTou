@@ -3,14 +3,16 @@
 
 执行所有 alembic 迁移来创建表结构。
 """
+
 import sys
 from pathlib import Path
 
 # 添加 backend 目录到 path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from sqlalchemy import create_engine, text
 import logging
+
+from sqlalchemy import create_engine, text
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -96,7 +98,6 @@ MIGRATIONS = [
         uploaded_at TIMESTAMP DEFAULT now()
     );
     """,
-
     # 002 - 概念和指数表
     """
     CREATE TABLE IF NOT EXISTS concept (
@@ -122,12 +123,10 @@ MIGRATIONS = [
     );
     CREATE UNIQUE INDEX IF NOT EXISTS idx_index_ts_date ON index_daily(ts_code, trade_date);
     """,
-
     # 003 - 唯一约束
     """
     ALTER TABLE stocks ADD CONSTRAINT stocks_symbol_unique UNIQUE (symbol);
     """,
-
     # 004 - 概念涨停表
     """
     CREATE TABLE IF NOT EXISTS concept_limit (
@@ -141,7 +140,6 @@ MIGRATIONS = [
         UNIQUE(concept_code, trade_date)
     );
     """,
-
     # 005 - THS 概念表
     """
     CREATE TABLE IF NOT EXISTS ths_index_component (
@@ -173,7 +171,6 @@ MIGRATIONS = [
         UNIQUE(index_code, trade_date)
     );
     """,
-
     # 006 - 资讯表
     """
     CREATE TABLE IF NOT EXISTS information (
@@ -190,7 +187,6 @@ MIGRATIONS = [
     CREATE INDEX IF NOT EXISTS idx_information_ts ON information(ts_code);
     CREATE INDEX IF NOT EXISTS idx_information_date ON information(pub_date);
     """,
-
     # 007 - 研报元数据表
     """
     CREATE TABLE IF NOT EXISTS research_report_meta (
@@ -210,7 +206,6 @@ MIGRATIONS = [
     CREATE INDEX IF NOT EXISTS idx_report_ts ON research_report_meta(ts_code);
     CREATE INDEX IF NOT EXISTS idx_report_date ON research_report_meta(trade_date);
     """,
-
     # 008 - 公告表
     """
     CREATE TABLE IF NOT EXISTS announcements (
@@ -230,7 +225,6 @@ MIGRATIONS = [
     CREATE INDEX IF NOT EXISTS idx_ann_ts ON announcements(ts_code);
     CREATE INDEX IF NOT EXISTS idx_ann_date ON announcements(ann_date);
     """,
-
     # 009 - 股票池
     """
     CREATE TABLE IF NOT EXISTS stock_pool (
@@ -242,7 +236,6 @@ MIGRATIONS = [
         UNIQUE(ts_code, pool_type)
     );
     """,
-
     # 010 - 扩展公告字段
     """
     ALTER TABLE announcements ADD COLUMN IF NOT EXISTS content TEXT;
@@ -250,7 +243,6 @@ MIGRATIONS = [
     ALTER TABLE announcements ADD COLUMN IF NOT EXISTS pdf_url VARCHAR(1000);
     ALTER TABLE announcements ADD COLUMN IF NOT EXISTS org_id VARCHAR(50);
     """,
-
     # 011 - 公司概况
     """
     CREATE TABLE IF NOT EXISTS company_profiles (
@@ -264,7 +256,6 @@ MIGRATIONS = [
         updated_at TIMESTAMP DEFAULT now()
     );
     """,
-
     # 012 - 评分表
     """
     CREATE TABLE IF NOT EXISTS concept_scores (
@@ -287,7 +278,6 @@ MIGRATIONS = [
         created_at TIMESTAMP DEFAULT now()
     );
     """,
-
     # 013 - ingestion 元数据
     """
     CREATE TABLE IF NOT EXISTS ingestion_metadata (
@@ -303,7 +293,6 @@ MIGRATIONS = [
         processed_at TIMESTAMP
     );
     """,
-
     # 014 - KG 表（保留结构但暂不使用）
     """
     CREATE TABLE IF NOT EXISTS entities (
@@ -331,7 +320,6 @@ MIGRATIONS = [
     );
     CREATE INDEX IF NOT EXISTS idx_relation_type ON relations(relation_type);
     """,
-
     # 016 - downloaded_documents
     """
     CREATE TABLE IF NOT EXISTS downloaded_documents (
@@ -346,7 +334,6 @@ MIGRATIONS = [
         downloaded_at TIMESTAMP DEFAULT now()
     );
     """,
-
     # 017 - minishare 公告表
     """
     CREATE TABLE IF NOT EXISTS minishare_announcements (
@@ -368,7 +355,6 @@ MIGRATIONS = [
     CREATE INDEX IF NOT EXISTS idx_ma_ts ON minishare_announcements(ts_code);
     CREATE INDEX IF NOT EXISTS idx_ma_date ON minishare_announcements(ann_date);
     """,
-
     # 018 - evidence 追踪表
     """
     CREATE TABLE IF NOT EXISTS evidence_tracking (
@@ -397,21 +383,23 @@ def main():
     with engine.begin() as conn:
         for i, sql in enumerate(MIGRATIONS):
             try:
-                for statement in sql.strip().split(';'):
+                for statement in sql.strip().split(";"):
                     statement = statement.strip()
                     if statement:
                         conn.execute(text(statement))
-                logger.info(f"迁移 {i+1:03d} 执行完成")
+                logger.info(f"迁移 {i + 1:03d} 执行完成")
             except Exception as e:
-                logger.warning(f"迁移 {i+1:03d} 跳过: {e}")
+                logger.warning(f"迁移 {i + 1:03d} 跳过: {e}")
 
     # 验证表
     with engine.connect() as conn:
-        result = conn.execute(text("""
+        result = conn.execute(
+            text("""
             SELECT table_name FROM information_schema.tables
             WHERE table_schema = 'public'
             ORDER BY table_name
-        """))
+        """)
+        )
         tables = [r[0] for r in result.fetchall()]
 
     logger.info(f"数据库初始化完成，共 {len(tables)} 个表:")

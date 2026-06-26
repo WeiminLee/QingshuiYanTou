@@ -1,8 +1,8 @@
 """/api/v1/auth/* 路由"""
+
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
-from fastapi import Cookie
+from fastapi import APIRouter, Cookie, Depends, HTTPException, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.account.deps import verify_master_token

@@ -15,38 +15,46 @@
   MATURITY   成熟期（行业标准/利润率稳定）
   DECLINE    衰退期（技术迭代替代/需求下降）
 """
+
 from __future__ import annotations
 
 import re
 from dataclasses import dataclass
 from datetime import date
-from enum import Enum
-from typing import Optional
-
+from enum import StrEnum
 
 # ── 状态枚举 ──────────────────────────────────────────────────────────────
 
-class IndustryState(str, Enum):
-    LAB            = "LAB"            # 实验室
-    RND            = "RND"            # 研发
-    PILOT          = "PILOT"          # 中试
+
+class IndustryState(StrEnum):
+    LAB = "LAB"  # 实验室
+    RND = "RND"  # 研发
+    PILOT = "PILOT"  # 中试
     EARLY_ADOPTION = "EARLY_ADOPTION"  # 早期采用
-    GROWTH         = "GROWTH"         # 成长期
-    MATURITY       = "MATURITY"       # 成熟期
-    DECLINE        = "DECLINE"        # 衰退期
+    GROWTH = "GROWTH"  # 成长期
+    MATURITY = "MATURITY"  # 成熟期
+    DECLINE = "DECLINE"  # 衰退期
 
 
 # ── 有效转换矩阵 ─────────────────────────────────────────────────────────
 
 # 单向允许转换（不允许跳级或倒退太多）
 VALID_TRANSITIONS: dict[IndustryState, set[IndustryState]] = {
-    IndustryState.LAB:            {IndustryState.RND, IndustryState.PILOT},
-    IndustryState.RND:            {IndustryState.LAB, IndustryState.PILOT, IndustryState.EARLY_ADOPTION},
-    IndustryState.PILOT:          {IndustryState.RND, IndustryState.EARLY_ADOPTION, IndustryState.GROWTH},
-    IndustryState.EARLY_ADOPTION: {IndustryState.PILOT, IndustryState.GROWTH, IndustryState.MATURITY},
-    IndustryState.GROWTH:         {IndustryState.EARLY_ADOPTION, IndustryState.MATURITY, IndustryState.DECLINE},
-    IndustryState.MATURITY:       {IndustryState.GROWTH, IndustryState.DECLINE},
-    IndustryState.DECLINE:         {IndustryState.GROWTH, IndustryState.MATURITY},  # 可逆：技术升级再成长
+    IndustryState.LAB: {IndustryState.RND, IndustryState.PILOT},
+    IndustryState.RND: {IndustryState.LAB, IndustryState.PILOT, IndustryState.EARLY_ADOPTION},
+    IndustryState.PILOT: {IndustryState.RND, IndustryState.EARLY_ADOPTION, IndustryState.GROWTH},
+    IndustryState.EARLY_ADOPTION: {
+        IndustryState.PILOT,
+        IndustryState.GROWTH,
+        IndustryState.MATURITY,
+    },
+    IndustryState.GROWTH: {
+        IndustryState.EARLY_ADOPTION,
+        IndustryState.MATURITY,
+        IndustryState.DECLINE,
+    },
+    IndustryState.MATURITY: {IndustryState.GROWTH, IndustryState.DECLINE},
+    IndustryState.DECLINE: {IndustryState.GROWTH, IndustryState.MATURITY},  # 可逆：技术升级再成长
 }
 
 
@@ -54,43 +62,132 @@ VALID_TRANSITIONS: dict[IndustryState, set[IndustryState]] = {
 
 STATE_KEYWORDS: dict[IndustryState, list[str]] = {
     IndustryState.LAB: [
-        "理论研究", "基础研究", "概念验证", "原理探索", "论文阶段",
-        "科学问题", "机理研究", "实验室研究", "可行性论证",
-        "尚无商业化", "无商业化", "商业化前景不明", "仅停留在理论",
-        "学术研究", "学术论文", "基础科学",
+        "理论研究",
+        "基础研究",
+        "概念验证",
+        "原理探索",
+        "论文阶段",
+        "科学问题",
+        "机理研究",
+        "实验室研究",
+        "可行性论证",
+        "尚无商业化",
+        "无商业化",
+        "商业化前景不明",
+        "仅停留在理论",
+        "学术研究",
+        "学术论文",
+        "基础科学",
     ],
     IndustryState.RND: [
-        "研发中", "研发阶段", "产品开发", "工艺研发", "技术攻关",
-        "样机研制", "性能测试", "可靠性验证", "在研", "研制",
-        "小试", "工艺定型", "配方研发", "持续研发",
-        "研发早期", "早期研发", "研发初期",
+        "研发中",
+        "研发阶段",
+        "产品开发",
+        "工艺研发",
+        "技术攻关",
+        "样机研制",
+        "性能测试",
+        "可靠性验证",
+        "在研",
+        "研制",
+        "小试",
+        "工艺定型",
+        "配方研发",
+        "持续研发",
+        "研发早期",
+        "早期研发",
+        "研发初期",
     ],
     IndustryState.PILOT: [
-        "中试", "小批量", "试产", "试制", "试生产", "送样验证",
-        "客户认证", "产品定型", "工艺验证", "工程验证", "PVT",
-        "导入量产", "转产", "可靠性认证", "样品阶段", "送样",
-        "客户验证", "认证中", "产品认证", "小批量供货",
+        "中试",
+        "小批量",
+        "试产",
+        "试制",
+        "试生产",
+        "送样验证",
+        "客户认证",
+        "产品定型",
+        "工艺验证",
+        "工程验证",
+        "PVT",
+        "导入量产",
+        "转产",
+        "可靠性认证",
+        "样品阶段",
+        "送样",
+        "客户验证",
+        "认证中",
+        "产品认证",
+        "小批量供货",
     ],
     IndustryState.EARLY_ADOPTION: [
-        "头部客户", "重点客户", "首批交付", "商业化初期", "早期采用",
-        "战略合作", "独家供货", "小批量量产", "初始产能",
-        "客户拓展", "商业化验证", "定点", "取得订单", "开始供货",
+        "头部客户",
+        "重点客户",
+        "首批交付",
+        "商业化初期",
+        "早期采用",
+        "战略合作",
+        "独家供货",
+        "小批量量产",
+        "初始产能",
+        "客户拓展",
+        "商业化验证",
+        "定点",
+        "取得订单",
+        "开始供货",
     ],
     IndustryState.GROWTH: [
-        "规模量产", "大规模量产", "产能释放", "规模交付", "订单饱满",
-        "产能紧张", "满产满销", "营收增长", "规模效应", "市场份额提升",
-        "进入头部客户", "批量商业化", "规模扩张",
+        "规模量产",
+        "大规模量产",
+        "产能释放",
+        "规模交付",
+        "订单饱满",
+        "产能紧张",
+        "满产满销",
+        "营收增长",
+        "规模效应",
+        "市场份额提升",
+        "进入头部客户",
+        "批量商业化",
+        "规模扩张",
     ],
     IndustryState.MATURITY: [
-        "成熟", "稳定量产", "标准产品", "行业标准", "毛利率稳定",
-        "行业龙头", "主导市场", "稳定供货", "成熟产品", "工艺稳定",
-        "满产满销", "稳定增长", "市场份额稳定", "行业标准制定",
+        "成熟",
+        "稳定量产",
+        "标准产品",
+        "行业标准",
+        "毛利率稳定",
+        "行业龙头",
+        "主导市场",
+        "稳定供货",
+        "成熟产品",
+        "工艺稳定",
+        "满产满销",
+        "稳定增长",
+        "市场份额稳定",
+        "行业标准制定",
     ],
     IndustryState.DECLINE: [
-        "需求下降", "产能过剩", "技术替代", "被淘汰", "市场萎缩",
-        "毛利率下降", "竞争加剧", "营收下滑", "停产", "退出市场",
-        "技术迭代", "新产品替代", "需求疲软", "去库存", "夕阳产业",
-        "关停产线", "产能关停", "大幅亏损", "债务危机", "破产",
+        "需求下降",
+        "产能过剩",
+        "技术替代",
+        "被淘汰",
+        "市场萎缩",
+        "毛利率下降",
+        "竞争加剧",
+        "营收下滑",
+        "停产",
+        "退出市场",
+        "技术迭代",
+        "新产品替代",
+        "需求疲软",
+        "去库存",
+        "夕阳产业",
+        "关停产线",
+        "产能关停",
+        "大幅亏损",
+        "债务危机",
+        "破产",
     ],
 }
 
@@ -105,18 +202,20 @@ for _state, _kws in STATE_KEYWORDS.items():
 
 # ── 核心函数 ──────────────────────────────────────────────────────────────
 
+
 @dataclass
 class Transition:
     """一次状态转换记录"""
+
     from_state: IndustryState
     to_state: IndustryState
     valid_from: date
-    valid_to: Optional[date] = None
+    valid_to: date | None = None
     evidence: str = ""
     confidence: float = 1.0
 
 
-def infer_state_from_text(text: str) -> Optional[IndustryState]:
+def infer_state_from_text(text: str) -> IndustryState | None:
     """
     从文本关键词推断当前行业状态。
 
@@ -155,7 +254,7 @@ def infer_state_from_text(text: str) -> Optional[IndustryState]:
         IndustryState.DECLINE: -1,  # 衰退独立，不与其他早期状态并列
     }
 
-    best_state: Optional[IndustryState] = None
+    best_state: IndustryState | None = None
     best_score = -1
     best_rank = -2
     best_kw_len = -1
@@ -166,9 +265,11 @@ def infer_state_from_text(text: str) -> Optional[IndustryState]:
         rank = state_rank.get(state, -1)
         kw_len = matched_kw_lengths[state]
         # 优先分数，其次优先级（晚期>早期），同分时选最长关键词匹配
-        if (score > best_score or
-            (score == best_score and rank > best_rank) or
-            (score == best_score and rank == best_rank and kw_len > best_kw_len)):
+        if (
+            score > best_score
+            or (score == best_score and rank > best_rank)
+            or (score == best_score and rank == best_rank and kw_len > best_kw_len)
+        ):
             best_score = score
             best_rank = rank
             best_kw_len = kw_len
@@ -194,13 +295,13 @@ def validate_transition(
 def describe_state(state: IndustryState) -> str:
     """返回状态的自然语言描述"""
     descriptions = {
-        IndustryState.LAB:            "实验室/理论研究阶段",
-        IndustryState.RND:            "研发/产品工程化阶段",
-        IndustryState.PILOT:          "中试/客户认证阶段",
+        IndustryState.LAB: "实验室/理论研究阶段",
+        IndustryState.RND: "研发/产品工程化阶段",
+        IndustryState.PILOT: "中试/客户认证阶段",
         IndustryState.EARLY_ADOPTION: "早期采用/商业化初期",
-        IndustryState.GROWTH:         "规模量产/成长期",
-        IndustryState.MATURITY:       "成熟稳定期",
-        IndustryState.DECLINE:        "衰退/被替代阶段",
+        IndustryState.GROWTH: "规模量产/成长期",
+        IndustryState.MATURITY: "成熟稳定期",
+        IndustryState.DECLINE: "衰退/被替代阶段",
     }
     return descriptions.get(state, str(state))
 
@@ -220,15 +321,17 @@ def get_all_states() -> list[IndustryState]:
 
 # ── 状态跃迁提取 ─────────────────────────────────────────────────────────────
 
+
 @dataclass
 class StateTransition:
     """一次状态跃迁"""
+
     from_state: IndustryState
     to_state: IndustryState
-    direction: str          # positive（进步）/ negative（退步）/ neutral（同级）
-    evidence: str          # 原文证据（包含关键词的句子片段）
-    source_type: str       # 证据来源描述
-    confidence: float       # 置信度（基于来源）
+    direction: str  # positive（进步）/ negative（退步）/ neutral（同级）
+    evidence: str  # 原文证据（包含关键词的句子片段）
+    source_type: str  # 证据来源描述
+    confidence: float  # 置信度（基于来源）
 
 
 # 显式跃迁模式：从X进入/升级到/跃迁到Y
@@ -351,23 +454,22 @@ def extract_state_transitions(
                 if pair not in seen_pairs and from_state != to_state:
                     if validate_transition(from_state, to_state):
                         seen_pairs.add(pair)
-                        transitions.append(StateTransition(
-                            from_state=from_state,
-                            to_state=to_state,
-                            direction=_infer_direction(from_state, to_state),
-                            evidence=sent[:200],
-                            source_type="explicit_pattern",
-                            confidence=0.85,
-                        ))
+                        transitions.append(
+                            StateTransition(
+                                from_state=from_state,
+                                to_state=to_state,
+                                direction=_infer_direction(from_state, to_state),
+                                evidence=sent[:200],
+                                source_type="explicit_pattern",
+                                confidence=0.85,
+                            )
+                        )
                 break  # 一个句子只匹配一次显式模式
 
         # 策略2：相邻状态推断（同句中两个不同状态连续出现）
         # 严格要求句子含有显式过渡动词，避免"目前处于...已通过..."误判为状态跃迁
         if len(matched_states) >= 2:
-            transition_verbs = re.search(
-                r"从.+到|从.+进入|进入|升级|跃迁|迈向|过渡|转化|迈进",
-                sent
-            )
+            transition_verbs = re.search(r"从.+到|从.+进入|进入|升级|跃迁|迈向|过渡|转化|迈进", sent)
             current_state_marker = re.search(r"目前处于|处于|目前是|目前为", sent)
             if transition_verbs and not current_state_marker:
                 states_in_sent = [st for st, _ in matched_states]
@@ -377,14 +479,16 @@ def extract_state_transitions(
                     pair = (from_state, to_state)
                     if pair not in seen_pairs:
                         seen_pairs.add(pair)
-                        transitions.append(StateTransition(
-                            from_state=from_state,
-                            to_state=to_state,
-                            direction=_infer_direction(from_state, to_state),
-                            evidence=sent[:200],
-                            source_type="adjacent_states",
-                            confidence=0.70,
-                        ))
+                        transitions.append(
+                            StateTransition(
+                                from_state=from_state,
+                                to_state=to_state,
+                                direction=_infer_direction(from_state, to_state),
+                                evidence=sent[:200],
+                                source_type="adjacent_states",
+                                confidence=0.70,
+                            )
+                        )
 
     # 策略3：跨句状态追踪
     # 每句返回多个状态，追踪状态序列，捕获"此前X，现在Y"类过渡
@@ -401,8 +505,8 @@ def extract_state_transitions(
 
     # 追踪状态序列，区分当前状态和历史状态
     # 策略：最后一个非回溯句的状态 = 当前状态；第一个回溯句的状态 = 前一状态
-    current_state: Optional[IndustryState] = None
-    prev_historical_state: Optional[IndustryState] = None
+    current_state: IndustryState | None = None
+    prev_historical_state: IndustryState | None = None
     for st, sent, is_past in reversed(doc_state_sequence):
         if not is_past and current_state is None:
             current_state = st
@@ -414,14 +518,16 @@ def extract_state_transitions(
         pair = (prev_historical_state, current_state)
         if pair not in seen_pairs and validate_transition(prev_historical_state, current_state):
             seen_pairs.add(pair)
-            transitions.append(StateTransition(
-                from_state=prev_historical_state,
-                to_state=current_state,
-                direction=_infer_direction(prev_historical_state, current_state),
-                evidence=f"当前状态: {current_state.value}，历史状态: {prev_historical_state.value}",
-                source_type="current_vs_historical",
-                confidence=0.75,
-            ))
+            transitions.append(
+                StateTransition(
+                    from_state=prev_historical_state,
+                    to_state=current_state,
+                    direction=_infer_direction(prev_historical_state, current_state),
+                    evidence=f"当前状态: {current_state.value}，历史状态: {prev_historical_state.value}",
+                    source_type="current_vs_historical",
+                    confidence=0.75,
+                )
+            )
 
     # 额外：从状态序列中提取顺序跃迁（用于有多个状态的文本）
     if len(doc_state_sequence) >= 2:
@@ -437,20 +543,24 @@ def extract_state_transitions(
                     st_dir = _infer_direction(prev_s, cur_s)
                     # 过滤：cross_sentence_progression 只接受 positive 或 neutral，不接受 negative
                     if st_dir != "negative":
-                        transitions.append(StateTransition(
-                            from_state=prev_s,
-                            to_state=cur_s,
-                            direction=st_dir,
-                            evidence=cur_sent[:200],
-                            source_type="cross_sentence_progression",
-                            confidence=0.65,
-                        ))
-            prev_s, prev_sent_s = cur_s, cur_sent
+                        transitions.append(
+                            StateTransition(
+                                from_state=prev_s,
+                                to_state=cur_s,
+                                direction=st_dir,
+                                evidence=cur_sent[:200],
+                                source_type="cross_sentence_progression",
+                                confidence=0.65,
+                            )
+                        )
+            prev_s, _prev_sent_s = cur_s, cur_sent
 
     return transitions
 
 
-def extract_current_and_previous_state(text: str) -> tuple[Optional[IndustryState], Optional[IndustryState]]:
+def extract_current_and_previous_state(
+    text: str,
+) -> tuple[IndustryState | None, IndustryState | None]:
     """
     推断当前状态和前序状态（用于判断最新阶段）。
 
@@ -501,9 +611,9 @@ def build_transition_signal(
 
     # 最有价值的跃迁：从 PILOT/EA → GROWTH（量产拐点）
     inflection = [
-        t for t in positive
-        if t.from_state in (IndustryState.PILOT, IndustryState.EARLY_ADOPTION)
-        and t.to_state == IndustryState.GROWTH
+        t
+        for t in positive
+        if t.from_state in (IndustryState.PILOT, IndustryState.EARLY_ADOPTION) and t.to_state == IndustryState.GROWTH
     ]
 
     if inflection:
@@ -537,4 +647,3 @@ def build_transition_signal(
         }
 
     return {"signal": None, "urgency": 0, "description": ""}
-

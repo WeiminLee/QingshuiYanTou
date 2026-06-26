@@ -8,6 +8,7 @@ Phase C 实现：追踪 agent.stream() 循环中 task 工具调用次数，
 
 参考 deer-flow SubagentLimitMiddleware 设计。
 """
+
 from __future__ import annotations
 
 import logging
@@ -69,11 +70,14 @@ class SubagentLimitMiddleware:
                 f"当前已达上限，请等待已完成的任务返回后再发起新任务。"
             )
             if emit_fn:
-                await emit_fn("subagent_limit_exceeded", {
-                    "limit": self.max_concurrent,
-                    "message": message,
-                    "tool": tool_name,
-                })
+                await emit_fn(
+                    "subagent_limit_exceeded",
+                    {
+                        "limit": self.max_concurrent,
+                        "message": message,
+                        "tool": tool_name,
+                    },
+                )
             return {"allowed": False, "message": message}
 
         self._count += 1
@@ -98,11 +102,14 @@ async def enforce_subagent_limit(
 
     if current_count >= max_count:
         if emit_fn:
-            await emit_fn("subagent_limit_exceeded", {
-                "limit": max_count,
-                "message": f"SubAgent 并发上限为 {max_count}，已超出。",
-                "tool": tool_name,
-            })
+            await emit_fn(
+                "subagent_limit_exceeded",
+                {
+                    "limit": max_count,
+                    "message": f"SubAgent 并发上限为 {max_count}，已超出。",
+                    "tool": tool_name,
+                },
+            )
         return False, current_count, max_count
 
     return True, current_count + 1, max_count

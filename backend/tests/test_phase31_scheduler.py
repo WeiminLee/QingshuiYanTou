@@ -1,8 +1,10 @@
 """Phase 31 E / F / H — scheduler 修复验证"""
+
 import asyncio
 import inspect
-from datetime import datetime, time
+from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
 
 
@@ -11,6 +13,7 @@ class TestMaxAttempts:
 
     def test_constant_equals_3(self):
         from app.data_pipeline.scheduler import MAX_ATTEMPTS
+
         assert MAX_ATTEMPTS == 3
 
     @pytest.mark.asyncio
@@ -37,6 +40,7 @@ class TestFireAllOnceCallback:
 
     def test_task_exception_logged(self, caplog):
         import logging
+
         from app.data_pipeline import scheduler as sched
 
         async def bad_job():
@@ -56,36 +60,41 @@ class TestFireAllOnceCallback:
 
         asyncio.run(run_case())
 
-        assert any("test_job_unit" in rec.message for rec in caplog.records), \
+        assert any("test_job_unit" in rec.message for rec in caplog.records), (
             "task_done_callback 必须输出含任务名的 error log"
+        )
 
 
 class TestTradingHoursGate:
     """H _is_trading_hours 工作日 + 9:00-11:30 / 13:00-15:00"""
 
     def test_weekend_returns_false(self):
-        from app.data_pipeline.scheduler import _is_trading_hours, TRADING_TZ
+        from app.data_pipeline.scheduler import TRADING_TZ, _is_trading_hours
+
         with patch("app.data_pipeline.scheduler.datetime") as mock_dt:
             # 2026-05-17 是周日
             mock_dt.now.return_value = datetime(2026, 5, 17, 10, 0, tzinfo=TRADING_TZ)
             assert _is_trading_hours() is False
 
     def test_weekday_morning_returns_true(self):
-        from app.data_pipeline.scheduler import _is_trading_hours, TRADING_TZ
+        from app.data_pipeline.scheduler import TRADING_TZ, _is_trading_hours
+
         with patch("app.data_pipeline.scheduler.datetime") as mock_dt:
             # 2026-05-13 是周三 10:00
             mock_dt.now.return_value = datetime(2026, 5, 13, 10, 0, tzinfo=TRADING_TZ)
             assert _is_trading_hours() is True
 
     def test_weekday_lunch_returns_false(self):
-        from app.data_pipeline.scheduler import _is_trading_hours, TRADING_TZ
+        from app.data_pipeline.scheduler import TRADING_TZ, _is_trading_hours
+
         with patch("app.data_pipeline.scheduler.datetime") as mock_dt:
             # 2026-05-13 周三 12:00（午间休市）
             mock_dt.now.return_value = datetime(2026, 5, 13, 12, 0, tzinfo=TRADING_TZ)
             assert _is_trading_hours() is False
 
     def test_weekday_afternoon_returns_true(self):
-        from app.data_pipeline.scheduler import _is_trading_hours, TRADING_TZ
+        from app.data_pipeline.scheduler import TRADING_TZ, _is_trading_hours
+
         with patch("app.data_pipeline.scheduler.datetime") as mock_dt:
             # 2026-05-13 周三 14:00
             mock_dt.now.return_value = datetime(2026, 5, 13, 14, 0, tzinfo=TRADING_TZ)
@@ -254,9 +263,7 @@ def test_scheduler_registers_ingestion_worker_drain(monkeypatch):
     scheduler_mod.Scheduler(run_now=False).start()
 
     ids = [job["id"] for job in jobs]
-    ingestion_worker_drain = next(
-        job for job in jobs if job["id"] == "ingestion_worker_drain"
-    )
+    ingestion_worker_drain = next(job for job in jobs if job["id"] == "ingestion_worker_drain")
 
     assert "cninfo_enqueue_daily" in ids
     assert "irm_enqueue_daily" in ids

@@ -8,8 +8,8 @@ Functions:
 - compute_document_hashes: Batch hash computation
 - find_new_chunk_indices: Compare hashes to detect changes
 """
+
 import hashlib
-from typing import List
 
 
 def compute_chunk_hash(text: str) -> str:
@@ -37,7 +37,7 @@ def compute_chunk_hash(text: str) -> str:
     return hashlib.md5(stripped.encode("utf-8")).hexdigest()
 
 
-def compute_document_hashes(chunks: List[str]) -> List[str]:
+def compute_document_hashes(chunks: list[str]) -> list[str]:
     """
     Batch compute hashes for a list of chunks.
 
@@ -55,9 +55,9 @@ def compute_document_hashes(chunks: List[str]) -> List[str]:
 
 
 def find_new_chunk_indices(
-    new_hashes: List[str],
-    existing_hashes: List[str],
-) -> List[int]:
+    new_hashes: list[str],
+    existing_hashes: list[str],
+) -> list[int]:
     """
     Find indices of chunks that have changed (added or modified).
 
@@ -79,7 +79,7 @@ def find_new_chunk_indices(
     if not existing_hashes:
         return list(range(len(new_hashes)))
 
-    changed_indices: List[int] = []
+    changed_indices: list[int] = []
 
     # Check existing chunks for modifications
     for i, (new_hash, existing_hash) in enumerate(zip(new_hashes, existing_hashes)):

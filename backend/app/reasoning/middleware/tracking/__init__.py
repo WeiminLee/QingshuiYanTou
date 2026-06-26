@@ -4,6 +4,7 @@ ToolUsageTracker — 工具使用量追踪
 使用 contextvars 存储每个会话的 tool 调用统计，
 参考 LangAlpha src/tools/decorators.py 的设计。
 """
+
 from __future__ import annotations
 
 import contextvars
@@ -13,14 +14,12 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from app.core.mongodb import AsyncMongoDB
+    from app.core.mongodb import AsyncMongoDB  # noqa: F401
 
 logger = logging.getLogger(__name__)
 
 # 上下文变量：每个协程/线程独立统计
-_tool_usage_ctx: contextvars.ContextVar[dict[str, int]] = contextvars.ContextVar(
-    "tool_usage"
-)
+_tool_usage_ctx: contextvars.ContextVar[dict[str, int]] = contextvars.ContextVar("tool_usage")
 
 # 内存中汇总（跨会话，用于 API 查询）
 _global_stats: dict[str, int] = {}
@@ -99,18 +98,21 @@ class ToolUsageTracker:
 
         try:
             from app.core.mongodb import get_mongodb
+
             db = await get_mongodb()
             if db is None:
                 return
             collection = db["tool_usage"]
-            await collection.insert_one({
-                "thread_id": thread_id,
-                "session_id": session_id,
-                "usage": summary,
-                "total_calls": sum(summary.values()),
-                "date": datetime.now().date().isoformat(),
-                "created_at": datetime.now(),
-            })
+            await collection.insert_one(
+                {
+                    "thread_id": thread_id,
+                    "session_id": session_id,
+                    "usage": summary,
+                    "total_calls": sum(summary.values()),
+                    "date": datetime.now().date().isoformat(),
+                    "created_at": datetime.now(),
+                }
+            )
             logger.debug(f"[ToolUsage] Persisted: {summary}")
         except Exception as e:
             logger.warning(f"[ToolUsage] Persist to MongoDB failed: {e}")

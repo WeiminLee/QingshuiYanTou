@@ -4,28 +4,28 @@
 处理 confirm / reject / correct 三类纠错，
 更新 Neo4j RELATES 关系 weight，持久化到 MongoDB feedback collection。
 """
+
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
-from datetime import datetime, date, timezone
-from typing import Optional
+from datetime import UTC, date, datetime
 
-import asyncio
-
-from app.core.neo4j_client import run_write, run_single
 from app.core.mongodb import get_mongo_db
+from app.core.neo4j_client import run_single, run_write
 
 logger = logging.getLogger(__name__)
 
 # ── 常量 ──────────────────────────────────────────────
-DECAY_FLOOR = 0.50          # weight 下限（高置信关系保护）
+DECAY_FLOOR = 0.50  # weight 下限（高置信关系保护）
 HIGH_CONFIDENCE_THRESHOLD = 0.85  # 当前 weight 达到此值时启用 floor 保护
 
 # 纠错类型
 CORRECTION_TYPES = frozenset({"confirm", "reject", "correct"})
 
 # ── relation_id 解析 ──────────────────────────────────
+
 
 def parse_relation_id(rel_id: str) -> dict:
     """
@@ -96,8 +96,7 @@ def _apply_feedback_sync(
 
     if previous_weight is None:
         raise ValueError(
-            f"RELATES edge not found: from_entity={from_entity}, "
-            f"to_entity={to_entity}, valid_from={valid_from}"
+            f"RELATES edge not found: from_entity={from_entity}, to_entity={to_entity}, valid_from={valid_from}"
         )
 
     # DECAY floor 保护（仅 correct 类型有意义；confirm/reject 通过 Cypher 原子更新）
@@ -105,11 +104,12 @@ def _apply_feedback_sync(
         corrected_weight = DECAY_FLOOR
         logger.debug(
             "DECAY_FLOOR 保护触发: previous_weight=%.2f, 限制 corrected_weight=%.2f",
-            previous_weight, corrected_weight
+            previous_weight,
+            corrected_weight,
         )
 
     # 更新 weight
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
     run_write(
         """MATCH (a {entity_id: $from_entity})-[r:RELATES]->(b {entity_id: $to_entity})
            WHERE r.valid_from = $valid_from
@@ -148,15 +148,14 @@ def _apply_delta_atomic(
 
     if previous_weight is None:
         raise ValueError(
-            f"RELATES edge not found: from_entity={from_entity}, "
-            f"to_entity={to_entity}, valid_from={valid_from}"
+            f"RELATES edge not found: from_entity={from_entity}, to_entity={to_entity}, valid_from={valid_from}"
         )
 
     corrected_weight = float(previous_weight + delta)
     # confirm 上限 1.0，reject 下限 0.0
     corrected_weight = max(0.0, min(1.0, corrected_weight))
 
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
     run_write(
         """MATCH (a {entity_id: $from_entity})-[r:RELATES]->(b {entity_id: $to_entity})
            WHERE r.valid_from = $valid_from
@@ -176,8 +175,8 @@ def _apply_delta_atomic(
 async def apply_feedback(
     rel_id: str,
     correction_type: str,
-    corrected_weight: Optional[float] = None,
-    user_id: Optional[str] = None,
+    corrected_weight: float | None = None,
+    user_id: str | None = None,
 ) -> dict:
     """
     处理分析师反馈，更新 Neo4j weight 并写入 MongoDB feedback collection。
@@ -200,17 +199,14 @@ async def apply_feedback(
         ValueError: 纠错类型无效、correct 无 weight、边不存在
     """
     if correction_type not in CORRECTION_TYPES:
-        raise ValueError(
-            f"无效 correction_type={correction_type}，"
-            f"有效值: {sorted(CORRECTION_TYPES)}"
-        )
+        raise ValueError(f"无效 correction_type={correction_type}，有效值: {sorted(CORRECTION_TYPES)}")
     if correction_type == "correct" and corrected_weight is None:
         raise ValueError("correction_type='correct' 时必须提供 corrected_weight")
 
     parsed = parse_relation_id(rel_id)
     from_entity = parsed["from_entity"]
-    to_entity   = parsed["to_entity"]
-    valid_from  = parsed["valid_from"]
+    to_entity = parsed["to_entity"]
+    valid_from = parsed["valid_from"]
 
     # confirm / reject：原子 Cypher 更新（消除并发竞态）
     # correct：两步 read-then-write（显式赋值，无并发风险）
@@ -224,7 +220,7 @@ async def apply_feedback(
             delta,
         )
         previous_weight = result["previous_weight"]
-        final_weight    = result["corrected_weight"]
+        final_weight = result["corrected_weight"]
     else:
         result = await asyncio.to_thread(
             _apply_feedback_sync,
@@ -235,29 +231,33 @@ async def apply_feedback(
             float(corrected_weight),
         )
         previous_weight = result["previous_weight"]
-        final_weight    = result["corrected_weight"]
+        final_weight = result["corrected_weight"]
 
     # 写入 MongoDB feedback collection
     feedback_id = str(uuid.uuid4())
     doc = {
-        "_id":              feedback_id,
-        "relation_id":      rel_id,
-        "correction_type":  correction_type,
-        "previous_weight":  previous_weight,
+        "_id": feedback_id,
+        "relation_id": rel_id,
+        "correction_type": correction_type,
+        "previous_weight": previous_weight,
         "corrected_weight": final_weight,
-        "user_id":          user_id or "anonymous",
-        "timestamp":        datetime.now(timezone.utc),
+        "user_id": user_id or "anonymous",
+        "timestamp": datetime.now(UTC),
     }
     db = await get_mongo_db()
     await db.feedback.insert_one(doc)
     logger.info(
         "Feedback recorded: rel_id=%s type=%s prev=%.2f new=%.2f user=%s",
-        rel_id, correction_type, previous_weight, final_weight, user_id
+        rel_id,
+        correction_type,
+        previous_weight,
+        final_weight,
+        user_id,
     )
 
     return {
-        "relation_id":      rel_id,
-        "previous_weight":  previous_weight,
+        "relation_id": rel_id,
+        "previous_weight": previous_weight,
         "corrected_weight": final_weight,
-        "feedback_id":     feedback_id,
+        "feedback_id": feedback_id,
     }

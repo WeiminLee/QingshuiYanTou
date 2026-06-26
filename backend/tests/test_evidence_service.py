@@ -1,4 +1,5 @@
 """Tests for EvidenceService lifecycle."""
+
 from __future__ import annotations
 
 import asyncio
@@ -7,13 +8,13 @@ from datetime import datetime
 from typing import Any
 
 from app.knowledge.evidence import (
-    EvidenceInput,
     JOB_COMBINED,
     JOB_VECTOR,
     STATUS_DONE,
     STATUS_FAILED,
     STATUS_PENDING,
     STATUS_RUNNING,
+    EvidenceInput,
     stable_evidence_id,
     stable_job_id,
 )
@@ -181,6 +182,7 @@ def test_upsert_evidence_is_idempotent() -> None:
         assert first["evidence_id"] == second["evidence_id"]
         assert await svc._evidence.count_documents({}) == 1
         assert first["confidence"] == 0.85
+
     asyncio.run(main())
 
 
@@ -193,6 +195,7 @@ def test_enqueue_default_jobs_is_idempotent() -> None:
         assert {j["job_type"] for j in jobs1} == {JOB_COMBINED, JOB_VECTOR}
         assert [j["job_id"] for j in jobs1] == [j["job_id"] for j in jobs2]
         assert await svc._jobs.count_documents({}) == 2
+
     asyncio.run(main())
 
 
@@ -205,6 +208,7 @@ def test_claim_next_job_marks_running_once() -> None:
         assert claimed and claimed["status"] == STATUS_RUNNING
         assert svc._jobs.find_one_and_update_called
         assert await svc.claim_next_job(JOB_COMBINED, worker_id="w2") is None
+
     asyncio.run(main())
 
 
@@ -218,6 +222,7 @@ def test_mark_done_updates_job_and_evidence_status() -> None:
         saved_ev = await svc.get_evidence(ev["evidence_id"])
         assert saved_job["status"] == STATUS_DONE
         assert saved_ev["extraction_status"][JOB_COMBINED] == STATUS_DONE
+
     asyncio.run(main())
 
 
@@ -235,4 +240,5 @@ def test_mark_failed_retries_then_fails_and_keeps_evidence() -> None:
         assert failed_job["status"] == STATUS_FAILED
         assert saved_ev["text_excerpt"] == "hello"
         assert saved_ev["extraction_status"][JOB_COMBINED] == STATUS_FAILED
+
     asyncio.run(main())

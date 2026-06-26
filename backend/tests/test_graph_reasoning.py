@@ -11,6 +11,7 @@ Phase 19 集成测试 — 图谱推理与工具增强
 
 注意：GraphContextMiddleware 已从中间件链移除（图谱上下文查询移至 client.py 预处理阶段异步执行）。
 """
+
 import pytest
 
 
@@ -20,30 +21,35 @@ class TestNeo4jTools:
     def test_neo4j_traverse_import(self):
         """测试 neo4j_traverse 导入"""
         from app.reasoning.tools.knowledge.neo4j import neo4j_traverse
+
         assert neo4j_traverse is not None
         assert neo4j_traverse.name == "neo4j_traverse"
 
     def test_neo4j_entity_info_import(self):
         """测试 neo4j_entity_info 导入"""
         from app.reasoning.tools.knowledge.neo4j import neo4j_entity_info
+
         assert neo4j_entity_info is not None
         assert neo4j_entity_info.name == "neo4j_entity_info"
 
     def test_neo4j_path_import(self):
         """测试 neo4j_path 导入"""
         from app.reasoning.tools.knowledge.neo4j import neo4j_path
+
         assert neo4j_path is not None
         assert neo4j_path.name == "neo4j_path"
 
     def test_neo4j_industry_state_import(self):
         """测试 neo4j_industry_state 导入"""
         from app.reasoning.tools.knowledge.neo4j import neo4j_industry_state
+
         assert neo4j_industry_state is not None
         assert neo4j_industry_state.name == "neo4j_industry_state"
 
     def test_tool_registry(self):
         """测试工具注册"""
         from app.reasoning.registry import get_registry, load_tools_from_config
+
         load_tools_from_config()
         registry = get_registry()
 
@@ -66,11 +72,14 @@ class TestReasoningValidationMiddleware:
         from app.reasoning.langchain_agent.middlewares.reasoning_validation import (
             ReasoningValidationMiddleware,
         )
+
         assert ReasoningValidationMiddleware is not None
 
     def test_unsupported_claim_detection(self):
         """测试无来源断言检测"""
-        from app.reasoning.langchain_agent.middlewares.reasoning_validation import ReasoningValidationMiddleware
+        from app.reasoning.langchain_agent.middlewares.reasoning_validation import (
+            ReasoningValidationMiddleware,
+        )
 
         middleware = ReasoningValidationMiddleware()
 
@@ -81,7 +90,9 @@ class TestReasoningValidationMiddleware:
 
     def test_data_reference_detection(self):
         """测试数据引用检测"""
-        from app.reasoning.langchain_agent.middlewares.reasoning_validation import ReasoningValidationMiddleware
+        from app.reasoning.langchain_agent.middlewares.reasoning_validation import (
+            ReasoningValidationMiddleware,
+        )
 
         middleware = ReasoningValidationMiddleware()
 
@@ -123,6 +134,7 @@ class TestKGAnchorsEnhancement:
     def test_format_kg_anchors_function_exists(self):
         """测试 format_kg_anchors_for_prompt 函数存在"""
         from app.reasoning.harness.memory import format_kg_anchors_for_prompt
+
         assert format_kg_anchors_for_prompt is not None
 
 

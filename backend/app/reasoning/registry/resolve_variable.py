@@ -8,14 +8,14 @@ resolve_variable — DeerFlow 风格变量解析器（增强版）
 
 参考 deerflow/reflection/resolvers.py，添加环境变量支持。
 """
+
 from __future__ import annotations
 
-import importlib
 import os
 import re
 import threading
 from importlib import import_module
-from typing import TYPE_CHECKING, TypeVar
+from typing import TypeVar
 
 T = TypeVar("T")
 
@@ -36,6 +36,7 @@ def _expand_env(value: str) -> str:
     递归替换字符串中的 $VAR / ${VAR} 为环境变量值。
     未定义的变量替换为空字符串。
     """
+
     def _replace(match: re.Match) -> str:
         var_name = match.group(1) or match.group(2)
         return os.environ.get(var_name, "")
@@ -50,7 +51,7 @@ def _expand_env(value: str) -> str:
 # ── 核心解析 ─────────────────────────────────────────────────────────
 
 
-def resolve_variable(
+def resolve_variable[T](
     variable_path: str,
     expected_type: type[T] | tuple[type, ...] | None = None,
 ) -> T:
@@ -80,7 +81,11 @@ def resolve_variable(
         if expanded in _cache:
             result = _cache[expanded]
             if expected_type is not None and not isinstance(result, expected_type):
-                type_name = expected_type.__name__ if isinstance(expected_type, type) else " or ".join(t.__name__ for t in expected_type)
+                type_name = (
+                    expected_type.__name__
+                    if isinstance(expected_type, type)
+                    else " or ".join(t.__name__ for t in expected_type)
+                )
                 raise ValueError(
                     f"{variable_path} resolved to {expanded} is not an instance of {type_name}, "
                     f"got {type(result).__name__}"
@@ -120,10 +125,13 @@ def resolve_variable(
 
     # 类型验证
     if expected_type is not None and not isinstance(variable, expected_type):
-        type_name = expected_type.__name__ if isinstance(expected_type, type) else " or ".join(t.__name__ for t in expected_type)
+        type_name = (
+            expected_type.__name__
+            if isinstance(expected_type, type)
+            else " or ".join(t.__name__ for t in expected_type)
+        )
         raise ValueError(
-            f"{variable_path} resolved to {expanded} is not an instance of {type_name}, "
-            f"got {type(variable).__name__}"
+            f"{variable_path} resolved to {expanded} is not an instance of {type_name}, got {type(variable).__name__}"
         )
 
     # 缓存结果
@@ -133,7 +141,7 @@ def resolve_variable(
     return variable  # type: ignore[return-value]
 
 
-def resolve_class(
+def resolve_class[T](
     class_path: str,
     base_class: type[T] | None = None,
 ) -> type[T]:

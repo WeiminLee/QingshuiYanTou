@@ -1,7 +1,7 @@
 """auth_service: 主密码校验、JWT 签发/校验"""
+
 import pytest
 
-from app.account import config as account_cfg
 from app.account.services import auth_service
 
 
@@ -9,7 +9,9 @@ from app.account.services import auth_service
 def with_master_pw(monkeypatch):
     monkeypatch.setenv("MASTER_PASSWORD", "test-master-pass-1234")
     from importlib import reload
+
     import app.config
+
     reload(app.config)
 
 

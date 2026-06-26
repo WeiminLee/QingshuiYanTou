@@ -3,15 +3,15 @@
 
 路由前缀：/api/v1/kg/feedback
 """
+
 from __future__ import annotations
 
 import logging
-from typing import Optional
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from app.knowledge.feedback_service import apply_feedback, CORRECTION_TYPES
+from app.knowledge.feedback_service import CORRECTION_TYPES, apply_feedback
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/kg/feedback", tags=["知识构建层"])
@@ -20,9 +20,9 @@ router = APIRouter(prefix="/api/v1/kg/feedback", tags=["知识构建层"])
 # ── Request / Response Models ───────────────────────────────────
 class FeedbackRequest(BaseModel):
     relation_id: str
-    type: str                               # "confirm" | "reject" | "correct"
-    corrected_weight: Optional[float] = None  # required when type == "correct"
-    user_id: Optional[str] = None
+    type: str  # "confirm" | "reject" | "correct"
+    corrected_weight: float | None = None  # required when type == "correct"
+    user_id: str | None = None
 
 
 class FeedbackResponse(BaseModel):
@@ -46,10 +46,7 @@ async def submit_feedback(body: FeedbackRequest):
     weight 下限保护：当前 weight >= 0.85 的关系，corrected_weight 不得低于 0.50
     """
     if body.type not in CORRECTION_TYPES:
-        raise HTTPException(
-            status_code=400,
-            detail=f"无效 type={body.type}，有效值: {sorted(CORRECTION_TYPES)}"
-        )
+        raise HTTPException(status_code=400, detail=f"无效 type={body.type}，有效值: {sorted(CORRECTION_TYPES)}")
 
     try:
         result = await apply_feedback(

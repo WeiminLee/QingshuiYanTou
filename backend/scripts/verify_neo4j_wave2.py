@@ -9,14 +9,15 @@ Neo4j WAVE 2 Schema 验证脚本
 用法：
   python scripts/verify_neo4j_wave2.py
 """
+
 import logging
-import sys
 import os
-from pathlib import Path
+import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from dotenv import load_dotenv
+
 load_dotenv()
 
 from app.core.neo4j_client import get_driver

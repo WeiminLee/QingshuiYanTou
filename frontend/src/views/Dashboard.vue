@@ -12,10 +12,7 @@
       <!-- Body: sidebar + main content -->
       <el-container class="dashboard-body">
         <!-- Sidebar: 220px / 64px -->
-        <el-aside
-          class="dashboard-aside"
-          :class="{ 'aside-collapsed': uiStore.sidebarCollapsed }"
-        >
+        <el-aside class="dashboard-aside" :class="{ 'aside-collapsed': uiStore.sidebarCollapsed }">
           <Sidebar :collapsed="uiStore.sidebarCollapsed" />
         </el-aside>
 
@@ -43,7 +40,9 @@
                 <CapitalSankey />
               </template>
 
-              <template v-else-if="uiStore.activePanel === 'news' || uiStore.activePanel === 'intel'">
+              <template
+                v-else-if="uiStore.activePanel === 'news' || uiStore.activePanel === 'intel'"
+              >
                 <div class="info-panel">
                   <FilterBar class="info-filter-bar" @change="onFilterChange" />
                   <InfoTimeline class="info-timeline" :filters="activeFilters" />
@@ -73,28 +72,28 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
-import { storeToRefs } from 'pinia'
-import { useUiStore } from '../store/ui.js'
-import DashboardHeader from '../components/DashboardHeader.vue'
-import Sidebar from '../components/Sidebar.vue'
-import ConceptTreemap from '../components/ConceptTreemap.vue'
-import SectorTable from '../components/SectorTable.vue'
-import StockLeaderboard from '../components/StockLeaderboard.vue'
-import SectorDetailPanel from '../components/SectorDetailPanel.vue'
-import StockDetailPanel from '../components/StockDetailPanel.vue'
-import InfoTimeline from '../components/InfoTimeline.vue'
-import FilterBar from '../components/FilterBar.vue'
-import InfoDetailPanel from '../components/InfoDetailPanel.vue'
-import CapitalSankey from '../components/CapitalSankey.vue'
-import CapitalDetailPanel from '../components/CapitalDetailPanel.vue'
+import { ref } from "vue";
+import { storeToRefs } from "pinia";
+import { useUiStore } from "../store/ui.js";
+import DashboardHeader from "../components/DashboardHeader.vue";
+import Sidebar from "../components/Sidebar.vue";
+import ConceptTreemap from "../components/ConceptTreemap.vue";
+import SectorTable from "../components/SectorTable.vue";
+import StockLeaderboard from "../components/StockLeaderboard.vue";
+import SectorDetailPanel from "../components/SectorDetailPanel.vue";
+import StockDetailPanel from "../components/StockDetailPanel.vue";
+import InfoTimeline from "../components/InfoTimeline.vue";
+import FilterBar from "../components/FilterBar.vue";
+import InfoDetailPanel from "../components/InfoDetailPanel.vue";
+import CapitalSankey from "../components/CapitalSankey.vue";
+import CapitalDetailPanel from "../components/CapitalDetailPanel.vue";
 
-const uiStore = useUiStore()
-const { sidebarCollapsed } = storeToRefs(uiStore)
-const activeFilters = ref({ sources: [], tiers: [] })
+const uiStore = useUiStore();
+const { sidebarCollapsed } = storeToRefs(uiStore);
+const activeFilters = ref({ sources: [], tiers: [] });
 
 function onFilterChange(filters) {
-  activeFilters.value = filters
+  activeFilters.value = filters;
 }
 </script>
 
@@ -203,9 +202,14 @@ function onFilterChange(filters) {
   overflow: auto;
 }
 
-.info-filter-bar { flex-shrink: 0; }
+.info-filter-bar {
+  flex-shrink: 0;
+}
 
-.info-timeline { flex: 1; overflow-y: auto; }
+.info-timeline {
+  flex: 1;
+  overflow-y: auto;
+}
 
 .panel-placeholder {
   display: flex;

@@ -4,14 +4,15 @@ Neo4j 连接池管理
 - 同步驱动（neo4j），FastAPI 路由中用 run_in_executor 包装
 - 线程池执行器由 FastAPI/Starlette 自动提供，无需手动创建
 """
+
 from __future__ import annotations
 
 import logging
+from collections.abc import Generator
 from contextlib import contextmanager
-from typing import TYPE_CHECKING, Any, Generator
+from typing import Any
 
-from neo4j import GraphDatabase, Driver
-from neo4j.graph import Node
+from neo4j import Driver, GraphDatabase
 
 from app.config import settings
 
@@ -20,7 +21,7 @@ logger = logging.getLogger(__name__)
 # ── 连接池 ──────────────────────────────────────────────
 
 _driver: Driver | None = None
-_async_driver: "AsyncDriver | None" = None
+_async_driver: AsyncDriver | None = None
 
 
 def get_driver() -> Driver:
@@ -57,13 +58,11 @@ async def close_async_driver() -> None:
 
 # ── 异步驱动单例 ──────────────────────────────────────────────
 
+from neo4j import AsyncDriver
 from neo4j import AsyncGraphDatabase as _AGD
 
-if TYPE_CHECKING:
-    from neo4j import AsyncDriver
 
-
-async def get_async_driver() -> "AsyncDriver":
+async def get_async_driver() -> AsyncDriver:
     """全局异步 Driver 单例（所有异步 Neo4j 操作必须用此方法）"""
     global _async_driver
     if _async_driver is None:
@@ -79,10 +78,11 @@ async def get_async_driver() -> "AsyncDriver":
 
 # ── 会话上下文管理器 ────────────────────────────────────
 
+
 @contextmanager
 def session(
     database: str | None = None,
-) -> Generator[Any, None, None]:
+) -> Generator[Any]:
     """
     同步会话上下文管理器（用于 FastAPI 同步路由或脚本）。
 
@@ -99,7 +99,7 @@ def session(
 
 
 @contextmanager
-def write_transaction() -> Generator[Any, None, None]:
+def write_transaction() -> Generator[Any]:
     """
     显式写事务上下文管理器。
 
@@ -129,6 +129,7 @@ def write_transaction() -> Generator[Any, None, None]:
 
 
 # ── 便捷执行方法 ─────────────────────────────────────────
+
 
 def run(cypher: str, params: dict | None = None) -> list[dict[str, Any]]:
     """
@@ -160,6 +161,7 @@ def run_write_single(cypher: str, params: dict | None = None) -> dict[str, Any] 
 
 
 # ── 健康检查 ─────────────────────────────────────────────
+
 
 def health_check() -> bool:
     """Neo4j 健康检查"""

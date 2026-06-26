@@ -7,24 +7,23 @@
 3. 数据量异常检测
 4. 结构化日志输出
 """
+
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta, timezone
-from enum import Enum
-from typing import Optional
+from datetime import datetime, timedelta
+from enum import StrEnum
 
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import engine
-from app.data_pipeline.rate_limiter import get_akshare_limiter
 
 logger = logging.getLogger(__name__)
 
 
-class TaskStatus(str, Enum):
+class TaskStatus(StrEnum):
     """任务状态"""
+
     PENDING = "pending"
     RUNNING = "running"
     SUCCESS = "success"
@@ -32,8 +31,9 @@ class TaskStatus(str, Enum):
     PARTIAL = "partial"  # 部分成功
 
 
-class AlertLevel(str, Enum):
+class AlertLevel(StrEnum):
     """告警级别"""
+
     INFO = "info"
     WARNING = "warning"
     ERROR = "error"
@@ -43,8 +43,8 @@ class AlertLevel(str, Enum):
 ALERT_RULES = {
     "irm": {
         "consecutive_fail_threshold": 3,  # 连续失败 3 次告警
-        "fail_rate_threshold": 0.5,      # 失败率超过 50% 告警
-        "data_drop_threshold": 0.8,       # 数据量比上次下降 80% 告警
+        "fail_rate_threshold": 0.5,  # 失败率超过 50% 告警
+        "data_drop_threshold": 0.8,  # 数据量比上次下降 80% 告警
     },
     "reports": {
         "consecutive_fail_threshold": 2,
@@ -60,6 +60,7 @@ ALERT_RULES = {
 
 
 # ── 数据库操作 ─────────────────────────────────────────────
+
 
 async def init_sync_status_table() -> None:
     """确保同步状态表存在"""
@@ -117,7 +118,7 @@ async def record_task_start(task_name: str) -> int:
     async with engine.connect() as conn:
         result = await conn.execute(
             text("SELECT consecutive_failures FROM sync_task_status WHERE task_name = :name ORDER BY id DESC LIMIT 1"),
-            {"name": task_name}
+            {"name": task_name},
         )
         prev_fail = 0
         row = result.fetchone()
@@ -130,12 +131,15 @@ async def record_task_start(task_name: str) -> int:
     RETURNING id
     """
     async with engine.begin() as conn:
-        result = await conn.execute(text(sql), {
-            "task_name": task_name,
-            "status": TaskStatus.RUNNING.value,
-            "started_at": datetime.now(),
-            "consecutive_failures": prev_fail,
-        })
+        result = await conn.execute(
+            text(sql),
+            {
+                "task_name": task_name,
+                "status": TaskStatus.RUNNING.value,
+                "started_at": datetime.now(),
+                "consecutive_failures": prev_fail,
+            },
+        )
         row = result.fetchone()
         return row[0] if row else 0
 
@@ -156,7 +160,7 @@ async def record_task_result(
     async with engine.connect() as conn:
         result = await conn.execute(
             text("SELECT consecutive_failures FROM sync_task_status WHERE task_name = :name ORDER BY id DESC LIMIT 1"),
-            {"name": task_name}
+            {"name": task_name},
         )
         prev_fail = 0
         row = result.fetchone()
@@ -174,18 +178,21 @@ async def record_task_result(
             :total, :success, :skipped, :fail, :error, :consecutive_failures)
     """
     async with engine.begin() as conn:
-        await conn.execute(text(sql), {
-            "task_name": task_name,
-            "status": status.value,
-            "started_at": now,
-            "completed_at": now,
-            "total": total,
-            "success": success,
-            "skipped": skipped,
-            "fail": fail,
-            "error": error_message,
-            "consecutive_failures": consecutive_failures,
-        })
+        await conn.execute(
+            text(sql),
+            {
+                "task_name": task_name,
+                "status": status.value,
+                "started_at": now,
+                "completed_at": now,
+                "total": total,
+                "success": success,
+                "skipped": skipped,
+                "fail": fail,
+                "error": error_message,
+                "consecutive_failures": consecutive_failures,
+            },
+        )
 
     # 检查是否需要告警
     await check_and_send_alerts(task_name, status, total, success, fail, consecutive_failures)
@@ -207,22 +214,26 @@ async def check_and_send_alerts(
     # 1. 连续失败告警
     threshold = rules.get("consecutive_fail_threshold", 3)
     if consecutive_failures >= threshold:
-        alerts_to_send.append({
-            "level": AlertLevel.ERROR,
-            "message": f"[{task_name}] 连续失败 {consecutive_failures} 次",
-            "details": {"consecutive_failures": consecutive_failures},
-        })
+        alerts_to_send.append(
+            {
+                "level": AlertLevel.ERROR,
+                "message": f"[{task_name}] 连续失败 {consecutive_failures} 次",
+                "details": {"consecutive_failures": consecutive_failures},
+            }
+        )
 
     # 2. 失败率告警
     if total > 0:
         fail_rate = fail / total
         rate_threshold = rules.get("fail_rate_threshold", 0.5)
         if fail_rate >= rate_threshold:
-            alerts_to_send.append({
-                "level": AlertLevel.WARNING,
-                "message": f"[{task_name}] 失败率 {fail_rate:.1%} 超过阈值 {rate_threshold:.1%}",
-                "details": {"total": total, "fail": fail, "fail_rate": fail_rate},
-            })
+            alerts_to_send.append(
+                {
+                    "level": AlertLevel.WARNING,
+                    "message": f"[{task_name}] 失败率 {fail_rate:.1%} 超过阈值 {rate_threshold:.1%}",
+                    "details": {"total": total, "fail": fail, "fail_rate": fail_rate},
+                }
+            )
 
     # 3. 数据量骤降告警（需要对比上次）
     if status in (TaskStatus.SUCCESS, TaskStatus.PARTIAL) and success > 0:
@@ -231,29 +242,36 @@ async def check_and_send_alerts(
             drop_rate = 1 - (success / last_count)
             drop_threshold = rules.get("data_drop_threshold", 0.8)
             if drop_rate >= drop_threshold:
-                alerts_to_send.append({
-                    "level": AlertLevel.WARNING,
-                    "message": f"[{task_name}] 数据量下降 {drop_rate:.1%}（{last_count} → {success}）",
-                    "details": {"last_count": last_count, "current_count": success, "drop_rate": drop_rate},
-                })
+                alerts_to_send.append(
+                    {
+                        "level": AlertLevel.WARNING,
+                        "message": f"[{task_name}] 数据量下降 {drop_rate:.1%}（{last_count} → {success}）",
+                        "details": {
+                            "last_count": last_count,
+                            "current_count": success,
+                            "drop_rate": drop_rate,
+                        },
+                    }
+                )
 
     # 写入告警日志
     for alert in alerts_to_send:
         await log_alert(task_name, alert["level"], alert["message"], alert.get("details"))
         logger.log(
             logging.WARNING if alert["level"] == AlertLevel.WARNING else logging.ERROR,
-            f"[ALERT] {alert['message']}"
+            f"[ALERT] {alert['message']}",
         )
 
         # 发送钉钉通知
         try:
             from app.data_pipeline.dingtalk import notify_alert
+
             notify_alert(alert["level"], task_name, alert["message"])
         except Exception as e:
             logger.debug("钉钉通知失败: %s", e)
 
 
-async def get_last_success_count(task_name: str) -> Optional[int]:
+async def get_last_success_count(task_name: str) -> int | None:
     """获取上次成功的数据量"""
     sql = """
     SELECT success_count FROM sync_task_status
@@ -269,17 +287,21 @@ async def get_last_success_count(task_name: str) -> Optional[int]:
 async def log_alert(task_name: str, level: AlertLevel, message: str, details: dict = None) -> None:
     """写入告警日志"""
     import json
+
     sql = """
     INSERT INTO sync_alerts (task_name, alert_level, message, details)
     VALUES (:task_name, :level, :message, :details)
     """
     async with engine.begin() as conn:
-        await conn.execute(text(sql), {
-            "task_name": task_name,
-            "level": level.value,
-            "message": message,
-            "details": json.dumps(details) if details else None,
-        })
+        await conn.execute(
+            text(sql),
+            {
+                "task_name": task_name,
+                "level": level.value,
+                "message": message,
+                "details": json.dumps(details) if details else None,
+            },
+        )
 
 
 async def get_recent_alerts(hours: int = 24, level: AlertLevel = None) -> list[dict]:
@@ -341,11 +363,12 @@ async def get_task_status_summary() -> dict:
 
 # ── 监视装饰器 ─────────────────────────────────────────────
 
+
 def monitor_task(task_name: str):
     """监控任务执行的装饰器"""
+
     def decorator(func):
         async def wrapper(*args, **kwargs):
-            import asyncio
             await init_sync_status_table()
             await init_alert_log_table()
 
@@ -383,10 +406,12 @@ def monitor_task(task_name: str):
                 raise
 
         return wrapper
+
     return decorator
 
 
 # ── 初始化 ─────────────────────────────────────────────────
+
 
 async def init_monitor() -> None:
     """初始化监控模块"""

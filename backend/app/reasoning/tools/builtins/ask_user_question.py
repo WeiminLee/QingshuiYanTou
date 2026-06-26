@@ -7,10 +7,11 @@ builtins/ask_user_question — 统一用户提问工具
 
 前端拦截此工具调用，展示选项卡片，等待用户选择后继续。
 """
+
 from __future__ import annotations
 
 import logging
-from typing import Annotated, Literal, Optional
+from typing import Annotated, Literal
 
 from langchain_core.tools import tool
 
@@ -31,8 +32,7 @@ class AskUserQuestion:
 def ask_user_question(
     questions: Annotated[
         list[dict],
-        "问题列表，每个问题包含 question(问题文本), header(短标签), "
-        "options(选项列表), multiSelect(是否多选)。",
+        "问题列表，每个问题包含 question(问题文本), header(短标签), options(选项列表), multiSelect(是否多选)。",
     ],
 ) -> str:
     """
@@ -68,6 +68,7 @@ def ask_user_question(
     """
     # 返回 JSON 字符串，前端解析并展示选项
     import json
+
     result = json.dumps({"questions": questions}, ensure_ascii=False)
     logger.info(f"[AskUserQuestion] 发起提问，问题数: {len(questions)}")
     return result
@@ -105,19 +106,23 @@ def ask_clarification(
     if options:
         for opt in options[:4]:
             if isinstance(opt, dict):
-                options_list.append({
-                    "label": opt.get("title", opt.get("label", "")),
-                    "description": opt.get("prompt", opt.get("description", "")),
-                })
+                options_list.append(
+                    {
+                        "label": opt.get("title", opt.get("label", "")),
+                        "description": opt.get("prompt", opt.get("description", "")),
+                    }
+                )
             else:
                 options_list.append({"label": str(opt), "description": ""})
 
-    questions = [{
-        "question": question,
-        "header": header_map.get(clarification_type, "澄清"),
-        "options": options_list,
-        "multiSelect": False,
-    }]
+    questions = [
+        {
+            "question": question,
+            "header": header_map.get(clarification_type, "澄清"),
+            "options": options_list,
+            "multiSelect": False,
+        }
+    ]
 
     if context:
         questions[0]["question"] = f"{question}\n\n背景: {context}"

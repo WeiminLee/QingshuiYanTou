@@ -12,6 +12,7 @@ Examples:
   python scripts/p1_repair_notice_kg_inputs.py --limit 500 --process-kg-limit 10
   python scripts/p1_repair_notice_kg_inputs.py --dry-run
 """
+
 from __future__ import annotations
 
 import argparse
@@ -89,25 +90,30 @@ async def _find_announcement(path: Path, parsed: dict[str, str]) -> dict[str, An
     async with engine.connect() as conn:
         if parsed["cninfo_id"]:
             row = (
-                await conn.execute(
-                    text(
-                        """
+                (
+                    await conn.execute(
+                        text(
+                            """
                         SELECT cninfo_id, ts_code, title, announcement_type, ann_date
                         FROM announcements
                         WHERE cninfo_id = :cninfo_id
                         LIMIT 1
                         """
-                    ),
-                    {"cninfo_id": parsed["cninfo_id"]},
+                        ),
+                        {"cninfo_id": parsed["cninfo_id"]},
+                    )
                 )
-            ).mappings().first()
+                .mappings()
+                .first()
+            )
             if row:
                 return dict(row)
 
         row = (
-            await conn.execute(
-                text(
-                    """
+            (
+                await conn.execute(
+                    text(
+                        """
                     SELECT cninfo_id, ts_code, title, announcement_type, ann_date
                     FROM announcements
                     WHERE ts_code = :ts_code
@@ -119,14 +125,17 @@ async def _find_announcement(path: Path, parsed: dict[str, str]) -> dict[str, An
                     ORDER BY ann_date DESC NULLS LAST
                     LIMIT 1
                     """
-                ),
-                {
-                    "ts_code": parsed["ts_code"],
-                    "title": parsed["title"],
-                    "title_prefix": parsed["title"][:80] + "%",
-                },
+                    ),
+                    {
+                        "ts_code": parsed["ts_code"],
+                        "title": parsed["title"],
+                        "title_prefix": parsed["title"][:80] + "%",
+                    },
+                )
             )
-        ).mappings().first()
+            .mappings()
+            .first()
+        )
         return dict(row) if row else None
 
 
@@ -231,18 +240,22 @@ async def _backfill_existing_announcement_types(dry_run: bool) -> int:
     """Backfill generic announcement_type values for rows that already have file_path."""
     async with engine.connect() as conn:
         rows = (
-            await conn.execute(
-                text(
-                    """
+            (
+                await conn.execute(
+                    text(
+                        """
                     SELECT cninfo_id, title, file_path
                     FROM announcements
                     WHERE file_path IS NOT NULL
                       AND file_path <> ''
                       AND (announcement_type IS NULL OR announcement_type IN ('disclosure', 'other', 'unknown'))
                     """
+                    )
                 )
             )
-        ).mappings().all()
+            .mappings()
+            .all()
+        )
 
     updates: list[dict[str, str]] = []
     for row in rows:
@@ -276,7 +289,14 @@ async def repair(limit: int | None, include_all: bool, dry_run: bool, process_kg
     tracker = IngestionProgressTracker(source="cninfo", task_name="p1_notice_kg_inputs", scope="storage_notices")
     ctx = await tracker.start_run(metadata={"limit": limit, "include_all": include_all, "dry_run": dry_run})
     files = _iter_notice_pdfs(limit)
-    counters = {"total": len(files), "matched": 0, "postgres_updated": 0, "kg_indexed": 0, "skipped": 0, "fail": 0}
+    counters = {
+        "total": len(files),
+        "matched": 0,
+        "postgres_updated": 0,
+        "kg_indexed": 0,
+        "skipped": 0,
+        "fail": 0,
+    }
 
     for idx, path in enumerate(files, start=1):
         parsed = _parse_path(path)
@@ -377,9 +397,18 @@ async def repair(limit: int | None, include_all: bool, dry_run: bool, process_kg
 def main() -> None:
     parser = argparse.ArgumentParser(description="P1 repair notice PDF KG inputs")
     parser.add_argument("--limit", type=int, default=1000, help="max local PDFs to scan; 0 means all")
-    parser.add_argument("--include-all", action="store_true", help="index all notice PDFs, not only high-value titles")
+    parser.add_argument(
+        "--include-all",
+        action="store_true",
+        help="index all notice PDFs, not only high-value titles",
+    )
     parser.add_argument("--dry-run", action="store_true")
-    parser.add_argument("--process-kg-limit", type=int, default=0, help="optionally process this many pending KG files after repair")
+    parser.add_argument(
+        "--process-kg-limit",
+        type=int,
+        default=0,
+        help="optionally process this many pending KG files after repair",
+    )
     args = parser.parse_args()
     limit = None if args.limit == 0 else args.limit
     result = asyncio.run(repair(limit, args.include_all, args.dry_run, args.process_kg_limit))

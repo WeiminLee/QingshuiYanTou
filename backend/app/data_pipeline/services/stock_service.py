@@ -3,12 +3,13 @@ StockService - 股票查询服务
 
 从本地 PostgreSQL 查询股票信息，供 Agent 工具调用。
 """
+
 import logging
-from typing import Any, Optional
+from typing import Any
 
 from sqlalchemy import text
 
-from app.core.database import engine, async_session
+from app.core.database import engine
 
 logger = logging.getLogger(__name__)
 
@@ -87,10 +88,7 @@ class StockService:
                 result = await conn.execute(text(sql), params)
                 rows = result.fetchall()
 
-            return [
-                {"ts_code": row[0], "name": row[1], "industry": row[2]}
-                for row in rows
-            ]
+            return [{"ts_code": row[0], "name": row[1], "industry": row[2]} for row in rows]
         except Exception as e:
             logger.warning(f"搜索股票失败: {e}")
             return []

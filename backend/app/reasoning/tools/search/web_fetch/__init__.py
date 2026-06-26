@@ -7,6 +7,7 @@ web_fetch — Jina AI Reader 网页正文提取工具
 - 返回 Markdown 格式的页面正文（自动去除广告/导航）
 - 支持 timeout 配置
 """
+
 from __future__ import annotations
 
 import logging
@@ -50,10 +51,7 @@ def web_fetch(
 
         headers = {
             "Accept": "text/plain",
-            "User-Agent": (
-                "Mozilla/5.0 (compatible; QingShuiTouYan/1.0; "
-                "+https://github.com/anthropics/claude-code)"
-            ),
+            "User-Agent": ("Mozilla/5.0 (compatible; QingShuiTouYan/1.0; +https://github.com/anthropics/claude-code)"),
         }
 
         with httpx.Client(timeout=timeout, follow_redirects=True) as client:

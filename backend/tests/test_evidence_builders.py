@@ -1,4 +1,5 @@
 """Tests for mechanical Evidence builders."""
+
 from app.knowledge.evidence_builders import build_file_evidence, build_irm_evidence
 
 
@@ -12,7 +13,9 @@ def test_build_file_evidence_carries_source_ref_and_limits_chunks() -> None:
         "title": "测试公告",
         "ts_code": "300001.SZ",
     }
-    evidence = build_file_evidence(file_info, text, "announcement", "contract", "300001.SZ", chunk_max_tokens=20, max_chunks=2)
+    evidence = build_file_evidence(
+        file_info, text, "announcement", "contract", "300001.SZ", chunk_max_tokens=20, max_chunks=2
+    )
     assert len(evidence) == 2
     first = evidence[0]
     assert first.source_type == "announcement"
@@ -28,14 +31,16 @@ def test_build_file_evidence_carries_source_ref_and_limits_chunks() -> None:
 
 
 def test_build_irm_evidence_shape() -> None:
-    ev = build_irm_evidence({
-        "ts_code": "300001.SZ",
-        "company_name": "测试公司",
-        "question": "产品进展？",
-        "answer": "已进入量产阶段。",
-        "cninfo_id": "irm-1",
-        "ann_date": "20260521",
-    })
+    ev = build_irm_evidence(
+        {
+            "ts_code": "300001.SZ",
+            "company_name": "测试公司",
+            "question": "产品进展？",
+            "answer": "已进入量产阶段。",
+            "cninfo_id": "irm-1",
+            "ann_date": "20260521",
+        }
+    )
     assert ev.source_type == "irm"
     assert ev.source_name == "互动易:irm-1"
     assert ev.source_id == "irm-1"

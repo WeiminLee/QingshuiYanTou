@@ -8,6 +8,7 @@ RAGFlow 风格的搜索管线：
 设计参考 RAGFlow search.py KGSearch.retrieval()，
 适配 Neo4j Cypher 查询模型。
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -42,6 +43,7 @@ def _looks_like_ts_code(s: str) -> bool:
 @dataclass(frozen=True)
 class KGSearchResult:
     """KG 搜索结果。"""
+
     results: list[dict[str, Any]] = field(default_factory=list)
     strategy: str = "unknown"
     query_analysis: QueryIntent = field(default_factory=QueryIntent)
@@ -130,8 +132,7 @@ class KGSearchEngine:
             logger.info("[KGSearchEngine] Full-text index 'entity_name_idx' ensured")
         except Exception as e:
             logger.warning(
-                f"[KGSearchEngine] Failed to create full-text index: {e}. "
-                f"Search will fall back to CONTAINS queries."
+                f"[KGSearchEngine] Failed to create full-text index: {e}. Search will fall back to CONTAINS queries."
             )
             # 标记为已尝试，避免重复尝试
             self._indexes_ensured = True
@@ -345,10 +346,7 @@ class KGSearchEngine:
                 return self._rerank_with_fuzz(results, entities, max_results)
 
         except Exception as e:
-            logger.warning(
-                f"[KGSearchEngine] Full-text index search failed: {e}. "
-                f"Falling back to CONTAINS query."
-            )
+            logger.warning(f"[KGSearchEngine] Full-text index search failed: {e}. Falling back to CONTAINS query.")
 
         # 回退到 CONTAINS 查询
         return await self._search_entities_contains(entities, max_results)
@@ -619,8 +617,9 @@ def neo4j_kg_search(
 ) -> str:
     """知识图谱智能搜索：自动选择实体/关系/路径搜索策略，返回相关性排序的结果"""
     try:
-        loop = asyncio.get_running_loop()
+        asyncio.get_running_loop()
         import concurrent.futures
+
         with concurrent.futures.ThreadPoolExecutor() as pool:
             fut = pool.submit(asyncio.run, _akg_search_impl(query, max_results))
             return fut.result()
@@ -641,7 +640,7 @@ async def _akg_search_impl(query: str, max_results: int) -> str:
             return f"知识图谱搜索「{query}」暂无结果。"
 
         # 格式化输出
-        lines = [f"## 知识图谱搜索结果\n"]
+        lines = ["## 知识图谱搜索结果\n"]
         lines.append(f"查询: {query}")
         lines.append(f"策略: {result.strategy}")
         lines.append(f"结果数: {result.total}\n")

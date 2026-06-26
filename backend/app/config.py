@@ -5,11 +5,13 @@
   - 元数据常量（source_type / confidence_tier）请使用 app.core.config
   - 本文件仅包含应用级配置（数据库连接、LLM、App 设置等）
 """
+
 import os
 from functools import lru_cache
 from pathlib import Path
-from pydantic_settings import BaseSettings
+
 from pydantic import Field
+from pydantic_settings import BaseSettings
 
 
 def _load_env() -> None:
@@ -47,7 +49,7 @@ class Settings(BaseSettings):
 
     # LLM（LiteLLM 代理）
     ollama_url: str = "http://localhost:11434"
-    llm_api_key: str = ""   # 必须从 LLM_API_KEY 环境变量读取
+    llm_api_key: str = ""  # 必须从 LLM_API_KEY 环境变量读取
     llm_base_url: str = "http://localhost:4000/v1"
     llm_model: str = "MiniMax-M2.7-highspeed"
 
@@ -76,7 +78,7 @@ class Settings(BaseSettings):
     # App
     app_name: str = "清水投研系统"
     debug: bool = False  # 生产环境应为 False，避免敏感日志泄露
-    api_key: str = ""   # API 访问密钥，必填
+    api_key: str = ""  # API 访问密钥，必填
     cors_origins: str = "http://localhost:3000,http://localhost:8080"  # CORS 允许的 origins，逗号分隔
     enable_api_scheduler: bool = True  # 多 worker 部署时应关闭，改用独立 scheduler 进程
 
@@ -97,6 +99,13 @@ class Settings(BaseSettings):
     agent_memory_queue_enabled: bool = True
     agent_memory_debounce_seconds: float = 2.0
     tool_health_ttl_seconds: int = 60
+    agent_sse_timeout: float = 1800.0  # SSE 流总超时（秒），默认 30 分钟
+
+    # Context compression
+    compression_token_threshold: int = 40000  # 触发压缩的预估 token 阈值
+    compression_protect_first_n: int = 3  # 头部保护消息条数
+    compression_tail_budget_pct: float = 0.20  # 尾部 token 预算百分比
+    compression_enabled: bool = True  # 是否启用上下文压缩
 
     # Tavily（联网检索）
     tavily_api_key: str = ""
@@ -134,9 +143,7 @@ class Settings(BaseSettings):
         if not self.neo4j_password:
             missing.append("NEO4J_PASSWORD")
         if missing:
-            raise RuntimeError(
-                f"缺少必需的配置项，请检查 .env 文件: {', '.join(missing)}"
-            )
+            raise RuntimeError(f"缺少必需的配置项，请检查 .env 文件: {', '.join(missing)}")
 
 
 @lru_cache
@@ -151,15 +158,16 @@ settings = get_settings()
 
 # ── 数据资产目录便捷访问 ───────────────────────────────────
 
+
 def data_path(*subdirs: str) -> Path:
     """获取数据资产目录下的子路径，如 data_path("cninfo", "announcements")"""
     return settings.data_assets_root.joinpath(*subdirs)
 
 
 DATA_PATHS = {
-    "announcements":     data_path("announcements"),
-    "industry_reports":  data_path("industry_reports"),
-    "stock_reports":     data_path("stock_reports"),
-    "documents":         data_path("documents"),
-    "bulletins":         data_path("announcements"),  # 新浪/巨潮等公告 PDF（按 {SH600519}/2026-03/ 保存）
+    "announcements": data_path("announcements"),
+    "industry_reports": data_path("industry_reports"),
+    "stock_reports": data_path("stock_reports"),
+    "documents": data_path("documents"),
+    "bulletins": data_path("announcements"),  # 新浪/巨潮等公告 PDF（按 {SH600519}/2026-03/ 保存）
 }

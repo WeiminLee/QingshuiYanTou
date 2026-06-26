@@ -1,4 +1,5 @@
 """RunJournal-lite tests."""
+
 from __future__ import annotations
 
 
@@ -45,4 +46,3 @@ def test_current_journal_context_helpers():
         assert journal.events[-1].type == "x"
     finally:
         reset_current_journal(token)
-
