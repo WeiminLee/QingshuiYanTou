@@ -17,6 +17,7 @@ import logging
 
 from langchain_core.tools import BaseTool
 
+from app.reasoning.langchain_agent.skills.skill_manage import WriteSkillTool
 from app.reasoning.langchain_agent.skills.tools import skill_view_tool, skills_list_tool
 from app.reasoning.registry import get_registry, load_tools_from_config
 from app.reasoning.tools.builtins import ask_clarification, ask_user_question
@@ -33,6 +34,7 @@ BUILTIN_TOOLS: list[BaseTool] = [
     ask_clarification,  # 保留兼容（旧格式自动转换）
     skills_list_tool,   # 列出所有可用 skill
     skill_view_tool,    # 加载指定 skill 完整内容
+    WriteSkillTool(),  # agent 自我进化：创建自定义 skill
 ]
 
 # SubAgent 工具（仅 subagent_enabled=True 时包含）
