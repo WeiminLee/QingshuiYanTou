@@ -1,7 +1,8 @@
 """Tests for HITL suspend/resume checkpoint store."""
 
+import asyncio
+
 import pytest
-from datetime import datetime
 from app.reasoning.langchain_agent.hitl_store import (
     HITLStore, PendingClarification, get_hitl_store,
 )
@@ -47,7 +48,6 @@ class TestHITLStore:
             messages=[], run_config={},
         )
         await store.save("task_1", pc)
-        import asyncio
         await asyncio.sleep(0.01)  # 让 created_at 过期
         cleaned = await store.cleanup_expired()
         assert cleaned >= 1

@@ -96,6 +96,8 @@ class TaskStateManager:
     带 TTL 清理，防止内存无限增长。
     """
 
+    STATUS_PAUSED = "paused"
+
     def __init__(self):
         self._tasks: dict[str, dict] = {}
         self._events: dict[str, list[ReasoningEvent]] = defaultdict(list)
@@ -107,7 +109,6 @@ class TaskStateManager:
         self._CLEANUP_INTERVAL = 10  # 每 N 个任务触发一次清理
         self._TTL_SECONDS = 3600  # 1 小时超时
         self._MAX_EVENTS = 500  # Bug #9: 单任务最大事件数，防止 OOM
-        self.STATUS_PAUSED = "paused"
 
     def create_task(self, task_id: str, thread_id: str, question: str) -> None:
         """创建任务记录"""
