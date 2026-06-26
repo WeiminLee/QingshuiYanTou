@@ -126,3 +126,98 @@ def invalidate_cache() -> None:
     """清除缓存（skill_manage 修改后调用）。"""
     global _cache
     _cache = None
+
+
+def _is_ascii(text: str) -> bool:
+    """检查字符串是否只包含 ASCII 字符。"""
+    return all(ord(c) < 128 for c in text)
+
+
+def recommend_skills(query: str, top_k: int = 3) -> list[SkillIndex]:
+    """根据用户查询推荐最相关的 skill。
+
+    排序策略（简单加权）：
+    1. 名称精确匹配 → 最高权重
+    2. description 包含关键词
+    3. tags 包含关键词
+    4. related_skills 包含其他 skill 名
+
+    Args:
+        query: 用户查询文本
+        top_k: 返回数量（默认 3）
+
+    Returns:
+        排序后的 SkillIndex 列表
+    """
+    skills = scan_skills()
+    if not skills:
+        return []
+
+    query_lower = query.lower()
+    # 中文：使用 2-char n-gram 匹配；英文/混合：使用分词匹配
+    # 如果查询包含 ASCII 字母，只用完整查询 + 分词匹配
+    use_ngrams = not _is_ascii(query_lower)
+    if use_ngrams:
+        query_words: set[str] = set()
+        ngrams: set[str] = set(query_lower[i:i+2] for i in range(len(query_lower) - 1))
+    else:
+        query_words = set(query_lower.split())
+        ngrams = set()
+
+    scored: list[tuple[float, SkillIndex]] = []
+
+    for skill in skills.values():
+        score = 0.0
+
+        # 名称精确/前缀匹配
+        name_lower = skill.name.lower()
+        if name_lower == query_lower:
+            score += 100.0
+        elif name_lower.startswith(query_lower):
+            score += 50.0
+        elif query_lower in name_lower:
+            score += 20.0
+
+        # description 关键词匹配
+        desc_lower = skill.description.lower()
+        if query_lower in desc_lower:
+            score += 10.0
+        if use_ngrams:
+            for ngram in ngrams:
+                if ngram in desc_lower:
+                    score += 2.0
+        for word in query_words:
+            if word in desc_lower:
+                score += 5.0
+
+        # tags 匹配
+        for tag in skill.tags:
+            tag_lower = tag.lower()
+            if tag_lower == query_lower:
+                score += 30.0
+            elif query_lower in tag_lower:
+                score += 15.0
+            if use_ngrams:
+                for ngram in ngrams:
+                    if ngram in tag_lower:
+                        score += 3.0
+            for word in query_words:
+                if word in tag_lower:
+                    score += 5.0
+
+        # related_skills 匹配（query 可能是另一个 skill 名）
+        for related in skill.related_skills:
+            related_lower = related.lower()
+            if query_lower in related_lower or related_lower in query_lower:
+                score += 8.0
+
+        if score > 0:
+            scored.append((score, SkillIndex(
+                name=skill.name,
+                description=skill.description,
+                related_skills=skill.related_skills,
+            )))
+
+    # 降序排序
+    scored.sort(key=lambda x: x[0], reverse=True)
+    return [s for _, s in scored[:top_k]]
