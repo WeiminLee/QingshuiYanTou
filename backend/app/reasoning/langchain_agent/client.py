@@ -132,6 +132,7 @@ class LangChainAgentClient:
 async def run_lead_agent(
     question: str,
     thread_id: str | None = None,
+    task_id: str | None = None,
     model_name: str = "minimax2.5",
     max_turns: int = 8,
     subagent_enabled: bool = False,
@@ -162,6 +163,20 @@ async def run_lead_agent(
     thread_id = thread_id or str(uuid.uuid4())
     journal = RunJournal(thread_id=thread_id, question=question)
     journal_token = set_current_journal(journal)
+
+    # ── MemoryManager ──
+    from app.reasoning.langchain_agent.memory.manager import MemoryManager
+    from app.reasoning.langchain_agent.memory.builtin_provider import BuiltinProvider
+
+    memory_manager: MemoryManager | None = None
+    try:
+        provider = BuiltinProvider()
+        provider.initialize(thread_id)
+        memory_manager = MemoryManager()
+        memory_manager.add_provider(provider)
+    except Exception:
+        logger.warning("[MemoryManager] Failed to initialize — running without memory")
+        memory_manager = None
 
     # Phase A: 重置 task 事件队列
     reset_task_events_queue()
@@ -237,7 +252,10 @@ async def run_lead_agent(
                 harness.begin_turn(0)
 
             # Memory Context 注入
-            memory_context = await _load_memory_context(thread_id)
+            if memory_manager is not None:
+                memory_context = await memory_manager.prefetch_all(question)
+            else:
+                memory_context = await _load_memory_context(thread_id)
 
             # KG Anchors 注入
             if harness is not None and harness.config.kg_anchors_enabled:
@@ -252,6 +270,15 @@ async def run_lead_agent(
                 background_context=background or "",
                 graph_context=graph_context or "",
             )
+
+        # ── Memory tool injection ──
+        if memory_manager is not None:
+            from app.reasoning.langchain_agent.memory.tool import set_memory_manager, manage_memory
+
+            set_memory_manager(memory_manager)
+            tools = list(tools)
+            if manage_memory not in tools:
+                tools.append(manage_memory)
 
         # ── 创建 Agent（DeerFlow 风格）──────────────────────────────
         model = _create_chat_model(model_name)
@@ -293,6 +320,7 @@ async def run_lead_agent(
         tool_results_record: list[dict] = []
         turn_count = 0
         recursion_truncated = False
+        _last_synced_asst = ""
         # 工具失败短路：连续 N 次失败 → 提前终止，避免 LLM 在死循环里反复重试。
         consecutive_tool_failures = 0
         MAX_CONSECUTIVE_TOOL_FAILURES = 4
@@ -368,20 +396,27 @@ async def run_lead_agent(
                         if parsed is not None:
                             clarification_data = parsed
                             is_clarified = True
-                            await get_hitl_store().save(thread_id, PendingClarification(
-                                task_id=thread_id,
+                            store_key = task_id or thread_id
+                            save_messages = list(all_messages)
+                            # Remove the clarification ToolMessage itself from checkpoint
+                            # so the LLM doesn't see its own request on resume
+                            if isinstance(msg, ToolMessage) and save_messages and save_messages[-1] is msg:
+                                save_messages.pop()
+                            await get_hitl_store().save(store_key, PendingClarification(
+                                task_id=store_key,
                                 thread_id=thread_id,
                                 clarification_id=parsed["clarification_id"],
                                 question=parsed["question"],
                                 clarification_type=parsed.get("type", "ambiguous"),
                                 options=parsed.get("options"),
                                 context=parsed.get("context"),
-                                messages=list(all_messages),
+                                messages=save_messages,
                                 run_config={
                                     "model_name": model_name,
                                     "max_turns": max_turns,
                                     "thread_id": thread_id,
                                     "plan_mode": plan_mode,
+                                    "question": question,
                                 },
                             ))
                             if emit_fn:
@@ -450,6 +485,19 @@ async def run_lead_agent(
                                 "duration_ms": int(duration_ms),
                             },
                         )
+
+                # Per-turn memory sync
+                if memory_manager is not None:
+                    asst_text = ""
+                    for m in reversed(messages):
+                        if isinstance(m, AIMessage):
+                            t = _extract_text(m.content)
+                            if t:
+                                asst_text = t
+                                break
+                    if asst_text and asst_text != _last_synced_asst:
+                        await memory_manager.sync_all(question, asst_text)
+                        _last_synced_asst = asst_text
 
                 if is_clarified:
                     break
@@ -522,6 +570,9 @@ async def run_lead_agent(
             if harness.config.kg_anchors_enabled:
                 harness.track_entities(question)
             harness.stop()
+
+        if memory_manager is not None:
+            await memory_manager.shutdown_all()
 
         result = {
             "content": "".join(full_content),
