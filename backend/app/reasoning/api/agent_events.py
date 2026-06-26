@@ -18,25 +18,24 @@ Agent 分析事件系统（Task 27）
 
 SSE 端点：GET /api/v1/agent/stream/{task_id}
 """
+
 import asyncio
 import json
 import logging
 import time
-import uuid
 from collections import defaultdict
-from dataclasses import dataclass, field, asdict
+from collections.abc import AsyncIterator
+from dataclasses import asdict, dataclass, field
 from datetime import datetime
-from enum import Enum
-from typing import Any, AsyncIterator
-
-from fastapi import HTTPException, Depends
+from enum import StrEnum
 
 logger = logging.getLogger(__name__)
 
 
 # ── 事件类型定义 ──────────────────────────────────────
 
-class EventType(str, Enum):
+
+class EventType(StrEnum):
     REASONING_START = "reasoning_start"
     REASONING_STARTED = "reasoning_started"
     RETRIEVAL_STARTED = "retrieval_started"
@@ -60,13 +59,14 @@ class EventType(str, Enum):
 @dataclass
 class ReasoningEvent:
     """推理事件"""
+
     type: str
     task_id: str
-    stage: str           # 推理阶段描述
+    stage: str  # 推理阶段描述
     data: dict = field(default_factory=dict)
     timestamp: str = ""
-    turn: int = 0        # 当前轮次（0=预热）
-    seq: int = 0         # 事件序号（用于 SSE 去重）
+    turn: int = 0  # 当前轮次（0=预热）
+    seq: int = 0  # 事件序号（用于 SSE 去重）
 
     def __post_init__(self):
         if not self.timestamp:
@@ -82,13 +82,11 @@ class ReasoningEvent:
             "data": json.dumps({...})  # JSON 数据
         }
         """
-        return {
-            "event": self.type,
-            "data": json.dumps(asdict(self), ensure_ascii=False)
-        }
+        return {"event": self.type, "data": json.dumps(asdict(self), ensure_ascii=False)}
 
 
 # ── 任务状态管理器 ──────────────────────────────────────
+
 
 class TaskStateManager:
     """
@@ -101,18 +99,20 @@ class TaskStateManager:
     def __init__(self):
         self._tasks: dict[str, dict] = {}
         self._events: dict[str, list[ReasoningEvent]] = defaultdict(list)
-        self._seqs: dict[str, int] = {}   # task_id → 下一个事件序号
-        self._timestamps: dict[str, float] = {}   # task_id → 创建时间戳
-        self._last_content: dict[str, str] = {}   # task_id → 上一次发送的完整文本（用于计算 delta）
+        self._seqs: dict[str, int] = {}  # task_id → 下一个事件序号
+        self._timestamps: dict[str, float] = {}  # task_id → 创建时间戳
+        self._last_content: dict[str, str] = {}  # task_id → 上一次发送的完整文本（用于计算 delta）
         self._lock = asyncio.Lock()
         self._cleanup_counter = 0
-        self._CLEANUP_INTERVAL = 10   # 每 N 个任务触发一次清理
-        self._TTL_SECONDS = 3600        # 1 小时超时
-        self._MAX_EVENTS = 500            # Bug #9: 单任务最大事件数，防止 OOM
+        self._CLEANUP_INTERVAL = 10  # 每 N 个任务触发一次清理
+        self._TTL_SECONDS = 3600  # 1 小时超时
+        self._MAX_EVENTS = 500  # Bug #9: 单任务最大事件数，防止 OOM
+        self.STATUS_PAUSED = "paused"
 
     def create_task(self, task_id: str, thread_id: str, question: str) -> None:
         """创建任务记录"""
         import time
+
         self._tasks[task_id] = {
             "task_id": task_id,
             "thread_id": thread_id,
@@ -134,11 +134,9 @@ class TaskStateManager:
     def _cleanup(self) -> int:
         """清理超时任务"""
         import time
+
         now = time.time()
-        to_remove = [
-            tid for tid, ts in list(self._timestamps.items())
-            if now - ts > self._TTL_SECONDS
-        ]
+        to_remove = [tid for tid, ts in list(self._timestamps.items()) if now - ts > self._TTL_SECONDS]
         for tid in to_remove:
             self._tasks.pop(tid, None)
             self._events.pop(tid, None)
@@ -147,6 +145,14 @@ class TaskStateManager:
         if to_remove:
             logger.info(f"[TaskManager] 清理 {len(to_remove)} 个超时任务（TTL={self._TTL_SECONDS}s）")
         return len(to_remove)
+
+    def mark_paused(self, task_id: str) -> None:
+        """标记任务为暂停状态（不发射 stream_end）。"""
+        self._tasks[task_id]["status"] = "paused"
+
+    def is_paused(self, task_id: str) -> bool:
+        task = self._tasks.get(task_id)
+        return task is not None and task.get("status") == "paused"
 
     def get_task(self, task_id: str) -> dict | None:
         return self._tasks.get(task_id)
@@ -210,131 +216,165 @@ _task_manager = TaskStateManager()
 
 # ── 便捷事件发送函数 ──────────────────────────────────────
 
+
 async def emit_reasoning_started(task_id: str, question: str, max_turns: int) -> None:
-    await _task_manager.emit(task_id, ReasoningEvent(
-        type=EventType.REASONING_START,
-        task_id=task_id,
-        stage="开始分析",
-        data={"question": question, "max_turns": max_turns},
-    ))
+    await _task_manager.emit(
+        task_id,
+        ReasoningEvent(
+            type=EventType.REASONING_START,
+            task_id=task_id,
+            stage="开始分析",
+            data={"question": question, "max_turns": max_turns},
+        ),
+    )
 
 
 async def emit_retrieval_started(task_id: str, turn: int, query: str) -> None:
-    await _task_manager.emit(task_id, ReasoningEvent(
-        type=EventType.RETRIEVAL_STARTED,
-        task_id=task_id,
-        stage=f"第 {turn + 1} 轮：知识库检索中",
-        data={"turn": turn, "query": query[:100]},
-        turn=turn,
-    ))
+    await _task_manager.emit(
+        task_id,
+        ReasoningEvent(
+            type=EventType.RETRIEVAL_STARTED,
+            task_id=task_id,
+            stage=f"第 {turn + 1} 轮：知识库检索中",
+            data={"turn": turn, "query": query[:100]},
+            turn=turn,
+        ),
+    )
 
 
 async def emit_retrieval_done(task_id: str, turn: int, chunks_count: int, graph_entities: int) -> None:
-    await _task_manager.emit(task_id, ReasoningEvent(
-        type=EventType.RETRIEVAL_DONE,
-        task_id=task_id,
-        stage=f"第 {turn + 1} 轮：检索完成",
-        data={
-            "turn": turn,
-            "chunks_count": chunks_count,
-            "graph_entities": graph_entities,
-        },
-        turn=turn,
-    ))
+    await _task_manager.emit(
+        task_id,
+        ReasoningEvent(
+            type=EventType.RETRIEVAL_DONE,
+            task_id=task_id,
+            stage=f"第 {turn + 1} 轮：检索完成",
+            data={
+                "turn": turn,
+                "chunks_count": chunks_count,
+                "graph_entities": graph_entities,
+            },
+            turn=turn,
+        ),
+    )
 
 
 async def emit_thinking(task_id: str, turn: int, delta: str, content: str = "") -> None:
-    await _task_manager.emit(task_id, ReasoningEvent(
-        type=EventType.THINKING,
-        task_id=task_id,
-        stage=delta,
-        data={
-            "turn": turn,
-            "delta": delta,
-            "content": content,
-        },
-        turn=turn,
-    ))
+    await _task_manager.emit(
+        task_id,
+        ReasoningEvent(
+            type=EventType.THINKING,
+            task_id=task_id,
+            stage=delta,
+            data={
+                "turn": turn,
+                "delta": delta,
+                "content": content,
+            },
+            turn=turn,
+        ),
+    )
 
 
 async def emit_tool_called(task_id: str, turn: int, tool_name: str, args: dict) -> None:
-    await _task_manager.emit(task_id, ReasoningEvent(
-        type=EventType.TOOL_CALLED,
-        task_id=task_id,
-        stage=f"调用工具：{tool_name}",
-        data={"tool": tool_name, "args": {k: str(v)[:50] for k, v in args.items()}},
-        turn=turn,
-    ))
+    await _task_manager.emit(
+        task_id,
+        ReasoningEvent(
+            type=EventType.TOOL_CALLED,
+            task_id=task_id,
+            stage=f"调用工具：{tool_name}",
+            data={"tool": tool_name, "args": {k: str(v)[:50] for k, v in args.items()}},
+            turn=turn,
+        ),
+    )
 
 
 async def emit_tool_result(task_id: str, turn: int, tool_name: str, chars: int) -> None:
-    await _task_manager.emit(task_id, ReasoningEvent(
-        type=EventType.TOOL_RESULT,
-        task_id=task_id,
-        stage=f"工具 {tool_name} 执行完成",
-        data={"tool": tool_name, "chars": chars},
-        turn=turn,
-    ))
+    await _task_manager.emit(
+        task_id,
+        ReasoningEvent(
+            type=EventType.TOOL_RESULT,
+            task_id=task_id,
+            stage=f"工具 {tool_name} 执行完成",
+            data={"tool": tool_name, "chars": chars},
+            turn=turn,
+        ),
+    )
 
 
 async def emit_turn_completed(task_id: str, turn: int, turn_summary: str) -> None:
-    await _task_manager.emit(task_id, ReasoningEvent(
-        type=EventType.TURN_COMPLETED,
-        task_id=task_id,
-        stage=f"第 {turn + 1} 轮完成",
-        data={"turn": turn, "summary": turn_summary[:200]},
-        turn=turn,
-    ))
+    await _task_manager.emit(
+        task_id,
+        ReasoningEvent(
+            type=EventType.TURN_COMPLETED,
+            task_id=task_id,
+            stage=f"第 {turn + 1} 轮完成",
+            data={"turn": turn, "summary": turn_summary[:200]},
+            turn=turn,
+        ),
+    )
 
 
 async def emit_reflection_done(task_id: str, turn: int, pending: list, should_continue: bool) -> None:
-    await _task_manager.emit(task_id, ReasoningEvent(
-        type=EventType.REFLECTION_DONE,
-        task_id=task_id,
-        stage="自评中",
-        data={"turn": turn, "pending": pending[:3], "should_continue": should_continue},
-        turn=turn,
-    ))
+    await _task_manager.emit(
+        task_id,
+        ReasoningEvent(
+            type=EventType.REFLECTION_DONE,
+            task_id=task_id,
+            stage="自评中",
+            data={"turn": turn, "pending": pending[:3], "should_continue": should_continue},
+            turn=turn,
+        ),
+    )
 
 
 async def emit_reasoning_completed(task_id: str, total_turns: int, report_id: str) -> None:
-    await _task_manager.emit(task_id, ReasoningEvent(
-        type=EventType.REASONING_COMPLETED,
-        task_id=task_id,
-        stage="分析完成",
-        data={"total_turns": total_turns, "report_id": report_id},
-    ))
+    await _task_manager.emit(
+        task_id,
+        ReasoningEvent(
+            type=EventType.REASONING_COMPLETED,
+            task_id=task_id,
+            stage="分析完成",
+            data={"total_turns": total_turns, "report_id": report_id},
+        ),
+    )
 
 
 async def emit_graph_search_done(task_id: str, turn: int, entity_count: int, relation_count: int) -> None:
     """图谱检索完成事件 — 供前端 ReportView 渲染图谱节点计数"""
-    await _task_manager.emit(task_id, ReasoningEvent(
-        type=EventType.GRAPH_SEARCH_DONE,
-        task_id=task_id,
-        stage=f"第 {turn + 1} 轮：图谱检索完成",
-        data={
-            "turn": turn,
-            "entity_count": entity_count,
-            "relation_count": relation_count,
-        },
-        turn=turn,
-    ))
+    await _task_manager.emit(
+        task_id,
+        ReasoningEvent(
+            type=EventType.GRAPH_SEARCH_DONE,
+            task_id=task_id,
+            stage=f"第 {turn + 1} 轮：图谱检索完成",
+            data={
+                "turn": turn,
+                "entity_count": entity_count,
+                "relation_count": relation_count,
+            },
+            turn=turn,
+        ),
+    )
 
 
 async def emit_error(task_id: str, error: str) -> None:
-    await _task_manager.emit(task_id, ReasoningEvent(
-        type=EventType.ERROR,
-        task_id=task_id,
-        stage="发生错误",
-        data={"error": error},
-    ))
+    await _task_manager.emit(
+        task_id,
+        ReasoningEvent(
+            type=EventType.ERROR,
+            task_id=task_id,
+            stage="发生错误",
+            data={"error": error},
+        ),
+    )
 
 
 # ── SSE 连接并发限制 ──────────────────────────────────────
 
 _sse_semaphore: asyncio.Semaphore | None = None
-_MAX_CONCURRENT_SSE = 20   # 最多同时 20 个 SSE 连接
-PING_INTERVAL = 60          # Phase E: ping 保活间隔（秒）
+_MAX_CONCURRENT_SSE = 20  # 最多同时 20 个 SSE 连接
+PING_INTERVAL = 60  # Phase E: ping 保活间隔（秒）
 
 
 def _get_semaphore() -> asyncio.Semaphore:
@@ -345,6 +385,7 @@ def _get_semaphore() -> asyncio.Semaphore:
 
 
 # ── SSE 端点 ──────────────────────────────────────
+
 
 async def event_generator(task_id: str) -> AsyncIterator[ReasoningEvent]:
     """
@@ -359,7 +400,7 @@ async def event_generator(task_id: str) -> AsyncIterator[ReasoningEvent]:
     try:
         # 尝试获取信号量（最多等 5 秒）
         await asyncio.wait_for(semaphore.acquire(), timeout=5.0)
-    except asyncio.TimeoutError:
+    except TimeoutError:
         # 并发上限已满，拒绝连接
         logger.warning(f"[SSE] 并发连接数已达上限（{_MAX_CONCURRENT_SSE}），拒绝 task_id={task_id}")
         yield ReasoningEvent(
@@ -376,7 +417,7 @@ async def event_generator(task_id: str) -> AsyncIterator[ReasoningEvent]:
     # task_state.status 为终止信号，max_wait 仅作为保底断线保护。
     max_wait = 1800
     start_time = time.time()
-    last_ping_time = start_time   # Phase E: 追踪上次 ping 时间
+    last_ping_time = start_time  # Phase E: 追踪上次 ping 时间
 
     try:
         logger.info(f"[SSE] 连接已建立: task_id={task_id}")
@@ -434,7 +475,9 @@ async def event_generator(task_id: str) -> AsyncIterator[ReasoningEvent]:
             pass
         logger.info(f"[SSE] 连接已释放: task_id={task_id}")
 
+
 # ── 任务管理器依赖注入（供其他模块用） ─────────────────────────────
+
 
 def get_task_manager() -> TaskStateManager:
     return _task_manager
