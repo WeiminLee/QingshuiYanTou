@@ -210,6 +210,24 @@ class TaskStateManager:
         self._timestamps.pop(task_id, None)
         self._last_content.pop(task_id, None)
 
+    async def emit_timeout_end(self, task_id: str) -> None:
+        """Emit a timeout stream_end for a paused task that expired."""
+        self._tasks[task_id]["status"] = "timed_out"
+        await self.emit(
+            task_id,
+            ReasoningEvent(
+                type="stream_end",
+                task_id=task_id,
+                stage="stream_end",
+                data={
+                    "content": "",
+                    "stop_reason": "timeout",
+                    "report_content": "",
+                    "turns": self._tasks[task_id].get("turns", 0),
+                },
+            ),
+        )
+
 
 # 全局单例
 _task_manager = TaskStateManager()

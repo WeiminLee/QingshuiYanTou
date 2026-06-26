@@ -96,6 +96,8 @@ class HITLStore:
                     expired.append(tid)
             for tid in expired:
                 del self._store[tid]
+        if expired:
+            logger.info(f"[HITLStore] cleanup_expired: removed {len(expired)} stale tasks")
         return len(expired)
 
 

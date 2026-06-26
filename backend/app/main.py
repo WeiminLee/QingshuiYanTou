@@ -1,23 +1,30 @@
 """清水投研系统 - 后端服务入口（2026-04-08 四能力架构）"""
+
+import asyncio
 from contextlib import asynccontextmanager
+
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.account.api import auth as account_auth_router
+from app.account.api import portfolio as account_portfolio_router
+from app.account.api import users as account_users_router
+from app.api.logs import router as logs_router
 from app.config import settings
-from app.data_pipeline.api import stocks_router, data_router, information_router, monitor_router
+from app.data_pipeline.api import data_router, information_router, monitor_router, stocks_router
 from app.data_pipeline.api.data_sync import router as data_sync_router
 from app.data_pipeline.scheduler import Scheduler as DataPipelineScheduler
-from app.reasoning.api import agent_router, stats_router
-from app.api.logs import router as logs_router
-from app.reasoning.subagents.polling import router as subagent_router
-from app.knowledge.api import concept_router, entities_router, relations_router, kg_extraction_router
+from app.knowledge.api import (
+    concept_router,
+    entities_router,
+    kg_extraction_router,
+    relations_router,
+)
 from app.knowledge.api.feedback import router as feedback_router
 from app.knowledge.api.knowledge_package import router as knowledge_package_router
+from app.reasoning.api import agent_router, stats_router
+from app.reasoning.subagents.polling import router as subagent_router
 from app.utils.auth import verify_api_key, verify_api_key_optional
-from app.account.api import auth as account_auth_router
-from app.account.api import users as account_users_router
-from app.account.api import portfolio as account_portfolio_router
-
 
 _data_scheduler: DataPipelineScheduler | None = None
 
@@ -41,6 +48,7 @@ async def lifespan(app: FastAPI):
 
     # Warm StockNameResolver cache from PostgreSQL
     from app.knowledge.stock_name_resolver import get_stock_name_resolver
+
     resolver = get_stock_name_resolver()
     await resolver.warm_cache()
     print(f"StockNameResolver 已加载: {resolver.size()} 条名称映射")
@@ -55,13 +63,19 @@ async def lifespan(app: FastAPI):
         n = await user_service.sync_from_yaml(s)
         print(f"已同步 {n} 个用户: {[u.user_id for u in (await user_service.list_active(s))]}")
 
+    from app.reasoning.api.agent import _periodic_hitl_cleanup
+    hitl_cleanup_task = asyncio.create_task(_periodic_hitl_cleanup())
+
     yield
+
+    hitl_cleanup_task.cancel()
 
     if _data_scheduler is not None:
         _data_scheduler.stop()
         print("数据采集调度器已关闭")
     from app.core.mongodb import close_mongo_client
     from app.core.neo4j_client import close_async_driver
+
     await close_mongo_client()
     await close_async_driver()
     print(f"关闭 {settings.app_name}...")
@@ -87,7 +101,12 @@ async def health():
 # 注册路由
 # 写操作路由（必须认证）
 app.include_router(stocks_router, prefix="/api/v1/stocks", tags=["股票"], dependencies=[Depends(verify_api_key)])
-app.include_router(monitor_router, prefix="/api/v1/monitor", tags=["监控告警"], dependencies=[Depends(verify_api_key)])
+app.include_router(
+    monitor_router,
+    prefix="/api/v1/monitor",
+    tags=["监控告警"],
+    dependencies=[Depends(verify_api_key)],
+)
 app.include_router(subagent_router, dependencies=[Depends(verify_api_key)])
 app.include_router(entities_router, tags=["知识构建"], dependencies=[Depends(verify_api_key)])
 app.include_router(relations_router, tags=["知识构建"], dependencies=[Depends(verify_api_key)])
@@ -95,15 +114,45 @@ app.include_router(kg_extraction_router, tags=["知识构建"], dependencies=[De
 app.include_router(feedback_router, dependencies=[Depends(verify_api_key)])
 # 读操作路由（已有自身Depends，不重复叠加）
 app.include_router(agent_router, prefix="/api/v1/agent")  # 自带Depends
-app.include_router(data_router, prefix="/api/v1/data", tags=["数据"], dependencies=[Depends(verify_api_key_optional)])
-app.include_router(stats_router, prefix="/api/v1/stats", tags=["统计"], dependencies=[Depends(verify_api_key_optional)])
-app.include_router(concept_router, prefix="/api/v1/concept", tags=["概念评分"], dependencies=[Depends(verify_api_key_optional)])
-app.include_router(knowledge_package_router, prefix="/api/v1/knowledge", tags=["知识构建"], dependencies=[Depends(verify_api_key_optional)])
-app.include_router(information_router, prefix="/api/v1/information", tags=["资讯"], dependencies=[Depends(verify_api_key_optional)])
+app.include_router(
+    data_router,
+    prefix="/api/v1/data",
+    tags=["数据"],
+    dependencies=[Depends(verify_api_key_optional)],
+)
+app.include_router(
+    stats_router,
+    prefix="/api/v1/stats",
+    tags=["统计"],
+    dependencies=[Depends(verify_api_key_optional)],
+)
+app.include_router(
+    concept_router,
+    prefix="/api/v1/concept",
+    tags=["概念评分"],
+    dependencies=[Depends(verify_api_key_optional)],
+)
+app.include_router(
+    knowledge_package_router,
+    prefix="/api/v1/knowledge",
+    tags=["知识构建"],
+    dependencies=[Depends(verify_api_key_optional)],
+)
+app.include_router(
+    information_router,
+    prefix="/api/v1/information",
+    tags=["资讯"],
+    dependencies=[Depends(verify_api_key_optional)],
+)
 # 日志查询路由（读操作，可选认证）
 app.include_router(logs_router, prefix="/api/v1/logs", tags=["日志"])
 # 数据同步路由
-app.include_router(data_sync_router, prefix="/api/v1/sync", tags=["数据同步"], dependencies=[Depends(verify_api_key)])
+app.include_router(
+    data_sync_router,
+    prefix="/api/v1/sync",
+    tags=["数据同步"],
+    dependencies=[Depends(verify_api_key)],
+)
 
 # Sub-Project 1: 用户与持仓基础
 app.include_router(account_auth_router.router)

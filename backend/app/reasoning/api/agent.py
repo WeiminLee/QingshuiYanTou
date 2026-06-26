@@ -818,3 +818,17 @@ async def v2_stream(request: V2StreamRequest, api_key: str = Depends(verify_api_
                 yield f"data: {json.dumps({'type': 'error', 'data': {'error': 'task cancelled'}})}\n\n"
 
     return EventSourceResponse(event_generator())
+
+
+async def _periodic_hitl_cleanup():
+    """Periodically clean up expired HITL checkpoints."""
+    while True:
+        await asyncio.sleep(300)  # 5 min
+        try:
+            from app.reasoning.langchain_agent.hitl_store import get_hitl_store
+            store = get_hitl_store()
+            count = await store.cleanup_expired()
+            if count:
+                logger.info(f"[HITL] Cleaned up {count} expired paused tasks")
+        except Exception as e:
+            logger.warning(f"[HITL] Cleanup error: {e}")

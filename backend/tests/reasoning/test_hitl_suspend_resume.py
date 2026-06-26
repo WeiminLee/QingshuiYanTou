@@ -130,3 +130,31 @@ class TestResumeAPI:
             data = resp.json()
             assert data["status"] == "resumed"
             assert await store.get(task_id) is None
+
+
+class TestTTLCleanup:
+    async def test_expired_paused_task_sends_timeout_event(self):
+        """过期暂停任务自动发 stream_end（超时）。"""
+        from app.reasoning.api.agent_events import _task_manager
+        _task_manager.create_task("timeout_task", "thread_1", "问题")
+        _task_manager.mark_paused("timeout_task")
+        assert _task_manager.is_paused("timeout_task")
+        await _task_manager.emit_timeout_end("timeout_task")
+        status = _task_manager._tasks.get("timeout_task", {}).get("status")
+        assert status == "timed_out"
+
+    async def test_cleanup_logging_on_expired(self):
+        from app.reasoning.langchain_agent.hitl_store import HITLStore, PendingClarification
+        store = HITLStore(ttl_seconds=0)
+        pc = PendingClarification(
+            task_id="log_test", thread_id="thread_1",
+            clarification_id="cid_1", question="test",
+            clarification_type="ambiguous",
+            options=None, context=None,
+            messages=[], run_config={},
+        )
+        await store.save("log_test", pc)
+        await asyncio.sleep(0.01)
+        count = await store.cleanup_expired()
+        assert count >= 1
+        assert await store.get("log_test") is None
