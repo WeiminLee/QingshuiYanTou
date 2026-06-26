@@ -503,3 +503,88 @@ class TestMemoryManager:
         mgr.add_provider(p)
         result = await mgr.on_pre_compress([{"role": "user", "content": "hi"}])
         assert result == "insight"
+
+
+class TestManageMemoryTool:
+    @pytest.fixture
+    def mock_manager(self):
+        from app.reasoning.langchain_agent.memory.tool import set_memory_manager
+
+        mock_mgr = AsyncMock()
+        mock_mgr.handle_tool_call = AsyncMock(return_value="记忆已add。")
+        set_memory_manager(mock_mgr)
+        yield mock_mgr
+        set_memory_manager(None)
+
+    @pytest.fixture
+    def tool(self):
+        from app.reasoning.langchain_agent.memory.tool import manage_memory
+
+        return manage_memory
+
+    def test_tool_name(self, tool):
+        assert tool.name == "manage_memory"
+
+    def test_tool_return_direct(self, tool):
+        assert tool.return_direct is True
+
+    @pytest.mark.asyncio
+    async def test_add_note_basic(self, tool, mock_manager):
+        result = await tool.coroutine(
+            action="add",
+            target="notes",
+            content="用户关注光模块板块",
+        )
+        assert isinstance(result, str)
+        mock_manager.handle_tool_call.assert_awaited_once_with(
+            "manage_memory",
+            {"action": "add", "target": "notes", "content": "用户关注光模块板块", "old_text": None},
+        )
+
+    @pytest.mark.asyncio
+    async def test_add_profile(self, tool, mock_manager):
+        result = await tool.coroutine(
+            action="add",
+            target="profile",
+            content="用户是专业投资者",
+        )
+        assert isinstance(result, str)
+        mock_manager.handle_tool_call.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_invalid_target(self, tool, mock_manager):
+        mock_manager.handle_tool_call.return_value = "Error: 未知 target 'invalid'"
+        result = await tool.coroutine(
+            action="add",
+            target="invalid",
+            content="test",
+        )
+        assert "未知" in result
+
+    @pytest.mark.asyncio
+    async def test_replace_without_old_text(self, tool, mock_manager):
+        mock_manager.handle_tool_call.return_value = "Error: replace 操作需要提供 old_text"
+        result = await tool.coroutine(
+            action="replace",
+            target="notes",
+            content="new content",
+        )
+        assert "old_text" in result
+
+    @pytest.mark.asyncio
+    async def test_remove_without_old_text(self, tool, mock_manager):
+        mock_manager.handle_tool_call.return_value = "Error: remove 操作需要提供 old_text"
+        result = await tool.coroutine(
+            action="remove",
+            target="notes",
+            content="",
+        )
+        assert "old_text" in result
+
+    @pytest.mark.asyncio
+    async def test_no_manager_returns_error(self):
+        from app.reasoning.langchain_agent.memory.tool import set_memory_manager, manage_memory
+
+        set_memory_manager(None)
+        result = await manage_memory.coroutine(action="add", target="notes", content="test")
+        assert "记忆系统未初始化" in result
