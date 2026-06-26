@@ -2,6 +2,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from app.reasoning.langchain_agent.memory.manager import MemoryManager
 from app.reasoning.langchain_agent.memory.provider import MemoryProvider
 
 
@@ -353,3 +354,152 @@ class TestBuiltinProvider:
             {"action": "remove", "target": "notes", "content": "", "old_text": "nonexistent"},
         )
         assert "未生效" in result
+
+
+class _MockProvider(MemoryProvider):
+    def __init__(self, name: str = "mock"):
+        self._name = name
+        self._prefetch_calls: list[str] = []
+        self._sync_calls: list[tuple[str, str]] = []
+        self._turn_starts: list[tuple[int, str]] = []
+        self._initialized = False
+
+    @property
+    def name(self) -> str:
+        return self._name
+
+    def initialize(self, session_id: str) -> None:
+        self._initialized = True
+        self._session_id = session_id
+
+    def shutdown(self) -> None:
+        self._initialized = False
+
+    async def prefetch(self, query: str) -> str:
+        self._prefetch_calls.append(query)
+        return f"<memory-context>mock:{query}</memory-context>"
+
+    async def sync_turn(self, user: str, assistant: str) -> None:
+        self._sync_calls.append((user, assistant))
+
+
+class TestMemoryManager:
+    def test_empty_manager(self):
+        mgr = MemoryManager()
+        assert mgr.get_all_tool_schemas() == []
+
+    def test_add_and_get_provider(self):
+        mgr = MemoryManager()
+        p = _MockProvider("mock1")
+        mgr.add_provider(p)
+        assert "mock1" in [pr.name for pr in mgr._providers]
+
+    @pytest.mark.asyncio
+    async def test_prefetch_all_calls_all_providers(self):
+        mgr = MemoryManager()
+        p1 = _MockProvider("p1")
+        p2 = _MockProvider("p2")
+        mgr.add_provider(p1)
+        mgr.add_provider(p2)
+        result = await mgr.prefetch_all("test query")
+        assert "mock:test query" in result
+        assert len(p1._prefetch_calls) == 1
+        assert len(p2._prefetch_calls) == 1
+
+    @pytest.mark.asyncio
+    async def test_sync_all_calls_all_providers(self):
+        mgr = MemoryManager()
+        p1 = _MockProvider("p1")
+        mgr.add_provider(p1)
+        await mgr.sync_all("user msg", "asst msg")
+        assert p1._sync_calls == [("user msg", "asst msg")]
+
+    @pytest.mark.asyncio
+    async def test_initialize_all(self):
+        mgr = MemoryManager()
+        p = _MockProvider("p")
+        mgr.add_provider(p)
+        await mgr.initialize_all("sess_001")
+        assert p._initialized
+        assert p._session_id == "sess_001"
+
+    @pytest.mark.asyncio
+    async def test_shutdown_all(self):
+        mgr = MemoryManager()
+        p = _MockProvider("p")
+        mgr.add_provider(p)
+        await mgr.initialize_all("sess_001")
+        await mgr.shutdown_all()
+        assert not p._initialized
+
+    @pytest.mark.asyncio
+    async def test_on_turn_start_calls_all(self):
+        mgr = MemoryManager()
+        p = _MockProvider("p")
+        mgr.add_provider(p)
+        await mgr.on_turn_start(1, "hello")
+        assert len(p._turn_starts) == 0  # our mock doesn't record, just no error
+
+    @pytest.mark.asyncio
+    async def test_handle_tool_call_returns_first_match(self):
+        mgr = MemoryManager()
+        p1 = _MockProvider("p1")
+        p1.handle_tool_call = AsyncMock(return_value="result from p1")  # type: ignore
+        p2 = _MockProvider("p2")
+        p2.handle_tool_call = AsyncMock(return_value="result from p2")  # type: ignore
+        mgr.add_provider(p1)
+        mgr.add_provider(p2)
+        result = await mgr.handle_tool_call("some_tool", {})
+        assert result == "result from p1"
+
+    @pytest.mark.asyncio
+    async def test_handle_tool_call_unknown(self):
+        mgr = MemoryManager()
+        p = _MockProvider("p")
+        mgr.add_provider(p)
+        result = await mgr.handle_tool_call("nonexistent", {})
+        assert result == "Unknown tool: nonexistent"
+
+    def test_get_all_tool_schemas_merges_all_providers(self):
+        mgr = MemoryManager()
+        p1 = _MockProvider("p1")
+        p1.get_tool_schemas = MagicMock(return_value=[{"name": "tool_a"}])  # type: ignore
+        p2 = _MockProvider("p2")
+        p2.get_tool_schemas = MagicMock(return_value=[{"name": "tool_b"}])  # type: ignore
+        mgr.add_provider(p1)
+        mgr.add_provider(p2)
+        schemas = mgr.get_all_tool_schemas()
+        assert len(schemas) == 2
+        assert {"name": "tool_a"} in schemas
+        assert {"name": "tool_b"} in schemas
+
+    @pytest.mark.asyncio
+    async def test_build_system_prompt_block(self):
+        mgr = MemoryManager()
+        p = _MockProvider("p")
+        p.system_prompt_block = MagicMock(return_value="system block")  # type: ignore
+        mgr.add_provider(p)
+        result = await mgr.build_system_prompt_block()
+        assert result == "system block"
+
+    @pytest.mark.asyncio
+    async def test_on_session_end(self):
+        mgr = MemoryManager()
+        calls: list[str] = []
+
+        class _TrackingProvider(_MockProvider):
+            def on_session_end(self) -> None:
+                calls.append("ended")
+
+        mgr.add_provider(_TrackingProvider("track"))
+        await mgr.on_session_end()
+        assert calls == ["ended"]
+
+    @pytest.mark.asyncio
+    async def test_on_pre_compress(self):
+        mgr = MemoryManager()
+        p = _MockProvider("p")
+        p.on_pre_compress = MagicMock(return_value="insight")  # type: ignore
+        mgr.add_provider(p)
+        result = await mgr.on_pre_compress([{"role": "user", "content": "hi"}])
+        assert result == "insight"
