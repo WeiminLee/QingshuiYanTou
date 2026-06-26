@@ -32,6 +32,7 @@ logger = logging.getLogger(__name__)
 _STRUCTURAL_MARKERS = frozenset({
     "[历史记忆]",
     "<memory>",
+    "<memory-context>",
     "<background_context>",
     "<graph_context>",
     "<kg_anchors>",
