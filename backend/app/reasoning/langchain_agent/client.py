@@ -11,28 +11,36 @@ SSE 事件流对齐 LangGraph stream 协议：
 - stream_end: 流结束（含完整报告数据）
 - error: 异常事件
 """
+
+from __future__ import annotations
+
 import asyncio
 import logging
 import time
 import uuid
 from datetime import datetime
-from typing import Any, Callable
 
-from langchain.agents import create_agent
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
 from langgraph.errors import GraphRecursionError
 
-from app.reasoning.langchain_agent.llm_engine import LLMEngine, get_global_engine
+from app.reasoning.langchain_agent.integrations import (
+    HarnessConfig,
+    HarnessManager,
+    format_kg_anchors,
+)
 from app.reasoning.langchain_agent.lead_agent import make_lead_agent
-from app.reasoning.langchain_agent.prompts.lead_system_prompt import apply_prompt_template
+from app.reasoning.langchain_agent.llm_engine import get_global_engine
 from app.reasoning.langchain_agent.middlewares.clarification import ClarificationMiddleware
-from app.reasoning.langchain_agent.middlewares.context_compressor import can_parallel
-from app.reasoning.langchain_agent.tool_executor import ToolExecutor, ToolResult, build_preview
-from app.reasoning.langchain_agent.task_events import reset_task_events_queue, drain_all_task_events
-from app.reasoning.langchain_agent.integrations import HarnessConfig, HarnessManager, format_kg_anchors
-from app.reasoning.tools.tools import get_available_tools
+from app.reasoning.langchain_agent.prompts.lead_system_prompt import apply_prompt_template
+from app.reasoning.langchain_agent.task_events import drain_all_task_events, reset_task_events_queue
+from app.reasoning.langchain_agent.tool_executor import build_preview
+from app.reasoning.langchain_agent.hitl_store import (
+    PendingClarification,
+    get_hitl_store,
+    parse_clarification_result,
+)
 from app.reasoning.runtime.journal import (
     RunJournal,
     append_journal_event,
@@ -40,6 +48,7 @@ from app.reasoning.runtime.journal import (
     reset_current_journal,
     set_current_journal,
 )
+from app.reasoning.tools.tools import get_available_tools
 
 logger = logging.getLogger(__name__)
 
@@ -132,6 +141,8 @@ async def run_lead_agent(
     harness_config: HarnessConfig | None = None,
     plan_mode: bool = False,
     title_enabled: bool = True,
+    prebuilt_messages: list[BaseMessage] | None = None,
+    skip_preflight: bool = False,
 ) -> dict:
     """
     运行 Lead Agent（DeerFlow 风格）。
@@ -145,6 +156,7 @@ async def run_lead_agent(
     """
     if pre_search_top_k is None:
         from app.config import settings
+
         pre_search_top_k = getattr(settings, "pre_search_top_k", 10)
 
     thread_id = thread_id or str(uuid.uuid4())
@@ -154,52 +166,59 @@ async def run_lead_agent(
     # Phase A: 重置 task 事件队列
     reset_task_events_queue()
 
-    # 澄清拦截（前置检查，不在 agent 内部）
-    clarification_middleware = ClarificationMiddleware()
-    clarification_needed = clarification_middleware._needs_clarification(question)
-    if emit_fn:
-        await emit_fn("reasoning_start", {"question": question[:100]})
-    append_journal_event("reasoning_start", {"question": question[:100]})
-
-    if clarification_needed:
+    if not skip_preflight:
+        # 澄清拦截（前置检查，不在 agent 内部）
+        clarification_middleware = ClarificationMiddleware()
+        clarification_needed = clarification_middleware._needs_clarification(question)
         if emit_fn:
-            suggestions = clarification_middleware._build_suggestions(question)
-            await emit_fn("clarification_request", {
-                "type": "missing_info" if len(question.strip()) < 10 else "ambiguous_requirement",
-                "question": question,
-                "reason": "用户输入模糊或缺少关键信息",
-                "suggestions": suggestions,
-            })
-        logger.info(f"[Clarification] 拦截模糊问题: {question[:30]}")
-        journal.finish()
-        reset_current_journal(journal_token)
-        return {
-            "content": "",
-            "turns": 0,
-            "tool_calls": [],
-            "tool_results": [],
-            "thread_id": thread_id,
-            "status": "clarification_requested",
-        }
+            await emit_fn("reasoning_start", {"question": question[:100]})
+        append_journal_event("reasoning_start", {"question": question[:100]})
 
-    # 并行执行：Qdrant pre-search + Neo4j 图谱上下文查询
-    # 注意：图谱查询在 client.py 预处理阶段异步执行，不再阻塞 LangGraph 事件循环
-    pre_search_task = asyncio.create_task(_pre_search(question, top_k=pre_search_top_k))
-    graph_ctx_task = asyncio.create_task(_fetch_graph_context_async(question, total_timeout=4.0))
+        if clarification_needed:
+            if emit_fn:
+                suggestions = clarification_middleware._build_suggestions(question)
+                await emit_fn(
+                    "clarification_request",
+                    {
+                        "type": "missing_info" if len(question.strip()) < 10 else "ambiguous_requirement",
+                        "question": question,
+                        "reason": "用户输入模糊或缺少关键信息",
+                        "suggestions": suggestions,
+                    },
+                )
+            logger.info(f"[Clarification] 拦截模糊问题: {question[:30]}")
+            journal.finish()
+            reset_current_journal(journal_token)
+            return {
+                "content": "",
+                "turns": 0,
+                "tool_calls": [],
+                "tool_results": [],
+                "thread_id": thread_id,
+                "status": "clarification_requested",
+            }
 
-    # 等待 pre-search 完成
-    try:
-        background = await pre_search_task
-    except Exception as e:
-        logger.warning("pre-search failed, continuing without background context: %s", e)
-        background = None
+        # 并行执行：Qdrant pre-search + Neo4j 图谱上下文查询
+        # 注意：图谱查询在 client.py 预处理阶段异步执行，不再阻塞 LangGraph 事件循环
+        pre_search_task = asyncio.create_task(_pre_search(question, top_k=pre_search_top_k))
+        graph_ctx_task = asyncio.create_task(_fetch_graph_context_async(question, total_timeout=4.0))
 
-    # 等待图谱上下文（失败不影响整体）
-    graph_context = ""
-    try:
-        graph_context = await graph_ctx_task
-    except Exception as e:
-        logger.warning("graph context query failed, continuing without it: %s", e)
+        # 等待 pre-search 完成
+        try:
+            background = await pre_search_task
+        except Exception as e:
+            logger.warning("pre-search failed, continuing without background context: %s", e)
+            background = None
+
+        # 等待图谱上下文（失败不影响整体）
+        graph_context = ""
+        try:
+            graph_context = await graph_ctx_task
+        except Exception as e:
+            logger.warning("graph context query failed, continuing without it: %s", e)
+    else:
+        background = ""
+        graph_context = ""
 
     # ── GAP-BE-06: 顶层 try-except ──
     try:
@@ -209,27 +228,30 @@ async def run_lead_agent(
 
         # ── Harness Manager ──
         harness: HarnessManager | None = None
-        if harness_config is not None:
-            harness = HarnessManager(harness_config, thread_id)
-            harness.begin_turn(0)
-
-        # Memory Context 注入
-        memory_context = await _load_memory_context(thread_id)
-
-        # KG Anchors 注入
+        memory_context = ""
         kg_anchors_str = ""
-        if harness is not None and harness.config.kg_anchors_enabled:
-            kg_anchors_str = format_kg_anchors(thread_id)
+        system_prompt = ""
+        if not skip_preflight:
+            if harness_config is not None:
+                harness = HarnessManager(harness_config, thread_id)
+                harness.begin_turn(0)
 
-        # 背景知识注入 system prompt（不进入 user message，不输出到前端）
-        system_prompt = apply_prompt_template(
-            subagent_enabled=subagent_enabled,
-            max_concurrent_subagents=max_concurrent_subagents,
-            memory_content=memory_context,
-            kg_anchors=kg_anchors_str,
-            background_context=background or "",
-            graph_context=graph_context or "",
-        )
+            # Memory Context 注入
+            memory_context = await _load_memory_context(thread_id)
+
+            # KG Anchors 注入
+            if harness is not None and harness.config.kg_anchors_enabled:
+                kg_anchors_str = format_kg_anchors(thread_id)
+
+            # 背景知识注入 system prompt（不进入 user message，不输出到前端）
+            system_prompt = apply_prompt_template(
+                subagent_enabled=subagent_enabled,
+                max_concurrent_subagents=max_concurrent_subagents,
+                memory_content=memory_context,
+                kg_anchors=kg_anchors_str,
+                background_context=background or "",
+                graph_context=graph_context or "",
+            )
 
         # ── 创建 Agent（DeerFlow 风格）──────────────────────────────
         model = _create_chat_model(model_name)
@@ -256,7 +278,14 @@ async def run_lead_agent(
         )
 
         # ── 执行 Agent Stream ───────────────────────────────────────
-        state = {"messages": [HumanMessage(content=question)]}
+        if prebuilt_messages is not None:
+            state = {"messages": list(prebuilt_messages)}
+        else:
+            state = {"messages": [HumanMessage(content=question)]}
+
+        is_clarified = False
+        clarification_data: dict | None = None
+        all_messages: list[BaseMessage] = []
 
         seen_msg_ids: set[str] = set()
         full_content: list[str] = []
@@ -280,28 +309,36 @@ async def run_lead_agent(
                     if msg_id in seen_msg_ids:
                         continue
                     seen_msg_ids.add(msg_id)
+                    all_messages.append(msg)
 
                     if isinstance(msg, AIMessage):
+                        if is_clarified:
+                            continue
                         # Tool calls
                         if msg.tool_calls:
                             for tc in msg.tool_calls:
                                 tc_id = tc.get("id") or str(uuid.uuid4())[:8]
                                 tc_name = tc.get("name", "")
                                 tc_args = tc.get("args", {}) or {}
-                                tool_calls_record.append({
-                                    "id": tc_id,
-                                    "name": tc_name,
-                                    "args": tc_args,
-                                })
-                                # Bug #4: 记录工具调用开始时间
-                                tool_start_times[tc_id] = time.monotonic()
-                                if emit_fn:
-                                    await emit_fn("tool_called", {
+                                tool_calls_record.append(
+                                    {
                                         "id": tc_id,
                                         "name": tc_name,
                                         "args": tc_args,
-                                        "turn": turn_count,
-                                    })
+                                    }
+                                )
+                                # Bug #4: 记录工具调用开始时间
+                                tool_start_times[tc_id] = time.monotonic()
+                                if emit_fn:
+                                    await emit_fn(
+                                        "tool_called",
+                                        {
+                                            "id": tc_id,
+                                            "name": tc_name,
+                                            "args": tc_args,
+                                            "turn": turn_count,
+                                        },
+                                    )
                                 append_journal_event("tool_called", {"id": tc_id, "name": tc_name})
 
                         # Text content
@@ -309,10 +346,13 @@ async def run_lead_agent(
                         if text:
                             full_content.append(text)
                             if emit_fn:
-                                await emit_fn("thinking_delta", {
-                                    "delta": text,
-                                    "turn": turn_count,
-                                })
+                                await emit_fn(
+                                    "thinking_delta",
+                                    {
+                                        "delta": text,
+                                        "turn": turn_count,
+                                    },
+                                )
                             append_journal_event("thinking_delta", {"turn": turn_count, "chars": len(text)})
                             if harness is not None and harness.config.memory_enabled:
                                 harness.update_memory([{"role": "assistant", "content": text}])
@@ -323,15 +363,46 @@ async def run_lead_agent(
                         # 优先用 tool_call_id 与上游 tool_called 事件对齐；缺失时回退到消息 id。
                         tool_call_id = getattr(msg, "tool_call_id", None) or msg_id
 
+                        # ── Pause detection: clarification tools ──
+                        parsed = parse_clarification_result(tool_name, result_str)
+                        if parsed is not None:
+                            clarification_data = parsed
+                            is_clarified = True
+                            await get_hitl_store().save(thread_id, PendingClarification(
+                                task_id=thread_id,
+                                thread_id=thread_id,
+                                clarification_id=parsed["clarification_id"],
+                                question=parsed["question"],
+                                clarification_type=parsed.get("type", "ambiguous"),
+                                options=parsed.get("options"),
+                                context=parsed.get("context"),
+                                messages=list(all_messages),
+                                run_config={
+                                    "model_name": model_name,
+                                    "max_turns": max_turns,
+                                    "thread_id": thread_id,
+                                    "plan_mode": plan_mode,
+                                },
+                            ))
+                            if emit_fn:
+                                await emit_fn("clarification_request", {
+                                    "clarification_id": parsed["clarification_id"],
+                                    "question": parsed["question"],
+                                    "type": parsed.get("type", "ambiguous"),
+                                    "options": parsed.get("options"),
+                                    "context": parsed.get("context"),
+                                })
+                            append_journal_event("clarification_request", {
+                                "clarification_id": parsed["clarification_id"],
+                            })
+                            continue
+
                         # Budget enforcement
                         if harness is not None and harness.config.budget_enabled:
                             result_str = await harness.enforce_budget(tool_name, result_str)
 
                         # 工具失败检测：LangChain ToolMessage.status='error' 或结果文本含错误标志
-                        is_failure = (
-                            getattr(msg, "status", None) == "error"
-                            or _looks_like_tool_failure(result_str)
-                        )
+                        is_failure = getattr(msg, "status", None) == "error" or _looks_like_tool_failure(result_str)
                         if is_failure:
                             consecutive_tool_failures += 1
                         else:
@@ -341,51 +412,63 @@ async def run_lead_agent(
                         # Bug #4: 计算工具执行时长
                         tool_start = tool_start_times.pop(tool_call_id, None)
                         duration_ms = (time.monotonic() - tool_start) * 1000 if tool_start else 0.0
-                        tool_results_record.append({
-                            "id": tool_call_id,
-                            "name": tool_name,
-                            "result": preview,
-                            "success": not is_failure,
-                            "turn": turn_count,
-                            "original_len": len(result_str),
-                            "duration_ms": duration_ms,
-                        })
+                        tool_results_record.append(
+                            {
+                                "id": tool_call_id,
+                                "name": tool_name,
+                                "result": preview,
+                                "success": not is_failure,
+                                "turn": turn_count,
+                                "original_len": len(result_str),
+                                "duration_ms": duration_ms,
+                            }
+                        )
 
                         if harness is not None and harness.config.memory_enabled:
                             harness.update_memory([{"role": "tool", "content": result_str}])
 
                         if emit_fn:
-                            await emit_fn("tool_result", {
+                            await emit_fn(
+                                "tool_result",
+                                {
+                                    "id": tool_call_id,
+                                    "name": tool_name,
+                                    "result": preview,
+                                    "preview": preview,
+                                    "success": not is_failure,
+                                    "turn": turn_count,
+                                    "original_len": len(result_str),
+                                    "duration_ms": duration_ms,
+                                },
+                            )
+                        append_journal_event(
+                            "tool_result",
+                            {
                                 "id": tool_call_id,
                                 "name": tool_name,
-                                "result": preview,
-                                "preview": preview,
                                 "success": not is_failure,
-                                "turn": turn_count,
-                                "original_len": len(result_str),
-                                "duration_ms": duration_ms,
-                            })
-                        append_journal_event("tool_result", {
-                            "id": tool_call_id,
-                            "name": tool_name,
-                            "success": not is_failure,
-                            "duration_ms": int(duration_ms),
-                        })
+                                "duration_ms": int(duration_ms),
+                            },
+                        )
+
+                if is_clarified:
+                    break
 
                 # Drain task events
                 if emit_fn:
                     for event in drain_all_task_events():
-                        await emit_fn(event.type.value, {
-                            "task_id": event.task_id,
-                            **event.data,
-                        })
+                        await emit_fn(
+                            event.type.value,
+                            {
+                                "task_id": event.task_id,
+                                **event.data,
+                            },
+                        )
                         append_journal_event(event.type.value, {"task_id": event.task_id, **event.data})
 
                 # 工具连续失败保护 — 提前 break 避免 LLM 反复无效重试
                 if consecutive_tool_failures >= MAX_CONSECUTIVE_TOOL_FAILURES:
-                    logger.warning(
-                        f"[Agent] 工具连续失败 {consecutive_tool_failures} 次，提前终止 ReAct 循环"
-                    )
+                    logger.warning(f"[Agent] 工具连续失败 {consecutive_tool_failures} 次，提前终止 ReAct 循环")
                     recursion_truncated = True
                     full_content.append(
                         f"\n\n> ⚠️ 检测到工具调用连续失败 {consecutive_tool_failures} 次（如外部 API 不可达），"
@@ -403,23 +486,35 @@ async def run_lead_agent(
             )
 
         # ── 发射 stream_end ────────────────────────────────────────
-        if emit_fn:
+        if is_clarified:
+            if harness is not None:
+                harness.stop()
+            return {
+                "status": "paused",
+                "clarification_id": clarification_data["clarification_id"],
+                "content": "",
+            }
+
+        if not is_clarified and emit_fn:
             raw_analysis = "".join(full_content)
             report = _build_analysis_report(
                 topic=question,
                 raw_analysis=raw_analysis,
                 turns=turn_count,
             )
-            await emit_fn("stream_end", {
-                "report_content": report.to_markdown(),
-                "report_json": report.to_dict(),
-                "report_id": report.report_id,
-                "compliance_passed": report.compliance_declared,
-                "turns": turn_count,
-                "content": raw_analysis,
-                "stop_reason": "max_tool_calls" if recursion_truncated else None,
-                "run_id": journal.run_id,
-            })
+            await emit_fn(
+                "stream_end",
+                {
+                    "report_content": report.to_markdown(),
+                    "report_json": report.to_dict(),
+                    "report_id": report.report_id,
+                    "compliance_passed": report.compliance_declared,
+                    "turns": turn_count,
+                    "content": raw_analysis,
+                    "stop_reason": "max_tool_calls" if recursion_truncated else None,
+                    "run_id": journal.run_id,
+                },
+            )
         append_journal_event("stream_end", {"turns": turn_count, "truncated": recursion_truncated})
 
         # ── Harness 收尾 ───────────────────────────────────────────
@@ -449,6 +544,7 @@ async def run_lead_agent(
 
         try:
             from app.config import settings
+
             if getattr(settings, "agent_memory_queue_enabled", True):
                 from app.reasoning.langchain_agent.middlewares.memory_middleware import (
                     HarnessMemoryUpdater,
@@ -538,7 +634,7 @@ def _build_analysis_report(
     raw_analysis: str,
     turns: int,
     report_id: str | None = None,
-) -> "AnalysisReport":
+) -> AnalysisReport:  # noqa: F821
     """构造 AnalysisReport（用于 stream_end 内嵌完整报告）"""
     from app.reasoning.output.report import AnalysisReport
 
@@ -554,6 +650,7 @@ def _build_analysis_report(
 
     try:
         from app.reasoning.output.compliance import scan_content
+
         compliance = scan_content(raw_analysis)
         report.compliance_declared = compliance.passed
     except Exception as e:
@@ -568,11 +665,26 @@ def _build_analysis_report(
 
 _STOCK_PATTERN = __import__("re").compile(r"(\d{6})\.(SH|SZ|BJ)")
 _PRODUCT_PATTERNS = [
-    __import__("re").compile(kw) for kw in [
-        "光模块", "光通信", "激光雷达", "CPO", "硅光",
-        "光伏", "锂电", "储能", "功率半导体", "碳化硅",
-        "AI芯片", "GPU", "HBM", "先进封装",
-        "机器人", "减速器", "控制器", "传感器",
+    __import__("re").compile(kw)
+    for kw in [
+        "光模块",
+        "光通信",
+        "激光雷达",
+        "CPO",
+        "硅光",
+        "光伏",
+        "锂电",
+        "储能",
+        "功率半导体",
+        "碳化硅",
+        "AI芯片",
+        "GPU",
+        "HBM",
+        "先进封装",
+        "机器人",
+        "减速器",
+        "控制器",
+        "传感器",
     ]
 ]
 
@@ -615,7 +727,7 @@ async def _fetch_graph_context_async(question: str, total_timeout: float = 4.0) 
         for r in completed:
             if isinstance(r, str) and r and "暂无记录" not in r:
                 results.append(r[:500])
-    except asyncio.TimeoutError:
+    except TimeoutError:
         logger.warning("[GraphContext] 批量查询总超时")
 
     if not results:
@@ -637,7 +749,7 @@ async def _fetch_entity_context(entity: str) -> str:
             timeout=2.0,
         )
         return result if result and "暂无记录" not in result else ""
-    except asyncio.TimeoutError:
+    except TimeoutError:
         logger.warning(f"[GraphContext] 查询超时: {entity}")
         return ""
     except Exception as e:
@@ -678,9 +790,7 @@ async def _pre_search(query: str, top_k: int = 10) -> str:
                 text = (payload.get("description") or "")[:300]
                 source = payload.get("source") or payload.get("ts_code") or "unknown"
                 if text:
-                    context_parts.append(
-                        f"- [关系:{from_name}->{to_name}]: {text}...（来源：{source}）"
-                    )
+                    context_parts.append(f"- [关系:{from_name}->{to_name}]: {text}...（来源：{source}）")
             elif "content" in payload:
                 label = payload.get("heading") or "chunk"
                 text = (payload.get("content") or "")[:300]
@@ -715,6 +825,7 @@ async def _load_memory_context(thread_id: str, analyst_id: str = "default") -> s
         from app.reasoning.langchain_agent.prompts.lead_system_prompt import (
             get_memory_context_async,
         )
+
         return await get_memory_context_async(thread_id, analyst_id=analyst_id)
     except Exception as e:
         logger.warning(f"[MemoryCtx] Failed to load memory for {thread_id}: {e}")

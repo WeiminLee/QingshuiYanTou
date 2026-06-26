@@ -1,10 +1,11 @@
 """Tests for HITL suspend/resume checkpoint store."""
 
 import asyncio
+from pathlib import Path
 
 import pytest
 from app.reasoning.langchain_agent.hitl_store import (
-    HITLStore, PendingClarification, get_hitl_store,
+    HITLStore, PendingClarification, get_hitl_store, parse_clarification_result,
 )
 
 
@@ -57,3 +58,33 @@ class TestHITLStore:
         s1 = get_hitl_store()
         s2 = get_hitl_store()
         assert s1 is s2
+
+
+class TestClarificationDetection:
+    async def test_parse_ask_user_question_json(self):
+        result_str = '{"questions": [{"question": "分析哪只？", "options": [{"label": "中际旭创"}]}]}'
+        parsed = parse_clarification_result("AskUserQuestion", result_str)
+        assert parsed["question"] == "分析哪只？"
+        assert len(parsed["options"]) == 1
+
+    async def test_parse_ask_clarification_text(self):
+        result_str = "**澄清请求** (ambiguous)\n\n哪只股票？\n\nclarification_id: abc123"
+        parsed = parse_clarification_result("ask_clarification", result_str)
+        assert parsed["clarification_id"] == "abc123"
+        assert "哪只股票" in parsed["question"]
+
+    async def test_no_parse_for_normal_tools(self):
+        result = parse_clarification_result("get_kline", "some data")
+        assert result is None
+
+    async def test_prebuilt_messages_accepted_in_signature(self):
+        src = (Path(__file__).resolve().parents[2] / "app" / "reasoning" / "langchain_agent" / "client.py").read_text()
+        assert "prebuilt_messages: list[BaseMessage] | None = None" in src
+        assert "skip_preflight: bool = False" in src
+
+    async def test_make_lead_agent_system_prompt_default(self):
+        from app.reasoning.langchain_agent.lead_agent import make_lead_agent
+        import inspect
+        sig = inspect.signature(make_lead_agent)
+        param = sig.parameters["system_prompt"]
+        assert param.default == ""

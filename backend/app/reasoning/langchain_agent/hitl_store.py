@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional
@@ -13,6 +15,38 @@ from langchain_core.messages import BaseMessage
 logger = logging.getLogger(__name__)
 
 CLARIFICATION_TOOLS = frozenset({"ask_clarification", "AskUserQuestion"})
+
+
+def parse_clarification_result(tool_name: str, result_str: str) -> dict | None:
+    """Parse a tool result from a clarification tool into a structured dict."""
+    if tool_name not in CLARIFICATION_TOOLS:
+        return None
+    if tool_name == "AskUserQuestion":
+        try:
+            data = json.loads(result_str) if isinstance(result_str, str) else {}
+        except (json.JSONDecodeError, TypeError):
+            data = {}
+        questions = (data.get("questions") or [{}])[0]
+        return {
+            "clarification_id": str(uuid.uuid4())[:8],
+            "question": questions.get("question", str(result_str)[:200]),
+            "type": questions.get("type", "ambiguous"),
+            "options": questions.get("options"),
+            "context": questions.get("context"),
+        }
+    else:
+        text = str(result_str)
+        cid = ""
+        for line in text.split("\n"):
+            if "clarification_id:" in line:
+                cid = line.split("clarification_id:")[-1].strip()
+        return {
+            "clarification_id": cid or str(uuid.uuid4())[:8],
+            "question": text[:200],
+            "type": "ambiguous",
+            "options": None,
+            "context": None,
+        }
 
 
 @dataclass

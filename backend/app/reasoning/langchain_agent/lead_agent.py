@@ -9,16 +9,19 @@ create_agent 返回 CompiledStateGraph，自动处理 ReAct 循环：
 
 中间件作为 graph node 注入（before_model / after_model / after_agent）。
 """
+
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from langchain.agents import create_agent
-from langchain_core.tools import BaseTool
 from langchain_core.runnables import RunnableConfig
+from langchain_core.tools import BaseTool
 
-from app.reasoning.langchain_agent.middlewares.loop_detection import LoopDetectionMiddleware
 from app.reasoning.langchain_agent.middlewares.context_compressor import ContextCompressorMiddleware
-from app.reasoning.langchain_agent.middlewares.reasoning_validation import ReasoningValidationMiddleware
+from app.reasoning.langchain_agent.middlewares.loop_detection import LoopDetectionMiddleware
+from app.reasoning.langchain_agent.middlewares.reasoning_validation import (
+    ReasoningValidationMiddleware,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +47,7 @@ def _filter_langchain_tools(tools: list) -> list:
 @dataclass
 class LeadAgentConfig:
     """Lead Agent 配置（保持向后兼容，API 端点使用）"""
+
     model_name: str = "minimax2.5"
     subagent_enabled: bool = False
     max_concurrent_subagents: int = 3
@@ -57,6 +61,7 @@ def _build_middlewares(
     config: RunnableConfig,
     thread_id: str = "default",
     plan_mode: bool = False,
+    model=None,
 ) -> list:
     """
     构建 middleware 链（DeerFlow _build_middlewares 风格）。
@@ -74,7 +79,11 @@ def _build_middlewares(
     middlewares = []
 
     # ContextCompressor — before_model 钩子
-    middlewares.append(ContextCompressorMiddleware(tenant_id=thread_id))
+    # 传入 model 用于 LLM 增量总结（Phase 2+），无 model 时回退截断
+    middlewares.append(ContextCompressorMiddleware(
+        tenant_id=thread_id,
+        llm=model,
+    ))
 
     # LoopDetection — after_model 钩子
     middlewares.append(LoopDetectionMiddleware())
@@ -88,7 +97,7 @@ def _build_middlewares(
 def make_lead_agent(
     model,
     tools: list,
-    system_prompt: str,
+    system_prompt: str = "",
     config: RunnableConfig | None = None,
     thread_id: str = "default",
     plan_mode: bool = False,
@@ -117,6 +126,7 @@ def make_lead_agent(
         config,
         thread_id=thread_id,
         plan_mode=plan_mode,
+        model=model,
     )
 
     safe_tools = _filter_langchain_tools(tools)
