@@ -36,19 +36,26 @@ def _build_subagent_section(max_concurrent: int) -> str:
 # ════════════════════════════════════════════════════════════════════════════
 
 
-def get_skills_prompt_section(available_skills: set[str] | None = None) -> str:
-    if available_skills is None:
+def get_skills_prompt_section() -> str:
+    """从 SkillIndex 动态生成 skills section."""
+    try:
+        from app.reasoning.langchain_agent.skills.discovery import get_skills_index
+
+        index = get_skills_index()
+    except Exception:
+        # Discovery 模块未就绪时降级
         return ""
 
-    skills_list = sorted(available_skills)
-    if not skills_list:
+    if not index:
         return ""
 
-    items = "\n".join(f"- {s}" for s in skills_list)
+    items = "\n".join(f"- **{s.name}**: {s.description}" for s in index)
     return f"""\
 <skills>
-**可用 Skills**（如任务复杂，优先加载对应 Skill）：
+**可用 Skills**（如任务复杂，优先加载对应 Skill 获取详细指导）：
 {items}
+
+**使用方法**：调用 `skill_view(name)` 加载完整内容（含分析流程、工具组合、陷阱提示）
 </skills>
 """
 
@@ -96,12 +103,12 @@ SYSTEM_PROMPT_TEMPLATE = """\
 使用 `resolve` + `expand` 进行受控图谱导航，避免一次性加载过多关系导致上下文爆炸。
 
 **第一步：resolve — 锚定实体**
-- `resolve("实体名")` → 返回 {entity_id, name, type, score}
+- `resolve("实体名")` → 返回 {{entity_id, name, type, score}}
 - 支持简称/全称/模糊匹配
 - 可选 entity_type 过滤："Company"|"Product"|"Metric"
 
 **第二步：expand — 受控展开**
-- `expand(entity_id, select=[...], filter={...})` → 按需获取子图
+- `expand(entity_id, select=[...], filter={{...}})` → 按需获取子图
 
 select 字段说明：
 - `properties`: 实体属性（名称、类型、行业等）
@@ -123,7 +130,7 @@ filter 参数：
 
 **典型查询模式**：
 - 个股分析：resolve → expand(select=["properties","metrics"])
-- 产业链分析：resolve → expand(select=["upstream"], filter={direction:"upstream",depth:3})
+- 产业链分析：resolve → expand(select=["upstream"], filter={{direction:"upstream",depth:3}})
 - 竞争分析：resolve → expand(select=["peers","metrics"])
 - 预期差挖掘：resolve → expand(select=["divergence","metrics"])
 - 证据追溯：fetch_evidence(evidence_id) → L1 原文
@@ -172,51 +179,18 @@ L1 — 证据原子层（原始公告/研报/互动易）：
 <tool_strategy>
 **场景化工具组合**：
 
-场景 A — 个股深度分析（有具体标的）：
-  1. `resolve` → `expand(select=["properties","metrics"])` → 公司画像 + 量化指标
-  2. `get_stock_profile` → 主营业务补充
-  3. `get_kline` → 技术面趋势和估值分位
-  4. `get_research_report` + `get_announcement` + `get_irm` → 基本面信息
-   5. `find_events` + `tavily_search` → 实时新闻和政策动态（国内事件优先 find_events）
-  6. `present_chart` → 可视化（最后调用）
+复杂任务时，先用 `skills_list` 查看可用 skill，再用 `skill_view(name)` 加载对应 skill 的详细分析流程。
 
-场景 B — 行业/板块扫描（无具体标的）：
-  1. `get_concept_hot` + `get_market_breadth` → 板块热度和市场情绪
-   2. `find_events` + `tavily_search` → 行业动态和政策
-  3. `resolve` → `expand(select=["upstream","downstream"])` → 产业链传导
-  4. `get_research_report` → 行业研报
-
-场景 C — 事件驱动分析（新闻/公告触发）：
-   1. `find_events` → 财联社事件搜索（查国内 A 股相关新闻）
-   2. `get_event_detail` → 获取感兴趣事件的全文
-   3. `tavily_search` + `web_fetch` → 补充外部视角
-   4. `get_announcement` → 官方公告
-   5. `resolve` → `expand(select=["relations"])` → 影响传导链
-   6. `get_kline` → 价格反应验证
-
-场景 D — 产业链传导分析（传导链/预期差）：
-  1. `resolve` → `expand(select=["upstream","downstream"], filter={depth:3})` → 产业链上下游
-  2. `neo4j_path` → 任意两点间最短路径（resolve/expand 不支持时使用）
-  3. `expand(select=["peers"])` → 竞争对手分析
-  4. `expand(select=["divergence"])` → 预期差视图（Fact vs Estimate）
-  5. `get_research_report` → 研报验证传导逻辑
-  6. `tavily_search` → 实时资讯补充催化剂
-
-场景 E — 行业状态评估（竞争格局/景气度）：
-  1. `neo4j_industry_state` → 获取行业公司状态分布
-  2. `resolve` → `expand(select=["properties","peers"])` → 各公司属性和竞争格局
-  3. `get_concept_hot` + `get_market_breadth` → 市场情绪和技术指标
-
-场景 F — 预期差挖掘（信息差/认知差/时间差）：
-  1. `resolve` → `expand(select=["divergence"])` → Fact vs Estimate 分歧点
-  2. `expand(select=["upstream"])` → 追踪预期差传导来源
-  3. `expand(select=["peers"])` → 同行对比验证认知差
-  4. `fetch_evidence` → L1 证据追溯，确认 Fact 可信度
-  5. `get_research_report` → 券商一致预期参考
-  6. `tavily_search` → 催化剂和最新动态
+参考 skill 场景：
+- **个股分析** → skill_view("stock-deep-dive")
+- **行业扫描** → skill_view("industry-scan")
+- **事件驱动** → skill_view("event-driven")
+- **产业链分析** → skill_view("supply-chain")
+- **行业状态** → skill_view("industry-state")
+- **预期差挖掘** → skill_view("divergence-mining")
 
 **并发规则**：
-- 同一步骤中的多个工具可并发调用（如步骤 1 中的 profile + neo4j）
+- 同一步骤中的多个工具可并发调用
 - `present_chart` 和 `write_file` 必须串行（有副作用）
 - `ask_clarification` 必须单独调用（会暂停执行）
 
@@ -232,14 +206,14 @@ L1 — 证据原子层（原始公告/研报/互动易）：
 
 1. **实体锚定**：从用户消息中识别公司名、产品名，用 `resolve` 锚定到图谱实体
 2. **受控展开**：用 `expand(entity_id, select=[...])` 按需获取子图，避免一次性加载全部关系
-3. **产业链追踪**：expand(select=["upstream"/"downstream"], filter={depth:3}) 沿供应链方向遍历
+3. **产业链追踪**：expand(select=["upstream"/"downstream"], filter={{depth:3}}) 沿供应链方向遍历
 4. **竞争分析**：expand(select=["peers"]) 找共享产品的竞争公司
 5. **预期差挖掘**：expand(select=["divergence"]) 对比 Fact vs Estimate
 6. **置信度参考**：RELATES 边 weight 表示关系强度（0-1），stmt_type 表示可信度
 
 **图谱优先场景**：
 - 产业链分析：resolve → expand(upstream/downstream)
-- 供应商/客户关系：resolve → expand(relations, filter={relation_subtypes:["supplies_to"]})
+- 供应商/客户关系：resolve → expand(relations, filter={{relation_subtypes:["supplies_to"]}})
 - 行业竞争格局：resolve → expand(peers) → 逐个 expand(metrics)
 - 预期差挖掘：resolve → expand(divergence) → expand(upstream) 追踪传导
 
@@ -366,7 +340,6 @@ def _build_graph_context_section(graph_context: str) -> str:
 def apply_prompt_template(
     subagent_enabled: bool = False,
     max_concurrent_subagents: int = 3,
-    available_skills: set[str] | None = None,
     memory_content: str = "",
     kg_anchors: str = "",
     background_context: str = "",
@@ -378,7 +351,6 @@ def apply_prompt_template(
     Args:
         subagent_enabled: 是否启用 subagent 模式
         max_concurrent_subagents: 每个响应最大并发 subagent 数
-        available_skills: 限制只使用这些名字的 skills（None 表示全部）
         memory_content: 记忆上下文内容（来自 MongoDB）
         kg_anchors: KG Anchors 格式化文本（来自 format_kg_anchors()）
         background_context: Qdrant pre-search 检索的背景知识（注入 system prompt，不进入前端输出）
@@ -390,7 +362,7 @@ def apply_prompt_template(
     n = max_concurrent_subagents
     subagent_section = _build_subagent_section(n) if subagent_enabled else ""
 
-    skills_section = get_skills_prompt_section(available_skills)
+    skills_section = get_skills_prompt_section()
 
     background_section = _build_background_section(background_context)
 
