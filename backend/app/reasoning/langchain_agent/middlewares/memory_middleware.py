@@ -67,18 +67,3 @@ def build_post_run_memory_messages(question: str, answer: str) -> list[dict]:
             messages.append({"role": "assistant", "content": tagged[:1500]})
     return messages
 
-
-class HarnessMemoryUpdater:
-    """Adapter around the existing harness MemoryManager."""
-
-    def update(self, thread_id: str, agent_name: str | None, messages: list[dict]) -> None:
-        try:
-            from app.reasoning.harness.memory import MemoryManager
-
-            manager = MemoryManager()
-            manager.start()
-            manager.update(thread_id, agent_name, messages)
-            manager.flush()
-            manager.stop()
-        except Exception as exc:
-            logger.warning("[ResearchMemory] post-run update failed: %s", exc)

@@ -96,8 +96,6 @@ class Settings(BaseSettings):
     # Agent runtime hardening
     agent_journal_enabled: bool = True
     agent_journal_max_events: int = 500
-    agent_memory_queue_enabled: bool = True
-    agent_memory_debounce_seconds: float = 2.0
     tool_health_ttl_seconds: int = 60
     agent_sse_timeout: float = 1800.0  # SSE 流总超时（秒），默认 30 分钟
 

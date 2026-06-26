@@ -408,21 +408,4 @@ def apply_prompt_template(
     return prompt + f"\n<current_date>{datetime.now().strftime('%Y-%m-%d')}</current_date>\n"
 
 
-async def get_memory_context_async(thread_id: str, analyst_id: str = "default") -> str:
-    """从 MongoDB 加载对话记忆，格式化为 system prompt 注入文本。"""
-    try:
-        from app.config import settings
-        from app.reasoning.middlewares.memory import format_memory_for_injection, get_memory_data
 
-        if not getattr(settings, "memory_enabled", False):
-            return ""
-
-        memory_data = get_memory_data(thread_id, analyst_id=analyst_id)
-        content = format_memory_for_injection(memory_data)
-
-        if not content.strip():
-            return ""
-
-        return content
-    except Exception:
-        return ""

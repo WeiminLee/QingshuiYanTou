@@ -259,7 +259,7 @@ async def run_lead_agent(
                     logger.warning("[Memory] prefetch_all failed, running without memory context")
                     memory_context = ""
             else:
-                memory_context = await _load_memory_context(thread_id)
+                memory_context = ""
 
             # KG Anchors 注入
             if harness is not None and harness.config.kg_anchors_enabled:
@@ -603,25 +603,7 @@ async def run_lead_agent(
         result["run_id"] = journal.run_id
         result["journal"] = journal.to_dict()
 
-        try:
-            from app.config import settings
 
-            if getattr(settings, "agent_memory_queue_enabled", True):
-                from app.reasoning.langchain_agent.middlewares.memory_middleware import (
-                    HarnessMemoryUpdater,
-                    build_post_run_memory_messages,
-                )
-                from app.reasoning.langchain_agent.middlewares.memory_queue import MemoryQueueLite
-
-                messages = build_post_run_memory_messages(question, result.get("content", ""))
-                if messages:
-                    queue = MemoryQueueLite(
-                        HarnessMemoryUpdater(),
-                        debounce_seconds=getattr(settings, "agent_memory_debounce_seconds", 2.0),
-                    )
-                    queue.enqueue(thread_id, messages, agent_name="lead")
-        except Exception as exc:
-            logger.warning("[Agent] post-run memory enqueue failed: %s", exc)
 
         return result
 
@@ -877,17 +859,4 @@ async def _pre_search(query: str, top_k: int = 10) -> str:
     return ""
 
 
-# ── Memory Context Loader ───────────────────────────────────────────────
 
-
-async def _load_memory_context(thread_id: str, analyst_id: str = "default") -> str:
-    """从 MongoDB 加载对话记忆，注入 System Prompt"""
-    try:
-        from app.reasoning.langchain_agent.prompts.lead_system_prompt import (
-            get_memory_context_async,
-        )
-
-        return await get_memory_context_async(thread_id, analyst_id=analyst_id)
-    except Exception as e:
-        logger.warning(f"[MemoryCtx] Failed to load memory for {thread_id}: {e}")
-        return ""
