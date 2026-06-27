@@ -7,14 +7,115 @@
 from __future__ import annotations
 
 import os
+import re
 from datetime import UTC, date, datetime
-from typing import Any
+from typing import Any, Literal
 
 from app.knowledge.evidence import EvidenceInput, default_source_confidence
 from app.knowledge.ingestion.chunker import SmartChunker
 from app.knowledge.ingestion.pdf_parser import extract_text_from_pdf
 
 logger = __import__("logging").getLogger(__name__)
+
+# ── 公告章节过滤规则 ──────────────────────────────────────────────
+
+# 噪音章节标题关键词 → 跳过
+_SKIP_CHAPTER_KW = [
+    "会计师事务所",
+    "其他相关说明",
+    "特此公告",
+    "敬请",
+    "广大投资者",
+    "风险因素",
+    "防范投资风险",
+    "投资风险",
+    "独立董事",
+    "内部控制",
+    "累计投票",
+    "网络投票",
+    "信息披露",
+    "暂缓",
+    "豁免",
+    "募集资金",
+]
+
+# 实质性章节标题关键词 → 保留
+_KEEP_CHAPTER_KW = [
+    "业绩",
+    "变动原因",
+    "变动说明",
+    "本次交易",
+    "重组",
+    "收购",
+    "发行股份",
+    "交易对方",
+    "交易标的",
+    "交易概述",
+    "中标",
+    "合同",
+    "订单",
+    "协议",
+    "股权",
+    "标的资产",
+    "出资",
+    "增资",
+    "参股",
+    "备考财务",
+    "财务数据",
+    "财务指标",
+    "业务",
+    "产品",
+    "市场",
+    "盈利",
+    "营收",
+    "营业收入",
+    "营业成本",
+    "收入",
+    "研发",
+    "投资者关系",
+]
+
+# 正文实质性关键词（用于 heading 无匹配时的 body override）
+_RE_SUBSTANTIVE_KW = re.compile(
+    r"发行股份|购买资产|募集配套资金|股权|收购|重组|"
+    r"交易对方|标的资产|业绩|盈利|净利润|营业收入|"
+    r"资产总额|资产净额|业务|产品|市场|收入|研发"
+)
+
+# 始终保留的公告类型（这类公告内容精炼，不分章节噪音）
+_ALWAYS_KEEP_ANN_TYPES = {"investment", "ma_activity", "research_survey"}
+
+
+def _classify_announcement_chapter(
+    heading: str,
+    body: str,
+    ann_type: str = "",
+) -> Literal["keep", "skip"]:
+    """判断公告章节是否值得进入 KG 抽取。
+
+    优先级：
+    1. research_survey/investment/ma_activity → 始终保留
+    2. heading 匹配 SKIP_KEYWORD → skip（除非 body 含实质性关键词）
+    3. heading 匹配 KEEP_KEYWORD → keep
+    4. 默认 → 检查 body 是否含实质性关键词
+    """
+    if ann_type in _ALWAYS_KEEP_ANN_TYPES:
+        return "keep"
+
+    if heading:
+        for kw in _SKIP_CHAPTER_KW:
+            if kw in heading:
+                if _RE_SUBSTANTIVE_KW.search(body):
+                    return "keep"
+                return "skip"
+
+        for kw in _KEEP_CHAPTER_KW:
+            if kw in heading:
+                return "keep"
+
+    if _RE_SUBSTANTIVE_KW.search(body):
+        return "keep"
+    return "skip"
 
 
 def _utc_now() -> datetime:
@@ -116,6 +217,13 @@ def build_announcement_evidence(
 
     evidence_list: list[EvidenceInput] = []
     for i, ch in enumerate(chapters):
+        decision = _classify_announcement_chapter(
+            heading=ch.get("heading", ""),
+            body=ch.get("body", ""),
+            ann_type=ann_type,
+        )
+        if decision == "skip":
+            continue
         chunk_text = f"# {ch['heading']}\n\n{ch['body']}" if ch["heading"] else ch["body"]
         evidence_list.append(
             EvidenceInput(

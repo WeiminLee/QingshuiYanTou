@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 
+import pytest
+
 from app.knowledge.evidence import (
     JOB_COMBINED,
     JOB_VECTOR,
@@ -43,6 +45,7 @@ class FakeService:
         self.jobs = []
         self.done = []
         self.failed = []
+        self.skipped = []
 
     async def get_evidence(self, evidence_id: str):
         return self.evidence.get(evidence_id)
@@ -66,6 +69,13 @@ class FakeService:
         for job in self.jobs:
             if job["job_id"] == job_id:
                 await self.update_evidence_status(job["evidence_id"], job["job_type"], STATUS_FAILED)
+                break
+
+    async def mark_job_skipped(self, job_id: str, reason: str = "") -> None:
+        self.skipped.append((job_id, reason))
+        for job in self.jobs:
+            if job["job_id"] == job_id:
+                await self.update_evidence_status(job["evidence_id"], job["job_type"], "skipped")
                 break
 
     async def update_evidence_status(
@@ -138,6 +148,7 @@ def test_missing_evidence_marks_job_failed() -> None:
 def test_extractor_exception_marks_failed() -> None:
     async def main():
         service = FakeService()
+        service.evidence["EV:1"]["source_type"] = "announcement"
         service.jobs = [
             {
                 "job_id": "J1",
@@ -191,6 +202,7 @@ def test_two_jobs_processed() -> None:
     asyncio.run(main())
 
 
+@pytest.mark.integration
 def test_vector_job_success() -> None:
     async def main():
         service = FakeService()

@@ -10,6 +10,11 @@ from typing import Any
 
 from app.knowledge.evidence import JOB_COMBINED, JOB_VECTOR
 from app.knowledge.evidence_service import EvidenceService
+from app.knowledge.extraction.irm_classifier import classify_irm_evidence, extraction_tier
+from app.knowledge.extraction.signal_extractor import (
+    RuleBasedSignalExtractor,
+    persist_signals_to_company_props,
+)
 from app.knowledge.kg_extractor import extract_evidence_async
 from app.knowledge.structured_fact_service import extract_rule_based_facts, upsert_structured_fact
 from app.knowledge.vector_client import upsert_evidence_chunk_vector
@@ -98,6 +103,16 @@ class EvidenceExtractionWorker:
 
         try:
             if job_type == JOB_COMBINED:
+                if evidence.get("source_type") == "irm":
+                    category = classify_irm_evidence(evidence)
+                    tier = extraction_tier(category)
+                    if tier == 0:
+                        await self.service.mark_job_skipped(
+                            job_id, f"IRM classified as '{category}'; no KG extraction"
+                        )
+                        return {"status": "skipped", "reason": category}
+                    if tier == 1:
+                        return await self._process_rules_only(evidence, job_id, category)
                 result = await extract_evidence_async(evidence)
                 facts = extract_rule_based_facts(
                     evidence, result.get("entities_raw", []), result.get("relations_raw", [])
@@ -128,3 +143,57 @@ class EvidenceExtractionWorker:
         except Exception as exc:  # noqa: BLE001
             await self.service.mark_job_failed(job_id, str(exc))
             return {"status": "failed", "error": str(exc)}
+
+    async def _process_rules_only(
+        self, evidence: dict[str, Any], job_id: str, category: str
+    ) -> dict[str, Any]:
+        """Process IRM evidence with rules only, no LLM call.
+
+        Used for 'simple' and 'data' categories: run signal extraction
+        and keyword-based structured facts without LLM.
+        """
+        text = str(evidence.get("text_excerpt") or "")
+        subject_hint = evidence.get("subject_hint") or {}
+        ts_code = str(subject_hint.get("ts_code") or "UNKNOWN")
+        source_type = str(evidence.get("source_type") or "irm")
+        evidence_id = str(evidence.get("evidence_id") or "")
+
+        signal_types: list[str] = []
+        sentiment_score = 0.0
+        try:
+            extractor = RuleBasedSignalExtractor()
+            signal_result = extractor.extract_sync(
+                text[:10000], source_type, {"ts_code": ts_code}
+            )
+            signal_types = signal_result.get("detected_types", [])
+            sentiment_score = signal_result.get("sentiment_score", 0.0)
+            persist_signals_to_company_props(
+                signal_result,
+                ts_code=ts_code,
+                source_type=source_type,
+                source_document_id=evidence_id,
+            )
+        except Exception as exc:
+            logger.warning("IRM rules-only signal extraction failed [%s]: %s", evidence_id, exc)
+
+        facts = extract_rule_based_facts(evidence, [], [])
+        fact_ok = 0
+        fact_failed = 0
+        for fact in facts:
+            try:
+                upsert_structured_fact(fact)
+                fact_ok += 1
+            except Exception as exc:
+                fact_failed += 1
+                logger.warning("IRM rules-only StructuredFact write failed [%s]: %s", evidence_id, exc)
+
+        result = {
+            "structured_facts_created": fact_ok,
+            "structured_facts_failed": fact_failed,
+            "signal_types": signal_types,
+            "sentiment_score": sentiment_score,
+            "llm_skipped": True,
+            "irm_category": category,
+        }
+        await self.service.mark_job_done(job_id, result)
+        return {"status": "done", **result}

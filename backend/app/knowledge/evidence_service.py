@@ -19,6 +19,7 @@ from app.knowledge.evidence import (
     STATUS_FAILED,
     STATUS_PENDING,
     STATUS_RUNNING,
+    STATUS_SKIPPED,
     EvidenceInput,
     default_source_confidence,
     stable_evidence_id,
@@ -322,6 +323,46 @@ class EvidenceService:
                 status,
                 doc.get("extractor_version") or EXTRACTOR_VERSION,
             )
+
+    async def mark_job_skipped(self, job_id: str, reason: str = "") -> None:
+        now = _utc_now()
+        doc = await self._jobs.find_one({"job_id": job_id}, {"_id": 0})
+        await self._jobs.update_one(
+            {"job_id": job_id},
+            {
+                "$set": {
+                    "status": STATUS_SKIPPED,
+                    "error": reason[:500],
+                    "finished_at": now,
+                    "updated_at": now,
+                }
+            },
+        )
+        if doc:
+            await self.update_evidence_status(
+                doc["evidence_id"],
+                doc["job_type"],
+                STATUS_SKIPPED,
+                doc.get("extractor_version") or EXTRACTOR_VERSION,
+            )
+
+    async def bulk_update_irm_classification(
+        self, evidence_ids_to_class: dict[str, str]
+    ) -> int:
+        """批量更新 IRM Evidence 的 irm_classification 字段。"""
+        now = _utc_now()
+        operations = []
+        for evidence_id, category in evidence_ids_to_class.items():
+            operations.append(
+                UpdateOne(
+                    {"evidence_id": evidence_id},
+                    {"$set": {"irm_classification": category, "updated_at": now}},
+                )
+            )
+        if operations:
+            result = await self._evidence.bulk_write(operations, ordered=False)
+            return int(getattr(result, "modified_count", 0))
+        return 0
 
     async def update_evidence_status(
         self,
