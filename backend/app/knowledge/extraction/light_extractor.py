@@ -18,12 +18,15 @@ import logging
 from app.core.llm_client import chat
 from app.knowledge.extraction.chunker import num_tokens
 from app.knowledge.extraction.rag_prompts import (
-    EXTRACTION_PROMPT_V13,
-    RECORD_DELIMITER,
-    TUPLE_DELIMITER,
+    EXTRACTION_PROMPT,
 )
 
 logger = logging.getLogger(__name__)
+
+# 复用 rag_extractor 的 JSON 解析器
+from app.knowledge.extraction.rag_extractor import (
+    _parse_json_output,
+)
 
 
 class LightExtractor:
@@ -95,7 +98,7 @@ class LightExtractor:
 
         参考 RAGFlow pack_user_ass_to_openai_messages。
         """
-        prompt = EXTRACTION_PROMPT_V13.format(input_text=text)
+        prompt = EXTRACTION_PROMPT.format(input_text=text)
         return [
             {
                 "role": "user",
@@ -105,62 +108,45 @@ class LightExtractor:
 
     def _parse_output(self, raw_text: str) -> tuple[list[dict], list[dict]]:
         """
-        解析 LLM 输出。
-
-        输出格式：
-        实体列表：
-        (name)<|>(type)<|>(description)<|>(source)
-        关系列表：
-        (source)<|>(relation)<|>(target)<|>(weight)<|>(description)<|>(source)
+        解析 LLM 输出（JSON 格式，复用 rag_extractor 的 JSON 解析器）。
         """
+        if not raw_text or not raw_text.strip():
+            return [], []
+
+        if raw_text.strip().startswith("NO_EXTRACTABLE"):
+            reason = raw_text.strip().split(":", 1)[-1].strip() if ":" in raw_text else ""
+            logger.debug("LightExtractor: 文本不可抽取, reason=%s", reason)
+            return [], []
+
+        result = _parse_json_output(raw_text)
+        if result is None:
+            return [], []
+
+        entities_raw, relations_raw = result
+
+        # 转换为 LightExtractor 的 list 格式
         entities = []
+        for e in entities_raw:
+            entity_type = e.get("entity_type", "")
+            if entity_type not in ("Company", "Product", "Metric"):
+                continue
+            entities.append({
+                "name": e["entity_name"],
+                "type": entity_type,
+                "description": e.get("description", ""),
+                "source": e.get("source_id", ""),
+            })
+
         relations = []
-
-        lines = raw_text.strip().split("\n")
-        current_section = None
-
-        for line in lines:
-            line = line.strip()
-            if not line:
-                continue
-
-            # 检测 section 切换
-            if "实体" in line or "Entity" in line.title():
-                current_section = "entity"
-                continue
-            elif "关系" in line or "Relation" in line.title():
-                current_section = "relation"
-                continue
-
-            # 跳过分隔符
-            if RECORD_DELIMITER in line:
-                continue
-
-            # 解析记录
-            if current_section == "entity":
-                parts = line.split(TUPLE_DELIMITER)
-                if len(parts) >= 2:
-                    entities.append(
-                        {
-                            "name": parts[0].strip(),
-                            "type": parts[1].strip(),
-                            "description": parts[2].strip() if len(parts) > 2 else "",
-                            "source": parts[3].strip() if len(parts) > 3 else "",
-                        }
-                    )
-            elif current_section == "relation":
-                parts = line.split(TUPLE_DELIMITER)
-                if len(parts) >= 3:
-                    relations.append(
-                        {
-                            "source": parts[0].strip(),
-                            "relation": parts[1].strip(),
-                            "target": parts[2].strip(),
-                            "weight": float(parts[3].strip()) if len(parts) > 3 and parts[3].strip() else 1.0,
-                            "description": parts[4].strip() if len(parts) > 4 else "",
-                            "source_ref": parts[5].strip() if len(parts) > 5 else "",
-                        }
-                    )
+        for r in relations_raw:
+            relations.append({
+                "source": r["src_id"],
+                "relation": r.get("description", ""),
+                "target": r["tgt_id"],
+                "weight": r.get("weight", 1.0),
+                "description": r.get("description", ""),
+                "source_ref": r.get("source_ids", [""])[0] if r.get("source_ids") else "",
+            })
 
         return entities, relations
 

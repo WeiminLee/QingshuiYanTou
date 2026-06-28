@@ -25,16 +25,15 @@ import logging
 import re
 from collections import Counter, defaultdict
 from collections.abc import Callable
+from typing import Literal, Optional
+
+from pydantic import BaseModel, Field
 
 from app.core.llm_client import chat
 from app.knowledge.extraction.chunker import Chunk, chunk_by_token
 from app.knowledge.extraction.rag_prompts import (
-    COMPLETION_DELIMITER,
-    CONTINUE_PROMPT,
     ENTITY_TYPES,
-    GRAPH_FIELD_SEP,
-    SUMMARIZE_PROMPT,
-    TUPLE_DELIMITER,
+    GENERIC_NAME_RETRY_PROMPT,
     get_extraction_prompt,
 )
 
@@ -42,6 +41,53 @@ logger = logging.getLogger(__name__)
 
 # 合法的 entity_type 白名单（模块级常量）
 VALID_ENTITY_TYPES = frozenset(ENTITY_TYPES)
+
+# 分隔符常量
+GRAPH_FIELD_SEP = "<SEP>"
+
+# ── Pydantic 校验模型 ──────────────────────────────────────────────────────
+
+EntityType = Literal["Company", "Product", "Metric"]
+
+
+class Entity(BaseModel):
+    name: str = Field(min_length=1)
+    type: EntityType
+
+
+class Relation(BaseModel):
+    entity1: str = Field(min_length=1)
+    entity2: str = Field(min_length=1)
+    description: str = ""
+    confidence: float = 1.0
+    stmt_type: Optional[Literal["Fact", "Claim", "Estimate"]] = None
+    source: str = ""
+    metric_value: Optional[float] = None
+    metric_unit: Optional[str] = None
+    metric_period: Optional[str] = None
+    metric_period_type: Optional[Literal["actual", "forecast", "quarterly", "half-year"]] = None
+    metric_sentiment: Optional[Literal["positive", "negative", "neutral"]] = None
+
+
+class ExtractionOutput(BaseModel):
+    entities: list[Entity] = []
+    relations: list[Relation] = []
+
+
+# ── 泛称正则 ──────────────────────────────────────────────────────────────
+
+GENERIC_NAME_PATTERNS = re.compile(
+    r'^(公司|本行|本公司|本集团|本企业|该企业|该(公|集)司|我们|我司|我公司)$'
+)
+
+
+def _detect_generic_names(entities: list[dict]) -> bool:
+    """检测 entities 中是否包含泛称。"""
+    for e in entities:
+        name = e.get("entity_name", "")
+        if name and GENERIC_NAME_PATTERNS.match(name):
+            return True
+    return False
 
 
 def _merge_descriptions_raw(descriptions: list[str]) -> str:
@@ -52,7 +98,6 @@ def _merge_descriptions_raw(descriptions: list[str]) -> str:
     """
     if not descriptions:
         return ""
-    # 去重，保持顺序
     seen = set()
     unique = []
     for d in descriptions:
@@ -62,87 +107,7 @@ def _merge_descriptions_raw(descriptions: list[str]) -> str:
     return GRAPH_FIELD_SEP.join(unique)
 
 
-def _summarize_descriptions(
-    entity_or_relation: str,
-    descriptions: list[str],
-    max_items: int = 12,
-) -> str:
-    """
-    合并同名实体的多条描述。
-
-    B2 fix: 当描述数量超过 max_items 时，调用 LLM summarization 压缩描述，
-    防止高频实体累积无界描述导致向量搜索性能下降。
-
-    在 async 上下文中直接调用 module-level 的 async _summarize_descriptions；
-    在 sync 上下文中使用 asyncio.run() 调用。
-    """
-    # 检查是否需要 summarization
-    if len(descriptions) <= max_items:
-        return _merge_descriptions_raw(descriptions)
-
-    # 需要 summarization，调用 async 版本
-    # 注意：在 async context 中应直接调用 module-level async _summarize_descriptions
-    # 这里处理 sync context 的情况
-    try:
-        asyncio.get_running_loop()
-        # 在 async context 中，fallback 到 raw merge（避免嵌套 event loop）
-        # 调用方应在 async context 中使用 async _summarize_descriptions
-        return _merge_descriptions_raw(descriptions)
-    except RuntimeError:
-        # 无 running loop，可以安全使用 asyncio.run()
-        pass
-
-    # Sync context: 使用 asyncio.run() 调用 async summarization
-    return asyncio.run(_async_summarize_descriptions(entity_or_relation, descriptions, max_items))
-
-
-async def _async_summarize_descriptions(
-    entity_or_relation: str,
-    descriptions: list[str],
-    max_items: int = 12,
-) -> str:
-    """
-    异步版本的描述合并。
-
-    当描述数量超过 max_items 时，用 LLM 将多条描述压缩为一条。
-    如果 LLM 不可用，降级为保留前 max_items 条描述。
-    """
-    if len(descriptions) <= max_items:
-        return _merge_descriptions_raw(descriptions)
-
-    # 去重后取前 max_items 条
-    unique = list(dict.fromkeys(d for d in descriptions if d))[:max_items]
-
-    try:
-        prompt = SUMMARIZE_PROMPT.format(
-            entity_name=entity_or_relation,
-            description_list="\n".join(f"{i + 1}. {d}" for i, d in enumerate(unique)),
-        )
-        summary = await _call_llm_async(prompt)
-        return summary.strip()
-    except Exception as e:
-        # LLM 不可用，降级为保留前 max_items 条描述
-        logger.warning("LLM summarization failed, falling back to max_items limit: %s", e)
-        return GRAPH_FIELD_SEP.join(unique)
-
-
 # ── 输出解析 ────────────────────────────────────────────────────────────────
-
-
-def _parse_tuple_record(record: str) -> list[str]:
-    """用 TUPLE_DELIMITER 切分一条 tuple 记录"""
-    parts = record.split(TUPLE_DELIMITER)
-    return [p.strip().strip('"').strip("'") for p in parts]
-
-
-def _normalize_llm_output_line(line: str) -> str:
-    """Normalize common Markdown wrappers around structured extraction lines."""
-    line = line.strip()
-    line = re.sub(r"^\s*[-*+]\s+", "", line)
-    line = line.strip().strip("`").strip()
-    while len(line) >= 2 and line.startswith("**") and line.endswith("**"):
-        line = line[2:-2].strip()
-    return line.strip().strip("*").strip()
 
 
 def _is_noise_entity_name(name: str) -> bool:
@@ -160,389 +125,125 @@ def _is_noise_entity_name(name: str) -> bool:
     return False
 
 
+def _parse_json_output(raw_text: str) -> tuple[list[dict], list[dict]] | None:
+    """解析 LLM 返回的 JSON 字符串，返回 (entities, relations) 或 None。"""
+    text = raw_text.strip()
+    # 尝试从 markdown 代码块中提取
+    if '```json' in text:
+        text = text.split('```json', 1)[1].split('```', 1)[0].strip()
+    elif '```' in text:
+        text = text.split('```', 1)[1].split('```', 1)[0].strip()
+    elif '{' not in text:
+        logger.warning("No JSON found in LLM output: %s", raw_text[:200])
+        return None
+
+    try:
+        parsed = ExtractionOutput.model_validate_json(text)
+    except Exception as e:
+        logger.warning("JSON validation failed: %s, raw text: %s", e, text[:200])
+        return None
+
+    # 去重 entities（同名只保留第一个）
+    seen = set()
+    deduped_entities = []
+    for e in parsed.entities:
+        if e.name not in seen:
+            seen.add(e.name)
+            deduped_entities.append({"entity_name": e.name, "entity_type": e.type})
+    entities_out = deduped_entities
+
+    # 过滤孤立关系：entity1/entity2 必须在 entities 中
+    entity_names = set(e["entity_name"] for e in entities_out)
+    valid_relations = [r for r in parsed.relations if r.entity1 in entity_names and r.entity2 in entity_names]
+
+    # 映射为下游字段 + 填充 metric 信息到对应 entity
+    relations_out = []
+    for r in valid_relations:
+        rel = {
+            "src_id": r.entity1,
+            "tgt_id": r.entity2,
+            "description": r.description,
+            "weight": r.confidence,
+            "stmt_type": r.stmt_type or "Fact",
+            "source_ids": [r.source] if r.source else [],
+            "keywords": "",
+            "direction": "neutral",
+            "instance_count": 1,
+            "descriptions": [r.description] if r.description else [],
+            "has_direction_conflict": False,
+        }
+        # 把 metric 信息拼到对应 entity 的 metric 字段
+        if r.entity2 in entity_names and r.metric_value is not None:
+            for e in entities_out:
+                if e["entity_name"] == r.entity2 and e["entity_type"] == "Metric":
+                    e.setdefault("metric", {
+                        "name": r.entity2,
+                        "value": r.metric_value,
+                        "unit": r.metric_unit,
+                        "period": r.metric_period,
+                        "period_type": r.metric_period_type,
+                        "sentiment": r.metric_sentiment,
+                    })
+                    break
+        relations_out.append(rel)
+
+    # 补全 Entity 必需字段
+    for e in entities_out:
+        e.setdefault("description", "")
+        e.setdefault("source_ids", [])
+        e.setdefault("instance_count", 1)
+
+    return entities_out, relations_out
+
+
+# ── 旧解析器（已废弃，保留空桩兼容导入）─────────────────────────────────────
+
+
+def _parse_tuple_record(record: str) -> list[str]:
+    """已废弃。保留空桩以避免 ImportError。"""
+    logger.warning("_parse_tuple_record is deprecated")
+    return []
+
+
+def _normalize_llm_output_line(line: str) -> str:
+    """已废弃。保留空桩以避免 ImportError。"""
+    return line.strip()
+
+
 def _parse_entity_relation_blocks(raw_text: str) -> tuple[dict, dict]:
-    """
-    解析单个 chunk 的 LLM 输出。
-
-    支持三种格式（优先格式1）：
-    格式1（V2 新格式，关系 = text + weight）：
-      Entity: 实体名称(类型)
-        属性: key=value, key=value, ...
-      Relation: 实体A → 实体B
-        关系陈述: "..."
-        weight: 1.0 或 0.x
-    格式2（V1 旧格式，向后兼容）：
-      Entity: 公司名称(Company)
-      Relation: 公司→产品: 描述 | 方向 | 强度
-    格式3（tuple 格式，备用）：
-      Entity(name, type, description)
-
-    Returns:
-        nodes: dict[name -> list[dict]]
-        edges: dict[(src, tgt) -> list[dict]]
-    """
-    nodes: dict = defaultdict(list)
-    edges: dict = defaultdict(list)
-
-    # ── V2 新格式解析 ────────────────────────────────────────────────
-    # 匹配: "Entity: 名称(类型)" 或带属性行
-    v2_entity_pattern = re.compile(r"^Entity\s*:\s*(.+?)\s*\(\s*([^\)]+)\s*\)\s*$")
-    v2_attr_pattern = re.compile(r"^\s*属性\s*[:：]\s*(.+)")
-    # 匹配 V2 关系块
-    v2_rel_src_pattern = re.compile(r"^Relation\s*:\s*(.+?)\s*→\s*(.+?)\s*$")
-    v2_rel_text_pattern = re.compile(r"^\s*关系陈述\s*[:：]\s*['\"]?(.+?)['\"]?\s*$")
-    v2_rel_weight_pattern = re.compile(r"^\s*weight\s*[:：]\s*(\d+(?:\.\d+)?)\s*$")
-    # 匹配 V1 旧格式（向后兼容）
-    v1_rel_pattern = re.compile(
-        r"^Relation\s*:\s*(.+?)\s*→\s*(.+?)\s*:\s*(.+?)\s*\|\s*([\w]+)\s*(?:\|(\d+(?:\.\d+)?))?\s*$"
-    )
-    # 合法的 entity_type（白名单）
-    valid_entity_types = VALID_ENTITY_TYPES
-
-    current_entity: tuple = None  # (name, e_type)
-    current_section_type: str | None = None
-    current_rel: dict = None  # {src, tgt, description, weight}
-
-    for line in raw_text.split("\n"):
-        line_stripped = _normalize_llm_output_line(line)
-        if not line_stripped or line_stripped == COMPLETION_DELIMITER:
-            continue
-
-        tuple_parts = _parse_tuple_record(line_stripped)
-        if len(tuple_parts) >= 4:
-            name, maybe_type, desc = tuple_parts[0], tuple_parts[1], tuple_parts[2]
-            if maybe_type in valid_entity_types and not _is_noise_entity_name(name):
-                nodes[name].append(
-                    {
-                        "entity_name": name,
-                        "entity_type": maybe_type,
-                        "description": desc,
-                    }
-                )
-                continue
-        if len(tuple_parts) >= 5:
-            src, relation, tgt = tuple_parts[0], tuple_parts[1], tuple_parts[2]
-            if src and tgt and relation and not _is_noise_entity_name(src) and not _is_noise_entity_name(tgt):
-                try:
-                    weight = float(tuple_parts[3])
-                except (ValueError, TypeError):
-                    weight = 1.0
-                desc = tuple_parts[4] if len(tuple_parts) > 4 else relation
-                edges[(src, tgt)].append(
-                    {
-                        "src_id": src,
-                        "tgt_id": tgt,
-                        "description": desc or relation,
-                        "keywords": relation,
-                        "direction": "neutral",
-                        "weight": weight,
-                    }
-                )
-                continue
-
-        section = line_stripped.rstrip(":：").strip()
-        if section in valid_entity_types:
-            current_section_type = section
-            current_entity = None
-            current_rel = None
-            continue
-
-        if current_section_type and not line_stripped.endswith(":") and not line_stripped.endswith("："):
-            structured_prefixes = (
-                "RELATES:",
-                "METRIC:",
-                "Relation:",
-                "Entity:",
-                "关系描述:",
-                "关系描述：",
-                "关系陈述:",
-                "关系陈述：",
-                "置信度:",
-                "置信度：",
-                "来源:",
-                "来源：",
-                "name:",
-                "value:",
-                "unit:",
-                "period:",
-                "period_type:",
-                "sentiment:",
-            )
-            if line_stripped.startswith(structured_prefixes):
-                current_section_type = None
-            else:
-                bullet_name = re.sub(r"[（(].*?[）)]$", "", line_stripped).strip()
-                if (
-                    bullet_name
-                    and current_section_type != "Metric"
-                    and len(bullet_name) <= 50
-                    and not _is_noise_entity_name(bullet_name)
-                ):
-                    nodes[bullet_name].append(
-                        {
-                            "entity_name": bullet_name,
-                            "entity_type": current_section_type,
-                            "description": "",
-                        }
-                    )
-                    continue
-
-        # V2 Entity 行
-        em = v2_entity_pattern.match(line_stripped)
-        if em:
-            name, e_type = em.group(1).strip(), em.group(2).strip()
-            if name and e_type and e_type in valid_entity_types and not _is_noise_entity_name(name):
-                current_entity = (name, e_type)
-                nodes[name].append(
-                    {
-                        "entity_name": name,
-                        "entity_type": e_type,
-                        "description": "",
-                    }
-                )
-            else:
-                current_entity = None
-            continue
-
-        # V2 属性行（附加到当前 entity）
-        if current_entity is not None:
-            am = v2_attr_pattern.match(line_stripped)
-            if am:
-                attr_text = am.group(1).strip()
-                name, e_type = current_entity
-                if nodes[name] and nodes[name][-1]["description"] == "":
-                    nodes[name][-1]["description"] = attr_text
-                continue
-
-        # V2 Relation 起始行
-        rm_src = v2_rel_src_pattern.match(line_stripped)
-        if rm_src:
-            current_section_type = None
-            src, tgt = rm_src.group(1).strip(), rm_src.group(2).strip()
-            if _is_noise_entity_name(src) or _is_noise_entity_name(tgt):
-                current_rel = None
-                continue
-            current_rel = {"src_id": src, "tgt_id": tgt, "description": "", "weight": 1.0}
-            continue
-
-        # V2 关系陈述行
-        if current_rel is not None:
-            rm_text = v2_rel_text_pattern.match(line_stripped)
-            if rm_text:
-                current_rel["description"] = rm_text.group(1).strip()
-                continue
-            rm_weight = v2_rel_weight_pattern.match(line_stripped)
-            if rm_weight:
-                try:
-                    current_rel["weight"] = float(rm_weight.group(1))
-                except ValueError:
-                    pass
-                # 关系结束，写入 edges
-                # B4 fix: 不排序，保留 (src, tgt) 原始顺序以维护关系方向
-                if current_rel.get("src_id") and current_rel.get("tgt_id"):
-                    key = (current_rel["src_id"], current_rel["tgt_id"])
-                    edges[key].append(
-                        {
-                            "src_id": current_rel["src_id"],
-                            "tgt_id": current_rel["tgt_id"],
-                            "description": current_rel.get("description", ""),
-                            "keywords": "",
-                            "direction": "neutral",
-                            "weight": current_rel.get("weight", 1.0),
-                        }
-                    )
-                current_rel = None
-                continue
-
-        # V1 旧格式 Relation 行（向后兼容）
-        v1m = v1_rel_pattern.match(line_stripped)
-        if v1m:
-            src, tgt = v1m.group(1).strip(), v1m.group(2).strip()
-            desc, direction = v1m.group(3).strip(), v1m.group(4).strip().lower()
-            if _is_noise_entity_name(src) or _is_noise_entity_name(tgt):
-                continue
-            weight_str = v1m.group(5)
-            try:
-                weight = float(weight_str) if weight_str else 5.0
-            except (ValueError, TypeError):
-                weight = 5.0
-            if src and tgt:
-                # B4 fix: 不排序，保留 (src, tgt) 原始顺序以维护关系方向
-                key = (src, tgt)
-                edges[key].append(
-                    {
-                        "src_id": src,
-                        "tgt_id": tgt,
-                        "description": desc,
-                        "keywords": "",
-                        "direction": direction,
-                        "weight": weight,
-                    }
-                )
-            continue
-
-        # V1 Entity 行（向后兼容）
-        v1_entity_pattern = re.compile(r"^Entity\s*:\s*(.+?)\s*\(\s*([^\)]+)\s*\)(?:\s*/\s*(.+))?$")
-        v1em = v1_entity_pattern.match(line_stripped)
-        if v1em:
-            name, e_type = v1em.group(1).strip(), v1em.group(2).strip()
-            desc = (v1em.group(3) or "").strip()
-            if name and e_type and e_type in valid_entity_types and not _is_noise_entity_name(name):
-                nodes[name].append(
-                    {
-                        "entity_name": name,
-                        "entity_type": e_type,
-                        "description": desc,
-                    }
-                )
-
-    return dict(nodes), dict(edges)
+    """已废弃。保留空桩以避免 ImportError。"""
+    logger.warning("_parse_entity_relation_blocks is deprecated, use _parse_json_output instead")
+    return {}, {}
 
 
 def _parse_relates(raw_text: str) -> list[dict]:
-    """Parse RELATES blocks."""
-    relates: list[dict] = []
-    current: dict | None = None
-    rel_pattern = re.compile(r"^RELATES\s*:\s*(.+?)\s*→\s*(.+?)\s*$")
-    rel_inline_weight_pattern = re.compile(r"^RELATES\s*:\s*(.+?)\s*→\s*(.+?)\s*\(?\s*([\d.]+)\s*\)?\s*$")
-    text_pattern = re.compile(r"^\s*关系描述\s*[:：]\s*['\"]?(.+?)['\"]?\s*$")
-    weight_pattern = re.compile(r"^\s*置信度\s*[:：]\s*(\d+(?:\.\d+)?)\s*$")
-    stmt_type_pattern = re.compile(r"^\s*陈述类型\s*[:：]\s*(Fact|Claim|Estimate)\s*$", re.IGNORECASE)
-    source_pattern = re.compile(r"^\s*来源\s*[:：]\s*['\"]?(.+?)['\"]?\s*$")
-
-    def flush() -> None:
-        nonlocal current
-        if (
-            current
-            and current.get("from_entity")
-            and current.get("to_entity")
-            and not _is_noise_entity_name(current.get("from_entity", ""))
-            and not _is_noise_entity_name(current.get("to_entity", ""))
-        ):
-            relates.append(current)
-        current = None
-
-    for raw_line in raw_text.splitlines():
-        line = _normalize_llm_output_line(raw_line)
-        if not line:
-            continue
-        match = rel_pattern.match(line)
-        if match:
-            flush()
-            current = {
-                "from_entity": match.group(1).strip(),
-                "to_entity": match.group(2).strip(),
-                "text": "",
-                "weight": 1.0,
-                "stmt_type": "Fact",
-                "source": "",
-            }
-            continue
-        # 内联权重格式: RELATES: A → B (0.7)
-        inline_match = rel_inline_weight_pattern.match(line)
-        if inline_match:
-            flush()
-            try:
-                weight_val = float(inline_match.group(3))
-                weight_val = max(0.0, min(1.0, weight_val))
-            except ValueError:
-                weight_val = 1.0
-            current = {
-                "from_entity": inline_match.group(1).strip(),
-                "to_entity": inline_match.group(2).strip(),
-                "text": "",
-                "weight": weight_val,
-                "stmt_type": "Fact",
-                "source": "",
-            }
-            continue
-        if current is None:
-            continue
-        text_match = text_pattern.match(line)
-        if text_match:
-            current["text"] = text_match.group(1).strip()[:100]
-            continue
-        weight_match = weight_pattern.match(line)
-        if weight_match:
-            try:
-                current["weight"] = float(weight_match.group(1))
-            except ValueError:
-                current["weight"] = 1.0
-            continue
-        source_match = source_pattern.match(line)
-        if source_match:
-            current["source"] = source_match.group(1).strip()
-            continue
-        stmt_match = stmt_type_pattern.match(line)
-        if stmt_match:
-            current["stmt_type"] = stmt_match.group(1).capitalize()
-    flush()
-    return relates
+    """已废弃。保留空桩以避免 ImportError。"""
+    logger.warning("_parse_relates is deprecated, use _parse_json_output instead")
+    return []
 
 
 def _parse_metrics(raw_text: str) -> list[dict]:
-    """Parse METRIC blocks."""
-    metrics: list[dict] = []
-    current: dict | None = None
-    metric_pattern = re.compile(r"^METRIC\s*:\s*(.+?)\s*$")
-    field_pattern = re.compile(r"^\s*(name|value|unit|period|period_type|sentiment)\s*[:：]\s*(.+?)\s*$")
-
-    def flush() -> None:
-        nonlocal current
-        if current and current.get("name") and current.get("period"):
-            metrics.append(current)
-        current = None
-
-    for raw_line in raw_text.splitlines():
-        line = _normalize_llm_output_line(raw_line)
-        if not line:
-            continue
-        match = metric_pattern.match(line)
-        if match:
-            flush()
-            current = {"name": match.group(1).strip()}
-            continue
-        if current is None:
-            continue
-        field_match = field_pattern.match(line)
-        if field_match:
-            key, value = field_match.group(1), field_match.group(2).strip().strip('"')
-            current[key] = None if value.lower() in ("null", "none", "") else value
-    flush()
-    return metrics
+    """已废弃。保留空桩以避免 ImportError。"""
+    logger.warning("_parse_metrics is deprecated, use _parse_json_output instead")
+    return []
 
 
 def _parse_chunk_output(raw_text: str) -> tuple[dict, dict]:
-    """Parse chunk output with RELATES and METRIC blocks."""
-    nodes, edges = _parse_entity_relation_blocks(raw_text)
-
-    for rel in _parse_relates(raw_text):
-        key = (rel["from_entity"], rel["to_entity"])
-        edges.setdefault(key, []).append(
-            {
-                "src_id": rel["from_entity"],
-                "tgt_id": rel["to_entity"],
-                "description": rel.get("text", ""),
-                "keywords": "",
-                "direction": "neutral",
-                "weight": rel.get("weight", 1.0),
-                "source": rel.get("source", ""),
-                "stmt_type": rel.get("stmt_type", "Fact"),
-            }
-        )
-
-    for metric in _parse_metrics(raw_text):
-        name = metric["name"]
-        nodes.setdefault(name, []).append(
-            {
-                "entity_name": name,
-                "entity_type": "Metric",
-                "description": "",
-                "metric": metric,
-            }
-        )
-
-    return nodes, edges
+    """已废弃，保留兼容。直接调用 _parse_json_output。"""
+    logger.warning("_parse_chunk_output is deprecated, use _parse_json_output instead")
+    result = _parse_json_output(raw_text)
+    if result is None:
+        return {}, {}
+    entities, relations = result
+    # 转为旧的 (nodes dict, edges dict) 格式（兼容旧调用方）
+    nodes: dict = defaultdict(list)
+    edges: dict = defaultdict(list)
+    for e in entities:
+        nodes[e["entity_name"]].append(e)
+    for r in relations:
+        key = (r["src_id"], r["tgt_id"])
+        edges[key].append(r)
+    return dict(nodes), dict(edges)
 
 
 # ── LLM 调用（同步包装）───────────────────────────────────────────────────────
@@ -620,29 +321,24 @@ def _prefilter_chunk(content: str) -> str:
 async def _extract_single_chunk(
     chunk: Chunk,
     examples: list[str],
-    max_gleanings: int = 2,
+    max_gleanings: int = 0,
     semaphore: asyncio.Semaphore | None = None,
     source_file: str | None = None,
     source_type: str = "uploaded_doc",
 ) -> tuple[dict, dict]:
     """
-    对单个 chunk 执行抽取 + gleaning 循环。
+    对单个 chunk 执行抽取（单次 JSON 调用 + 泛称重跑）。
 
-    改进：
-    - 预过滤：表格行/声明/URL/噪声在调用 LLM 前清洗
-    - 只发送 CONTINUE_PROMPT，不重发完整历史（节省 token + 减少 LLM 疲劳）
-    - 固定最多 gleaning 轮次（不依赖 LOOP_PROMPT 二次调用）
-    - JSON 终止判断（解析失败则提前停止）
-    - source_id = source_file，用于 descriptions.source 标记
-    - section_title 注入到 EXTRACTION_PROMPT（chunk.heading 作为章节上下文）
+    - 单次 LLM 调用（无 gleaning）
+    - JSON 输出 → Pydantic 校验
+    - 泛称检测 → 触发二次调用
     """
     section_title = getattr(chunk, "heading", "") or ""
-    # 预过滤：去除表格行、声明、URL 等噪声
     filtered_content = _prefilter_chunk(chunk.content)
     if not filtered_content.strip():
-        # 无有效内容，跳过 LLM 调用
         return {}, {}
-    initial_prompt = get_extraction_prompt(source_type, section_title).format(
+
+    prompt = get_extraction_prompt(source_type, section_title).format(
         input_text=filtered_content,
     )
 
@@ -652,41 +348,46 @@ async def _extract_single_chunk(
                 return await _call_llm_async(prompt)
         return await _call_llm_async(prompt)
 
-    # 初始抽取
-    raw = await _call(initial_prompt)
-    nodes, edges = _parse_chunk_output(raw)
+    # 首轮调用
+    raw = await _call(prompt)
+    result = _parse_json_output(raw)
 
-    # gleaning 循环：只追加 CONTINUE_PROMPT，不发历史
-    for _ in range(max_gleanings):
-        # 解析失败的空响应 → 提前终止
-        if not raw.strip():
-            break
+    # 首轮失败 → 重试一次
+    if result is None:
+        raw = await _call(prompt)
+        result = _parse_json_output(raw)
 
-        continuation = await _call(CONTINUE_PROMPT)
-        if not continuation.strip():
-            break
+    if result is None:
+        return {}, {}
 
-        more_nodes, more_edges = _parse_chunk_output(continuation)
-        if not more_nodes and not more_edges:
-            break  # 没有新内容，提前终止
+    entities, relations = result
 
-        for k, v in more_nodes.items():
-            nodes.setdefault(k, []).extend(v)
-        for k, v in more_edges.items():
-            edges.setdefault(k, []).extend(v)
-        raw = continuation
+    # 泛称检测 → 全量重跑
+    if _detect_generic_names(entities):
+        logger.info("Detected generic names, retrying with augmented prompt")
+        retry_prompt = GENERIC_NAME_RETRY_PROMPT.format(input_text=filtered_content)
+        raw = await _call(retry_prompt)
+        result = _parse_json_output(raw)
+        if result is not None:
+            entities, relations = result
 
-    # 注入 source_id，用于 descriptions.source 标记
-    # source_file = "filename@YYYY-MM-DD"；无则降级为 chunk:id 格式
+    # 注入 source_id
     chunk_key = source_file if source_file else f"chunk:{chunk.chunk_id}"
-    for name in nodes:
-        for item in nodes[name]:
-            item["source_id"] = chunk_key
-    for key in edges:
-        for item in edges[key]:
-            item["source_id"] = chunk_key
+    for e in entities:
+        e["source_id"] = chunk_key
+    for r in relations:
+        r["source_id"] = chunk_key
 
-    return nodes, edges
+    # 转为 (nodes dict, edges dict) 格式
+    nodes: dict = defaultdict(list)
+    edges: dict = defaultdict(list)
+    for e in entities:
+        nodes[e["entity_name"]].append(e)
+    for r in relations:
+        key = (r["src_id"], r["tgt_id"])
+        edges[key].append(r)
+
+    return dict(nodes), dict(edges)
 
 
 # ── 核心抽取器 ────────────────────────────────────────────────────────────────
