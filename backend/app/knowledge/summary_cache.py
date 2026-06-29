@@ -91,6 +91,8 @@ async def put_summary(
     await r.set(key, json.dumps(payload, ensure_ascii=False), ex=7 * 86400)
 
     # 写 PostgreSQL（upsert）
+    # PG 中存储的 summary_key 不含 "summary:" 前缀（与 Redis key 区分）
+    pg_key = key.removeprefix("summary:")
     from sqlalchemy import text
 
     async with async_session() as session:
@@ -108,7 +110,7 @@ async def put_summary(
                     updated_at = :now
             """),
             {
-                "key": key,
+                "key": pg_key,
                 "level": level,
                 "entity_id": entity_id,
                 "gen_at": now,
@@ -142,7 +144,7 @@ async def _find_related_products(entity_id: str) -> list[str]:
             rows = await result.data()
             return [r["product_id"] for r in rows if r.get("product_id")]
     except Exception as e:
-        logger.warning("查询关联 Product 失败 [%s]: %s", entity_id, e)
+        logger.warning("查询关联 Product 失败 [%s]: %s", entity_id, e, exc_info=True)
         return []
 
 
@@ -191,20 +193,49 @@ async def invalidate_entity(entity_id: str) -> None:
         product_ids = await _find_related_products(entity_id)
         for pid in product_ids:
             stale_keys.append(f"L2:{pid}")
-            stale_keys.append(f"L3:{pid}:3")
-            stale_keys.append(f"L3:{pid}:2")
+            # 使用 LIKE 匹配该 Product 的所有 L3 depth 变体
+            stale_keys.append(f"L3:{pid}:%")
     else:
         # Product → L2 直接失效
         stale_keys.append(f"L2:{entity_id}")
-        # L3 — 该 Product 的所有 depth 变体
-        stale_keys.append(f"L3:{entity_id}:3")
-        stale_keys.append(f"L3:{entity_id}:2")
+        # 使用 LIKE 匹配该 Product 的所有 L3 depth 变体
+        stale_keys.append(f"L3:{entity_id}:%")
 
-    # 3. PG 标记 stale
-    await _mark_stale_in_pg(stale_keys)
+    # 3. PG 标记 stale（L3 含 % 通配符，用 LIKE 而非精确匹配）
+    #    分离精确 key 和 pattern key，分别处理
+    exact_keys = [k for k in stale_keys if not k.endswith("%")]
+    pattern_keys = [k for k in stale_keys if k.endswith("%")]
+
+    if exact_keys:
+        await _mark_stale_in_pg(exact_keys)
+
+    for pattern in pattern_keys:
+        from sqlalchemy import text
+
+        async with async_session() as session:
+            await session.execute(
+                text("""
+                    UPDATE summary_registry SET stale = TRUE, updated_at = NOW()
+                    WHERE summary_key LIKE :pattern
+                """),
+                {"pattern": pattern},
+            )
+            await session.commit()
 
     # 4. Redis 清理
-    await _delete_from_redis(stale_keys)
+    #    Redis 中存储精确 key，不含通配符；L3 需要反查所有匹配的 key
+    redis_exact = [k for k in stale_keys if not k.endswith("%")]
+    await _delete_from_redis(redis_exact)
+
+    #    Redis L3 匹配 — 用 scan 而非 keys 避免阻塞
+    redis_patterns = [k for k in stale_keys if k.endswith("%")]
+    if redis_patterns:
+        r = await _get_redis()
+        for pattern in redis_patterns:
+            # 转换 PG 格式的 "L3:P:TEST:%" → Redis 格式 "summary:L3:P:TEST:*"
+            redis_glob = f"summary:{pattern.replace('%', '*')}"
+            async for key in r.scan_iter(match=redis_glob):
+                await r.delete(key)
 
     logger.info(
         "Summary cache invalidated for entity: %s (%d keys)",
@@ -214,24 +245,30 @@ async def invalidate_entity(entity_id: str) -> None:
 
 
 async def invalidate_entities(entity_ids: list[str]) -> None:
-    """批量标记实体摘要缓存为 stale。"""
+    """批量标记实体摘要缓存为 stale。
+
+    使用 asyncio.gather 并发执行，每个 invalidation 独立。
+    """
     if not entity_ids:
         return
     # 去重
     unique_ids = list(dict.fromkeys(entity_ids))
-    for eid in unique_ids:
-        await invalidate_entity(eid)
+    import asyncio
+    await asyncio.gather(*[invalidate_entity(eid) for eid in unique_ids])
 
 
 async def is_stale(level: int, entity_id: str, depth: int | None = None) -> bool:
-    """检查摘要缓存是否过期。"""
+    """检查摘要缓存是否过期。
+
+    PG summary_key 不包含 "summary:" 前缀，需 strip 后查询。
+    """
     from sqlalchemy import text
 
-    key = cache_key(level, entity_id, depth)
+    pg_key = cache_key(level, entity_id, depth).removeprefix("summary:")
     async with async_session() as session:
         result = await session.execute(
             text("SELECT stale FROM summary_registry WHERE summary_key = :key"),
-            {"key": key},
+            {"key": pg_key},
         )
         row = result.first()
         if row is None:
