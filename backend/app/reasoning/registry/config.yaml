@@ -49,6 +49,11 @@ tools:
 
   # ── knowledge ──────────────────────────────────────────────────────────────
 
+  - name: semantic_search
+    group: knowledge
+    use: app.reasoning.tools.knowledge.semantic_search:semantic_search
+    description: 语义向量检索（前置探查）：模糊搜索实体/关系/文档/问答，结果含 entity_id 后可接 expand 做精准图穿透。适合不知道 entity_id 时先用语义搜索找到候选
+
   # resolve + expand: 新一代图谱导航（resolve→expand 模式）
   - name: resolve
     group: knowledge
@@ -59,6 +64,11 @@ tools:
     group: knowledge
     use: app.reasoning.tools.knowledge:expand
     description: 受控展开图谱子图，select 可选 properties/relations/metrics/products/companies/upstream/downstream/peers/divergence
+
+  - name: summarize
+    group: knowledge
+    use: app.reasoning.tools.knowledge:summarize
+    description: 获取知识图谱实体的分层摘要（L1=公司画像, L2=产品生态, L3=产业链视图）。缓存优先，按需生成。宏观问题用L2/L3，微观问题用L1。
 
   # neo4j_traverse / neo4j_entity_info 已被 resolve+expand 替代，禁用
   - name: neo4j_traverse
