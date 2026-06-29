@@ -895,7 +895,7 @@ class SummarizeTool(StructuredTool):
         "获取知识图谱实体的分层摘要（L1=公司画像, L2=产品生态, L3=产业链视图）。"
         "缓存优先，按需生成。宏观问题用L2/L3，微观问题用L1。"
     )
-    args_schema: type = ...  # 会在 __init__ 后设置
+    args_schema: type | None = None  # Pydantic v2 兼容；None 表示不强制 args schema
 
     def _validate(self, entity_id: str, level: int, depth: int = 3) -> str | None:
         """参数校验，返回 None 表示通过，否则返回错误消息。"""
