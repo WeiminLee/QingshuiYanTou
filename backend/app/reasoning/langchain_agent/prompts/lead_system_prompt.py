@@ -60,6 +60,21 @@ def get_skills_prompt_section() -> str:
 """
 
 
+# ── 分层摘要路由策略 ──────────────────────────────────────────
+SUMMARIZE_ROUTING_GUIDE = """
+## 分层摘要路由策略
+
+使用 `summarize` 工具获取实体的预聚合摘要，减少逐边遍历：
+
+**路由规则：**
+- 宏观问题（"产业链"、"行业格局"、"赛道分析"）→ 先用 resolve 锚定 Product → summarize(level=2) → 需要全局视角时 summarize(level=3)
+- 中观问题（"产品竞争格局"、"技术路线对比"）→ resolve → summarize(level=2)
+- 微观问题（"公司客户"、"供应商"、"业绩"）→ resolve → summarize(level=1) → 需要细节时 expand(L0)
+
+**原则：先查摘要，再决定是否深入。摘要可以直接回答概括性问题，节省 token。**
+"""
+
+
 # ════════════════════════════════════════════════════════════════════════════
 #  SYSTEM PROMPT TEMPLATE — V2
 # ════════════════════════════════════════════════════════════════════════════
@@ -200,6 +215,8 @@ L1 — 证据原子层（原始公告/研报/互动易）：
 - 搜索失败 → 用已有知识库数据
 - 所有工具失败 → 基于已有信息给出分析，明确标注数据不足
 </tool_strategy>
+
+{summarize_routing_guide}
 
 <graph_reasoning>
 **图谱推理规则**：
@@ -375,6 +392,7 @@ def apply_prompt_template(
         kg_anchors=kg_anchors,
         background_context=background_section,
         graph_context=graph_section,
+        summarize_routing_guide=SUMMARIZE_ROUTING_GUIDE,
     )
 
     return prompt + f"\n<current_date>{datetime.now().strftime('%Y-%m-%d')}</current_date>\n"
