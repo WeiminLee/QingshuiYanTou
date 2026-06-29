@@ -641,6 +641,7 @@ async def aggregate_l2(entity_id: str) -> str:
             """
             MATCH (p:Product {entity_id: $eid})-[r:RELATES]-(other:Product)
             RETURN other.name AS name, r.text AS text, r.weight AS weight
+            ORDER BY r.weight DESC
             LIMIT 20
             """,
             eid=entity_id,
