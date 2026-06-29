@@ -463,16 +463,24 @@ def extract_text(
 
     source_file = f"{article_ref}@{_date.today().isoformat()}" if article_ref else None
 
-    # 全文送 LLM 做三元组提取（不分块）
-    # 分块仅在向量写入阶段用于 embedding 的检索粒度
-    import types as _types
-    full_text_chunk = _types.SimpleNamespace(
-        content=text, chunk_id=0, heading=source_name
-    )
+    # 调用 RAGExtractor（同步），只分块一次，chunks 同时用于抽取和向量写入
+    chunks = chunk_by_token(text, max_tokens=1024, overlap_tokens=0)
+    if not chunks:
+        logger.warning("文本为空，跳过抽取: %s", source_name)
+        return {
+            "entities_created": 0,
+            "entities_updated": 0,
+            "relations_created": 0,
+            "relations_updated": 0,
+            "entities": [],
+            "relations": [],
+            "chunks_processed": 0,
+        }
 
     try:
+        # B8 fix: 传递 source_type 参数
         merged_entities, merged_relations = rag_extract_sync(
-            text, chunks=[full_text_chunk], source_file=source_file, source_type=source_type
+            text, chunks=chunks, source_file=source_file, source_type=source_type
         )
     except Exception as e:
         logger.warning("RAGExtractor 调用失败 [%s]: %s", source_name, e)
@@ -483,7 +491,7 @@ def extract_text(
             "relations_updated": 0,
             "entities": [],
             "relations": [],
-            "chunks_processed": 1,
+            "chunks_processed": len(chunks),
             "error": str(e),
         }
 
@@ -495,12 +503,11 @@ def extract_text(
     )
 
     # ── 文档 Chunk 向量写入 ───────────────────────────────────────
-    # 向量写入仍按 1024 token 分块（检索需要细粒度，而非 LLM 上下文窗口）
-    vector_chunks = chunk_by_token(text, max_tokens=1024, overlap_tokens=0)
+    # BUG-12 修复：添加失败计数器 + 详细失败记录（用于补偿）
     chunks_written = 0
     chunks_failed = 0
     failed_vectors: list[dict] = []  # 记录失败的向量，用于后续补偿
-    for ch in (vector_chunks or []):
+    for ch in chunks:
         try:
             chunk_text = ch.content if hasattr(ch, "content") else ch.get("content", "")
             if not chunk_text:
@@ -789,7 +796,7 @@ def extract_text(
         "relations_updated": relations_updated,
         "entities": entity_ids,
         "relations": written_rels,
-        "chunks_processed": 1,
+        "chunks_processed": len(chunks),
         "chunks_vector_written": chunks_written,
         "chunks_vector_failed": chunks_failed,
         "failed_vectors": failed_vectors,  # 详细失败记录，用于补偿
@@ -845,22 +852,42 @@ async def extract_text_async(
 
         source_file = f"{article_ref}@{_date.today().isoformat()}"
 
-    # 全文送 LLM 做三元组提取（不分块）
-    import types as _types
-    full_text_chunk = _types.SimpleNamespace(
-        content=text, chunk_id=0, heading=source_name
-    )
+    chunks = chunk_by_token(text, max_tokens=chunk_max_tokens, overlap_tokens=0)
+    if not chunks:
+        logger.warning("文本为空，跳过抽取: %s", source_name)
+        return {
+            "entities_created": 0,
+            "entities_updated": 0,
+            "relations_created": 0,
+            "relations_updated": 0,
+            "entities": [],
+            "relations": [],
+            "chunks_processed": 0,
+        }
+    chunks_total = len(chunks)
+    chunk_budget_applied = False
+    if max_chunks is not None and max_chunks > 0 and len(chunks) > max_chunks:
+        chunks = chunks[:max_chunks]
+        chunk_budget_applied = True
+        progress_callback and progress_callback(
+            f"应用 chunk 预算: {chunks_total} → {len(chunks)}",
+            6.0,
+        )
 
-    progress_callback and progress_callback("全文送 LLM 提取三元组", 5.0)
+    # RAGExtractor 异步抽取（复用同一批 chunks，不再二次分块）
+    # 重要参数说明（RAGFlow General 模式参考值）：
+    #   max_tokens=512：每个 chunk 约 512 tokens，平衡上下文完整性与实体召回
+    #   overlap_tokens=0：抽取无需 overlap，实体去重由合并阶段处理
+    progress_callback and progress_callback(f"分块完成，共 {len(chunks)} 个 chunk", 5.0)
     try:
         merged_entities, merged_relations = await rag_extract_async(
             text,
-            chunks=[full_text_chunk],
-            max_tokens=1024,
-            overlap_tokens=0,
+            chunks=chunks,  # 预分块，与向量写入使用同一批 chunks
+            max_tokens=1024,  # 2026-04-14 重构：512 → 1024，提升实体召回率
+            overlap_tokens=0,  # 无 overlap，抽取场景不需要
             callback=progress_callback,
-            source_file=source_file,
-            source_type=source_type,
+            source_file=source_file,  # 文件名@日期，descriptions.source 标记
+            source_type=source_type,  # 决定使用哪个抽取 prompt
         )
         progress_callback and progress_callback(f"实体合并完成: {len(merged_entities)} 实体", 70.0)
     except Exception as e:
@@ -872,7 +899,7 @@ async def extract_text_async(
             "relations_updated": 0,
             "entities": [],
             "relations": [],
-            "chunks_processed": 0,
+            "chunks_processed": len(chunks),
             "error": str(e),
         }
 
@@ -895,12 +922,12 @@ async def extract_text_async(
         merged_relations,
     )
 
-    # ── Chunk 向量（按 1024 token 分块写入，检索需要细粒度）──
-    vector_chunks = chunk_by_token(text, max_tokens=1024, overlap_tokens=0)
+    # ── Chunk 向量（复用同一批 chunks，与 LLM 抽取的 chunk_id 完全对齐）──
+    # BUG-12 修复：添加失败计数器 + 详细失败记录（用于补偿）
     chunks_written = 0
     chunks_failed = 0
-    failed_vectors: list[dict] = []
-    for ch in (vector_chunks or []):
+    failed_vectors: list[dict] = []  # 记录失败的向量，用于后续补偿
+    for ch in chunks:
         try:
             chunk_text = ch.content if hasattr(ch, "content") else ch.get("content", "")
             if not chunk_text:
@@ -1154,10 +1181,13 @@ async def extract_text_async(
     except Exception as e:
         logger.warning("信号抽取失败 [%s]: %s", source_name, e)
 
-    # ── 摘要缓存失效 ────────────────────────────────────────
+    # ── 摘要缓存失效 ───────────────────────────────────────────
+    # 使用独立模块触发 KG 抽取后的摘要缓存失效
+    # 失败不阻塞主流程（下次查询会按需生成）
     from app.knowledge.summary_invalidator import trigger_invalidation
 
     await trigger_invalidation(entity_ids, written_rels)
+    # ── end 摘要缓存失效 ───────────────────────────────────────
 
     return {
         "entities_created": entities_created,
@@ -1166,9 +1196,9 @@ async def extract_text_async(
         "relations_updated": relations_updated,
         "entities": entity_ids,
         "relations": written_rels,
-        "chunks_processed": 1,
-        "chunks_total": 1,
-        "chunk_budget_applied": False,
+        "chunks_processed": len(chunks),
+        "chunks_total": chunks_total,
+        "chunk_budget_applied": chunk_budget_applied,
         "chunks_vector_written": chunks_written,
         "chunks_vector_failed": chunks_failed,
         "failed_vectors": failed_vectors,  # 详细失败记录，用于补偿
