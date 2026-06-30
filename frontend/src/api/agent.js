@@ -37,9 +37,14 @@ export const listTasks = (limit = 20) =>
 
 // 澄清请求 - 用户回复
 export async function resolveClarification(taskId, { answer, clarification_id }) {
+  const headers = { "Content-Type": "application/json" };
+  const apiKey = import.meta.env.VITE_API_KEY;
+  if (apiKey) {
+    headers["x-api-key"] = apiKey;
+  }
   const resp = await fetch(`/api/v1/agent/resolve/${taskId}`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers,
     body: JSON.stringify({ answer, clarification_id }),
   });
   if (!resp.ok) throw new Error(`resolveClarification failed: ${resp.status}`);

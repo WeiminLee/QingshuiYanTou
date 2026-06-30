@@ -2,6 +2,7 @@
   "name": "qingshui-frontend",
   "version": "1.0.0",
   "private": true,
+  "packageManager": "pnpm@9",
   "type": "module",
   "scripts": {
     "dev": "vite",

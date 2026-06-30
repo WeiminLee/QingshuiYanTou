@@ -137,8 +137,14 @@ export function useChatSession() {
     }
 
     const apiKey = import.meta.env.VITE_API_KEY;
-    const query = apiKey ? `?api_key=${encodeURIComponent(apiKey)}` : "";
-    const url = `/api/v1/agent/stream/${tid}${query}`;
+    if (!apiKey) {
+      error.value = "API Key 未配置，无法建立 SSE 连接";
+      isLoading.value = false;
+      finishCurrentMessage();
+      return;
+    }
+
+    const url = `/api/v1/agent/stream/${tid}?api_key=${encodeURIComponent(apiKey)}`;
     const es = new EventSource(url);
     eventSource.value = es;
     isConnected.value = true;
@@ -193,6 +199,9 @@ export function useChatSession() {
     };
 
     es.onerror = () => {
+      if (!error.value) {
+        error.value = "SSE 连接失败，请检查网络或 API Key 配置";
+      }
       isConnected.value = false;
       isLoading.value = false;
       es.close();

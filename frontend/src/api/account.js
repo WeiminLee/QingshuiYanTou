@@ -5,53 +5,53 @@
 import axios from "axios";
 
 const http = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE || "",
+  baseURL: import.meta.env.VITE_API_BASE_URL || "/api/v1",
   withCredentials: true,
   timeout: 15000,
 });
 
 export async function login(password) {
-  const { data } = await http.post("/api/v1/auth/login", { password });
+  const { data } = await http.post("/auth/login", { password });
   return data;
 }
 
 export async function logout() {
-  const { data } = await http.post("/api/v1/auth/logout");
+  const { data } = await http.post("/auth/logout");
   return data;
 }
 
 export async function switchUser(userId) {
-  const { data } = await http.post("/api/v1/auth/switch-user", { user_id: userId });
+  const { data } = await http.post("/auth/switch-user", { user_id: userId });
   return data;
 }
 
 export async function whoami() {
-  const { data } = await http.get("/api/v1/auth/whoami");
+  const { data } = await http.get("/auth/whoami");
   return data;
 }
 
 export async function listUsers() {
-  const { data } = await http.get("/api/v1/users");
+  const { data } = await http.get("/users");
   return data;
 }
 
 export async function listPortfolio() {
-  const { data } = await http.get("/api/v1/account/portfolio");
+  const { data } = await http.get("/account/portfolio");
   return data;
 }
 
 export async function addPortfolio(tsCode) {
-  const { data } = await http.post("/api/v1/account/portfolio", { ts_code: tsCode });
+  const { data } = await http.post("/account/portfolio", { ts_code: tsCode });
   return data;
 }
 
 export async function removePortfolio(tsCode) {
-  const { data } = await http.delete(`/api/v1/account/portfolio/${encodeURIComponent(tsCode)}`);
+  const { data } = await http.delete(`/account/portfolio/${encodeURIComponent(tsCode)}`);
   return data;
 }
 
 export async function searchStocks(q, limit = 10) {
-  const { data } = await http.get("/api/v1/account/stocks/search", { params: { q, limit } });
+  const { data } = await http.get("/account/stocks/search", { params: { q, limit } });
   return data;
 }
 
