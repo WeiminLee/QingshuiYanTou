@@ -280,6 +280,12 @@
                 <line x1="28" y1="6" x2="48" y2="6" stroke="#d0ccc6" stroke-width="1" />
               </svg>
             </div>
+            <CredibleReasoningPanel
+              :tool-calls="latestAssistantToolCalls"
+              :report-json="reportJson"
+              :reasoning-text="latestAssistantReasoning"
+              :is-loading="isLoading"
+            />
             <CustomMarkdownRenderer :content="reportContent" class="report-body" />
             <div class="compliance-stamp">
               <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
@@ -333,6 +339,7 @@ import "@tdesign-vue-next/chat/es/style/index.css";
 import { useTDesignAdapter } from "@/composables/useTDesignAdapter";
 import WelcomeSection from "@/components/WelcomeSection.vue";
 import CustomMarkdownRenderer from "@/components/CustomMarkdownRenderer.vue";
+import CredibleReasoningPanel from "@/components/CredibleReasoningPanel.vue";
 import ThinkingPanel from "@/components/ThinkingPanel.vue";
 import ToolCallStep from "@/components/ToolCallStep.vue";
 import { CopyDocument, Goods, CircleClose } from "@element-plus/icons-vue";
@@ -380,6 +387,17 @@ const inputText = ref("");
 // Report state (separate from chat messages — report is a final artifact)
 // ─────────────────────────────────────────────────────────────────────────────
 const reportContent = ref("");
+const reportJson = ref<Record<string, any> | null>(null);
+const latestAssistantToolCalls = computed(() => {
+  const assistantMessages = messages.value.filter((m) => m.role === "assistant");
+  const last = assistantMessages[assistantMessages.length - 1];
+  return last?.toolCalls || [];
+});
+const latestAssistantReasoning = computed(() => {
+  const assistantMessages = messages.value.filter((m) => m.role === "assistant");
+  const last = assistantMessages[assistantMessages.length - 1];
+  return last?.thinkingContent || "";
+});
 
 // Watch for task completion to fetch the final report
 const lastTaskId = ref("");
@@ -398,6 +416,7 @@ async function fetchFinalReport(tid: string) {
   try {
     const res = await getTaskResult(tid);
     const raw = res.reportContent || res.content || "";
+    reportJson.value = res.reportJson || null;
     if (raw) {
       reportContent.value = raw;
     }
@@ -447,6 +466,7 @@ const lastQuestion = ref("");
 async function handleSend(text: string) {
   lastQuestion.value = text;
   reportContent.value = "";
+  reportJson.value = null;
   lastTaskId.value = "";
   inputText.value = "";
   await sendMessage(text, scheduleAutoCollapse);
@@ -477,6 +497,7 @@ async function loadHistoryTask(item: any) {
   try {
     const res = await getTaskResult(item.task_id);
     const raw = res.reportContent || res.content || "";
+    reportJson.value = res.reportJson || null;
     reportContent.value = raw;
   } catch {
     // Error already handled by useChatSession

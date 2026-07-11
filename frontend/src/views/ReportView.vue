@@ -97,6 +97,12 @@
             <line x1="28" y1="6" x2="48" y2="6" stroke="#d0ccc6" stroke-width="1" />
           </svg>
         </div>
+        <CredibleReasoningPanel
+          :tool-calls="latestAssistantToolCalls"
+          :report-json="reportJson"
+          :reasoning-text="latestAssistantReasoning"
+          :is-loading="isLoading"
+        />
         <CustomMarkdownRenderer :content="reportContent" class="report-body" />
         <div class="compliance-stamp">
           ⚠️ 本报告由清水投研系统 AI 生成，仅供投资研究参考，不构成任何投资建议
@@ -127,7 +133,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, onMounted } from "vue";
+import { computed, ref, watch, onMounted } from "vue";
 import { useRoute } from "vue-router";
 import { ElMessage } from "element-plus";
 import { ArrowLeft } from "@element-plus/icons-vue";
@@ -140,6 +146,7 @@ import { Sparkles, UserRound } from "lucide-vue-next";
 import ThinkingPanel from "@/components/ThinkingPanel.vue";
 import ToolCallStep from "@/components/ToolCallStep.vue";
 import CustomMarkdownRenderer from "@/components/CustomMarkdownRenderer.vue";
+import CredibleReasoningPanel from "@/components/CredibleReasoningPanel.vue";
 
 const route = useRoute();
 
@@ -155,8 +162,19 @@ const inputText = ref("");
 
 // Report state (separate from chat messages — report is a final artifact)
 const reportContent = ref("");
+const reportJson = ref<Record<string, any> | null>(null);
 const lastTaskId = ref("");
 const lastQuestion = ref("");
+const latestAssistantToolCalls = computed(() => {
+  const assistantMessages = messages.value.filter((m) => m.role === "assistant");
+  const last = assistantMessages[assistantMessages.length - 1];
+  return last?.toolCalls || [];
+});
+const latestAssistantReasoning = computed(() => {
+  const assistantMessages = messages.value.filter((m) => m.role === "assistant");
+  const last = assistantMessages[assistantMessages.length - 1];
+  return last?.thinkingContent || "";
+});
 
 // Watch for stream completion → fetch final report
 watch([isLoading, taskId], async ([loading, tid], oldVals) => {
@@ -171,6 +189,7 @@ async function fetchFinalReport(tid: string) {
   try {
     const res = await getTaskResult(tid);
     const raw = res.reportContent || res.content || "";
+    reportJson.value = res.reportJson || null;
     if (raw) {
       reportContent.value = raw;
     }
@@ -191,6 +210,7 @@ const quickQuestions = [
 // Actions
 function handleSend(text: string) {
   reportContent.value = "";
+  reportJson.value = null;
   lastTaskId.value = "";
   lastQuestion.value = text.trim();
   question.value = "";
@@ -200,6 +220,7 @@ function handleSend(text: string) {
 
 function handleReset() {
   reportContent.value = "";
+  reportJson.value = null;
   lastTaskId.value = "";
   lastQuestion.value = "";
   question.value = "";

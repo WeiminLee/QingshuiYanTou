@@ -134,6 +134,11 @@ class AnalysisReport:
     # ── 原始分析内容 ────────────────────
     raw_analysis: str = ""  # 原始 deliberation 输出
     graph_data: dict | None = None  # 图谱可视化数据 {nodes, edges}
+    trace_summary: dict = field(default_factory=dict)  # 推理链摘要（工具、来源层、图谱关系）
+    source_layers: list[dict] = field(default_factory=list)  # 来源层归类：图谱/公告/研报/行情等
+    evidence_refs: list[dict] = field(default_factory=list)  # 可追溯证据引用（从工具/上下文汇总）
+    tool_audit: list[dict] = field(default_factory=list)  # 工具调用审计轨迹
+    graph_refs: list[dict] = field(default_factory=list)  # 图谱关系/查询引用
 
     def __post_init__(self):
         if not self.generated_at:
@@ -229,6 +234,11 @@ class AnalysisReport:
             "compliance_declared": self.compliance_declared,
             "raw_analysis": self.raw_analysis,
             "graph_data": self.graph_data,
+            "trace_summary": self.trace_summary,
+            "source_layers": self.source_layers,
+            "evidence_refs": self.evidence_refs,
+            "tool_audit": self.tool_audit,
+            "graph_refs": self.graph_refs,
         }
 
     # ── Markdown 导出 ────────────────────
@@ -347,6 +357,8 @@ class AnalysisReport:
         if self.update_trigger:
             lines.extend(["## 触发更新条件", "", f"以下情况请重新分析：{self.update_trigger}", ""])
 
+        lines.extend(self._trace_section())
+
         # 合规声明
         lines.extend(self._compliance_section())
 
@@ -393,6 +405,85 @@ class AnalysisReport:
             "---",
             f"*清水投研系统 | 报告ID: {self.report_id} | {self.generated_at}*",
         ]
+
+    def _trace_section(self) -> list[str]:
+        if not (self.trace_summary or self.source_layers or self.evidence_refs or self.graph_refs or self.tool_audit):
+            return []
+
+        lines = [
+            "## 可信推理链",
+            "",
+        ]
+
+        if self.trace_summary:
+            lines.extend(
+                [
+                    f"- 推理轮次：{self.trace_summary.get('turns', 0)}",
+                    f"- 工具调用：{self.trace_summary.get('successful_tool_count', 0)}/"
+                    f"{self.trace_summary.get('tool_result_count', 0)} 成功",
+                    f"- 来源层：{self.trace_summary.get('source_layer_count', 0)}",
+                    f"- 证据引用：{self.trace_summary.get('evidence_ref_count', 0)}",
+                    f"- 图谱引用：{self.trace_summary.get('graph_ref_count', 0)}",
+                    "",
+                ]
+            )
+
+        if self.source_layers:
+            lines.extend(["### 来源层", ""])
+            lines.append("| 来源层 | 工具数 | 成功数 | 置信层级 | 摘要 |")
+            lines.append("|---|---:|---:|---|---|")
+            for layer in self.source_layers[:8]:
+                items = layer.get("items") or []
+                preview = ""
+                if items:
+                    preview = str(items[0].get("preview") or "")[:80]
+                lines.append(
+                    "| "
+                    f"{layer.get('label') or layer.get('key') or '未知'} | "
+                    f"{layer.get('tool_count', len(items))} | "
+                    f"{layer.get('success_count', 0)} | "
+                    f"{layer.get('confidence', '')} | "
+                    f"{preview} |"
+                )
+            lines.append("")
+
+        if self.graph_refs:
+            lines.extend(["### 图谱引用", ""])
+            for ref in self.graph_refs[:5]:
+                relation_count = ref.get("relation_count")
+                count_text = f"（{relation_count} 条关系）" if relation_count else ""
+                preview = str(ref.get("preview") or "")[:120]
+                lines.append(f"- **{ref.get('tool', 'graph')}**{count_text}：{preview}")
+            lines.append("")
+
+        if self.evidence_refs:
+            lines.extend(["### 证据引用", ""])
+            for ev in self.evidence_refs[:8]:
+                source_name = ev.get("source_name") or ev.get("source_type") or "来源"
+                confidence = ev.get("confidence") or "未标注"
+                content = str(ev.get("content") or "")[:140]
+                lines.append(f"- **{source_name}**（{confidence}）：{content}")
+            lines.append("")
+
+        if self.tool_audit:
+            lines.extend(["### 工具审计", ""])
+            lines.append("| 工具 | 来源层 | 状态 | 耗时 | 结果摘要 |")
+            lines.append("|---|---|---|---:|---|")
+            for item in self.tool_audit[:8]:
+                status = "成功" if item.get("success", True) else "失败"
+                duration = int(item.get("duration_ms") or 0)
+                preview = str(item.get("preview") or "")[:80]
+                lines.append(
+                    "| "
+                    f"{item.get('tool', '')} | "
+                    f"{item.get('source_layer', '')} | "
+                    f"{status} | "
+                    f"{duration}ms | "
+                    f"{preview} |"
+                )
+            lines.append("")
+
+        return lines
 
 
 # ── 工厂函数 ──────────────────────────────────────

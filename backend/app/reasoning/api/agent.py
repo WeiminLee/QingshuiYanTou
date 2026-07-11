@@ -34,13 +34,13 @@ import uuid
 from datetime import datetime
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from langchain_core.messages import BaseMessage, HumanMessage
 from pydantic import BaseModel, Field
 from sse_starlette import EventSourceResponse
 
 from app.reasoning.api.agent_events import ReasoningEvent, _task_manager, emit_error
 from app.reasoning.langchain_agent.hitl_store import get_hitl_store
 from app.utils.auth import verify_api_key, verify_api_key_query
-from langchain_core.messages import BaseMessage, HumanMessage
 
 _RESUME_TIMEOUT_SECONDS = 600  # 10 min — matching hermes-agent; closes SSE if user doesn't respond
 
@@ -143,6 +143,20 @@ class ResultResponse(BaseModel):
 class ResolveClarificationRequest(BaseModel):
     answer: str
     clarification_id: str
+
+
+def _apply_result_trace_to_report(report, result: dict | None) -> None:
+    """把 run_lead_agent 返回的 trace 元数据写入 AnalysisReport。"""
+    if not result:
+        return
+    trace = result.get("trace") or {}
+    if not isinstance(trace, dict):
+        return
+    report.trace_summary = trace.get("trace_summary", {})
+    report.source_layers = trace.get("source_layers", [])
+    report.evidence_refs = trace.get("evidence_refs", [])
+    report.tool_audit = trace.get("tool_audit", [])
+    report.graph_refs = trace.get("graph_refs", [])
 
 
 async def _run_invoke_task(task_id: str, thread_id: str, question: str, max_turns: int, model_name: str):
@@ -331,6 +345,7 @@ async def generate_report(request: ReportRequest, _=Depends(verify_api_key)):
             generated_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             raw_analysis=raw_analysis,
         )
+        _apply_result_trace_to_report(report, result)
 
         # 合规扫描
         compliance = scan_content(raw_analysis)
@@ -544,6 +559,7 @@ async def _run_stream_report(task_id: str, thread_id: str, question: str, max_tu
             generated_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             raw_analysis=raw_analysis,
         )
+        _apply_result_trace_to_report(report, result)
 
         markdown = report.to_markdown()
         log_report_audit(
@@ -639,6 +655,7 @@ async def _resume_stream_report(
             generated_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             raw_analysis=raw_analysis,
         )
+        _apply_result_trace_to_report(report, result)
         await emit_fn("stream_end", {
             "report_content": report.to_markdown(),
             "report_json": report.to_dict(),

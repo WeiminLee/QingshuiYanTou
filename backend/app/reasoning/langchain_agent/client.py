@@ -16,15 +16,21 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import time
 import uuid
 from datetime import datetime
 
-from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
 from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
 from langgraph.errors import GraphRecursionError
 
+from app.reasoning.langchain_agent.hitl_store import (
+    PendingClarification,
+    get_hitl_store,
+    parse_clarification_result,
+)
 from app.reasoning.langchain_agent.integrations import (
     HarnessConfig,
     HarnessManager,
@@ -36,11 +42,6 @@ from app.reasoning.langchain_agent.middlewares.clarification import Clarificatio
 from app.reasoning.langchain_agent.prompts.lead_system_prompt import apply_prompt_template
 from app.reasoning.langchain_agent.task_events import drain_all_task_events, reset_task_events_queue
 from app.reasoning.langchain_agent.tool_executor import build_preview
-from app.reasoning.langchain_agent.hitl_store import (
-    PendingClarification,
-    get_hitl_store,
-    parse_clarification_result,
-)
 from app.reasoning.runtime.journal import (
     RunJournal,
     append_journal_event,
@@ -54,6 +55,32 @@ logger = logging.getLogger(__name__)
 
 # 工具列表按 subagent_enabled 分开缓存，避免先创建普通 agent 后 task 工具不生效。
 _cached_tools: dict[bool, list] = {}
+
+_SOURCE_LAYER_META = {
+    "graph": {"label": "知识图谱", "confidence": "TIER2_THIRD_PARTY"},
+    "disclosure": {"label": "公告与公司披露", "confidence": "TIER3_SELF_DISCLOSED"},
+    "interaction": {"label": "投资者关系", "confidence": "TIER3_SELF_DISCLOSED"},
+    "research": {"label": "研报与外部研究", "confidence": "TIER4_ANALYSIS"},
+    "market": {"label": "行情与市场数据", "confidence": "TIER2_THIRD_PARTY"},
+    "profile": {"label": "公司画像", "confidence": "TIER2_THIRD_PARTY"},
+    "web": {"label": "公开网络来源", "confidence": "TIER4_ANALYSIS"},
+    "background": {"label": "向量背景知识", "confidence": "TIER2_THIRD_PARTY"},
+    "other": {"label": "辅助工具", "confidence": "TIER4_ANALYSIS"},
+}
+
+_SOURCE_TOOL_GROUPS = {
+    "neo4j_traverse": "graph",
+    "neo4j_kg_search": "graph",
+    "get_announcement": "disclosure",
+    "get_irm": "interaction",
+    "get_research_report": "research",
+    "get_kline": "market",
+    "get_concept_hot": "market",
+    "get_market_breadth": "market",
+    "get_stock_profile": "profile",
+    "tavily_search": "web",
+    "web_fetch": "web",
+}
 
 
 def _get_tools(subagent_enabled: bool = False) -> list:
@@ -165,8 +192,8 @@ async def run_lead_agent(
     journal_token = set_current_journal(journal)
 
     # ── MemoryManager ──
-    from app.reasoning.langchain_agent.memory.manager import MemoryManager
     from app.reasoning.langchain_agent.memory.builtin_provider import BuiltinProvider
+    from app.reasoning.langchain_agent.memory.manager import MemoryManager
 
     memory_manager: MemoryManager | None = None
     try:
@@ -277,7 +304,7 @@ async def run_lead_agent(
 
         # ── Memory tool injection ──
         if memory_manager is not None:
-            from app.reasoning.langchain_agent.memory.tool import set_memory_manager, manage_memory
+            from app.reasoning.langchain_agent.memory.tool import manage_memory, set_memory_manager
 
             set_memory_manager(memory_manager)
             tools = list(tools)
@@ -552,10 +579,19 @@ async def run_lead_agent(
 
         if not is_clarified and emit_fn:
             raw_analysis = "".join(full_content)
+            trace_metadata = _build_trace_metadata(
+                tool_calls=tool_calls_record,
+                tool_results=tool_results_record,
+                background=background,
+                graph_context=graph_context,
+                turns=turn_count,
+                run_id=journal.run_id,
+            )
             report = _build_analysis_report(
                 topic=question,
                 raw_analysis=raw_analysis,
                 turns=turn_count,
+                trace=trace_metadata,
             )
             await emit_fn(
                 "stream_end",
@@ -593,6 +629,14 @@ async def run_lead_agent(
             "thread_id": thread_id,
             "truncated": recursion_truncated,
         }
+        result["trace"] = _build_trace_metadata(
+            tool_calls=tool_calls_record,
+            tool_results=tool_results_record,
+            background=background,
+            graph_context=graph_context,
+            turns=turn_count,
+            run_id=journal.run_id,
+        )
 
         if harness is not None:
             summary = harness.get_summary()
@@ -677,6 +721,7 @@ def _build_analysis_report(
     raw_analysis: str,
     turns: int,
     report_id: str | None = None,
+    trace: dict | None = None,
 ) -> AnalysisReport:  # noqa: F821
     """构造 AnalysisReport（用于 stream_end 内嵌完整报告）"""
     from app.reasoning.output.report import AnalysisReport
@@ -690,6 +735,12 @@ def _build_analysis_report(
         generated_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         raw_analysis=raw_analysis,
     )
+    if trace:
+        report.trace_summary = trace.get("trace_summary", {})
+        report.source_layers = trace.get("source_layers", [])
+        report.evidence_refs = trace.get("evidence_refs", [])
+        report.tool_audit = trace.get("tool_audit", [])
+        report.graph_refs = trace.get("graph_refs", [])
 
     try:
         from app.reasoning.output.compliance import scan_content
@@ -701,6 +752,197 @@ def _build_analysis_report(
         report.compliance_declared = False
 
     return report
+
+
+def _classify_source_layer(tool_name: str) -> str:
+    return _SOURCE_TOOL_GROUPS.get(tool_name or "", "other")
+
+
+def _source_layer_meta(layer: str) -> dict:
+    return _SOURCE_LAYER_META.get(layer, _SOURCE_LAYER_META["other"])
+
+
+def _truncate_trace_text(text: str, limit: int = 220) -> str:
+    compact = " ".join(str(text or "").split())
+    if len(compact) <= limit:
+        return compact
+    return compact[:limit].rstrip() + "..."
+
+
+def _extract_count(text: str) -> int | None:
+    if not text:
+        return None
+    match = re.search(r"(\d+)\s*(?:条|篇|个|家|项)", text)
+    if not match:
+        return None
+    try:
+        return int(match.group(1))
+    except ValueError:
+        return None
+
+
+def _build_trace_metadata(
+    *,
+    tool_calls: list[dict],
+    tool_results: list[dict],
+    background: str = "",
+    graph_context: str = "",
+    turns: int = 0,
+    run_id: str = "",
+) -> dict:
+    """
+    将已发生的 Agent trace 转成报告 JSON 元数据。
+
+    只消费 run_lead_agent 内部已经收集到的工具调用、工具结果和预检上下文，
+    不新增查询、不改变推理循环。
+    """
+    call_by_id = {str(call.get("id") or ""): call for call in tool_calls if call.get("id")}
+    source_layers_map: dict[str, dict] = {}
+    evidence_refs: list[dict] = []
+    tool_audit: list[dict] = []
+    graph_refs: list[dict] = []
+
+    for index, result in enumerate(tool_results):
+        tool_name = str(result.get("name") or "")
+        call_id = str(result.get("id") or "")
+        call = call_by_id.get(call_id, {})
+        layer = _classify_source_layer(tool_name)
+        meta = _source_layer_meta(layer)
+        preview = _truncate_trace_text(str(result.get("result") or result.get("preview") or ""))
+        count = _extract_count(preview)
+        success = bool(result.get("success", True))
+
+        layer_entry = source_layers_map.setdefault(
+            layer,
+            {
+                "key": layer,
+                "label": meta["label"],
+                "confidence": meta["confidence"],
+                "tool_count": 0,
+                "success_count": 0,
+                "items": [],
+            },
+        )
+        layer_entry["tool_count"] += 1
+        if success:
+            layer_entry["success_count"] += 1
+        layer_entry["items"].append(
+            {
+                "tool": tool_name,
+                "tool_call_id": call_id,
+                "preview": preview,
+                "count": count,
+                "turn": result.get("turn"),
+                "success": success,
+            }
+        )
+
+        audit_item = {
+            "tool_call_id": call_id,
+            "tool": tool_name,
+            "args": call.get("args", {}),
+            "source_layer": layer,
+            "success": success,
+            "turn": result.get("turn"),
+            "duration_ms": result.get("duration_ms", 0),
+            "original_len": result.get("original_len", 0),
+            "preview": preview,
+        }
+        tool_audit.append(audit_item)
+
+        if success and preview:
+            evidence_refs.append(
+                {
+                    "id": f"TOOL:{call_id or index}",
+                    "source_type": layer,
+                    "source_name": meta["label"],
+                    "tool": tool_name,
+                    "content": preview,
+                    "confidence": meta["confidence"],
+                    "turn": result.get("turn"),
+                    "metadata": {
+                        "tool_call_id": call_id,
+                        "args": call.get("args", {}),
+                        "original_len": result.get("original_len", 0),
+                        "count": count,
+                    },
+                }
+            )
+
+        if layer == "graph":
+            graph_refs.append(
+                {
+                    "tool_call_id": call_id,
+                    "tool": tool_name,
+                    "args": call.get("args", {}),
+                    "preview": preview,
+                    "relation_count": count,
+                    "turn": result.get("turn"),
+                    "success": success,
+                }
+            )
+
+    if background:
+        evidence_refs.append(
+            {
+                "id": "PRESEARCH:background",
+                "source_type": "background",
+                "source_name": _SOURCE_LAYER_META["background"]["label"],
+                "content": _truncate_trace_text(background, 360),
+                "confidence": _SOURCE_LAYER_META["background"]["confidence"],
+                "metadata": {"stage": "pre_search"},
+            }
+        )
+        source_layers_map.setdefault(
+            "background",
+            {
+                "key": "background",
+                "label": _SOURCE_LAYER_META["background"]["label"],
+                "confidence": _SOURCE_LAYER_META["background"]["confidence"],
+                "tool_count": 0,
+                "success_count": 1,
+                "items": [],
+            },
+        )["items"].append(
+            {
+                "tool": "pre_search",
+                "preview": _truncate_trace_text(background),
+                "success": True,
+            }
+        )
+
+    if graph_context:
+        graph_refs.append(
+            {
+                "tool_call_id": "pre_graph_context",
+                "tool": "graph_context",
+                "args": {},
+                "preview": _truncate_trace_text(graph_context),
+                "relation_count": _extract_count(graph_context),
+                "turn": 0,
+                "success": True,
+            }
+        )
+
+    source_layers = list(source_layers_map.values())
+    trace_summary = {
+        "turns": turns,
+        "run_id": run_id,
+        "tool_call_count": len(tool_calls),
+        "tool_result_count": len(tool_results),
+        "successful_tool_count": sum(1 for r in tool_results if r.get("success", True)),
+        "source_layer_count": len(source_layers),
+        "evidence_ref_count": len(evidence_refs),
+        "graph_ref_count": len(graph_refs),
+        "traceable": bool(tool_results or evidence_refs or graph_refs),
+    }
+    return {
+        "trace_summary": trace_summary,
+        "source_layers": source_layers,
+        "evidence_refs": evidence_refs,
+        "tool_audit": tool_audit,
+        "graph_refs": graph_refs,
+    }
 
 
 # ── 图谱上下文预查询 ──────────────────────────────────────────────────
@@ -857,6 +1099,3 @@ async def _pre_search(query: str, top_k: int = 10) -> str:
         logger.warning(f"[PreSearch] Hybrid search failed: {e}")
         # Fallback to empty string - don't block agent
     return ""
-
-
-
