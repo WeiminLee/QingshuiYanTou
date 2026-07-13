@@ -318,6 +318,7 @@ export function useChatSession() {
   async function sendMessage(
     question: string,
     scheduleAutoCollapse?: (msgId: string, delayMs?: number) => void,
+    options?: { signalId?: string },
   ): Promise<void> {
     if (!question.trim() || isLoading.value) return;
 
@@ -337,6 +338,7 @@ export function useChatSession() {
         question: question.trim(),
         thread_id: threadId.value,
         max_turns: 4,
+        signal_id: options?.signalId,
       });
 
       taskId.value = res.task_id;

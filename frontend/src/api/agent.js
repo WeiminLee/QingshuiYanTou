@@ -8,6 +8,7 @@ export const streamReport = (params) =>
   apiClient.post("/agent/stream/report", {
     ...params,
     thread_id: params.thread_id || undefined,
+    signal_id: params.signal_id || undefined,
   });
 
 // 查询任务状态（含完整报告 JSON）
