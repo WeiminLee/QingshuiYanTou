@@ -104,6 +104,7 @@ def _filter_sse_event(event_type: str, data: dict) -> tuple[bool, str]:
 class ChatRequest(BaseModel):
     question: str
     thread_id: str | None = None
+    signal_id: str | None = None
     max_turns: int = 5
 
 
@@ -117,6 +118,7 @@ class ChatResponse(BaseModel):
 class InvokeRequest(BaseModel):
     question: str
     thread_id: str | None = None
+    signal_id: str | None = None
     max_turns: int = 5
     model_name: str = "minimax2.5"
 
@@ -159,7 +161,14 @@ def _apply_result_trace_to_report(report, result: dict | None) -> None:
     report.graph_refs = trace.get("graph_refs", [])
 
 
-async def _run_invoke_task(task_id: str, thread_id: str, question: str, max_turns: int, model_name: str):
+async def _run_invoke_task(
+    task_id: str,
+    thread_id: str,
+    question: str,
+    max_turns: int,
+    model_name: str,
+    signal_id: str | None = None,
+):
     """后台执行分析（V2 引擎）"""
     _task_manager.create_task(task_id, thread_id, question)
     _task_manager.update_status(task_id, "running")
@@ -169,6 +178,7 @@ async def _run_invoke_task(task_id: str, thread_id: str, question: str, max_turn
         result = await run_lead_agent(
             question=question,
             thread_id=thread_id,
+            signal_id=signal_id,
             model_name=model_name,
             max_turns=max_turns,
         )
@@ -199,6 +209,7 @@ async def chat(request: ChatRequest, _=Depends(verify_api_key)):
         result = await run_lead_agent(
             question=request.question,
             thread_id=thread_id,
+            signal_id=request.signal_id,
             max_turns=request.max_turns,
         )
         return ChatResponse(
@@ -243,6 +254,7 @@ async def invoke(
         request.question,
         request.max_turns,
         request.model_name,
+        request.signal_id,
     )
 
     return InvokeResponse(
@@ -299,6 +311,7 @@ async def list_tasks(limit: int = 20, _=Depends(verify_api_key)):
 class ReportRequest(BaseModel):
     question: str
     thread_id: str | None = None
+    signal_id: str | None = None
     max_turns: int = 4
 
 
@@ -335,6 +348,7 @@ async def generate_report(request: ReportRequest, _=Depends(verify_api_key)):
         result = await run_lead_agent(
             question=request.question,
             thread_id=thread_id,
+            signal_id=request.signal_id,
             max_turns=request.max_turns,
         )
         raw_analysis = result.get("content", "")
@@ -395,6 +409,7 @@ async def stream_events(task_id: str, _api_key: str = Depends(verify_api_key_que
 class StreamReportRequest(BaseModel):
     question: str
     thread_id: str | None = None
+    signal_id: str | None = None
     max_turns: int = 4
     model_name: str = "minimax2.5"
 
@@ -418,6 +433,7 @@ async def stream_report(request: StreamReportRequest, _=Depends(verify_api_key))
             request.question,
             request.max_turns,
             request.model_name,
+            request.signal_id,
         )
     )
 
@@ -459,7 +475,14 @@ async def resolve_clarification(
     return {"status": "resumed", "task_id": task_id}
 
 
-async def _run_stream_report(task_id: str, thread_id: str, question: str, max_turns: int, model_name: str):
+async def _run_stream_report(
+    task_id: str,
+    thread_id: str,
+    question: str,
+    max_turns: int,
+    model_name: str,
+    signal_id: str | None = None,
+):
     """后台执行报告生成（V2 引擎），并推送 SSE 事件"""
     from app.reasoning.api.agent_events import ReasoningEvent
 
@@ -537,6 +560,7 @@ async def _run_stream_report(task_id: str, thread_id: str, question: str, max_tu
                 question=question,
                 thread_id=thread_id,
                 task_id=task_id,
+                signal_id=signal_id,
                 model_name=model_name,
                 max_turns=max_turns,
                 emit_fn=emit_fn,
