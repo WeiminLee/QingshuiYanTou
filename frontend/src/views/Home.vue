@@ -79,6 +79,8 @@
         新建账目
       </button>
 
+      <SignalRadar @ask-signal="handleAskSignal" />
+
       <!-- History -->
       <div class="sidebar-section">
         <div class="sidebar-section-label">最近对话</div>
@@ -342,6 +344,7 @@ import CustomMarkdownRenderer from "@/components/CustomMarkdownRenderer.vue";
 import CredibleReasoningPanel from "@/components/CredibleReasoningPanel.vue";
 import ThinkingPanel from "@/components/ThinkingPanel.vue";
 import ToolCallStep from "@/components/ToolCallStep.vue";
+import SignalRadar from "@/components/SignalRadar.vue";
 import { CopyDocument, Goods, CircleClose } from "@element-plus/icons-vue";
 import { UserRound, Sparkles } from "lucide-vue-next";
 
@@ -463,13 +466,13 @@ function handleWelcomeSelect(question: string) {
 
 const lastQuestion = ref("");
 
-async function handleSend(text: string) {
+async function handleSend(text: string, options?: { signalId?: string }) {
   lastQuestion.value = text;
   reportContent.value = "";
   reportJson.value = null;
   lastTaskId.value = "";
   inputText.value = "";
-  await sendMessage(text, scheduleAutoCollapse);
+  await sendMessage(text, scheduleAutoCollapse, options);
 }
 
 function handleStop() {
@@ -491,6 +494,10 @@ function handleCategoryClick(placeholder: string) {
 
 function handleSuggestionClick(value: string) {
   handleSend(value);
+}
+
+function handleAskSignal(payload: { signalId: string; question: string }) {
+  handleSend(payload.question, { signalId: payload.signalId });
 }
 
 async function loadHistoryTask(item: any) {
