@@ -159,6 +159,7 @@ class LangChainAgentClient:
 async def run_lead_agent(
     question: str,
     thread_id: str | None = None,
+    user_id: str | None = None,
     task_id: str | None = None,
     signal_id: str | None = None,
     model_name: str = "minimax2.5",
@@ -193,13 +194,15 @@ async def run_lead_agent(
     journal_token = set_current_journal(journal)
 
     # ── MemoryManager ──
-    from app.reasoning.langchain_agent.memory.builtin_provider import BuiltinProvider
     from app.reasoning.langchain_agent.memory.manager import MemoryManager
+    from app.reasoning.langchain_agent.memory.user_memory_provider import UserMemoryProvider
+    from app.reasoning.langchain_agent.memory.user_resolver import resolve_user_id
 
     memory_manager: MemoryManager | None = None
     try:
-        provider = BuiltinProvider()
-        provider.initialize(thread_id)
+        resolved_user_id = resolve_user_id(user_id)
+        provider = UserMemoryProvider()
+        provider.initialize(resolved_user_id)
         memory_manager = MemoryManager()
         memory_manager.add_provider(provider)
     except Exception:
