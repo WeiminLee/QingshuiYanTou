@@ -102,9 +102,10 @@ class TestTradingHoursGate:
 
 
 class TestBatchReindexScheduler:
-    """D-07 batch reindex is scheduled nightly, not dispatched at startup."""
+    """D-07 batch reindex 目前未注册：reindex_missing_vectors 尚未实现，
+    注册它会每晚向 monitor/钉钉误报 SUCCESS(count=0) 假成功（详见 scheduler.start）。"""
 
-    def test_batch_reindex_job_registered_at_0300(self):
+    def test_batch_reindex_job_not_registered(self):
         from app.data_pipeline import scheduler as sched
 
         scheduler = sched.Scheduler()
@@ -112,13 +113,9 @@ class TestBatchReindexScheduler:
         with patch.object(sched.AsyncIOScheduler, "start", return_value=None):
             scheduler.start()
 
+        # 未实现前不应注册该任务，避免假成功通知；待 reindex_missing_vectors 落地后再启用
         job = scheduler._scheduler.get_job("batch_reindex_daily")
-        assert job is not None
-
-        trigger_text = str(job.trigger)
-        assert f"hour='{sched.BATCH_REINDEX_HOUR}'" in trigger_text
-        assert f"minute='{sched.BATCH_REINDEX_MINUTE}'" in trigger_text
-        assert str(job.trigger.timezone) == sched.TIMEZONE
+        assert job is None
 
     def test_run_now_does_not_dispatch_batch_reindex(self):
         from app.data_pipeline import scheduler as sched

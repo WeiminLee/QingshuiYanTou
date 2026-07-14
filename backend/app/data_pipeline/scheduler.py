@@ -579,7 +579,10 @@ class Scheduler:
             coalesce=True,
         )
         add_pdf_rotation_job(self._scheduler)
-        add_batch_reindex_job(self._scheduler)
+        # batch_reindex 未注册：reindex_missing_vectors 尚未实现（缺 kg_extraction_index.vector_indexed
+        # 字段），且现网向量在抽取时已内联写入（evidence_worker / kg_extractor），无"缺失向量待补"场景。
+        # 若注册，每晚会向 monitor/钉钉误报 SUCCESS(count=0) 假成功。待 schema 落地后再启用 add_batch_reindex_job。
+        # add_batch_reindex_job(self._scheduler)
         self._scheduler.add_job(
             _run_sync_stocks_job,
             CronTrigger(

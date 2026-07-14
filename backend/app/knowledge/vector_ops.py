@@ -247,26 +247,18 @@ async def reindex_missing_vectors(batch_size: int = 100) -> int:
 
     Returns count of successfully reindexed records.
 
-    This is the core of the nightly batch job (D-07).
-
-    NOTE: This is a stub implementation. Full implementation depends on
-    Phase 05's MongoDB schema for kg_extraction_index collection.
+    未实现（no-op）。原设计依赖 kg_extraction_index 集合的 `vector_indexed` 字段来定位
+    "已抽取但未建向量" 的记录，但该字段从未落地；且现网向量已在抽取时内联写入
+    （evidence_worker.upsert_evidence_chunk_vector / kg_extractor.upsert_chunk_vector），
+    不存在需要批量补建的场景。因此这里恒返回 0，且对应的每晚定时任务已在 scheduler 中停用，
+    以免向 monitor/钉钉误报 SUCCESS 假成功。待 schema 落地后再实现真正的补建逻辑。
     """
-    total_reindexed = 0
-
-    try:
-        logger.info(f"[BatchReindex] Starting reindex batch (batch_size={batch_size})")
-        # TODO: Implement actual MongoDB query and reindex logic
-        # Expected flow:
-        # 1. Query MongoDB: kg_extraction_index.find({"kg_status": "DONE", "vector_indexed": False})
-        # 2. For each record, call async_upsert_* based on record type
-        # 3. Update MongoDB: vector_indexed = True
-        logger.info("[BatchReindex] Stub - returning 0 (depends on Phase 05 MongoDB schema)")
-
-    except Exception as e:
-        logger.error(f"[BatchReindex] Failed: {e}")
-
-    return total_reindexed
+    logger.info(
+        "[BatchReindex] no-op：reindex_missing_vectors 未实现（向量已内联写入），返回 0 "
+        "(batch_size=%d)",
+        batch_size,
+    )
+    return 0
 
 
 # ── 向量补偿机制 ───────────────────────────────────────────────────────
