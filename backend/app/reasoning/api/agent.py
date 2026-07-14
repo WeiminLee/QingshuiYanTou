@@ -305,6 +305,46 @@ async def list_tasks(limit: int = 20, _=Depends(verify_api_key)):
     return {"items": items}
 
 
+# ── 报告级反馈 ────────────────────────────────────────────
+# 注意：这与 /api/v1/kg/feedback（纠正 KG 关系 weight）语义不同，
+# 此处记录用户对整篇 Agent 报告的点赞/点踩，供离线质量分析。
+
+
+class AgentFeedbackRequest(BaseModel):
+    task_id: str
+    rating: str  # "good" | "bad"
+    comment: str | None = None
+    question: str | None = None
+    user_id: str | None = None
+
+
+class AgentFeedbackResponse(BaseModel):
+    feedback_id: str
+    task_id: str
+    rating: str
+
+
+@router.post("/feedback", response_model=AgentFeedbackResponse)
+async def submit_agent_feedback(request: AgentFeedbackRequest, _=Depends(verify_api_key)):
+    """接收用户对 Agent 报告的点赞/点踩，写入 MongoDB agent_feedback。"""
+    from app.reasoning.agent_feedback_service import record_agent_feedback
+
+    try:
+        result = await record_agent_feedback(
+            task_id=request.task_id,
+            rating=request.rating,
+            comment=request.comment,
+            question=request.question,
+            user_id=request.user_id,
+        )
+        return AgentFeedbackResponse(**result)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.exception("[Agent] submit_feedback failed: %s", e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ── Layer 4 报告端点 ──────────────────────────────────────
 
 

@@ -308,10 +308,20 @@
                 <el-icon><CopyDocument /></el-icon>
                 复制
               </el-button>
-              <el-button size="small" text @click="handleGoodFeedback">
+              <el-button
+                size="small"
+                text
+                :type="submittedFeedback === 'good' ? 'primary' : ''"
+                @click="handleGoodFeedback"
+              >
                 <el-icon><Goods /></el-icon>
               </el-button>
-              <el-button size="small" text @click="handleBadFeedback">
+              <el-button
+                size="small"
+                text
+                :type="submittedFeedback === 'bad' ? 'danger' : ''"
+                @click="handleBadFeedback"
+              >
                 <el-icon><CircleClose /></el-icon>
               </el-button>
             </div>
@@ -333,7 +343,7 @@
 
 <script setup lang="ts">
 import { ref, computed, watch, onMounted } from "vue";
-import { getTaskResult } from "../api/agent.js";
+import { getTaskResult, submitAgentFeedback } from "../api/agent.js";
 import { useChatSession } from "@/composables/useChatSession";
 import { useHistoryData } from "@/composables/useHistoryData";
 import { ChatList, ChatSender } from "@tdesign-vue-next/chat";
@@ -346,6 +356,7 @@ import ThinkingPanel from "@/components/ThinkingPanel.vue";
 import ToolCallStep from "@/components/ToolCallStep.vue";
 import SignalRadar from "@/components/SignalRadar.vue";
 import { CopyDocument, Goods, CircleClose } from "@element-plus/icons-vue";
+import { ElMessage } from "element-plus";
 import { UserRound, Sparkles } from "lucide-vue-next";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -391,6 +402,8 @@ const inputText = ref("");
 // ─────────────────────────────────────────────────────────────────────────────
 const reportContent = ref("");
 const reportJson = ref<Record<string, any> | null>(null);
+// 报告级反馈：记录当前报告已提交的评价（"good"/"bad"/""），用于防重复与高亮
+const submittedFeedback = ref("");
 const latestAssistantToolCalls = computed(() => {
   const assistantMessages = messages.value.filter((m) => m.role === "assistant");
   const last = assistantMessages[assistantMessages.length - 1];
@@ -422,6 +435,7 @@ async function fetchFinalReport(tid: string) {
     reportJson.value = res.reportJson || null;
     if (raw) {
       reportContent.value = raw;
+      submittedFeedback.value = ""; // 新报告，重置反馈状态
     }
   } catch {
     // Report fetch failed — content already streamed via ChatList
@@ -506,6 +520,7 @@ async function loadHistoryTask(item: any) {
     const raw = res.reportContent || res.content || "";
     reportJson.value = res.reportJson || null;
     reportContent.value = raw;
+    submittedFeedback.value = ""; // 切换报告，重置反馈状态
   } catch {
     // Error already handled by useChatSession
   }
@@ -518,12 +533,32 @@ function handleCopyContent() {
   }
 }
 
+async function sendFeedback(rating: "good" | "bad") {
+  const tid = taskId.value;
+  if (!tid) {
+    ElMessage.warning("暂无可反馈的报告");
+    return;
+  }
+  if (submittedFeedback.value === rating) return; // 防重复
+  try {
+    await submitAgentFeedback({
+      taskId: tid,
+      rating,
+      question: lastQuestion.value || undefined,
+    });
+    submittedFeedback.value = rating;
+    ElMessage.success(rating === "good" ? "感谢反馈" : "已记录，我们会持续改进");
+  } catch {
+    ElMessage.error("反馈提交失败，请稍后重试");
+  }
+}
+
 function handleGoodFeedback() {
-  // TODO: wire to feedback API
+  sendFeedback("good");
 }
 
 function handleBadFeedback() {
-  // TODO: wire to feedback API
+  sendFeedback("bad");
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

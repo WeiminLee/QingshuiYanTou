@@ -57,3 +57,12 @@ export const chatQuestion = (params) => apiClient.post("/agent/chat", params);
 
 // 生成报告（同步接口）
 export const generateReport = (params) => apiClient.post("/agent/report", params);
+
+// 提交报告级反馈（点赞/点踩）
+export const submitAgentFeedback = ({ taskId, rating, comment, question }) =>
+  apiClient.post("/agent/feedback", {
+    task_id: taskId,
+    rating,
+    comment: comment || undefined,
+    question: question || undefined,
+  });
