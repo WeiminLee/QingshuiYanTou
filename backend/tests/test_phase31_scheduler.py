@@ -192,6 +192,7 @@ def test_fire_all_once_uses_running_loop(monkeypatch):
     monkeypatch.setattr(sched, "_run_cninfo_enqueue_job", fake_job)
     monkeypatch.setattr(sched, "_run_ingestion_worker_job", fake_job)
     monkeypatch.setattr(sched, "_run_sync_stocks_job", fake_job)
+    monkeypatch.setattr(sched, "_run_news_job", fake_job)
 
     async def run_case():
         nonlocal created_count
@@ -217,7 +218,8 @@ def test_fire_all_once_uses_running_loop(monkeypatch):
 
     asyncio.run(run_case())
 
-    assert created_count == 7
+    # _fire_all_once 启动补漏任务数：report/concept/kline/irm/cninfo/ingestion/sync_stocks/news = 8
+    assert created_count == 8
 
 
 def test_ingestion_worker_job_drains_once(monkeypatch):

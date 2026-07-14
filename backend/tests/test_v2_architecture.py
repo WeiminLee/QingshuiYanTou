@@ -47,19 +47,20 @@ class TestV2ArchitectureImports:
         assert LangChainAgentClient is not None
 
     def test_v2_middlewares_importable(self):
-        """V2 中间件可导入"""
-        from app.reasoning.langchain_agent.middlewares.manual_agent_loop import ManualAgentLoop
+        """V2 中间件可导入
 
+        注：manual_agent_loop 模块已删除（手动 loop 被 client.py 的 create_agent()+astream 取代），
+        故不再导入 ManualAgentLoop；ContextCompressor 已改名为 ContextCompressorMiddleware。
+        """
         from app.reasoning.langchain_agent.middlewares.clarification import ClarificationMiddleware
-        from app.reasoning.langchain_agent.middlewares.context_compressor import ContextCompressor
+        from app.reasoning.langchain_agent.middlewares.context_compressor import ContextCompressorMiddleware
         from app.reasoning.langchain_agent.middlewares.loop_detection import LoopDetectionMiddleware
         from app.reasoning.langchain_agent.middlewares.subagent_limit import SubagentLimitMiddleware
 
         assert ClarificationMiddleware is not None
         assert LoopDetectionMiddleware is not None
         assert SubagentLimitMiddleware is not None
-        assert ContextCompressor is not None
-        assert ManualAgentLoop is not None
+        assert ContextCompressorMiddleware is not None
 
     def test_registry_importable(self):
         """工具注册表可导入"""
@@ -68,11 +69,16 @@ class TestV2ArchitectureImports:
         assert get_registry is not None
 
     def test_tools_module_importable(self):
-        """tools/ 模块可导入（V1 兼容，但有 Canvas 引用）"""
-        from app.reasoning.tools import get_tool_class, list_registered_tools
+        """工具层可导入
 
-        assert get_tool_class is not None
-        assert list_registered_tools is not None
+        注：旧的 get_tool_class/list_registered_tools 已删除，工具改由 V2 registry 加载
+        （见 tools/__init__.py 指引）。此处验证 registry 工具入口可用。
+        """
+        from app.reasoning.registry import get_registry
+
+        registry = get_registry()
+        assert registry is not None
+        assert callable(registry.get_tool_instances)
 
     def test_harness_budget_importable(self):
         """Harness budget 模块可导入（V2 引用）"""
@@ -171,67 +177,98 @@ class TestToolRegistry:
         expected_new = {"web_fetch", "ls", "read_file", "write_file", "ask_clarification"}
         missing = expected_new - names
         assert not missing, f"New tools missing from config.yaml: {missing}"
-        assert len(names) == 25, f"Expected 25 tools in YAML, got {len(names)}"
+        assert len(names) == 27, f"Expected 27 tools in YAML, got {len(names)}"
 
 
 class TestV2MiddlewaresChain:
     """V2 中间件链路测试"""
 
     def test_clarification_middleware_has_check_question(self):
-        """ClarificationMiddleware 有 check_question 方法"""
+        """ClarificationMiddleware 有澄清判定能力
+
+        注：旧的 check_question/check_and_emit 已删除，改用 LangChain hook 模式：
+        after_model_hook + 静态 _needs_clarification/_build_suggestions。
+        """
         from app.reasoning.langchain_agent.middlewares.clarification import ClarificationMiddleware
 
         mw = ClarificationMiddleware()
-        assert hasattr(mw, "check_question")
-        assert callable(mw.check_question)
+        assert hasattr(mw, "after_model_hook")
+        assert callable(mw.after_model_hook)
+        # 澄清判定逻辑迁移为静态方法
+        assert mw._needs_clarification("这个") is True
+        assert isinstance(mw._build_suggestions("这个"), list)
 
     def test_loop_detection_middleware_has_detect_loop(self):
-        """LoopDetectionMiddleware 有循环检测方法"""
+        """LoopDetectionMiddleware 有循环检测方法
+
+        注：旧的 detect_loop 已删除，改用 LangChain hook 模式（after_model/before_agent 等）。
+        """
         from app.reasoning.langchain_agent.middlewares.loop_detection import LoopDetectionMiddleware
 
         mw = LoopDetectionMiddleware()
-        # 检测实际方法名（detect 或 check）
-        has_detect = any(attr in dir(mw) for attr in ("detect_loop", "check", "detect", "should_stop"))
+        # 检测实际 hook 方法名
+        has_detect = any(attr in dir(mw) for attr in ("after_model", "before_agent", "wrap_model_call"))
         assert has_detect, (
-            f"LoopDetectionMiddleware has no detection method. Methods: {[m for m in dir(mw) if not m.startswith('_')]}"
+            f"LoopDetectionMiddleware has no detection hook. Methods: {[m for m in dir(mw) if not m.startswith('_')]}"
         )
 
     def test_context_compressor_instantiable(self):
-        """ContextCompressor 可正常实例化"""
-        from app.reasoning.langchain_agent.middlewares.context_compressor import ContextCompressor
+        """ContextCompressorMiddleware 可正常实例化
+
+        注：ContextCompressor 已改名为 ContextCompressorMiddleware（LangChain 中间件模式）。
+        """
+        from app.reasoning.langchain_agent.middlewares.context_compressor import ContextCompressorMiddleware
 
         # 实例化（不接受参数，或接受默认参数）
-        comp = ContextCompressor()
+        comp = ContextCompressorMiddleware()
         assert comp is not None
 
 
 class TestP1FrontendSSEReportView:
-    """P1: ReportView.vue SSE 事件处理验证"""
+    """P1: ReportView.vue SSE 事件处理验证
+
+    注：SSE 事件监听已从 ReportView.vue 内联抽取到 useChatSession 组合式函数
+    （tool_called/tool_result/thinking 均在 composables/useChatSession.ts 中监听）；
+    ReportView.vue 通过 useChatSession + ToolCallStep/ThinkingPanel 渲染。
+    原硬编码路径 /home/10241671/... 已失效，改用相对定位到真实前端文件。
+    """
+
+    _REPORT_VIEW = os.path.normpath(
+        os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "..",
+            "frontend",
+            "src",
+            "views",
+            "ReportView.vue",
+        )
+    )
 
     def test_report_view_has_tool_called_sse_handler(self):
         """
-        RED: ReportView.vue 缺少 tool_called/tool_result SSE 事件处理。
-        修复后：应在 connectSSE 中处理 tool_called 和 tool_result 事件。
+        ReportView.vue 应接入处理 tool_called/tool_result 的会话层，并渲染工具调用。
         """
-        import os
+        if not os.path.exists(self._REPORT_VIEW):
+            pytest.skip(f"ReportView.vue not found at {self._REPORT_VIEW}")
 
-        REPORT_VIEW = "/home/10241671/code/LocalProjects/QingShuiTouYan/frontend/src/views/ReportView.vue"
-        assert os.path.exists(REPORT_VIEW), f"ReportView.vue not found at {REPORT_VIEW}"
-
-        content = open(REPORT_VIEW).read()
-        assert "tool_called" in content, (
-            "P1 GAP: ReportView.vue 缺少 tool_called SSE 事件处理！"
-            "应在 connectSSE 的 onmessage 中添加对 tool_called 事件的处理，"
-            "参考 Home.vue 的 useStreamingRenderer 模式。"
+        content = open(self._REPORT_VIEW, encoding="utf-8").read()
+        # SSE 工具事件监听已迁移至 useChatSession 组合式函数
+        assert "useChatSession" in content, (
+            "P1 GAP: ReportView.vue 未接入 useChatSession（承载 tool_called/tool_result SSE 监听）！"
+        )
+        # 工具调用需在页面上渲染
+        assert "ToolCallStep" in content and "toolCalls" in content, (
+            "P1 GAP: ReportView.vue 未渲染工具调用（ToolCallStep / toolCalls）！"
         )
 
     def test_report_view_uses_streaming_renderer(self):
-        """ReportView.vue 应使用 useStreamingRenderer 渲染 CoT 步骤"""
-        REPORT_VIEW = "/home/10241671/code/LocalProjects/QingShuiTouYan/frontend/src/views/ReportView.vue"
-        content = open(REPORT_VIEW).read()
-        assert "useStreamingRenderer" in content, (
-            "P1 GAP: ReportView.vue 未引入 useStreamingRenderer！"
-            "应引入 useStreamingRenderer 并处理 thinking/tool_called/tool_result 事件。"
+        """ReportView.vue 应使用流式渲染展示 CoT 步骤（ThinkingPanel + TDesign 适配器）"""
+        if not os.path.exists(self._REPORT_VIEW):
+            pytest.skip(f"ReportView.vue not found at {self._REPORT_VIEW}")
+
+        content = open(self._REPORT_VIEW, encoding="utf-8").read()
+        assert "useTDesignAdapter" in content and "ThinkingPanel" in content, (
+            "P1 GAP: ReportView.vue 未使用流式渲染（useTDesignAdapter / ThinkingPanel）处理思考步骤！"
         )
 
 
@@ -240,15 +277,26 @@ class TestP2MemoryLayerActivation:
 
     def test_memory_context_loads_gracefully(self):
         """
-        _load_memory_context() 异常时返回空字符串（不阻断 Agent）。
+        Memory 加载异常时不阻断 Agent（返回空字符串）。
+
+        注：旧的 client._load_memory_context() 已删除，Memory 加载内联进 run_lead_agent()，
+        统一由 MemoryManager.prefetch_all() 承担（吞掉 provider 异常 → 返回 ""）。
+        此处验证等价的优雅降级：某个 provider 抛错时 prefetch_all 仍返回空串而非抛出。
         """
         import asyncio
 
-        from app.reasoning.langchain_agent.client import _load_memory_context
+        from app.reasoning.langchain_agent.memory.manager import MemoryManager
 
-        # 传入不存在的 thread_id，任何错误都应返回空字符串
-        result = asyncio.run(_load_memory_context("nonexistent-thread-xyz"))
-        assert result == "", "_load_memory_context should return empty string on error, got: " + repr(result)
+        class _BrokenProvider:
+            name = "broken"
+
+            async def prefetch(self, query: str) -> str:
+                raise RuntimeError("boom")
+
+        mgr = MemoryManager()
+        mgr.add_provider(_BrokenProvider())
+        result = asyncio.run(mgr.prefetch_all("任意问题"))
+        assert result == "", "prefetch_all should return empty string when a provider fails, got: " + repr(result)
 
     def test_harness_config_defaults_to_disabled(self):
         """HarnessConfig 默认关闭所有能力（向后兼容）"""
@@ -284,72 +332,11 @@ class TestP2MemoryLayerActivation:
                 raise
 
 
-class TestP0ManualAgentLoopBugFix:
-    """P0: use_manual_loop=True 分支中 model 重复创建 Bug 修复验证"""
-
-    def test_manual_loop_reuses_model_from_ensure_agent(self):
-        """
-        P0-Bug2 修复验证：
-        model 应从 _ensure_agent() 返回的 (agent, model) 元组获取，
-        不应在 if use_manual_loop: 块内再次调用 _create_chat_model()。
-        """
-        import ast
-        import inspect
-
-        from app.reasoning.langchain_agent import client as client_module
-
-        source = inspect.getsource(client_module.run_lead_agent)
-        tree = ast.parse(source)
-
-        class ManualLoopVisitor(ast.NodeVisitor):
-            def __init__(self):
-                self.found_manual_loop = False
-                self.model_from_ensure = False  # agent, model = _ensure_agent(...)
-                self.duplicate_create_inside_loop = False  # model = _create_chat_model(...) 在 if 块内
-
-            def visit_Assign(self, node):
-                # 处理 "agent, model = _ensure_agent(...)" 元组解包
-                if isinstance(node.targets[0], ast.Tuple):
-                    targets = node.targets[0].elts
-                    if len(targets) == 2 and all(isinstance(t, ast.Name) for t in targets):
-                        left_names = [t.id for t in targets]
-                        if left_names == ["agent", "model"]:
-                            for val in ast.walk(node.value):
-                                if isinstance(val, ast.Call) and isinstance(val.func, ast.Name):
-                                    if val.func.id == "_ensure_agent":
-                                        self.model_from_ensure = True
-
-                for t in node.targets:
-                    if isinstance(t, ast.Name) and t.id == "model":
-                        for val in ast.walk(node.value):
-                            if isinstance(val, ast.Call) and isinstance(val.func, ast.Name):
-                                if val.func.id == "_create_chat_model":
-                                    if self._inside_manual_loop:
-                                        self.duplicate_create_inside_loop = True
-                self.generic_visit(node)
-
-            def visit_If(self, node):
-                outer = self._inside_manual_loop
-                for test in ast.walk(node.test):
-                    if isinstance(test, ast.Name) and test.id == "use_manual_loop":
-                        self.found_manual_loop = True
-                        self._inside_manual_loop = True
-                        self.generic_visit(node)
-                        self._inside_manual_loop = outer
-                        return
-                self._inside_manual_loop = outer
-                self.generic_visit(node)
-
-            _inside_manual_loop: bool = False
-
-        visitor = ManualLoopVisitor()
-        visitor.visit(tree)
-
-        assert visitor.found_manual_loop, "use_manual_loop 分支未找到"
-        assert visitor.model_from_ensure, "_ensure_agent() 应返回 (agent, model) 元组并在调用处解包"
-        assert not visitor.duplicate_create_inside_loop, (
-            "P0 BUG: if use_manual_loop: 块内不应再次调用 _create_chat_model()。model 已从 _ensure_agent() 获取。"
-        )
+# NOTE: TestP0ManualAgentLoopBugFix 已删除。
+# 该类验证的是 run_lead_agent 中 `if use_manual_loop:` 分支复用 _ensure_agent() 返回 model 的
+# Bug 修复，但手动 agent 循环架构已彻底删除（use_manual_loop / _ensure_agent 均不存在）。
+# 现在逻辑改用 LangChain 原生 create_agent() + agent.astream()，见
+# app/reasoning/langchain_agent/client.py 的 run_lead_agent / _run_stream。无对应新实现可迁移。
 
 
 class TestDeadCodeRemoved:

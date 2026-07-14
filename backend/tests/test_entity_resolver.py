@@ -23,21 +23,44 @@ from app.knowledge.stock_name_resolver import StockNameResolver, get_stock_name_
 
 
 @pytest.fixture(autouse=True)
-def warm_resolver():
-    """Pre-warm the singleton resolver from supplemental_aliases.json only.
+def warm_resolver(tmp_path):
+    """Pre-warm the singleton resolver with a self-contained supplemental alias file.
 
-    PostgreSQL is mocked out so tests don't need a live database; cross-language
-    aliases (英伟达/NVIDIA) come from supplemental_aliases.json.
+    PostgreSQL is mocked out so tests don't need a live database. 跨语言别名
+    （英伟达/NVIDIA）此前依赖仓库根 data/supplemental_aliases.json，但该文件未纳入版本控制，
+    在 CI/其他机器上缺失会使 test_chinese_alias 失败。这里在 tmp 目录构造一份最小别名表并
+    把 _SUPPLEMENTAL_PATH 指过去，让测试自包含。
     """
+    import json
+
+    from app.knowledge import stock_name_resolver as snr
+
     resolver = get_stock_name_resolver()
     if resolver._loaded:
         yield
         return
 
+    supp = tmp_path / "supplemental_aliases.json"
+    supp.write_text(
+        json.dumps(
+            {
+                "NVDA.O": {
+                    "names": ["NVIDIA", "英伟达"],
+                    "sector_tags": ["semiconductor"],
+                }
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
     async def no_pg(self):
         return 0
 
-    with patch.object(StockNameResolver, "_load_from_postgresql", no_pg):
+    with (
+        patch.object(StockNameResolver, "_load_from_postgresql", no_pg),
+        patch.object(snr, "_SUPPLEMENTAL_PATH", supp),
+    ):
         asyncio.run(resolver.warm_cache())
     yield
 

@@ -46,52 +46,10 @@ class TestLLMEngineInitialization:
         assert hasattr(engine, "ainvoke")
         assert hasattr(engine, "bind_tools")
 
-    @patch.dict(
-        "os.environ",
-        {
-            "LLM_BASE_URL": "https://api.example.com/v1",
-            "LLM_API_KEY": "test-key-123",
-            "LLM_MODEL": "test-model",
-        },
-    )
-    def test_get_llm_engine_uses_correct_init_method(self):
-        """
-        Bug #2 修复验证：
-        _get_llm_engine() 应使用 LLMEngineConfig.from_env() + LLMEngine()。
-        修复前：LLMEngine.from_settings() 不存在 → AttributeError → 返回 None（静默失败）
-        修复后：LLMEngineConfig.from_env() + LLMEngine() → 成功返回引擎实例
-        """
-        import importlib
-
-        # 全局变量需要 reset，reload 模块以清除旧状态
-        from app.reasoning.langchain_agent.middlewares import context_compressor as cc_module
-
-        cc_module._llm_engine = None  # reset singleton
-        importlib.reload(cc_module)
-
-        engine = cc_module._get_llm_engine()
-
-        # 验证：修复后应返回非 None 的 LLMEngine 实例
-        assert engine is not None, (
-            "_get_llm_engine() 应通过 LLMEngineConfig.from_env() + LLMEngine(config) "
-            "成功初始化，返回 LLMEngine 实例而非 None"
-        )
-        assert hasattr(engine, "ainvoke"), "返回对象应有 ainvoke 方法"
-        assert hasattr(engine, "bind_tools"), "返回对象应有 bind_tools 方法"
-
-    def test_source_uses_correct_factory(self):
-        """
-        直接检查源码：_get_llm_engine 中不应出现 .from_settings 调用。
-        """
-        import inspect
-
-        from app.reasoning.langchain_agent.middlewares import context_compressor as cc_module
-
-        src = inspect.getsource(cc_module._get_llm_engine)
-
-        assert "from_settings" not in src, (
-            "Bug #2: _get_llm_engine 源码中不应出现 .from_settings （该方法不存在，应使用 LLMEngineConfig.from_env）"
-        )
+    # 注：test_get_llm_engine_uses_correct_init_method / test_source_uses_correct_factory
+    # 已删除——它们验证 context_compressor 的模块级单例 _get_llm_engine()，但该架构已重写为
+    # ContextCompressorMiddleware 持有 self._llm/_fallback_llm 实例（见 _call_summary_llm），
+    # _get_llm_engine 不再存在。LLMEngine 的正确构建方式仍由上面 3 个测试覆盖。
 
 
 # ── Bug #4: get_result 死代码 ────────────────────────────────────────
@@ -130,7 +88,6 @@ class TestGetResultDeadCode:
         1. 查 _task_manager.get_task(id) -> 命中则返回 ResultResponse
         2. 不再继续执行其他分支（无冗余 get_task）
         """
-        from unittest.mock import patch
 
         from app.reasoning.api.agent import ResultResponse, get_result
 

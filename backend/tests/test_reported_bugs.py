@@ -219,9 +219,10 @@ def test_safe_float_rejects_nan_and_infinity():
 def test_relation_weight_normalization_handles_bad_values():
     from app.knowledge.kg_extractor import _normalize_relation_weight
 
-    assert _normalize_relation_weight("bad") == 0.5
-    assert _normalize_relation_weight(None) == 0.5
-    assert _normalize_relation_weight(float("nan")) == 0.5
+    # 无效 / 缺失权重回退到默认置信度（Prompt 定义 0.7=LLM推断，与生产 default 同步）
+    assert _normalize_relation_weight("bad") == 0.7
+    assert _normalize_relation_weight(None) == 0.7
+    assert _normalize_relation_weight(float("nan")) == 0.7
     assert _normalize_relation_weight(8) == 0.8
     assert _normalize_relation_weight(0.7) == 0.7
 

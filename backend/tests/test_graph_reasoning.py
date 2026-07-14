@@ -53,13 +53,16 @@ class TestNeo4jTools:
         load_tools_from_config()
         registry = get_registry()
 
-        # 检查新工具已注册
-        assert registry.get_config("neo4j_entity_info") is not None
+        # neo4j_traverse / neo4j_entity_info 已被 resolve+expand 替代（config.yaml enabled:false），
+        # 禁用工具不进注册表；仅 resolve/expand 无法替代的 neo4j_path / neo4j_industry_state 保留。
+        assert registry.get_config("neo4j_traverse") is None
+        assert registry.get_config("neo4j_entity_info") is None
+
+        # 检查保留工具已注册
         assert registry.get_config("neo4j_path") is not None
         assert registry.get_config("neo4j_industry_state") is not None
 
         # 检查工具实例可获取
-        assert registry.get_tool_instance("neo4j_entity_info") is not None
         assert registry.get_tool_instance("neo4j_path") is not None
         assert registry.get_tool_instance("neo4j_industry_state") is not None
 
@@ -109,23 +112,31 @@ class TestSystemPrompt:
     """测试 System Prompt 更新"""
 
     def test_graph_reasoning_section_exists(self):
-        """测试 graph_reasoning 部分存在"""
+        """测试 graph_reasoning 部分存在
+
+        neo4j_traverse/neo4j_path/neo4j_entity_info 已被 resolve+expand 图谱推理范式替代，
+        graph_reasoning 段落改用 resolve/expand 描述受控子图展开。
+        """
         from app.reasoning.langchain_agent.prompts.lead_system_prompt import SYSTEM_PROMPT_TEMPLATE
 
         assert "<graph_reasoning>" in SYSTEM_PROMPT_TEMPLATE
-        assert "neo4j_traverse" in SYSTEM_PROMPT_TEMPLATE
-        assert "neo4j_path" in SYSTEM_PROMPT_TEMPLATE
-        assert "neo4j_entity_info" in SYSTEM_PROMPT_TEMPLATE
+        assert "resolve" in SYSTEM_PROMPT_TEMPLATE
+        assert "expand" in SYSTEM_PROMPT_TEMPLATE
+        assert "产业链" in SYSTEM_PROMPT_TEMPLATE
         assert "neo4j_industry_state" in SYSTEM_PROMPT_TEMPLATE
 
     def test_scenario_d_and_e_exist(self):
-        """测试场景 D 和 E 存在"""
+        """测试产业链传导 / 行业状态评估场景存在
+
+        原"场景 D/E"固定优先级已改为场景化 skill 组合（skill_view），
+        产业链与行业状态两类分析场景仍保留。
+        """
         from app.reasoning.langchain_agent.prompts.lead_system_prompt import SYSTEM_PROMPT_TEMPLATE
 
-        assert "场景 D" in SYSTEM_PROMPT_TEMPLATE
-        assert "场景 E" in SYSTEM_PROMPT_TEMPLATE
-        assert "产业链传导分析" in SYSTEM_PROMPT_TEMPLATE
-        assert "行业状态评估" in SYSTEM_PROMPT_TEMPLATE
+        assert 'skill_view("supply-chain")' in SYSTEM_PROMPT_TEMPLATE
+        assert 'skill_view("industry-state")' in SYSTEM_PROMPT_TEMPLATE
+        assert "产业链分析" in SYSTEM_PROMPT_TEMPLATE
+        assert "行业状态" in SYSTEM_PROMPT_TEMPLATE
 
 
 class TestKGAnchorsEnhancement:
@@ -151,11 +162,11 @@ class TestLeadAgentIntegration:
         # 中间件数量：ContextCompressor + LoopDetection + ReasoningValidation = 3
         assert len(middlewares) == 3
 
-        # 检查中间件名称
+        # 检查中间件名称（LoopDetection 中间件 name 属性为类名 LoopDetectionMiddleware）
         names = [m.name for m in middlewares]
         assert "context_compressor" in names
         assert "reasoning_validation" in names
-        assert "loop_detection" in names
+        assert "LoopDetectionMiddleware" in names
 
 
 if __name__ == "__main__":

@@ -42,28 +42,28 @@ class TestClarificationV2ShortQuestion:
 
         mw = ClarificationMiddleware()
 
-        result = mw.check_question("分析")
-        assert result is not None, "短问题应触发澄清"
-        assert "过短" in result or "补充" in result
+        # 新 API：check_question → _needs_clarification + _build_suggestions
+        assert mw._needs_clarification("分析") is True, "短问题应触发澄清"
+        suggestions = mw._build_suggestions("分析")
+        assert suggestions, "触发澄清时应给出补充建议"
+        assert any("提供" in s or "描述" in s for s in suggestions)
 
     @pytest.mark.anyio
     async def test_short_question_emits_clarification_sse(self):
         """短问题应通过 emit_fn 发射 clarification_request 事件"""
-        from app.reasoning.langchain_agent.middlewares.clarification import (
-            ClarificationMiddleware,
-        )
+        from app.reasoning.langchain_agent.client import run_lead_agent
 
-        mw = ClarificationMiddleware()
         emitted = []
 
         async def fake_emit(event_type, data):
             emitted.append((event_type, data))
 
-        await mw.check_and_emit("分析", emit_fn=fake_emit)
+        result = await run_lead_agent("分析", emit_fn=fake_emit)
 
-        assert len(emitted) == 1
-        event_type, data = emitted[0]
-        assert event_type == "clarification_request"
+        assert result["status"] == "clarification_requested"
+        clar = [e for e in emitted if e[0] == "clarification_request"]
+        assert len(clar) == 1
+        _, data = clar[0]
         assert data["type"] == "missing_info"
 
     def test_normal_question_no_clarification(self):
@@ -74,8 +74,9 @@ class TestClarificationV2ShortQuestion:
 
         mw = ClarificationMiddleware()
 
-        result = mw.check_question("分析中际旭创2024年光模块业务竞争力")
-        assert result is None, f"具体问题不应触发澄清，实际返回：{result}"
+        assert mw._needs_clarification("分析中际旭创2024年光模块业务竞争力") is False, (
+            "具体问题不应触发澄清"
+        )
 
 
 # ── Test 2: ClarificationMiddleware V2 — 模糊问题触发澄清 ───────────
@@ -85,16 +86,19 @@ class TestClarificationV2VagueQuestion:
     """包含模糊关键词（无具体标的）的问题触发澄清"""
 
     def test_vague_keyword_triggers_clarification(self):
-        """仅有 '分析一下' 等模糊词，无具体标的 → 触发澄清"""
+        """仅有模糊词（帮我看一下 + 无具体标的）→ 触发澄清"""
         from app.reasoning.langchain_agent.middlewares.clarification import (
             ClarificationMiddleware,
         )
 
         mw = ClarificationMiddleware()
 
-        result = mw.check_question("分析一下这个行业")
-        assert result is not None, "模糊问题应触发澄清"
-        assert "标的" in result or "范围" in result or "具体" in result
+        # 新语义：模糊词需配合"缺少标的"信号（如"这只"）才判为模糊；
+        # 原用例 "分析一下这个行业" 因带有具体对象在新逻辑下已属明确。
+        result = mw._needs_clarification("帮我看一下这只")
+        assert result is True, "模糊问题应触发澄清"
+        suggestions = mw._build_suggestions("帮我看一下这只")
+        assert any("标的" in s or "范围" in s or "具体" in s or "代码" in s for s in suggestions)
 
     def test_vague_with_entity_no_clarification(self):
         """有模糊词但有具体实体（股票名/行业名）→ 不触发澄清"""
@@ -105,26 +109,26 @@ class TestClarificationV2VagueQuestion:
         mw = ClarificationMiddleware()
 
         # 有 "光模块行业" — 具体
-        result = mw.check_question("分析一下光模块行业的竞争格局")
-        assert result is None, f"有具体实体的模糊问题不应触发澄清：{result}"
+        result = mw._needs_clarification("分析一下光模块行业的竞争格局")
+        assert result is False, "有具体实体的模糊问题不应触发澄清"
 
     @pytest.mark.anyio
     async def test_vague_question_emits_correct_type(self):
         """模糊问题发射的 SSE type 应为 'ambiguous_requirement'"""
-        from app.reasoning.langchain_agent.middlewares.clarification import (
-            ClarificationMiddleware,
-        )
+        from app.reasoning.langchain_agent.client import run_lead_agent
 
-        mw = ClarificationMiddleware()
         emitted = []
 
         async def fake_emit(event_type, data):
             emitted.append((event_type, data))
 
-        await mw.check_and_emit("分析一下", emit_fn=fake_emit)
+        # 使用 >=10 字符的模糊问题，走 ambiguous_requirement 分支（而非短问题的 missing_info）
+        result = await run_lead_agent("帮我看一下这只最近怎么样", emit_fn=fake_emit)
 
-        assert len(emitted) == 1
-        _, data = emitted[0]
+        assert result["status"] == "clarification_requested"
+        clar = [e for e in emitted if e[0] == "clarification_request"]
+        assert len(clar) == 1
+        _, data = clar[0]
         assert data["type"] in ("ambiguous_requirement", "missing_info")
 
 
@@ -300,16 +304,17 @@ class TestMiddlewareDegradation:
     """中间件抛异常时降级，不阻断 Agent"""
 
     def test_clarification_raises_return_none(self):
-        """ClarificationMiddleware 异常时返回 None（不阻断）"""
+        """ClarificationMiddleware 处理空/异常输入时不崩溃（不阻断）"""
         from app.reasoning.langchain_agent.middlewares.clarification import (
             ClarificationMiddleware,
         )
 
         mw = ClarificationMiddleware()
-        # 传入 None / 空字符串不应崩溃
-        result = mw.check_question("")
-        # 空问题可以要求澄清，也可以放行（只要不抛异常）
-        assert result is None or isinstance(result, str)
+        # 传入空字符串不应崩溃；判定与建议均应正常返回
+        needed = mw._needs_clarification("")
+        assert isinstance(needed, bool)
+        suggestions = mw._build_suggestions("")
+        assert isinstance(suggestions, list)
 
     @pytest.mark.anyio
     async def test_subagent_limit_raises_return_allowed(self):

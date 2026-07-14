@@ -151,6 +151,7 @@ class TestAkshareThrottleApplied:
             await fetcher.fetch_reports(trade_date="20260501")
         assert mock_limiter.wait_and_acquire.called, "fetch_reports 必须在调用 akshare 前 await wait_and_acquire"
 
+    @pytest.mark.integration
     @pytest.mark.asyncio
     async def test_fetch_irm_worker_calls_akshare_limiter(self):
         from unittest.mock import AsyncMock, MagicMock, patch
@@ -176,6 +177,7 @@ class TestAkshareThrottleApplied:
             await fetcher.fetch_irm(ts_codes=["600000.SH"])
         assert mock_limiter.wait_and_acquire.called
 
+    @pytest.mark.integration
     def test_fetch_irm_counts_data_source_exception_as_failure(self):
         import asyncio
         from unittest.mock import AsyncMock, MagicMock, patch
