@@ -122,6 +122,7 @@ class LangChainAgentClient:
         pre_search_top_k: int | None = None,
         plan_mode: bool = False,
         title_enabled: bool = True,
+        user_id: str | None = None,
     ):
         self.thread_id = thread_id or str(uuid.uuid4())
         self.model_name = model_name
@@ -131,6 +132,7 @@ class LangChainAgentClient:
         self.pre_search_top_k = pre_search_top_k
         self.plan_mode = plan_mode
         self.title_enabled = title_enabled
+        self.user_id = user_id
 
     async def run(
         self,
@@ -141,6 +143,7 @@ class LangChainAgentClient:
         return await run_lead_agent(
             question=question,
             thread_id=self.thread_id,
+            user_id=self.user_id,
             model_name=self.model_name,
             subagent_enabled=self.subagent_enabled,
             max_concurrent_subagents=self.max_concurrent_subagents,

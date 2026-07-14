@@ -724,6 +724,7 @@ class V2ChatRequest(BaseModel):
     model_name: str = Field(default="minimax2.5", max_length=50)
     subagent_enabled: bool = Field(default=False)
     max_concurrent_subagents: int = Field(default=3, ge=1, le=10)
+    user_id: str | None = None
 
 
 @router.post("/v2/chat", response_model=ChatResponse)
@@ -746,6 +747,7 @@ async def v2_chat(request: V2ChatRequest, _=Depends(verify_api_key)):
         result = await run_lead_agent(
             question=request.question,
             thread_id=thread_id,
+            user_id=request.user_id,
             model_name=request.model_name,
             max_turns=request.max_turns,
             subagent_enabled=request.subagent_enabled,
@@ -774,6 +776,7 @@ class V2StreamRequest(BaseModel):
     model_name: str = Field(default="minimax2.5", max_length=50)
     subagent_enabled: bool = Field(default=False)
     max_concurrent_subagents: int = Field(default=3, ge=1, le=10)
+    user_id: str | None = None
 
 
 @router.post("/v2/stream")
@@ -806,6 +809,7 @@ async def v2_stream(request: V2StreamRequest, api_key: str = Depends(verify_api_
             subagent_enabled=request.subagent_enabled,
             max_concurrent_subagents=request.max_concurrent_subagents,
             max_turns=request.max_turns,
+            user_id=request.user_id,
         )
 
         emitter_queue: asyncio.Queue = asyncio.Queue()
