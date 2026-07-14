@@ -60,7 +60,7 @@ class RuleSignalExtractor:
 
     _PATTERNS: dict[str, dict[str, Any]] = {
         "mass_production": {
-            "keywords": ("规模量产", "大规模量产", "批量交付", "量产", "达产"),
+            "keywords": ("规模量产", "大规模量产", "批量交付", "规模化交付", "批量供货", "量产", "达产"),
             "subject_type": "product",
             "polarity": "positive",
             "base_strength": 84,
@@ -84,19 +84,19 @@ class RuleSignalExtractor:
             "base_strength": 80,
         },
         "earnings": {
-            "keywords": ("业绩预增", "超预期", "扭亏", "毛利率", "净利润"),
+            "keywords": ("业绩预告", "业绩预增", "超预期", "扭亏", "扣非净利润", "毛利率", "净利润"),
             "subject_type": "company",
             "polarity": "positive",
             "base_strength": 82,
         },
         "order": {
-            "keywords": ("大额订单", "长期合同", "客户导入", "战略合作", "订单"),
+            "keywords": ("签订重大合同", "重大合同", "中标", "大额订单", "长期合同", "客户导入", "战略合作", "订单"),
             "subject_type": "company",
             "polarity": "positive",
             "base_strength": 82,
         },
         "risk": {
-            "keywords": ("风险", "诉讼", "处罚", "减值", "停产", "订单延期"),
+            "keywords": ("监管函", "减值准备", "客户集中度", "风险", "诉讼", "处罚", "减值", "停产", "订单延期"),
             "subject_type": "company",
             "polarity": "risk",
             "base_strength": 76,
@@ -172,4 +172,3 @@ class RuleSignalExtractor:
     def _score_strength(self, sentence: str, base_strength: int) -> int:
         boost = sum(4 for marker in self._STRONG_MARKERS if marker in sentence)
         return max(0, min(100, base_strength + boost))
-

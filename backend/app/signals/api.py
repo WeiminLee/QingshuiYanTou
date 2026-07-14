@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.signals.evidence_ingestion import backfill_evidence_signals
 from app.signals.event_ingestion import backfill_event_signals
 from app.signals.schemas import SignalDetail, SignalListResponse, SignalStatusUpdate
 from app.signals.service import get_signal_detail, list_signals, update_signal_status
@@ -41,6 +42,16 @@ async def backfill_events(
     _=Depends(verify_api_key),
 ):
     return await backfill_event_signals(db, limit=limit)
+
+
+@router.post("/backfill/evidence")
+async def backfill_evidence(
+    source_type: str | None = None,
+    limit: int = Query(200, ge=1, le=1000),
+    db: AsyncSession = Depends(get_db),
+    _=Depends(verify_api_key),
+):
+    return await backfill_evidence_signals(db, source_type=source_type, limit=limit)
 
 
 @router.get("/{signal_id}", response_model=SignalDetail)
