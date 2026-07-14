@@ -49,10 +49,10 @@ tools:
 
   # ── knowledge ──────────────────────────────────────────────────────────────
 
-  - name: semantic_search
-    group: knowledge
-    use: app.reasoning.tools.knowledge.semantic_search:semantic_search
-    description: 语义向量检索（前置探查）：模糊搜索实体/关系/文档/问答，结果含 entity_id 后可接 expand 做精准图穿透。适合不知道 entity_id 时先用语义搜索找到候选
+  # NOTE: semantic_search 工具包装模块从未实现（app.reasoning.tools.knowledge.semantic_search 不存在），
+  # 其悬空导入曾导致整个 knowledge 包 __init__ 失败、所有知识工具在运行时被 loader 静默丢弃。
+  # 后端底层能力已具备（app.knowledge.vector_client.semantic_search_entities/chunks），
+  # 如需该工具需补 tools/knowledge/semantic_search.py 包装后再在此注册。
 
   # resolve + expand: 新一代图谱导航（resolve→expand 模式）
   - name: resolve
