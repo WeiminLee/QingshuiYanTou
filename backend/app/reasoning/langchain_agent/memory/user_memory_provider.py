@@ -7,6 +7,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
+from app.reasoning.langchain_agent.memory.portfolio_reader import fetch_portfolio_lines
 from app.reasoning.langchain_agent.memory.provider import MemoryProvider
 from app.reasoning.langchain_agent.memory.text_utils import (
     jaccard_similarity,
@@ -55,8 +56,60 @@ class UserMemoryProvider(MemoryProvider):
     def shutdown(self) -> None:
         self._user_id = None
 
-    async def prefetch(self, query: str) -> str:  # 在 Task 5 实现
-        return "<user-memory></user-memory>"
+    async def prefetch(self, query: str) -> str:
+        if not self._user_id:
+            return "<user-memory></user-memory>"
+        profile = await self._read_profile()
+        prefs = await self._read_preferences()
+        portfolio = await fetch_portfolio_lines(self._user_id)
+        notes = await self._read_notes()
+
+        sections: list[tuple[str, str]] = []
+        if profile:
+            sections.append(("profile", f"  <profile>{profile}</profile>"))
+        if prefs:
+            body = "\n".join(f"    - [{p['stance']}] {p['subject']}({p['subject_type']})"
+                             + (f"：{p['reason']}" if p.get("reason") else "")
+                             for p in prefs)
+            sections.append(("preferences", f"  <preferences>\n{body}\n  </preferences>"))
+        if portfolio:
+            sections.append(("portfolio", f"  <portfolio>{('、'.join(portfolio))}</portfolio>"))
+        if notes:
+            body = "\n".join(f"    [{n.get('category', 'general')}] {n['content']}" for n in notes)
+            sections.append(("notes", f"  <notes>\n{body}\n  </notes>"))
+
+        if not sections:
+            return "<user-memory></user-memory>"
+
+        limit = MAX_PREFETCH_TOKENS * 4
+        priority = ["profile", "preferences", "portfolio", "notes"]
+
+        def render(keys: set[str]) -> str:
+            inner = "\n".join(s for k, s in sections if k in keys)
+            return f"<user-memory>\n{inner}\n</user-memory>"
+
+        keys = {k for k, _ in sections}
+        out = render(keys)
+        # 超限则按优先级从低到高逐段丢弃（notes 先丢）
+        for k in reversed(priority):
+            if len(out) <= limit:
+                break
+            if k in keys:
+                keys.discard(k)
+                out = render(keys)
+        return out
+
+    async def _read_profile(self) -> str | None:
+        doc = await _get_collection(PROFILE_COLLECTION).find_one({"user_id": self._user_id})
+        return (doc or {}).get("profile") or None
+
+    async def _read_preferences(self) -> list[dict]:
+        doc = await _get_collection(PREF_COLLECTION).find_one({"user_id": self._user_id})
+        return (doc or {}).get("items", []) or []
+
+    async def _read_notes(self) -> list[dict]:
+        doc = await _get_collection(NOTES_COLLECTION).find_one({"user_id": self._user_id})
+        return (doc or {}).get("entries", []) or []
 
     async def sync_turn(self, user: str, assistant: str) -> None:
         # C 方案：留空接口。未来可在此实现每轮 LLM 偏好抽取。
