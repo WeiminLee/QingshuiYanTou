@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import hashlib
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any
 
@@ -42,7 +42,9 @@ def _signal_values(candidate: SignalCandidate) -> dict[str, Any]:
         "source_title": candidate.source_title,
         "source_url": candidate.source_url,
         "published_at": candidate.published_at,
-        "detected_at": datetime.now(tz=candidate.published_at.tzinfo) if candidate.published_at else datetime.now(),
+        "detected_at": datetime.now(tz=candidate.published_at.tzinfo or timezone.utc)
+        if candidate.published_at
+        else datetime.now(timezone.utc),
         "subject_name": candidate.subject_name,
         "subject_type": candidate.subject_type,
         "signal_type": candidate.signal_type,

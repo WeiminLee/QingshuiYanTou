@@ -304,7 +304,9 @@ export function useChatSession() {
     });
 
     es.addEventListener("clarification_resolved", () => {
-      isWaitingForClarification.value = true;
+      pendingClarification.value = null;
+      isWaitingForClarification.value = false;
+      isLoading.value = true;
     });
   }
 
@@ -358,7 +360,8 @@ export function useChatSession() {
         clarification_id: pendingClarification.value.clarification_id,
       });
       pendingClarification.value = null;
-      isWaitingForClarification.value = true;
+      isWaitingForClarification.value = false;
+      isLoading.value = true;
     } catch (err) {
       console.error("[HITL] resolveClarification failed:", err);
     }

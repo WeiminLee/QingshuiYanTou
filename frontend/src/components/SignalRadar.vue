@@ -17,31 +17,38 @@
     <div v-else class="signal-radar__viewport">
       <div class="signal-radar__track">
         <div
-          v-for="signal in signals"
-          :key="signal.signal_id"
-          class="signal-card"
-          role="button"
-          tabindex="0"
-          @click="openDetail(signal)"
-          @keyup.enter="openDetail(signal)"
+          v-for="groupIndex in 2"
+          :key="groupIndex"
+          class="signal-radar__group"
+          :aria-hidden="groupIndex === 2"
         >
-          <span class="signal-card__score">{{ signal.value_score }}</span>
-          <span class="signal-card__body">
-            <span class="signal-card__title">{{ signal.title }}</span>
-            <span class="signal-card__summary">{{ signal.summary }}</span>
-            <span class="signal-card__meta">
-              {{ sourceLabel(signal.source_type) }}
-              <span v-if="signal.portfolio_hits?.length"> · 持仓 {{ signal.portfolio_hits.length }}</span>
-            </span>
-          </span>
-          <button
-            class="signal-card__ask"
-            type="button"
-            data-testid="ask-signal"
-            @click.stop="askSignal(signal)"
+          <div
+            v-for="signal in signals"
+            :key="`${groupIndex}-${signal.signal_id}`"
+            class="signal-card"
+            role="button"
+            :tabindex="groupIndex === 1 ? 0 : -1"
+            @click="openDetail(signal)"
+            @keyup.enter="openDetail(signal)"
           >
-            问
-          </button>
+            <span class="signal-card__score">{{ signal.value_score }}</span>
+            <span class="signal-card__body">
+              <span class="signal-card__title">{{ signal.title }}</span>
+              <span class="signal-card__summary">{{ signal.summary }}</span>
+              <span class="signal-card__meta">
+                {{ sourceLabel(signal.source_type) }}
+                <span v-if="signal.portfolio_hits?.length"> · 持仓 {{ signal.portfolio_hits.length }}</span>
+              </span>
+            </span>
+            <button
+              class="signal-card__ask"
+              type="button"
+              data-testid="ask-signal"
+              @click.stop="askSignal(signal)"
+            >
+              问
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -182,7 +189,13 @@ function sourceLabel(sourceType) {
   flex-direction: column;
   gap: 6px;
   padding: 7px;
-  animation: signal-scroll 18s linear infinite;
+  animation: signal-scroll 28s linear infinite;
+}
+
+.signal-radar__group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
 .signal-radar.is-paused .signal-radar__track {
@@ -335,7 +348,7 @@ function sourceLabel(sourceType) {
     transform: translateY(0);
   }
   100% {
-    transform: translateY(-32px);
+    transform: translateY(calc(-50% - 3px));
   }
 }
 </style>

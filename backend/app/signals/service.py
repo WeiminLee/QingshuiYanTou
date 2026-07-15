@@ -3,7 +3,7 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import desc, select, update
+from sqlalchemy import desc, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.signals.models import Signal, SignalPropagation
@@ -36,25 +36,35 @@ async def list_signals(
     limit: int = 20,
     offset: int = 0,
 ) -> tuple[list[dict], int]:
-    stmt = select(Signal)
+    filters = []
     if source_type:
-        stmt = stmt.where(Signal.source_type == source_type)
+        filters.append(Signal.source_type == source_type)
     if signal_type:
-        stmt = stmt.where(Signal.signal_type == signal_type)
+        filters.append(Signal.signal_type == signal_type)
     if status:
-        stmt = stmt.where(Signal.status == status)
+        filters.append(Signal.status == status)
     if scope == "risk":
-        stmt = stmt.where(Signal.polarity == "risk")
+        filters.append(Signal.polarity == "risk")
     if scope == "portfolio":
-        stmt = stmt.where(Signal.metadata_["portfolio_hits"].astext != None)  # noqa: E711
+        filters.append(Signal.metadata_["portfolio_hits"].astext != None)  # noqa: E711
 
-    count_result = await session.execute(stmt)
-    all_rows = count_result.scalars().all()
-    rows = sorted(
-        all_rows,
-        key=lambda r: (r.value_score, r.published_at or r.detected_at),
-        reverse=True,
-    )[offset : offset + limit]
+    count_stmt = select(func.count()).select_from(Signal)
+    stmt = select(Signal)
+    if filters:
+        count_stmt = count_stmt.where(*filters)
+        stmt = stmt.where(*filters)
+
+    total_result = await session.execute(count_stmt)
+    total = int(total_result.scalar_one() or 0)
+    row_result = await session.execute(
+        stmt.order_by(
+            desc(Signal.value_score),
+            desc(func.coalesce(Signal.published_at, Signal.detected_at)),
+        )
+        .offset(offset)
+        .limit(limit)
+    )
+    rows = row_result.scalars().all()
     items = [
         {
             "signal_id": row.signal_id,
@@ -71,7 +81,7 @@ async def list_signals(
         }
         for row in rows
     ]
-    return items, len(all_rows)
+    return items, total
 
 
 async def get_signal_detail(session: AsyncSession, signal_id: str) -> dict | None:
@@ -125,4 +135,3 @@ async def update_signal_status(session: AsyncSession, signal_id: str, status: st
     await session.execute(update(Signal).where(Signal.signal_id == signal_id).values(status=status))
     await session.commit()
     return await get_signal_detail(session, signal_id)
-

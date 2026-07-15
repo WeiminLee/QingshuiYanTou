@@ -67,6 +67,7 @@ async def set_signal_status(
     signal_id: str,
     body: SignalStatusUpdate,
     db: AsyncSession = Depends(get_db),
+    _=Depends(verify_api_key),
 ):
     try:
         detail = await update_signal_status(db, signal_id, body.status)
