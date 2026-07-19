@@ -16,6 +16,10 @@ function toTimestamp(item: HistoryItem): number {
   return Number.isNaN(ts) ? 0 : ts;
 }
 
+function hasReadableQuestion(item: HistoryItem): boolean {
+  return Boolean(item?.question?.trim());
+}
+
 export function useHistoryData() {
   const items = ref<HistoryItem[]>([]);
   const loading = ref(false);
@@ -34,7 +38,8 @@ export function useHistoryData() {
     loading.value = true;
     try {
       const res = await listTasks(limit);
-      items.value = res.items || res || [];
+      const rawItems = res.items || res || [];
+      items.value = rawItems.filter(hasReadableQuestion);
     } catch {
       items.value = [];
     } finally {

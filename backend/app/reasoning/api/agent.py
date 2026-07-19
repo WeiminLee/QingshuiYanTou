@@ -104,6 +104,7 @@ def _filter_sse_event(event_type: str, data: dict) -> tuple[bool, str]:
 class ChatRequest(BaseModel):
     question: str
     thread_id: str | None = None
+    signal_id: str | None = None
     max_turns: int = 5
 
 
@@ -117,6 +118,7 @@ class ChatResponse(BaseModel):
 class InvokeRequest(BaseModel):
     question: str
     thread_id: str | None = None
+    signal_id: str | None = None
     max_turns: int = 5
     model_name: str = "minimax2.5"
 
@@ -159,7 +161,14 @@ def _apply_result_trace_to_report(report, result: dict | None) -> None:
     report.graph_refs = trace.get("graph_refs", [])
 
 
-async def _run_invoke_task(task_id: str, thread_id: str, question: str, max_turns: int, model_name: str):
+async def _run_invoke_task(
+    task_id: str,
+    thread_id: str,
+    question: str,
+    max_turns: int,
+    model_name: str,
+    signal_id: str | None = None,
+):
     """后台执行分析（V2 引擎）"""
     _task_manager.create_task(task_id, thread_id, question)
     _task_manager.update_status(task_id, "running")
@@ -169,6 +178,7 @@ async def _run_invoke_task(task_id: str, thread_id: str, question: str, max_turn
         result = await run_lead_agent(
             question=question,
             thread_id=thread_id,
+            signal_id=signal_id,
             model_name=model_name,
             max_turns=max_turns,
         )
@@ -199,6 +209,7 @@ async def chat(request: ChatRequest, _=Depends(verify_api_key)):
         result = await run_lead_agent(
             question=request.question,
             thread_id=thread_id,
+            signal_id=request.signal_id,
             max_turns=request.max_turns,
         )
         return ChatResponse(
@@ -243,6 +254,7 @@ async def invoke(
         request.question,
         request.max_turns,
         request.model_name,
+        request.signal_id,
     )
 
     return InvokeResponse(
@@ -293,12 +305,53 @@ async def list_tasks(limit: int = 20, _=Depends(verify_api_key)):
     return {"items": items}
 
 
+# ── 报告级反馈 ────────────────────────────────────────────
+# 注意：这与 /api/v1/kg/feedback（纠正 KG 关系 weight）语义不同，
+# 此处记录用户对整篇 Agent 报告的点赞/点踩，供离线质量分析。
+
+
+class AgentFeedbackRequest(BaseModel):
+    task_id: str
+    rating: str  # "good" | "bad"
+    comment: str | None = None
+    question: str | None = None
+    user_id: str | None = None
+
+
+class AgentFeedbackResponse(BaseModel):
+    feedback_id: str
+    task_id: str
+    rating: str
+
+
+@router.post("/feedback", response_model=AgentFeedbackResponse)
+async def submit_agent_feedback(request: AgentFeedbackRequest, _=Depends(verify_api_key)):
+    """接收用户对 Agent 报告的点赞/点踩，写入 MongoDB agent_feedback。"""
+    from app.reasoning.agent_feedback_service import record_agent_feedback
+
+    try:
+        result = await record_agent_feedback(
+            task_id=request.task_id,
+            rating=request.rating,
+            comment=request.comment,
+            question=request.question,
+            user_id=request.user_id,
+        )
+        return AgentFeedbackResponse(**result)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.exception("[Agent] submit_feedback failed: %s", e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ── Layer 4 报告端点 ──────────────────────────────────────
 
 
 class ReportRequest(BaseModel):
     question: str
     thread_id: str | None = None
+    signal_id: str | None = None
     max_turns: int = 4
 
 
@@ -335,6 +388,7 @@ async def generate_report(request: ReportRequest, _=Depends(verify_api_key)):
         result = await run_lead_agent(
             question=request.question,
             thread_id=thread_id,
+            signal_id=request.signal_id,
             max_turns=request.max_turns,
         )
         raw_analysis = result.get("content", "")
@@ -395,6 +449,7 @@ async def stream_events(task_id: str, _api_key: str = Depends(verify_api_key_que
 class StreamReportRequest(BaseModel):
     question: str
     thread_id: str | None = None
+    signal_id: str | None = None
     max_turns: int = 4
     model_name: str = "minimax2.5"
 
@@ -418,6 +473,7 @@ async def stream_report(request: StreamReportRequest, _=Depends(verify_api_key))
             request.question,
             request.max_turns,
             request.model_name,
+            request.signal_id,
         )
     )
 
@@ -459,7 +515,14 @@ async def resolve_clarification(
     return {"status": "resumed", "task_id": task_id}
 
 
-async def _run_stream_report(task_id: str, thread_id: str, question: str, max_turns: int, model_name: str):
+async def _run_stream_report(
+    task_id: str,
+    thread_id: str,
+    question: str,
+    max_turns: int,
+    model_name: str,
+    signal_id: str | None = None,
+):
     """后台执行报告生成（V2 引擎），并推送 SSE 事件"""
     from app.reasoning.api.agent_events import ReasoningEvent
 
@@ -537,6 +600,7 @@ async def _run_stream_report(task_id: str, thread_id: str, question: str, max_tu
                 question=question,
                 thread_id=thread_id,
                 task_id=task_id,
+                signal_id=signal_id,
                 model_name=model_name,
                 max_turns=max_turns,
                 emit_fn=emit_fn,
@@ -700,6 +764,7 @@ class V2ChatRequest(BaseModel):
     model_name: str = Field(default="minimax2.5", max_length=50)
     subagent_enabled: bool = Field(default=False)
     max_concurrent_subagents: int = Field(default=3, ge=1, le=10)
+    user_id: str | None = None
 
 
 @router.post("/v2/chat", response_model=ChatResponse)
@@ -722,6 +787,7 @@ async def v2_chat(request: V2ChatRequest, _=Depends(verify_api_key)):
         result = await run_lead_agent(
             question=request.question,
             thread_id=thread_id,
+            user_id=request.user_id,
             model_name=request.model_name,
             max_turns=request.max_turns,
             subagent_enabled=request.subagent_enabled,
@@ -750,6 +816,7 @@ class V2StreamRequest(BaseModel):
     model_name: str = Field(default="minimax2.5", max_length=50)
     subagent_enabled: bool = Field(default=False)
     max_concurrent_subagents: int = Field(default=3, ge=1, le=10)
+    user_id: str | None = None
 
 
 @router.post("/v2/stream")
@@ -782,6 +849,7 @@ async def v2_stream(request: V2StreamRequest, api_key: str = Depends(verify_api_
             subagent_enabled=request.subagent_enabled,
             max_concurrent_subagents=request.max_concurrent_subagents,
             max_turns=request.max_turns,
+            user_id=request.user_id,
         )
 
         emitter_queue: asyncio.Queue = asyncio.Queue()

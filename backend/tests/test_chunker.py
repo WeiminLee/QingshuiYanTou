@@ -14,18 +14,22 @@ from app.knowledge.ingestion.chunker import (
 
 
 class TestChapterDetection:
-    """章节检测测试"""
+    """章节检测测试
+
+    注：SmartChunker v2（commit 6d5dbd5「段落级分块」）按空行分段，再在每段首行检测标题，
+    因此测试输入采用真实文档形态（段落之间有空行）。旧版用紧凑单换行输入，v2 下会被并成一段。
+    """
 
     def test_chinese_chapter_heading(self):
         """中文序号标题检测"""
-        text = "一、公司简介\n公司成立于2000年\n二、主要业务\n主营业务包括..."
+        text = "一、公司简介\n公司成立于2000年\n\n二、主要业务\n主营业务包括..."
         chapters = split_by_chapters(text)
         assert len(chapters) >= 2
         assert any("简介" in c.heading for c in chapters)
 
     def test_chinese_section_heading(self):
         """中文节标题检测"""
-        text = "一、概况\n内容1\n第一节 业务\n内容2\n二、财务\n内容3"
+        text = "一、概况\n内容1\n\n第一节 业务\n内容2\n\n二、财务\n内容3"
         chapters = split_by_chapters(text)
         # "第一节"可能被识别为二级节或与上级合并
         assert len(chapters) >= 2  # 至少检测到2个一级章节
@@ -34,19 +38,19 @@ class TestChapterDetection:
 
     def test_arabic_numeral_heading(self):
         """阿拉伯数字章节标题检测"""
-        text = "1. 公司概况\n公司是国内领先的...\n2. 财务数据\n营收100亿元..."
+        text = "1. 公司概况\n公司是国内领先的...\n\n2. 财务数据\n营收100亿元..."
         chapters = split_by_chapters(text)
         assert len(chapters) >= 2
 
     def test_nested_arabic_heading(self):
         """嵌套阿拉伯数字标题检测"""
-        text = "1. 概况\n内容1\n1.1 业务\n内容2\n1.2 人员\n内容3\n2. 财务\n内容4"
+        text = "1. 概况\n内容1\n\n1.1 业务\n内容2\n\n1.2 人员\n内容3\n\n2. 财务\n内容4"
         chapters = split_by_chapters(text)
         assert len(chapters) >= 4
 
     def test_markdown_heading(self):
         """Markdown 标题检测"""
-        text = "# 公司简介\n公司成立于2000年\n## 主要业务\n主营业务包括..."
+        text = "# 公司简介\n公司成立于2000年\n\n## 主要业务\n主营业务包括..."
         chapters = split_by_chapters(text)
         assert len(chapters) >= 2
 
@@ -59,7 +63,7 @@ class TestChapterDetection:
 
     def test_mixed_headings(self):
         """混合标题格式"""
-        text = "# 概述\n内容1\n1. 详情\n内容2\n一、补充\n内容3"
+        text = "# 概述\n内容1\n\n1. 详情\n内容2\n\n一、补充\n内容3"
         chapters = split_by_chapters(text)
         assert len(chapters) >= 3
 

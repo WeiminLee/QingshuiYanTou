@@ -76,8 +76,10 @@
             stroke-linecap="round"
           />
         </svg>
-        新建账目
+        新建任务
       </button>
+
+      <SignalRadar @ask-signal="handleAskSignal" />
 
       <!-- History -->
       <div class="sidebar-section">
@@ -97,7 +99,7 @@
               <circle cx="6" cy="6" r="5.5" stroke="currentColor" stroke-width="1" />
               <path d="M3.5 6 Q6 3 8.5 6 Q6 9 3.5 6Z" fill="currentColor" opacity="0.6" />
             </svg>
-            <span class="item-text">{{ truncate(item.question || "分析任务", 22) }}</span>
+            <span class="item-text">{{ truncate(item.question || "", 22) }}</span>
           </button>
         </div>
       </div>
@@ -118,7 +120,7 @@
               <circle cx="6" cy="6" r="5.5" stroke="currentColor" stroke-width="1" />
               <path d="M3.5 6 Q6 3 8.5 6 Q6 9 3.5 6Z" fill="currentColor" opacity="0.6" />
             </svg>
-            <span class="item-text">{{ truncate(item.question || "分析任务", 22) }}</span>
+            <span class="item-text">{{ truncate(item.question || "", 22) }}</span>
           </button>
         </div>
       </div>
@@ -215,64 +217,63 @@
             </div>
           </div>
 
-          <!-- TDesign ChatList with custom slots -->
-          <ChatList :data="tdesignItems" :is-stream-load="isLoading" layout="both" auto-scroll>
-            <!-- #reasoning slot — 渲染 ThinkingPanel -->
-            <template #reasoning="{ item }">
-              <ThinkingPanel
-                v-if="item.reasoning"
-                :content="item.reasoning.content"
-                :loading="isLoading"
-                :collapsed="item.reasoning.collapsed"
-              />
-            </template>
+          <!-- 自定义消息列表（open-webui 风：用户右、AI 左，绕开 TDesign slot 机制）-->
+          <div class="msg-list">
+            <div
+              v-for="msg in messages"
+              :key="msg.id"
+              class="msg-row"
+              :class="`msg-row--${msg.role}`"
+            >
+              <!-- 用户消息：右侧灰气泡 -->
+              <div v-if="msg.role === 'user'" class="msg-bubble-user">
+                {{ msg.content }}
+              </div>
 
-            <!-- #content slot — 渲染 ToolCallStep + 消息内容 -->
-            <template #content="{ item }">
-              <template v-if="item.role === 'assistant'">
-                <!-- 找到对应的原始 ChatMessageItem -->
-                <template v-for="msg in messages" :key="msg.id">
-                  <template v-if="msg.id === item.id">
-                    <!-- Tool calls -->
-                    <div v-if="msg.toolCalls && msg.toolCalls.length > 0" class="t-chat-tool-chain">
-                      <ToolCallStep
-                        v-for="(tc, idx) in msg.toolCalls"
-                        :key="tc.id || idx"
-                        :tool-call="tc"
-                      />
-                    </div>
-                    <!-- Suggestions -->
-                    <div
-                      v-if="msg.suggestions && msg.suggestions.length > 0"
-                      class="t-chat-suggestions"
+              <!-- AI 消息：左侧通栏 -->
+              <div v-else class="msg-assistant">
+                <div class="msg-avatar-ai">
+                  <Sparkles :size="15" :stroke-width="1.8" />
+                </div>
+                <div class="msg-assistant-body">
+                  <!-- Tool calls -->
+                  <div v-if="msg.toolCalls && msg.toolCalls.length > 0" class="t-chat-tool-chain">
+                    <ToolCallStep
+                      v-for="(tc, idx) in msg.toolCalls"
+                      :key="tc.id || idx"
+                      :tool-call="tc"
+                    />
+                  </div>
+                  <!-- 流式答案：气泡内 markdown -->
+                  <CustomMarkdownRenderer
+                    v-if="msg.content"
+                    :content="msg.content"
+                    class="report-body assistant-answer"
+                  />
+                  <!-- 流式加载光标（尚无内容时）-->
+                  <span v-else-if="isLoading" class="stream-cursor" />
+                  <!-- Suggestions -->
+                  <div
+                    v-if="msg.suggestions && msg.suggestions.length > 0"
+                    class="t-chat-suggestions"
+                  >
+                    <button
+                      v-for="(s, idx) in msg.suggestions"
+                      :key="idx"
+                      class="suggestion-chip"
+                      @click="handleSuggestionClick(s.content ?? s.text ?? '')"
                     >
-                      <button
-                        v-for="(s, idx) in msg.suggestions"
-                        :key="idx"
-                        class="suggestion-chip"
-                        @click="handleSuggestionClick(s.content ?? s.text ?? '')"
-                      >
-                        {{ s.content ?? s.text ?? "" }}
-                      </button>
-                    </div>
-                  </template>
-                </template>
-              </template>
-            </template>
-
-            <!-- #avatar slot — 自定义头像 -->
-            <template #avatar="{ item }">
-              <div v-if="item.role === 'user'" class="t-chat-avatar t-chat-avatar--user">
-                <UserRound :size="16" :stroke-width="1.8" />
+                      {{ s.content ?? s.text ?? "" }}
+                    </button>
+                  </div>
+                </div>
               </div>
-              <div v-else class="t-chat-avatar t-chat-avatar--assistant">
-                <Sparkles :size="16" :stroke-width="1.8" />
-              </div>
-            </template>
-          </ChatList>
+            </div>
+          </div>
 
           <!-- Final report -->
-          <div v-if="reportContent" class="report-section">
+          <!-- 可信推理链（仅真分析显示；答案本体已在上方气泡流式渲染，不再重复）-->
+          <div v-if="reportContent && !isCasualChat" class="report-section">
             <div class="report-divider">
               <svg width="48" height="12" viewBox="0 0 48 12">
                 <line x1="0" y1="6" x2="20" y2="6" stroke="#d0ccc6" stroke-width="1" />
@@ -286,7 +287,6 @@
               :reasoning-text="latestAssistantReasoning"
               :is-loading="isLoading"
             />
-            <CustomMarkdownRenderer :content="reportContent" class="report-body" />
             <div class="compliance-stamp">
               <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
                 <path d="M7 1L13 4v5L7 13 1 9V4L7 1Z" stroke="currentColor" stroke-width="1.2" />
@@ -306,10 +306,20 @@
                 <el-icon><CopyDocument /></el-icon>
                 复制
               </el-button>
-              <el-button size="small" text @click="handleGoodFeedback">
+              <el-button
+                size="small"
+                text
+                :type="submittedFeedback === 'good' ? 'primary' : ''"
+                @click="handleGoodFeedback"
+              >
                 <el-icon><Goods /></el-icon>
               </el-button>
-              <el-button size="small" text @click="handleBadFeedback">
+              <el-button
+                size="small"
+                text
+                :type="submittedFeedback === 'bad' ? 'danger' : ''"
+                @click="handleBadFeedback"
+              >
                 <el-icon><CircleClose /></el-icon>
               </el-button>
             </div>
@@ -330,8 +340,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onMounted } from "vue";
-import { getTaskResult } from "../api/agent.js";
+import { ref, computed, watch, onMounted, nextTick } from "vue";
+import { getTaskResult, submitAgentFeedback } from "../api/agent.js";
 import { useChatSession } from "@/composables/useChatSession";
 import { useHistoryData } from "@/composables/useHistoryData";
 import { ChatList, ChatSender } from "@tdesign-vue-next/chat";
@@ -342,8 +352,10 @@ import CustomMarkdownRenderer from "@/components/CustomMarkdownRenderer.vue";
 import CredibleReasoningPanel from "@/components/CredibleReasoningPanel.vue";
 import ThinkingPanel from "@/components/ThinkingPanel.vue";
 import ToolCallStep from "@/components/ToolCallStep.vue";
+import SignalRadar from "@/components/SignalRadar.vue";
 import { CopyDocument, Goods, CircleClose } from "@element-plus/icons-vue";
-import { UserRound, Sparkles } from "lucide-vue-next";
+import { ElMessage } from "element-plus";
+import { UserRound } from "lucide-vue-next";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Chat session (replaces manual SSE + message state)
@@ -388,6 +400,16 @@ const inputText = ref("");
 // ─────────────────────────────────────────────────────────────────────────────
 const reportContent = ref("");
 const reportJson = ref<Record<string, any> | null>(null);
+// 闲聊/非投研分析判定：无工具调用且无股票标的 → 视为普通对话，不套报告 chrome
+const isCasualChat = computed(() => {
+  const j = reportJson.value;
+  if (!j) return false;
+  const toolCount = j?.trace_summary?.tool_call_count ?? 0;
+  const hasStock = !!(j?.ts_code && String(j.ts_code).trim());
+  return toolCount === 0 && !hasStock;
+});
+// 报告级反馈：记录当前报告已提交的评价（"good"/"bad"/""），用于防重复与高亮
+const submittedFeedback = ref("");
 const latestAssistantToolCalls = computed(() => {
   const assistantMessages = messages.value.filter((m) => m.role === "assistant");
   const last = assistantMessages[assistantMessages.length - 1];
@@ -419,6 +441,7 @@ async function fetchFinalReport(tid: string) {
     reportJson.value = res.reportJson || null;
     if (raw) {
       reportContent.value = raw;
+      submittedFeedback.value = ""; // 新报告，重置反馈状态
     }
   } catch {
     // Report fetch failed — content already streamed via ChatList
@@ -429,6 +452,21 @@ async function fetchFinalReport(tid: string) {
 // History & Categories
 // ─────────────────────────────────────────────────────────────────────────────
 const scrollAreaRef = ref<HTMLElement | null>(null);
+
+// 自动滚动到底部（替代 TDesign ChatList 的 auto-scroll）
+function scrollToBottom(): void {
+  const el = scrollAreaRef.value;
+  if (!el) return;
+  el.scrollTop = el.scrollHeight;
+}
+// 消息内容变化（新消息 / 流式增量 / 报告）时滚到底
+watch(
+  [messages, reportContent],
+  () => {
+    nextTick(scrollToBottom);
+  },
+  { deep: true },
+);
 
 const categories = [
   { key: "sector", name: "赛道分析", placeholder: "分析光模块赛道的竞争格局", color: "#3b6fd4" },
@@ -463,13 +501,13 @@ function handleWelcomeSelect(question: string) {
 
 const lastQuestion = ref("");
 
-async function handleSend(text: string) {
+async function handleSend(text: string, options?: { signalId?: string }) {
   lastQuestion.value = text;
   reportContent.value = "";
   reportJson.value = null;
   lastTaskId.value = "";
   inputText.value = "";
-  await sendMessage(text, scheduleAutoCollapse);
+  await sendMessage(text, scheduleAutoCollapse, options);
 }
 
 function handleStop() {
@@ -493,12 +531,17 @@ function handleSuggestionClick(value: string) {
   handleSend(value);
 }
 
+function handleAskSignal(payload: { signalId: string; question: string }) {
+  handleSend(payload.question, { signalId: payload.signalId });
+}
+
 async function loadHistoryTask(item: any) {
   try {
     const res = await getTaskResult(item.task_id);
     const raw = res.reportContent || res.content || "";
     reportJson.value = res.reportJson || null;
     reportContent.value = raw;
+    submittedFeedback.value = ""; // 切换报告，重置反馈状态
   } catch {
     // Error already handled by useChatSession
   }
@@ -511,12 +554,32 @@ function handleCopyContent() {
   }
 }
 
+async function sendFeedback(rating: "good" | "bad") {
+  const tid = taskId.value;
+  if (!tid) {
+    ElMessage.warning("暂无可反馈的报告");
+    return;
+  }
+  if (submittedFeedback.value === rating) return; // 防重复
+  try {
+    await submitAgentFeedback({
+      taskId: tid,
+      rating,
+      question: lastQuestion.value || undefined,
+    });
+    submittedFeedback.value = rating;
+    ElMessage.success(rating === "good" ? "感谢反馈" : "已记录，我们会持续改进");
+  } catch {
+    ElMessage.error("反馈提交失败，请稍后重试");
+  }
+}
+
 function handleGoodFeedback() {
-  // TODO: wire to feedback API
+  sendFeedback("good");
 }
 
 function handleBadFeedback() {
-  // TODO: wire to feedback API
+  sendFeedback("bad");
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -537,38 +600,28 @@ onMounted(loadHistory);
 }
 
 /* ══════════════════════════════════════════════════════════ */
-/* SIDEBAR — Ledger Spine with binding holes */
+/* SIDEBAR — light companion surface aligned with the chat canvas */
 /* ══════════════════════════════════════════════════════════ */
 .sidebar {
-  width: 260px;
+  width: 280px;
   flex-shrink: 0;
-  background: var(--bg-sidebar);
-  border-right: 1px solid var(--border-sidebar);
+  background: linear-gradient(180deg, var(--ow-bg) 0%, #fbfbfc 100%);
+  border-right: 1px solid var(--ow-border);
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background-image:
-    radial-gradient(ellipse at 0% 0%, rgba(201, 148, 58, 0.05) 0%, transparent 55%),
-    radial-gradient(ellipse at 100% 100%, rgba(59, 111, 212, 0.03) 0%, transparent 55%);
-  /* Ledger Spine — 书脊深墨色 */
-  background-color: var(--ledger-spine);
+  font-family: var(--ow-font);
   position: relative;
 }
 
-/* ── Ledger Spine Binding Holes ────────────────────── */
+/* Soft inner rail keeps the sidebar distinct without returning to the old dark spine. */
 .sidebar::before {
   content: "";
   position: absolute;
-  left: 12px;
-  top: 80px;
-  bottom: 80px;
-  width: 8px;
-  background-image: radial-gradient(circle at 50% 50%, var(--ledger-spine) 5px, transparent 6px);
-  background-size: 8px 40px;
-  background-repeat: repeat-y;
-  background-position: 0 0;
-  opacity: 0.6;
-  animation: fade-in 0.6s ease both;
+  inset: 0 auto 0 0;
+  width: 3px;
+  background: linear-gradient(180deg, rgba(184, 134, 11, 0.18), rgba(14, 165, 233, 0.08));
+  opacity: 0.75;
   pointer-events: none;
 }
 
@@ -576,31 +629,40 @@ onMounted(loadHistory);
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 22px 20px 18px;
-  border-bottom: 1px solid var(--border-sidebar);
+  padding: 20px 18px 16px 22px;
+  border-bottom: 1px solid var(--ow-border);
   animation: fade-in 0.4s ease both;
 }
 .logo-mark {
   flex-shrink: 0;
+  width: 34px;
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--ow-border);
+  border-radius: 10px;
+  background: var(--ow-surface);
 }
 .logo-text {
   display: flex;
   flex-direction: column;
-  gap: 1px;
+  gap: 2px;
+  min-width: 0;
 }
 .logo-name {
-  font-family: var(--font-display);
+  font-family: var(--ow-font);
   font-size: 15px;
   font-weight: 600;
-  color: var(--text-sidebar-hi);
-  letter-spacing: 0.5px;
+  color: var(--ow-text);
+  letter-spacing: 0;
   line-height: 1.2;
 }
 .logo-sub {
-  font-family: var(--font-ui);
-  font-size: 10px;
-  color: var(--text-sidebar-muted);
-  letter-spacing: 1px;
+  font-family: var(--ow-font);
+  font-size: 12px;
+  color: var(--ow-text-2);
+  letter-spacing: 0;
   text-transform: uppercase;
 }
 
@@ -608,28 +670,36 @@ onMounted(loadHistory);
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 7px;
-  margin: 14px 16px;
-  padding: 9px 16px;
-  border-radius: 8px;
-  border: 1px solid rgba(184, 134, 11, 0.35);
-  background: var(--accent-gold-dim);
-  color: var(--ledger-gold);
-  font-family: var(--font-ui);
-  font-size: 13px;
-  font-weight: 500;
+  gap: 6px;
+  align-self: stretch;
+  min-height: 34px;
+  margin: 12px 18px 12px;
+  padding: 7px 12px;
+  border-radius: var(--ow-radius-xs);
+  border: 1px solid var(--ow-border-strong);
+  background: var(--ow-bg);
+  color: var(--ow-text);
+  font-family: var(--ow-font);
+  font-size: 14px;
+  font-weight: 600;
   cursor: pointer;
-  transition: all 0.2s;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
+  transition:
+    background 0.15s,
+    border-color 0.15s,
+    box-shadow 0.15s,
+    transform 0.15s;
   animation: fade-in 0.4s 0.1s ease both;
 }
 .btn-new-chat:hover {
-  background: rgba(232, 163, 23, 0.2);
-  border-color: rgba(232, 163, 23, 0.6);
+  background: var(--ow-surface);
+  border-color: #d8dbe0;
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.08);
   transform: translateY(-1px);
 }
 
 .sidebar-section {
-  padding: 16px 16px 8px;
+  padding: 14px 18px 8px;
   animation: fade-in 0.4s ease both;
 }
 .sidebar-section:nth-child(3) {
@@ -640,13 +710,12 @@ onMounted(loadHistory);
 }
 
 .sidebar-section-label {
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 600;
-  letter-spacing: 1.2px;
-  text-transform: uppercase;
-  color: var(--text-sidebar-muted);
+  letter-spacing: 0;
+  color: var(--ow-text-2);
   margin-bottom: 8px;
-  padding: 0 4px;
+  padding: 0 2px;
 }
 
 .sidebar-loading {
@@ -661,7 +730,7 @@ onMounted(loadHistory);
   width: 4px;
   height: 4px;
   border-radius: 50%;
-  background: var(--text-sidebar-muted);
+  background: var(--ow-text-3);
   animation: fade-in 0.6s ease infinite alternate;
 }
 .loading-dots span:nth-child(2) {
@@ -672,46 +741,50 @@ onMounted(loadHistory);
 }
 
 .sidebar-empty-hint {
-  font-size: 11px;
-  color: var(--text-sidebar-muted);
-  padding: 6px 4px;
+  font-size: 13.5px;
+  color: var(--ow-text-3);
+  padding: 7px 2px;
 }
 
 .sidebar-list {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 5px;
 }
 
 .sidebar-item {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 9px;
   width: 100%;
-  padding: 8px 8px;
-  border-radius: 6px;
-  border: none;
+  min-height: 38px;
+  padding: 8px 10px;
+  border-radius: var(--ow-radius-xs);
+  border: 1px solid transparent;
   background: transparent;
   cursor: pointer;
   text-align: left;
-  transition: background 0.15s;
-  color: var(--text-sidebar);
-  border-bottom: 1px solid rgba(184, 134, 11, 0.06);
+  transition:
+    background 0.15s,
+    border-color 0.15s,
+    color 0.15s;
+  color: var(--ow-text-2);
 }
 .sidebar-item:last-child {
   border-bottom: none;
 }
 .sidebar-item:hover {
-  background: var(--ledger-spine-3);
-  color: var(--text-sidebar-hi);
+  background: var(--ow-surface);
+  border-color: var(--ow-border);
+  color: var(--ow-text);
 }
 .item-icon {
   flex-shrink: 0;
-  color: var(--text-sidebar-muted);
+  color: var(--ow-text-3);
 }
 .item-text {
-  font-size: 12px;
-  line-height: 1.4;
+  font-size: 14px;
+  line-height: 1.45;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -725,31 +798,35 @@ onMounted(loadHistory);
 .category-list {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 5px;
 }
 .category-link {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 8px;
-  border: none;
+  min-height: 38px;
+  padding: 8px 10px;
+  border: 1px solid transparent;
   background: transparent;
   cursor: pointer;
-  font-size: 12px;
-  color: var(--text-sidebar);
+  font-family: var(--ow-font);
+  font-size: 14px;
+  color: var(--ow-text-2);
   transition:
     background 0.15s,
+    border-color 0.15s,
     color 0.15s;
   text-align: left;
-  border-radius: 4px;
+  border-radius: var(--ow-radius-xs);
 }
 .category-link:hover {
-  background: var(--ledger-spine-3);
-  color: var(--text-sidebar-hi);
+  background: var(--ow-surface);
+  border-color: var(--ow-border);
+  color: var(--ow-text);
 }
 .cat-dot {
-  width: 6px;
-  height: 6px;
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
   flex-shrink: 0;
 }
@@ -759,10 +836,10 @@ onMounted(loadHistory);
   display: flex;
   align-items: center;
   gap: 7px;
-  padding: 12px 20px;
-  border-top: 1px solid var(--border-sidebar);
-  font-size: 11px;
-  color: var(--text-sidebar-muted);
+  padding: 13px 20px 15px;
+  border-top: 1px solid var(--ow-border);
+  font-size: 13.5px;
+  color: var(--ow-text-2);
   animation: fade-in 0.4s 0.3s ease both;
 }
 .status-dot {
@@ -780,7 +857,10 @@ onMounted(loadHistory);
   flex: 1;
   display: flex;
   flex-direction: column;
-  background: var(--bg-main);
+  /* open-webui 对话区：干净白底 + Inter/系统 sans 字体 */
+  background: var(--ow-bg);
+  color: var(--ow-text);
+  font-family: var(--ow-font);
   overflow: hidden;
 }
 
@@ -802,17 +882,24 @@ onMounted(loadHistory);
   animation: fade-in 0.35s ease both;
 }
 
-/* Report section — 账页卡片 */
+/* Report section — open-webui 干净卡片 */
 .report-section {
-  background: var(--ledger-entry);
-  border: 1px solid var(--ledger-rule);
-  border-radius: 4px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
-  padding: 32px 40px;
-  margin-top: 24px;
+  background: var(--ow-bg);
+  border: 1px solid var(--ow-border);
+  border-radius: var(--ow-radius-md);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+  padding: 28px 32px;
+  margin-top: 20px;
   display: flex;
   flex-direction: column;
   gap: 0;
+}
+/* 闲聊/普通对话：去掉卡片外壳，像普通消息一样通栏呈现 */
+.report-section--plain {
+  border: none;
+  box-shadow: none;
+  padding: 4px 0 0;
+  margin-top: 4px;
 }
 .report-divider {
   display: flex;
@@ -822,14 +909,17 @@ onMounted(loadHistory);
   opacity: 0.8;
   animation: fade-in 0.4s ease both;
 }
-/* report-body styles moved to App.vue — Home.vue specific overrides */
+/* report-body prose — open-webui 风 */
 :deep(.report-body) {
-  font-size: 14.5px;
-  line-height: 1.9;
+  font-size: 15px;
+  line-height: 1.75;
+  color: var(--ow-text);
+  font-family: var(--ow-font);
 }
 :deep(.report-body code) {
-  color: var(--ledger-gold);
-  border: 1px solid var(--ledger-rule);
+  color: var(--ow-text);
+  background: var(--ow-code-bg);
+  border: 1px solid var(--ow-border);
 }
 
 /* Compliance Stamp — 合规印章 */
@@ -922,34 +1012,193 @@ onMounted(loadHistory);
 /* ══════════════════════════════════════════════════════════ */
 /* T-CHAT SLOT STYLES (avatar styles moved to App.vue) */
 /* ══════════════════════════════════════════════════════════ */
+
+/* AI 答案：气泡内 markdown，通栏 prose（open-webui 风）*/
+.assistant-answer {
+  font-size: 15px;
+  line-height: 1.75;
+  color: var(--ow-text);
+}
+
+/* ── 自定义消息列表（open-webui 风）───────────────────────── */
+.msg-list {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.msg-row {
+  display: flex;
+  width: 100%;
+}
+.msg-row--user {
+  justify-content: flex-end;
+}
+.msg-row--assistant {
+  justify-content: flex-start;
+}
+
+/* 用户气泡：右侧浅灰 */
+.msg-bubble-user {
+  background: var(--ow-surface);
+  border-radius: var(--ow-radius-lg);
+  padding: 10px 16px;
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--ow-text);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-width: 80%;
+}
+
+/* AI 消息：左侧头像 + 通栏内容 */
+.msg-assistant {
+  display: flex;
+  gap: 12px;
+  width: 100%;
+}
+.msg-avatar-ai {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--ow-surface);
+  border: 1px solid var(--ow-border);
+  color: var(--ow-accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+.msg-assistant-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* 用户消息：右侧浅灰气泡 */
+.user-message-text {
+  display: inline-block;
+  background: var(--ow-surface);
+  border-radius: var(--ow-radius-lg);
+  padding: 10px 16px;
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--ow-text);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-width: 100%;
+}
+/* 用户消息容器右对齐（TDesign .user 行是 row-reverse，内容靠右）*/
+.reasoning :deep(.t-chat__inner.user .t-chat__content),
+.reasoning :deep(.t-chat__inner.user .t-chat__detail) {
+  align-items: flex-end;
+  text-align: right;
+}
+.reasoning :deep(.t-chat__inner.user .t-chat__detail) {
+  display: flex;
+  flex-direction: column;
+}
+
+/* 流式加载光标 */
+.stream-cursor {
+  display: inline-block;
+  width: 7px;
+  height: 16px;
+  background: var(--ow-text-3);
+  border-radius: 1px;
+  animation: cursor-blink 1s step-end infinite;
+  vertical-align: text-bottom;
+}
+@keyframes cursor-blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0;
+  }
+}
+
+/* ── open-webui 气泡覆盖 ─────────────────────────────────────
+   用户消息：浅灰气泡 rounded-3xl 右对齐；AI 消息：通栏无气泡 */
+.reasoning :deep(.t-chat__text--variant--base) {
+  background: var(--ow-surface);
+  border-radius: var(--ow-radius-lg);
+  color: var(--ow-text);
+  padding: 10px 16px;
+}
+.reasoning :deep(.t-chat__text--user) {
+  color: var(--ow-text);
+  font-size: 15px;
+  line-height: 1.65;
+}
+/* AI 消息内容：去掉气泡背景，通栏 */
+.reasoning :deep(.t-chat__text--variant--text),
+.reasoning :deep(.t-chat__text--variant--outline) {
+  background: transparent;
+  border: none;
+  padding: 0;
+}
+/* 角色名/时间：弱化为灰字 */
+.reasoning :deep(.t-chat__name) {
+  color: var(--ow-text-3);
+  font-size: 12px;
+  font-weight: 500;
+}
+/* 收窄头像与内容间距 */
+.reasoning :deep(.t-chat__inner) {
+  font-family: var(--ow-font);
+}
+
 .t-chat-tool-chain {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 2px;
   margin-bottom: 8px;
 }
 .t-chat-suggestions {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  margin-top: 8px;
+  margin-top: 10px;
 }
 .suggestion-chip {
-  font-size: 12px;
-  padding: 5px 13px;
-  border-radius: 14px;
-  border: 1px solid var(--border-light);
-  background: var(--bg-main-card);
-  color: var(--text-main-2);
+  font-size: 13px;
+  padding: 6px 14px;
+  border-radius: var(--ow-radius-sm);
+  border: 1px solid var(--ow-border);
+  background: transparent;
+  color: var(--ow-text-2);
   cursor: pointer;
-  transition: all 0.18s ease;
+  transition: all 0.15s ease;
 }
 .suggestion-chip:hover {
-  border-color: var(--accent-blue);
-  color: var(--accent-blue);
-  background: rgba(59, 111, 212, 0.06);
-  transform: translateY(-1px);
-  box-shadow: 0 2px 6px -2px rgba(59, 111, 212, 0.18);
+  border-color: var(--ow-border-strong);
+  color: var(--ow-text);
+  background: var(--ow-hover);
+}
+
+/* ── open-webui 输入框：居中限宽 + 悬浮圆角 ───────────────── */
+.main :deep(.t-chat-sender) {
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 0 20px 20px;
+}
+.main :deep(.t-chat-sender__textarea) {
+  border-radius: var(--ow-radius-lg);
+  border: 1px solid var(--ow-border-strong);
+  box-shadow: 0 2px 14px rgba(0, 0, 0, 0.06);
+  background: var(--ow-bg);
+  font-family: var(--ow-font);
+  transition:
+    border-color 0.15s,
+    box-shadow 0.15s;
+}
+.main :deep(.t-chat-sender__textarea--focus) {
+  border-color: var(--ow-accent);
+  box-shadow: 0 2px 18px rgba(14, 165, 233, 0.14);
 }
 
 .clarification-panel {

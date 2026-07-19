@@ -805,15 +805,16 @@ class TestRunLeadAgentE2E:
             emitted.append((event_type, data))
 
         # Mock 掉外部依赖
+        # 注：_load_memory_context 已重构移除，记忆改由 MemoryManager.prefetch_all() 加载，
+        # 且在 client.py 中被 try/except 包裹（初始化/预取失败自动降级为空上下文），
+        # 故测试无需再 patch 记忆加载。
         with (
             patch("app.reasoning.langchain_agent.client._pre_search", new_callable=AsyncMock) as mock_pre,
-            patch("app.reasoning.langchain_agent.client._load_memory_context", new_callable=AsyncMock) as mock_mem,
             patch("app.reasoning.langchain_agent.client._create_chat_model") as mock_model_fn,
             patch("app.reasoning.langchain_agent.client._get_tools") as mock_tools,
             patch("app.reasoning.langchain_agent.client.make_lead_agent") as mock_make_agent,
         ):
             mock_pre.return_value = ""
-            mock_mem.return_value = ""
 
             # 创建 mock model
             call_count = [0]
@@ -906,10 +907,8 @@ class TestRunLeadAgentE2E:
 
         with (
             patch("app.reasoning.langchain_agent.client._pre_search", new_callable=AsyncMock) as mock_pre,
-            patch("app.reasoning.langchain_agent.client._load_memory_context", new_callable=AsyncMock) as mock_mem,
         ):
             mock_pre.return_value = ""
-            mock_mem.return_value = ""
 
             result = await run_lead_agent(
                 question="分析",  # 太短，应被拦截
@@ -942,13 +941,11 @@ class TestRunLeadAgentE2E:
 
         with (
             patch("app.reasoning.langchain_agent.client._pre_search", new_callable=AsyncMock) as mock_pre,
-            patch("app.reasoning.langchain_agent.client._load_memory_context", new_callable=AsyncMock) as mock_mem,
             patch("app.reasoning.langchain_agent.client._create_chat_model") as mock_model_fn,
             patch("app.reasoning.langchain_agent.client._get_tools") as mock_tools,
             patch("app.reasoning.langchain_agent.client.make_lead_agent") as mock_make_agent,
         ):
             mock_pre.return_value = ""
-            mock_mem.return_value = ""
 
             # Mock model 抛出异常
             mock_model = MagicMock()

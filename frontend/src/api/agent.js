@@ -8,6 +8,7 @@ export const streamReport = (params) =>
   apiClient.post("/agent/stream/report", {
     ...params,
     thread_id: params.thread_id || undefined,
+    signal_id: params.signal_id || undefined,
   });
 
 // 查询任务状态（含完整报告 JSON）
@@ -56,3 +57,12 @@ export const chatQuestion = (params) => apiClient.post("/agent/chat", params);
 
 // 生成报告（同步接口）
 export const generateReport = (params) => apiClient.post("/agent/report", params);
+
+// 提交报告级反馈（点赞/点踩）
+export const submitAgentFeedback = ({ taskId, rating, comment, question }) =>
+  apiClient.post("/agent/feedback", {
+    task_id: taskId,
+    rating,
+    comment: comment || undefined,
+    question: question || undefined,
+  });

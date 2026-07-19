@@ -94,15 +94,16 @@ class TestBatchInsertAnnouncements:
     """_batch_insert_announcements 测试"""
 
     def test_batch_insert_empty(self):
-        """空列表返回 (0, 0)"""
+        """空列表返回 (0, 0, [])"""
         import asyncio
 
         from scripts.sync_minishare_ann_history import _batch_insert_announcements
 
         async def run():
             mock_conn = AsyncMock()
+            # 返回签名：(inserted, skipped_by_conflict, local_reused_list)
             result = await _batch_insert_announcements(mock_conn, [], "20230101")
-            assert result == (0, 0)
+            assert result == (0, 0, [])
             mock_conn.execute.assert_not_called()
 
         asyncio.run(run())
@@ -141,7 +142,7 @@ class TestBatchInsertAnnouncements:
         }
 
         async def run():
-            inserted, skipped = await _batch_insert_announcements(mock_conn, [rec1, rec2], "20230101")
+            inserted, skipped, local_reused = await _batch_insert_announcements(mock_conn, [rec1, rec2], "20230101")
             assert inserted == 2
             assert skipped == 0
             mock_conn.execute.assert_awaited_once_with(mock_stmt)
@@ -162,9 +163,9 @@ class TestBatchInsertAnnouncements:
         ]
 
         mock_conn = AsyncMock()
-        # 批量插入抛出异常
+        # 批量插入成功：rowcount 反映实际插入行数（1 条记录）
         batch_result = MagicMock()
-        batch_result.rowcount = 5
+        batch_result.rowcount = 1
         # 第一次 execute（批量）成功
         mock_conn.execute.return_value = batch_result
 
@@ -178,7 +179,7 @@ class TestBatchInsertAnnouncements:
         }
 
         async def run():
-            inserted, skipped = await _batch_insert_announcements(mock_conn, [rec], "20230101")
+            inserted, skipped, local_reused = await _batch_insert_announcements(mock_conn, [rec], "20230101")
             # 批量成功，不降级
             assert inserted == 1
             assert skipped == 0

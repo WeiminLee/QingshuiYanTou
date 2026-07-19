@@ -16,8 +16,8 @@ class MemoryManager:
 
     Usage in run_lead_agent:
         mgr = MemoryManager()
-        mgr.add_provider(BuiltinProvider())
-        mgr.initialize_all(thread_id)
+        mgr.add_provider(UserMemoryProvider())
+        mgr.initialize_all(user_id)
         ...
         mgr.on_turn_start(turn, question)
         context = mgr.prefetch_all(question)

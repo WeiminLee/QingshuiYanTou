@@ -5,7 +5,7 @@ test_tools_functional.py — 工具功能测试
 对于需要网络/云端 API 的工具，使用 mock 避免外部依赖。
 """
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 # ── 工具导入测试 ──────────────────────────────────────────────────────────────
 
@@ -112,15 +112,15 @@ class TestToolImports:
 class TestMarketDataTools:
     """市场数据工具功能测试"""
 
-    @patch("app.reasoning.tools.market_data.kline.kline.get_http_session")
-    def test_get_kline_success(self, mock_session):
+    @patch("app.data_pipeline.services.kline_service.get_kline_service")
+    def test_get_kline_success(self, mock_get_service):
         """get_kline 正常返回K线数据"""
         from app.reasoning.tools.market_data.kline.kline import get_kline
 
-        # Mock API 响应
-        mock_response = MagicMock()
-        mock_response.json.return_value = {
-            "items": [
+        # Mock 本地 KlineService 返回数据
+        mock_service = MagicMock()
+        mock_service.get_stock_kline = AsyncMock(
+            return_value=[
                 {
                     "trade_date": "20240501",
                     "close": 50.0,
@@ -142,8 +142,8 @@ class TestMarketDataTools:
                     "qfq_factor": 1.0,
                 },
             ]
-        }
-        mock_session.return_value.get.return_value = mock_response
+        )
+        mock_get_service.return_value = mock_service
 
         result = get_kline.invoke(
             {
@@ -162,40 +162,40 @@ class TestMarketDataTools:
         """get_kline 不传参数应使用默认值"""
         from app.reasoning.tools.market_data.kline.kline import get_kline
 
-        # Mock 时间函数，避免实际调用
-        with patch("app.reasoning.tools.market_data.kline.kline.get_http_session") as mock_session:
-            mock_response = MagicMock()
-            mock_response.json.return_value = {"items": []}
-            mock_session.return_value.get.return_value = mock_response
+        # Mock 本地服务，避免实际数据库调用
+        with patch("app.data_pipeline.services.kline_service.get_kline_service") as mock_get_service:
+            mock_service = MagicMock()
+            mock_service.get_stock_kline = AsyncMock(return_value=[])
+            mock_get_service.return_value = mock_service
 
             result = get_kline.invoke({"ts_code": "000001.SZ"})
             assert "K线" in result
 
-    @patch("app.reasoning.tools.market_data.concept_hot.get_http_session")
-    def test_get_concept_hot_success(self, mock_session):
+    @patch("app.data_pipeline.services.concept_service.get_concept_service")
+    def test_get_concept_hot_success(self, mock_get_service):
         """get_concept_hot 正常返回板块热度"""
         from app.reasoning.tools.market_data.concept_hot import get_concept_hot
 
-        mock_response = MagicMock()
-        mock_response.json.return_value = {
-            "items": [
+        mock_service = MagicMock()
+        mock_service.get_concept_ranking = AsyncMock(
+            return_value=[
                 {
+                    "rank": 1,
                     "name": "光通信",
-                    "change_pct": 5.5,
-                    "turnover": 3.2,
-                    "limit_up_count": 3,
-                    "volume": 50000000,
+                    "pct_chg": 5.5,
+                    "up_nums": 3,
+                    "score": 98.0,
                 },
                 {
+                    "rank": 2,
                     "name": "AI算力",
-                    "change_pct": -2.1,
-                    "turnover": 8.5,
-                    "limit_up_count": 0,
-                    "volume": 80000000,
+                    "pct_chg": -2.1,
+                    "up_nums": 0,
+                    "score": 60.0,
                 },
             ]
-        }
-        mock_session.return_value.get.return_value = mock_response
+        )
+        mock_get_service.return_value = mock_service
 
         result = get_concept_hot.invoke({"top_n": 10, "sort_by": "change_pct"})
 
@@ -249,28 +249,27 @@ class TestNeo4jTools:
 class TestResearchTools:
     """研报与公告工具测试"""
 
-    @patch("app.reasoning.tools.knowledge.research_report.get_http_session")
-    def test_get_research_report_no_data(self, mock_session):
+    @patch("app.data_pipeline.services.report_service.get_report_service")
+    def test_get_research_report_no_data(self, mock_get_service):
         """get_research_report 无数据时"""
         from app.reasoning.tools.knowledge.research_report import get_research_report
 
-        mock_response = MagicMock()
-        mock_response.json.return_value = {"items": []}
-        mock_session.return_value.get.return_value = mock_response
+        mock_service = MagicMock()
+        mock_service.search_reports = AsyncMock(return_value=[])
+        mock_get_service.return_value = mock_service
 
         result = get_research_report.invoke({"keyword": "不存在的关键词xyz"})
 
         assert "未找到" in result
 
-    @patch("app.reasoning.tools.knowledge.research_report.get_http_session")
-    def test_get_research_report_with_data(self, mock_session):
+    @patch("app.data_pipeline.services.report_service.get_report_service")
+    def test_get_research_report_with_data(self, mock_get_service):
         """get_research_report 有数据时"""
         from app.reasoning.tools.knowledge.research_report import get_research_report
 
-        mock_response = MagicMock()
-        mock_response.json.return_value = {
-            "total": 2,
-            "items": [
+        mock_service = MagicMock()
+        mock_service.search_reports = AsyncMock(
+            return_value=[
                 {
                     "title": "首次覆盖：买入评级",
                     "institution": "中信证券",
@@ -280,9 +279,9 @@ class TestResearchTools:
                     "pub_date": "2024-05-01",
                     "summary": "公司业绩增长良好，目标价50元。",
                 }
-            ],
-        }
-        mock_session.return_value.get.return_value = mock_response
+            ]
+        )
+        mock_get_service.return_value = mock_service
 
         result = get_research_report.invoke({"ts_code": "300308.SZ"})
 
@@ -290,14 +289,14 @@ class TestResearchTools:
         assert "中信证券" in result
         assert "买入" in result
 
-    @patch("app.reasoning.tools.knowledge.announcement.get_http_session")
-    def test_get_announcement_no_data(self, mock_session):
+    @patch("app.data_pipeline.services.report_service.get_report_service")
+    def test_get_announcement_no_data(self, mock_get_service):
         """get_announcement 无数据时"""
         from app.reasoning.tools.knowledge.announcement import get_announcement
 
-        mock_response = MagicMock()
-        mock_response.json.return_value = {"items": []}
-        mock_session.return_value.get.return_value = mock_response
+        mock_service = MagicMock()
+        mock_service.search_announcements = AsyncMock(return_value=[])
+        mock_get_service.return_value = mock_service
 
         result = get_announcement.invoke({"keyword": "不存在的公告xyz"})
 
@@ -335,69 +334,70 @@ class TestSearchTools:
 class TestFinancialTools:
     """财务工具测试"""
 
-    @patch("app.reasoning.tools.financial.profile.profile.get_http_session")
-    def test_get_stock_profile_no_data(self, mock_session):
+    @patch("app.data_pipeline.services.stock_service.get_stock_service")
+    def test_get_stock_profile_no_data(self, mock_get_service):
         """get_stock_profile 无数据时"""
         from app.reasoning.tools.financial.profile.profile import get_stock_profile
 
-        mock_response = MagicMock()
-        mock_response.json.return_value = {}
-        mock_session.return_value.get.return_value = mock_response
+        mock_service = MagicMock()
+        mock_service.get_stock_profile = AsyncMock(return_value={})
+        mock_get_service.return_value = mock_service
 
         result = get_stock_profile.invoke({"ts_code": "999999.XS"})
 
         assert "未找到" in result
 
-    @patch("app.reasoning.tools.financial.profile.profile.get_http_session")
-    def test_get_stock_profile_with_data(self, mock_session):
+    @patch("app.data_pipeline.services.stock_service.get_stock_service")
+    def test_get_stock_profile_with_data(self, mock_get_service):
         """get_stock_profile 有数据时"""
         from app.reasoning.tools.financial.profile.profile import get_stock_profile
 
-        mock_response = MagicMock()
-        mock_response.json.return_value = {
-            "main_business": "光模块研发生产销售",
-            "product_type": "高速光模块",
-            "product_name": "400G光模块",
-            "business_scope": "光通信设备制造",
-        }
-        mock_session.return_value.get.return_value = mock_response
+        mock_service = MagicMock()
+        mock_service.get_stock_profile = AsyncMock(
+            return_value={
+                "main_business": "光模块研发生产销售",
+                "product_type": "高速光模块",
+                "product_name": "400G光模块",
+                "business_scope": "光通信设备制造",
+            }
+        )
+        mock_get_service.return_value = mock_service
 
         result = get_stock_profile.invoke({"ts_code": "300308.SZ"})
 
         assert "股票概况" in result
         assert "光模块" in result
 
-    @patch("app.reasoning.tools.market_data._http.get_http_session")
-    def test_get_irm_no_data(self, mock_session):
+    @patch("app.data_pipeline.services.report_service.get_report_service")
+    def test_get_irm_no_data(self, mock_get_service):
         """get_irm 无数据时"""
         from app.reasoning.tools.financial.irm import get_irm
 
-        mock_response = MagicMock()
-        mock_response.json.return_value = {"items": []}
-        mock_session.return_value.get.return_value = mock_response
+        mock_service = MagicMock()
+        mock_service.search_irm = AsyncMock(return_value=[])
+        mock_get_service.return_value = mock_service
 
         result = get_irm.invoke({"ts_code": "999999.XS"})
 
         assert "未找到" in result
 
-    @patch("app.reasoning.tools.financial.profile.profile.get_http_session")
-    def test_get_irm_with_data(self, mock_session):
+    @patch("app.data_pipeline.services.report_service.get_report_service")
+    def test_get_irm_with_data(self, mock_get_service):
         """get_irm 有数据时"""
         from app.reasoning.tools.financial.profile.profile import get_irm
 
-        mock_response = MagicMock()
-        mock_response.json.return_value = {
-            "total": 1,
-            "items": [
+        mock_service = MagicMock()
+        mock_service.search_irm = AsyncMock(
+            return_value=[
                 {
                     "question": "公司对AI算力的布局如何？",
                     "answer": "公司正在加大AI相关产品研发投入。",
-                    "question_time": "2024-05-01",
-                    "signals": "AI",
+                    "ann_date": "2024-05-01",
+                    "exchange": "SZ",
                 }
-            ],
-        }
-        mock_session.return_value.get.return_value = mock_response
+            ]
+        )
+        mock_get_service.return_value = mock_service
 
         result = get_irm.invoke({"ts_code": "300308.SZ"})
 

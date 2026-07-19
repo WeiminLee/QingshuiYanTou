@@ -18,7 +18,8 @@ class TestResolveVariable:
 
         result = resolve_variable("app.reasoning.tools.market_data.kline:get_kline")
         assert result is not None, "get_kline 工具应能通过 use 路径解析"
-        assert callable(result), "解析结果应为可调用对象"
+        # get_kline 现为 LangChain StructuredTool（通过 .invoke 调用，非直接 callable）
+        assert callable(result) or hasattr(result, "invoke"), "解析结果应为可调用对象或 LangChain 工具"
 
     def test_resolve_invalid_module_raises_import_error(self):
         """不存在的模块路径应抛出 ImportError"""
@@ -47,17 +48,18 @@ class TestLoadToolsFromConfig:
         assert len(configs) >= 11, f"应至少加载 11 个现有工具，实际: {len(configs)}"
 
     def test_all_default_tools_loaded(self):
-        """所有 11 个默认工具都应成功加载"""
+        """默认工具应成功加载（enabled=false 的已弃用工具不计入）"""
         from app.reasoning.registry.loader import load_tools_from_config
 
         configs = load_tools_from_config()
         names = {c.name for c in configs}
 
+        # 注：neo4j_traverse/neo4j_entity_info 已在 config.yaml 标记 enabled:false（被 resolve+expand 取代），
+        # 不再计入默认加载集合。
         expected = {
             "get_kline",
             "get_concept_hot",
             "get_market_breadth",
-            "neo4j_traverse",
             "get_research_report",
             "get_announcement",
             "tavily_search",

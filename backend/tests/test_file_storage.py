@@ -4,7 +4,22 @@ Test _resolve_pdf_url static method of FileStorage.
 
 from unittest.mock import patch
 
+import pytest
+
 from app.data_pipeline.file_storage import FileStorage
+
+
+@pytest.fixture(autouse=True)
+def _isolate_storage_root(tmp_path, monkeypatch):
+    """把 FileStorage 的外部存储根指向临时目录，避免依赖不存在的 /run/media 挂载。
+
+    FileStorage.__init__ 会对 minishare_data_root 下的 reports/notices/irm 目录做 mkdir，
+    默认值是一块本机外接盘路径，CI/其他机器上不存在。测试统一改用 tmp_path。
+    """
+    import app.config as cfg
+
+    monkeypatch.setattr(cfg.settings, "minishare_data_root", tmp_path, raising=False)
+    yield
 
 
 class TestResolvePdfUrl:

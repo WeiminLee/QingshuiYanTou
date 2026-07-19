@@ -538,7 +538,9 @@ class TestManageMemoryTool:
         assert isinstance(result, str)
         mock_manager.handle_tool_call.assert_awaited_once_with(
             "manage_memory",
-            {"action": "add", "target": "notes", "content": "用户关注光模块板块", "old_text": None},
+            {"action": "add", "target": "notes", "content": "用户关注光模块板块",
+             "old_text": None, "subject": None, "stance": None,
+             "subject_type": None, "reason": None},
         )
 
     @pytest.mark.asyncio

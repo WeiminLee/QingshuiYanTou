@@ -102,9 +102,10 @@ class TestTradingHoursGate:
 
 
 class TestBatchReindexScheduler:
-    """D-07 batch reindex is scheduled nightly, not dispatched at startup."""
+    """D-07 batch reindex 目前未注册：reindex_missing_vectors 尚未实现，
+    注册它会每晚向 monitor/钉钉误报 SUCCESS(count=0) 假成功（详见 scheduler.start）。"""
 
-    def test_batch_reindex_job_registered_at_0300(self):
+    def test_batch_reindex_job_not_registered(self):
         from app.data_pipeline import scheduler as sched
 
         scheduler = sched.Scheduler()
@@ -112,13 +113,9 @@ class TestBatchReindexScheduler:
         with patch.object(sched.AsyncIOScheduler, "start", return_value=None):
             scheduler.start()
 
+        # 未实现前不应注册该任务，避免假成功通知；待 reindex_missing_vectors 落地后再启用
         job = scheduler._scheduler.get_job("batch_reindex_daily")
-        assert job is not None
-
-        trigger_text = str(job.trigger)
-        assert f"hour='{sched.BATCH_REINDEX_HOUR}'" in trigger_text
-        assert f"minute='{sched.BATCH_REINDEX_MINUTE}'" in trigger_text
-        assert str(job.trigger.timezone) == sched.TIMEZONE
+        assert job is None
 
     def test_run_now_does_not_dispatch_batch_reindex(self):
         from app.data_pipeline import scheduler as sched
@@ -195,6 +192,7 @@ def test_fire_all_once_uses_running_loop(monkeypatch):
     monkeypatch.setattr(sched, "_run_cninfo_enqueue_job", fake_job)
     monkeypatch.setattr(sched, "_run_ingestion_worker_job", fake_job)
     monkeypatch.setattr(sched, "_run_sync_stocks_job", fake_job)
+    monkeypatch.setattr(sched, "_run_news_job", fake_job)
 
     async def run_case():
         nonlocal created_count
@@ -220,7 +218,8 @@ def test_fire_all_once_uses_running_loop(monkeypatch):
 
     asyncio.run(run_case())
 
-    assert created_count == 7
+    # _fire_all_once 启动补漏任务数：report/concept/kline/irm/cninfo/ingestion/sync_stocks/news = 8
+    assert created_count == 8
 
 
 def test_ingestion_worker_job_drains_once(monkeypatch):

@@ -289,6 +289,8 @@ L1 — 证据原子层（原始公告/研报/互动易）：
 
 {graph_context}
 
+{signal_context}
+
 <citations>
 **引用规则**：
 - 使用外部信息后必须标注来源
@@ -354,6 +356,27 @@ def _build_graph_context_section(graph_context: str) -> str:
 """
 
 
+def _build_signal_context_section(signal_context: str) -> str:
+    """构建信号上下文 section，注入 system prompt（不进入前端输出）。"""
+    if not signal_context or not signal_context.strip():
+        return ""
+    stripped = signal_context.strip()
+    if stripped.startswith("<signal-context>"):
+        return stripped
+    return f"""\
+<signal-context>
+以下是系统自动召回的预期差信号，仅供研究线索使用。
+
+**重要规则**：
+- 信号是线索，不是投资结论
+- 使用信号时必须区分“线索”和“已验证事实”
+- 涉及定量结论时，必须回到公告、Evidence、研报或工具结果验证
+
+{signal_context}
+</signal-context>
+"""
+
+
 def apply_prompt_template(
     subagent_enabled: bool = False,
     max_concurrent_subagents: int = 3,
@@ -361,6 +384,7 @@ def apply_prompt_template(
     kg_anchors: str = "",
     background_context: str = "",
     graph_context: str = "",
+    signal_context: str = "",
 ) -> str:
     """
     生成完整的 Lead Agent system prompt。
@@ -372,6 +396,7 @@ def apply_prompt_template(
         kg_anchors: KG Anchors 格式化文本（来自 format_kg_anchors()）
         background_context: Qdrant pre-search 检索的背景知识（注入 system prompt，不进入前端输出）
         graph_context: 图谱上下文查询结果（从 Neo4j 预查询，注入 system prompt，不进入前端输出）
+        signal_context: 预期差信号上下文（注入 system prompt，不进入前端输出）
 
     Returns:
         格式化后的完整 system prompt
@@ -385,6 +410,8 @@ def apply_prompt_template(
 
     graph_section = _build_graph_context_section(graph_context)
 
+    signal_section = _build_signal_context_section(signal_context)
+
     prompt = SYSTEM_PROMPT_TEMPLATE.format(
         skills_section=skills_section,
         subagent_section=subagent_section,
@@ -392,10 +419,10 @@ def apply_prompt_template(
         kg_anchors=kg_anchors,
         background_context=background_section,
         graph_context=graph_section,
+        signal_context=signal_section,
         summarize_routing_guide=SUMMARIZE_ROUTING_GUIDE,
     )
 
     return prompt + f"\n<current_date>{datetime.now().strftime('%Y-%m-%d')}</current_date>\n"
-
 
 

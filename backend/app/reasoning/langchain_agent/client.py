@@ -122,6 +122,7 @@ class LangChainAgentClient:
         pre_search_top_k: int | None = None,
         plan_mode: bool = False,
         title_enabled: bool = True,
+        user_id: str | None = None,
     ):
         self.thread_id = thread_id or str(uuid.uuid4())
         self.model_name = model_name
@@ -131,6 +132,7 @@ class LangChainAgentClient:
         self.pre_search_top_k = pre_search_top_k
         self.plan_mode = plan_mode
         self.title_enabled = title_enabled
+        self.user_id = user_id
 
     async def run(
         self,
@@ -141,6 +143,7 @@ class LangChainAgentClient:
         return await run_lead_agent(
             question=question,
             thread_id=self.thread_id,
+            user_id=self.user_id,
             model_name=self.model_name,
             subagent_enabled=self.subagent_enabled,
             max_concurrent_subagents=self.max_concurrent_subagents,
@@ -159,7 +162,9 @@ class LangChainAgentClient:
 async def run_lead_agent(
     question: str,
     thread_id: str | None = None,
+    user_id: str | None = None,
     task_id: str | None = None,
+    signal_id: str | None = None,
     model_name: str = "minimax2.5",
     max_turns: int = 8,
     subagent_enabled: bool = False,
@@ -192,13 +197,15 @@ async def run_lead_agent(
     journal_token = set_current_journal(journal)
 
     # ── MemoryManager ──
-    from app.reasoning.langchain_agent.memory.builtin_provider import BuiltinProvider
     from app.reasoning.langchain_agent.memory.manager import MemoryManager
+    from app.reasoning.langchain_agent.memory.user_memory_provider import UserMemoryProvider
+    from app.reasoning.langchain_agent.memory.user_resolver import resolve_user_id
 
     memory_manager: MemoryManager | None = None
     try:
-        provider = BuiltinProvider()
-        provider.initialize(thread_id)
+        resolved_user_id = resolve_user_id(user_id)
+        provider = UserMemoryProvider()
+        provider.initialize(resolved_user_id)
         memory_manager = MemoryManager()
         memory_manager.add_provider(provider)
     except Exception:
@@ -272,6 +279,7 @@ async def run_lead_agent(
         harness: HarnessManager | None = None
         memory_context = ""
         kg_anchors_str = ""
+        signal_context = ""
         system_prompt = ""
         if not skip_preflight:
             if harness_config is not None:
@@ -292,6 +300,16 @@ async def run_lead_agent(
             if harness is not None and harness.config.kg_anchors_enabled:
                 kg_anchors_str = format_kg_anchors(thread_id)
 
+            # Signal Context 注入
+            if signal_id:
+                try:
+                    from app.signals.context_provider import fetch_signal_context
+
+                    signal_context = await fetch_signal_context(signal_id=signal_id, question=question)
+                except Exception:
+                    logger.warning("[SignalContext] fetch failed, running without signal context")
+                    signal_context = ""
+
             # 背景知识注入 system prompt（不进入 user message，不输出到前端）
             system_prompt = apply_prompt_template(
                 subagent_enabled=subagent_enabled,
@@ -300,6 +318,7 @@ async def run_lead_agent(
                 kg_anchors=kg_anchors_str,
                 background_context=background or "",
                 graph_context=graph_context or "",
+                signal_context=signal_context or "",
             )
 
         # ── Memory tool injection ──

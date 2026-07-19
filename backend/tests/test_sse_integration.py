@@ -36,7 +36,8 @@ class TestSSEWireFormat:
         assert result["event"] == "thinking"
 
     def test_sse_bytes_contain_event_line(self):
-        from sse_starlette.event import ensure_bytes
+        # ensure_bytes 现位于 sse_starlette.sse（旧 sse_starlette.event 子模块已移除）
+        from sse_starlette.sse import ensure_bytes
 
         from app.reasoning.api.agent_events import ReasoningEvent
 
@@ -106,12 +107,8 @@ class TestSchemaConsistency:
         for field in self.REQUIRED_FIELDS:
             assert f'"{field}"' in source or f"'{field}'" in source, f"legacy 路径缺少字段: {field}"
 
-    def test_manual_loop_has_all_required_fields(self):
-        with open("app/reasoning/langchain_agent/middlewares/manual_agent_loop.py") as f:
-            source = f.read()
-
-        for field in self.REQUIRED_FIELDS:
-            assert f'"{field}"' in source or f"'{field}'" in source, f"ManualAgentLoop 路径缺少字段: {field}"
+    # 注：test_manual_loop_has_all_required_fields 已删除——manual_agent_loop.py 已删除
+    # （手动 agent 循环被 LangChain 原生 create_agent()+astream() 取代），不再有第二条路径需校验。
 
 
 # ── GAP-BE-06: LLM 失败错误事件 ────────────────────────────────────────
@@ -134,11 +131,12 @@ class TestV2StreamEnd:
     """GAP-BE-08: 验证 /v2/stream 显式发射 stream_end"""
 
     def test_v2_stream_has_stream_end(self):
+        # stream_end 仍显式发射：agent.py 的报告路径 emit_fn("stream_end", {...})。
         with open("app/reasoning/api/agent.py") as f:
             source = f.read()
 
-        assert "'type': 'stream_end'" in source or '"type": "stream_end"' in source, (
-            "v2_stream() 缺少显式 stream_end 事件"
+        assert 'emit_fn("stream_end"' in source or "emit_fn('stream_end'" in source, (
+            "agent.py 缺少 stream_end 事件发射"
         )
 
     def test_v2_stream_checks_task_status(self):
@@ -188,11 +186,26 @@ class TestNoDuplicateStreamEnd:
     """GAP-BE-12: 验证无重复 stream_end"""
 
     def test_manual_loop_no_duplicate_reasoning_end(self):
+        # 结束事件统一为 stream_end。client.run_lead_agent 在 agent.stream() 循环里发射一次；
+        # agent.py 的 legacy 报告路径显式注明不再重复发射（避免前端收到重复 stream_end）。
         with open("app/reasoning/langchain_agent/client.py") as f:
-            source = f.read()
+            client_source = f.read()
+        with open("app/reasoning/api/agent.py") as f:
+            agent_source = f.read()
 
-        count = source.count('emit_fn("reasoning_end"') + source.count("emit_fn('reasoning_end'")
-        assert count == 1, f"client.py 中 reasoning_end 发射次数应为 1（仅 legacy 路径），实际为 {count}"
+        # client 侧 SSE 发射一次：emit_fn(..., "stream_end", ...)。注意区分 append_journal_event
+        # 也带 "stream_end" 字面量（日志用，非 SSE），故排除 journal 行后计数。
+        emit_stream_end_lines = [
+            ln for ln in client_source.splitlines()
+            if '"stream_end",' in ln and "append_journal_event" not in ln
+        ]
+        assert len(emit_stream_end_lines) == 1, (
+            f"client.py 应恰好发射一次 SSE stream_end，实际 {len(emit_stream_end_lines)}"
+        )
+        # agent.py 侧留有防重复注释/逻辑
+        assert "不再重复发射" in agent_source or "已经由 run_lead_agent" in agent_source, (
+            "agent.py 缺少防止 stream_end 重复发射的说明/逻辑"
+        )
 
 
 # ── GAP-BE-13: 超时不构建空报告 ────────────────────────────────────────
@@ -202,24 +215,30 @@ class TestTimeoutNoEmptyReport:
     """GAP-BE-13: 验证超时不构建空报告"""
 
     def test_timeout_returns_early(self):
+        # GAP-BE-13 原意：超时不得构建空报告。当前架构下 agent.py 唯一的 TimeoutError 处理是
+        # 事件队列 ping 超时（emitter_queue.get 的 wait_for），它只 ping/break，绝不构建报告——
+        # 因此"超时构建空报告"的旧路径已不存在。这里验证该 handler 不触及报告构建。
         with open("app/reasoning/api/agent.py") as f:
             source = f.read()
 
         lines = source.split("\n")
-        timeout_return_found = False
         in_timeout_handler = False
+        builds_report_in_handler = False
 
-        for i, line in enumerate(lines):
-            if "asyncio.TimeoutError" in line and "except" in line:
+        for line in lines:
+            stripped = line.strip()
+            if "except" in line and "TimeoutError" in line:
                 in_timeout_handler = True
-            elif in_timeout_handler:
-                if "return" in line and not line.strip().startswith("#"):
-                    timeout_return_found = True
+                continue
+            if in_timeout_handler:
+                # 退出 handler：遇到同级或更外层的 except/新逻辑块
+                if stripped.startswith("except ") and "TimeoutError" not in line:
                     break
-                if "except" in line and "TimeoutError" not in line:
+                if ("report_content" in line or "AnalysisReport" in line or "to_markdown" in line) and not stripped.startswith("#"):
+                    builds_report_in_handler = True
                     break
 
-        assert timeout_return_found, "TimeoutError 处理中缺少 return 语句"
+        assert not builds_report_in_handler, "TimeoutError 处理中不应构建报告（避免超时空报告）"
 
 
 if __name__ == "__main__":

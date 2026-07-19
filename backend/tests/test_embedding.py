@@ -78,9 +78,9 @@ def test_pre_search_formats_all_hybrid_collections():
 
 
 class TestBatchReindexScheduler:
-    """D-07 batch reindex is scheduled nightly, not dispatched at startup."""
+    """batch reindex 目前未注册：reindex_missing_vectors 尚未实现，注册会误报假成功。"""
 
-    def test_batch_reindex_job_registered_at_0300(self):
+    def test_batch_reindex_job_not_registered(self):
         from app.data_pipeline import scheduler as sched
 
         scheduler = sched.Scheduler()
@@ -88,13 +88,9 @@ class TestBatchReindexScheduler:
         with patch.object(sched.AsyncIOScheduler, "start", return_value=None):
             scheduler.start()
 
+        # 未实现前不应注册该任务，避免每晚假成功通知（详见 scheduler.start / vector_ops）
         job = scheduler._scheduler.get_job("batch_reindex_daily")
-        assert job is not None
-
-        trigger_text = str(job.trigger)
-        assert f"hour='{sched.BATCH_REINDEX_HOUR}'" in trigger_text
-        assert f"minute='{sched.BATCH_REINDEX_MINUTE}'" in trigger_text
-        assert str(job.trigger.timezone) == sched.TIMEZONE
+        assert job is None
 
     def test_run_now_does_not_dispatch_batch_reindex(self):
         import inspect

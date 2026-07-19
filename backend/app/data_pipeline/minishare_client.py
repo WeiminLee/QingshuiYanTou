@@ -11,8 +11,12 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-import minishare as ms
 import pandas as pd
+
+try:
+    import minishare as ms
+except ImportError:  # minishare 为可选备选数据源，未安装时降级为不可用
+    ms = None
 
 from app.config import settings
 from app.data_pipeline.rate_limiter import get_minishare_async_limiter
@@ -82,6 +86,9 @@ class DataSourceClientMinishare:
         if not research_token:
             logger.warning("MINISHARE_RESEARCH_TOKEN 未配置，研报数据源不可用")
             self._research_api = None
+        elif ms is None:
+            logger.warning("minishare 包未安装，研报数据源不可用")
+            self._research_api = None
         else:
             self._research_api = ms.pro_api(research_token)
 
@@ -93,13 +100,17 @@ class DataSourceClientMinishare:
 
     @property
     def anns_available(self) -> bool:
-        return bool(settings.minishare_anns_token)
+        return ms is not None and bool(settings.minishare_anns_token)
 
     def _ensure_anns_api(self) -> Any:
         """延迟初始化 anns API"""
         anns_token = settings.minishare_anns_token
         if not anns_token:
             logger.warning("MINISHARE_ANNS_TOKEN 未配置，公告数据源不可用")
+            self._anns_api = None
+            return None
+        if ms is None:
+            logger.warning("minishare 包未安装，公告数据源不可用")
             self._anns_api = None
             return None
         if self._anns_api is None:

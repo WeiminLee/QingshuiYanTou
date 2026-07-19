@@ -156,9 +156,8 @@ class TestCninfoBuildPayload:
         from app.data_pipeline.cninfo_client import CninfoClient
 
         client = CninfoClient()
-        with patch.object(
-            CninfoClient,
-            "_get_stock_org_map_sync",
+        with patch(
+            "app.data_pipeline.cninfo_client._get_stock_org_map_cached",
             return_value={"000001": "gssz0000001"},
         ):
             payload = client._build_payload(
@@ -178,7 +177,7 @@ class TestCninfoBuildPayload:
         from app.data_pipeline.cninfo_client import CninfoClient
 
         client = CninfoClient()
-        with patch.object(CninfoClient, "_get_stock_org_map_sync", return_value={}):
+        with patch("app.data_pipeline.cninfo_client._get_stock_org_map_cached", return_value={}):
             payload = client._build_payload(
                 ann_date="20240517",
                 ts_code="300593.SZ",
@@ -517,7 +516,7 @@ class TestRunCninfoJobBehavior:
 
         mock_fetcher_mod = MagicMock()
         fake_fetcher = MagicMock()
-        fake_fetcher.fetch_announcements = AsyncMock(return_value=fake_result)
+        fake_fetcher.fetch_minishare_announcements = AsyncMock(return_value=fake_result)
         mock_fetcher_mod.DataFetcher = MagicMock(return_value=fake_fetcher)
 
         mock_dingtalk = MagicMock()
@@ -535,8 +534,8 @@ class TestRunCninfoJobBehavior:
         ):
             asyncio.run(sched_mod._run_cninfo_job())
 
-        # 必须调用 fetch_announcements 一次
-        fake_fetcher.fetch_announcements.assert_awaited_once_with()
+        # 必须调用 fetch_minishare_announcements 一次
+        fake_fetcher.fetch_minishare_announcements.assert_awaited_once_with()
         # init_monitor + record_task_start
         mock_monitor.init_monitor.assert_awaited_once()
         mock_monitor.record_task_start.assert_awaited_once_with("cninfo")
@@ -582,7 +581,7 @@ class TestRunCninfoJobBehavior:
 
         mock_fetcher_mod = MagicMock()
         fake_fetcher = MagicMock()
-        fake_fetcher.fetch_announcements = AsyncMock(return_value=fake_result)
+        fake_fetcher.fetch_minishare_announcements = AsyncMock(return_value=fake_result)
         mock_fetcher_mod.DataFetcher = MagicMock(return_value=fake_fetcher)
 
         mock_dingtalk = MagicMock()
@@ -621,7 +620,7 @@ class TestRunCninfoJobBehavior:
 
         mock_fetcher_mod = MagicMock()
         fake_fetcher = MagicMock()
-        fake_fetcher.fetch_announcements = AsyncMock(
+        fake_fetcher.fetch_minishare_announcements = AsyncMock(
             side_effect=RuntimeError("boom"),
         )
         mock_fetcher_mod.DataFetcher = MagicMock(return_value=fake_fetcher)
@@ -665,6 +664,21 @@ class TestFetchAnnouncementsE2E:
     全部用 mock 避免外部 IO；覆盖 Plan 03-02 的 fetch_announcements + Plan 03-03
     scheduler 调用的核心契约（input/output shape）。
     """
+
+    @pytest.fixture(autouse=True)
+    def _hermetic_env(self, monkeypatch):
+        """隔离回补白名单对 E2E 主链路的影响。
+
+        ``_process_announcement_list`` 默认 scope=tech_mvp 且白名单文件缺失时会过滤掉
+        全部公告；强制 scope=all 保留过滤/下载/入库主链路的测试意图。
+        （存储路径由根 conftest 的 MINISHARE_DATA_ROOT 占位配置统一处理。）
+        """
+        from app.data_pipeline.backfill_config import reset_settings_cache
+
+        monkeypatch.setenv("BACKFILL_SCOPE", "all")
+        reset_settings_cache()
+        yield
+        reset_settings_cache()
 
     def _build_announcement(
         self,

@@ -52,7 +52,7 @@ tools:
   - name: semantic_search
     group: knowledge
     use: app.reasoning.tools.knowledge.semantic_search:semantic_search
-    description: 语义向量检索（前置探查）：模糊搜索实体/关系/文档/问答，结果含 entity_id 后可接 expand 做精准图穿透。适合不知道 entity_id 时先用语义搜索找到候选
+    description: 语义向量检索（前置探查）：不知道 entity_id 时先模糊搜索候选。scope=entities 返回实体(含 entity_id，可接 expand)，scope=chunks 返回证据片段(含 evidence_id，可接 fetch_evidence)
 
   # resolve + expand: 新一代图谱导航（resolve→expand 模式）
   - name: resolve

@@ -15,21 +15,31 @@ Run: uv run --directory backend python -m pytest tests/reasoning/test_token_esti
 
 import pytest
 
+from app.reasoning.harness.token_counter import count_tokens
+
+
+def _estimate_text_tokens(text: str) -> int:
+    """token 估算的迁移适配。
+
+    原 context_compressor._estimate_text_tokens 已删除，token 估算逻辑
+    统一迁移到 harness.token_counter.count_tokens（tiktoken 精确计数，
+    无 tiktoken 时回退启发式）。这里显式指定 gpt-4(cl100k_base) 编码，
+    与本测试计算参考值所用的 cl100k_base 对齐。
+    """
+    return count_tokens(text, "gpt-4")
+
 
 class TestTokenEstimationAccuracy:
     """Token 估算准确性测试"""
 
     def test_current_implementation_underestimates_chinese(self):
         """
-        当前实现：中文字符低估约 60%
+        中文估算准确性：误差应 < 30%
 
-        中文约 0.8-1 字符/token，用 len//2 会严重低估。
-        例如 "分析光模块行业" = 9 字符，len//2 = 4，但实际约 9 token
+        中文约 0.8-1 字符/token，旧实现用 len//2 会严重低估。
+        迁移后使用 tiktoken 精确计数，误差应显著低于 30%。
+        例如 "分析光模块行业" = 9 字符，实际约 9 token
         """
-        from app.reasoning.langchain_agent.middlewares.context_compressor import (
-            _estimate_text_tokens,
-        )
-
         # 中文测试用例
         chinese_text = "分析光模块行业的竞争格局和技术路线"
 
@@ -69,10 +79,6 @@ class TestTokenEstimationAccuracy:
         """
         验证中文估算准确性（误差 < 30%）
         """
-        from app.reasoning.langchain_agent.middlewares.context_compressor import (
-            _estimate_text_tokens,
-        )
-
         test_cases = [
             "分析",
             "分析光模块",
@@ -102,10 +108,6 @@ class TestTokenEstimationAccuracy:
         """
         验证代码/英文估算准确性
         """
-        from app.reasoning.langchain_agent.middlewares.context_compressor import (
-            _estimate_text_tokens,
-        )
-
         code_text = "def calculate_similarity(a, b): return a * b / 100"
         estimated = _estimate_text_tokens(code_text)
 
@@ -120,10 +122,6 @@ class TestTokenEstimationAccuracy:
         """
         验证中英文混合内容的估算准确性
         """
-        from app.reasoning.langchain_agent.middlewares.context_compressor import (
-            _estimate_text_tokens,
-        )
-
         # 中英文混合
         mixed = "分析 get_kline() 返回的 K 线数据趋势"
         estimated = _estimate_text_tokens(mixed)

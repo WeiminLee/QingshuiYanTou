@@ -27,6 +27,7 @@ class TestSummaryCache:
         assert cache_key(2, "P:ABCD1234") == "summary:L2:P:ABCD1234"
         assert cache_key(3, "P:ABCD1234", depth=3) == "summary:L3:P:ABCD1234:3"
 
+    @pytest.mark.integration
     @pytest.mark.asyncio
     async def test_put_and_get_summary(self):
         """验证缓存写入和读取"""
@@ -47,6 +48,7 @@ class TestSummaryCache:
         assert cached["level"] == 1
         assert cached["stale"] is False
 
+    @pytest.mark.integration
     @pytest.mark.asyncio
     async def test_invalidation_product_propagation(self):
         """验证 Product 级失效传播: L2→L3"""
@@ -64,6 +66,7 @@ class TestSummaryCache:
         assert await is_stale(2, "P:TEST002")
         assert await is_stale(3, "P:TEST002", depth=3)
 
+    @pytest.mark.integration
     @pytest.mark.asyncio
     async def test_invalidation_company_l1_only(self):
         """验证 Company 级失效标记 L1"""
@@ -77,6 +80,7 @@ class TestSummaryCache:
         await invalidate_entity("C:TEST003")
         assert await is_stale(1, "C:TEST003")
 
+    @pytest.mark.integration
     @pytest.mark.asyncio
     async def test_company_invalidation_with_mock_lookup(self):
         """验证 Company 失效时，通过 Neo4j 查询关联 Product 并传播到 L2/L3"""
@@ -100,6 +104,7 @@ class TestSummaryCache:
         assert await is_stale(2, "P:RELATED01")
         assert await is_stale(3, "P:RELATED01", depth=3)
 
+    @pytest.mark.integration
     @pytest.mark.asyncio
     async def test_get_summary_miss(self):
         """验证缓存未命中返回 None"""
@@ -149,6 +154,7 @@ class TestSummarizeTool:
     async def test_tool_inherits_structured_tool(self):
         """验证工具继承自 StructuredTool（兼容 LangChain）"""
         from langchain_core.tools import StructuredTool
+
         from app.reasoning.tools.knowledge.summarize import summarize
 
         assert isinstance(summarize, StructuredTool)

@@ -65,6 +65,13 @@ class TestApplyPromptTemplate:
         assert "光模块行业" in result
         assert "中际旭创" in result
 
+    def test_signal_context_injected(self):
+        """signal_context 参数注入到 <signal-context> 标签"""
+        from app.reasoning.langchain_agent.prompts.lead_system_prompt import apply_prompt_template
+
+        result = apply_prompt_template(signal_context="<signal-context>800G 光模块规模量产</signal-context>")
+        assert "<signal-context>800G 光模块规模量产</signal-context>" in result
+
     def test_max_concurrent_in_subagent_section(self):
         """max_concurrent_subagents 参数正确注入"""
         from app.reasoning.langchain_agent.prompts.lead_system_prompt import apply_prompt_template

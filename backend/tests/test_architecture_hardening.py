@@ -62,7 +62,8 @@ def test_evidence_builders_emit_timezone_aware_utc_observed_at() -> None:
 
 def test_evidence_service_has_single_timezone_aware_clock() -> None:
     source = inspect.getsource(evidence_service)
-    assert "datetime.now(timezone.utc)" in source
+    # 时区感知时钟：接受 datetime.now(UTC)（现用，PEP 615 UTC 别名）或 datetime.now(timezone.utc）
+    assert "datetime.now(UTC)" in source or "datetime.now(timezone.utc)" in source
     assert "datetime.utcnow" not in source
 
 
