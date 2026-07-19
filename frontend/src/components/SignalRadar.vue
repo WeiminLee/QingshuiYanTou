@@ -143,6 +143,7 @@ function sourceLabel(sourceType) {
 <style scoped>
 .signal-radar {
   padding: 0 16px 10px;
+  font-family: var(--ow-font);
 }
 
 .signal-radar__header {
@@ -154,29 +155,29 @@ function sourceLabel(sourceType) {
 }
 
 .signal-radar__label {
-  color: var(--text-sidebar-muted);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 1.2px;
-  text-transform: uppercase;
+  color: var(--ow-text-2);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0;
 }
 
 .signal-radar__count {
   color: var(--ledger-gold);
-  font-size: 10px;
+  font-size: 12px;
+  font-weight: 600;
 }
 
 .signal-radar__state,
 .signal-radar__viewport {
-  border: 1px solid rgba(184, 134, 11, 0.18);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid var(--ow-border);
+  border-radius: var(--ow-radius-sm);
+  background: var(--ow-surface);
 }
 
 .signal-radar__state {
   padding: 12px;
-  color: var(--text-sidebar-muted);
-  font-size: 11px;
+  color: var(--ow-text-3);
+  font-size: 13.5px;
 }
 
 .signal-radar__viewport {
@@ -188,7 +189,7 @@ function sourceLabel(sourceType) {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  padding: 7px;
+  padding: 8px;
   animation: signal-scroll 28s linear infinite;
 }
 
@@ -205,27 +206,36 @@ function sourceLabel(sourceType) {
 .signal-card {
   position: relative;
   display: grid;
-  grid-template-columns: 34px minmax(0, 1fr);
-  gap: 7px;
+  grid-template-columns: 38px minmax(0, 1fr);
+  gap: 8px;
   width: 100%;
-  padding: 8px;
-  border: 1px solid rgba(184, 134, 11, 0.16);
-  border-left: 3px solid var(--ledger-gold);
-  border-radius: 6px;
-  background: rgba(255, 255, 255, 0.04);
-  color: var(--text-sidebar);
+  padding: 9px;
+  border: 1px solid var(--ow-border);
+  border-left: 3px solid rgba(184, 134, 11, 0.78);
+  border-radius: var(--ow-radius-xs);
+  background: var(--ow-bg);
+  color: var(--ow-text-2);
   text-align: left;
   cursor: pointer;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
+  transition:
+    background 0.15s,
+    border-color 0.15s,
+    box-shadow 0.15s,
+    transform 0.15s;
 }
 
 .signal-card:hover {
-  background: var(--ledger-spine-3);
-  color: var(--text-sidebar-hi);
+  background: #fcfcfd;
+  border-color: var(--ow-border-strong);
+  color: var(--ow-text);
+  box-shadow: 0 5px 16px rgba(15, 23, 42, 0.08);
+  transform: translateY(-1px);
 }
 
 .signal-card__score {
   color: var(--ledger-gold);
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 700;
   line-height: 1.1;
 }
@@ -244,22 +254,23 @@ function sourceLabel(sourceType) {
 }
 
 .signal-card__title {
-  color: var(--text-sidebar-hi);
-  font-size: 12px;
-  line-height: 1.3;
+  color: var(--ow-text);
+  font-size: 13.5px;
+  font-weight: 600;
+  line-height: 1.35;
 }
 
 .signal-card__summary {
   margin-top: 3px;
-  color: var(--text-sidebar-muted);
-  font-size: 10px;
-  line-height: 1.35;
+  color: var(--ow-text-2);
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 .signal-card__meta {
   margin-top: 4px;
-  color: var(--ledger-gold);
-  font-size: 10px;
+  color: var(--ow-text-3);
+  font-size: 11.5px;
 }
 
 .signal-card__ask {
@@ -269,12 +280,13 @@ function sourceLabel(sourceType) {
   display: none;
   height: 22px;
   min-width: 26px;
-  border: 1px solid rgba(232, 163, 23, 0.45);
-  border-radius: 5px;
-  background: #2c2419;
-  color: var(--ledger-gold);
-  font-size: 11px;
+  border: 1px solid var(--ow-border-strong);
+  border-radius: 7px;
+  background: var(--ow-bg);
+  color: var(--ow-text-2);
+  font-size: 12px;
   cursor: pointer;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08);
 }
 
 .signal-card:hover .signal-card__ask {
@@ -285,10 +297,11 @@ function sourceLabel(sourceType) {
 
 .signal-detail {
   margin-top: 8px;
-  padding: 10px;
-  border: 1px solid rgba(184, 134, 11, 0.2);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.055);
+  padding: 12px;
+  border: 1px solid var(--ow-border);
+  border-radius: var(--ow-radius-sm);
+  background: var(--ow-bg);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
 }
 
 .signal-detail__top {
@@ -306,15 +319,16 @@ function sourceLabel(sourceType) {
 .signal-detail__close {
   border: 0;
   background: transparent;
-  color: var(--text-sidebar-muted);
+  color: var(--ow-text-3);
   cursor: pointer;
   font-size: 11px;
 }
 
 .signal-detail h3 {
   margin: 6px 0;
-  color: var(--text-sidebar-hi);
-  font-size: 12px;
+  color: var(--ow-text);
+  font-size: 14px;
+  font-weight: 600;
   line-height: 1.45;
 }
 
@@ -322,25 +336,30 @@ function sourceLabel(sourceType) {
 .signal-detail__reasoning,
 .signal-detail__path {
   margin: 6px 0 0;
-  color: var(--text-sidebar);
-  font-size: 11px;
+  color: var(--ow-text-2);
+  font-size: 13px;
   line-height: 1.55;
 }
 
 .signal-detail__path {
-  color: var(--ledger-gold);
+  color: var(--ow-accent);
 }
 
 .signal-detail__ask {
   width: 100%;
   height: 30px;
   margin-top: 9px;
-  border: 1px solid rgba(184, 134, 11, 0.35);
-  border-radius: 6px;
-  background: rgba(184, 134, 11, 0.14);
-  color: var(--ledger-gold);
+  border: 1px solid var(--ow-border-strong);
+  border-radius: var(--ow-radius-xs);
+  background: var(--ow-surface);
+  color: var(--ow-text);
   cursor: pointer;
-  font-size: 12px;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.signal-detail__ask:hover {
+  background: var(--ow-hover);
 }
 
 @keyframes signal-scroll {

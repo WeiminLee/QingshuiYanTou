@@ -3,6 +3,7 @@ import { streamReport, resolveClarification as apiResolve } from "@/api/agent.js
 import type { ChatMessageItem, ToolCallItem, SuggestionItem, ClarificationItem } from "@/types/chat";
 import { useStreamPipeline } from "./useStreamPipeline";
 import { useStreamParser } from "./useStreamParser";
+import { runMockAgentStream } from "./useMockAgentStream";
 
 function generateId(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -38,6 +39,7 @@ export function useChatSession() {
 
   // useStreamParser: JSON/XML/regex-json/plain-text parsing
   const streamParser = useStreamParser();
+  const useMockAgent = import.meta.env.VITE_USE_MOCK_AGENT === "true";
 
   function findMessage(id: string): ChatMessageItem | undefined {
     return messages.value.find((m) => m.id === id);
@@ -90,6 +92,14 @@ export function useChatSession() {
     const msg = findMessage(id);
     if (!msg) return;
     updateMessage(id, { content: msg.content + delta, thinkingLoading: false });
+  }
+
+  // 用最终权威答案覆盖气泡内容（流式结束时调用，修正增量残缺）
+  function setFinalContent(content: string): void {
+    const id = currentAssistantId.value;
+    if (!id) return;
+    if (!content) return;
+    updateMessage(id, { content, thinkingLoading: false });
   }
 
   function addToolCall(toolCall: ToolCallItem): void {
@@ -152,13 +162,13 @@ export function useChatSession() {
     // 创建 pipeline，传入当前 assistant message ID
     const pipeline = useStreamPipeline(
       {
-        onReasonDelta: appendThinking,
-        onReasonComplete: (msgId, _durationMs) => {
-          // 推理完成，调度延迟折叠（由 useTDesignAdapter 统一管理状态）
-          scheduleAutoCollapse?.(msgId, 1000);
+        // open-webui 风：流式文本直接进 AI 消息气泡（逐字），不再塞进"思考"折叠面板
+        onReasonDelta: (_msgId, delta) => appendContent(delta),
+        onReasonComplete: (_msgId, _durationMs) => {
+          // 答案即气泡内容，无需折叠思考面板
         },
         onContent: (_msgId, content) => {
-          appendContent(content);
+          setFinalContent(content);
         },
         onToolStart: (_msgId, toolCall) => {
           if (!hasToolCallId(toolCall.id)) {
@@ -199,6 +209,13 @@ export function useChatSession() {
     };
 
     es.onerror = () => {
+      // 澄清暂停：服务端发完 clarification_request 后会关闭 SSE 等待用户回答，
+      // 这是预期内的关闭，不应报"连接错误"。
+      if (isWaitingForClarification.value) {
+        isConnected.value = false;
+        es.close();
+        return;
+      }
       if (!error.value) {
         error.value = "SSE 连接失败，请检查网络或 API Key 配置";
       }
@@ -277,6 +294,12 @@ export function useChatSession() {
         const data = extractPayload(e.data);
         pipeline.pushEvent("error", { ...data, _messageId: currentAssistantId.value });
       } catch {
+        // 澄清暂停时 SSE 关闭会触发无 data 的原生 error 事件，属预期，不报错。
+        if (isWaitingForClarification.value) {
+          isConnected.value = false;
+          es.close();
+          return;
+        }
         error.value = "连接错误";
         isLoading.value = false;
         finishCurrentMessage();
@@ -336,6 +359,35 @@ export function useChatSession() {
     isLoading.value = true;
 
     try {
+      if (useMockAgent) {
+        taskId.value = `mock-${Date.now()}`;
+        await runMockAgentStream(question.trim(), {
+          onReasoningStart: () => {
+            const id = currentAssistantId.value;
+            if (id) updateMessage(id, { thinking: true, thinkingLoading: true });
+          },
+          onThinking: appendContent,
+          onToolStart: addToolCall,
+          onToolEnd: (toolId, result, durationMs, preview) => {
+            const parseResult = streamParser.autoDetectParse(result);
+            updateToolCallById(toolId, {
+              result,
+              status: "done",
+              duration_ms: durationMs,
+              preview,
+              parsedResult: parseResult.success ? parseResult.data : null,
+            });
+          },
+          onContent: setFinalContent,
+          onComplete: () => {
+            isLoading.value = false;
+            finishCurrentMessage();
+            scheduleThinkingCollapse();
+          },
+        });
+        return;
+      }
+
       const res = await streamReport({
         question: question.trim(),
         thread_id: threadId.value,

@@ -11,6 +11,7 @@ describe("useChatSession signal context", () => {
   beforeEach(() => {
     streamReport.mockReset();
     streamReport.mockResolvedValue({ task_id: "task-1" });
+    vi.stubEnv("VITE_USE_MOCK_AGENT", "false");
     globalThis.EventSource = class {
       constructor() {}
       addEventListener() {}
