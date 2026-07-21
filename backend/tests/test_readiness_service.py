@@ -7,8 +7,10 @@ from app.readiness.service import (
     DataReadinessService,
     SourceDataSnapshot,
     SourceSyncSnapshot,
+    build_sync_query,
     count_weekday_lag,
     format_readiness_for_agent,
+    source_sync_snapshot_from_row,
 )
 
 
@@ -26,6 +28,32 @@ class FakeRepository:
 
 def test_count_weekday_lag_skips_weekend():
     assert count_weekday_lag(date(2026, 7, 17), date(2026, 7, 20)) == 1
+
+
+def test_irm_sync_query_targets_acquisition_tasks_only():
+    query, params = build_sync_query("irm")
+
+    sql = str(query).lower()
+    assert "kg_extract" not in sql
+    assert "%irm%" not in params.values()
+    assert {"qa_fetch", "irm_daily_backfill"}.issubset(params.values())
+    assert "lower(source) =" in sql
+    assert "lower(task_name) =" in sql
+
+
+def test_sync_snapshot_preserves_previous_success_after_latest_failure():
+    previous_success = datetime(2026, 7, 20, 22, 0, tzinfo=UTC)
+    snapshot = source_sync_snapshot_from_row(
+        {
+            "status": "failed",
+            "completed_at": datetime(2026, 7, 21, 1, 0, tzinfo=UTC),
+            "latest_success_at": previous_success,
+            "last_error": "timeout",
+        }
+    )
+
+    assert snapshot.latest_status == "failed"
+    assert snapshot.latest_success_at == previous_success
 
 
 @pytest.mark.asyncio

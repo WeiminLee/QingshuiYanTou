@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
-from typing import Protocol
+from typing import Mapping, Protocol
 
 from sqlalchemy import text
 
@@ -60,12 +60,16 @@ SOURCE_SPECS: dict[str, SourceSpec] = {
     ),
 }
 
-SYNC_PATTERNS: dict[str, tuple[str, ...]] = {
-    "kline": ("kline",),
-    "announcement": ("cninfo", "announcement", "minishare_ann"),
-    "irm": ("irm",),
-    "news": ("news",),
-    "research_report": ("report", "research"),
+SYNC_ACQUISITION_PAIRS: dict[str, tuple[tuple[str, str], ...]] = {
+    "kline": (("kline", "kline"), ("tushare", "kline")),
+    "announcement": (
+        ("cninfo", "announcements"),
+        ("cninfo", "announcements_history"),
+        ("minishare_ann", "ann_history"),
+    ),
+    "irm": (("irm", "qa_fetch"), ("irm_minishare", "irm_daily_backfill")),
+    "news": (("news", "news"), ("akshare", "news")),
+    "research_report": (("minishare", "reports_history"),),
 }
 
 
@@ -91,6 +95,50 @@ def count_weekday_lag(latest: date, current: date) -> int:
     return days
 
 
+def build_sync_query(source: str):
+    """Build a source-specific acquisition-run query and its bound parameters."""
+    pairs = SYNC_ACQUISITION_PAIRS.get(source, ())
+    if not pairs:
+        return text("SELECT NULL WHERE FALSE"), {}
+
+    clauses = []
+    params = {}
+    for index, (run_source, task_name) in enumerate(pairs):
+        source_param = f"source_{index}"
+        task_param = f"task_{index}"
+        params[source_param] = run_source
+        params[task_param] = task_name
+        clauses.append(
+            f"(LOWER(source) = :{source_param} AND LOWER(task_name) = :{task_param})"
+        )
+    where = " OR ".join(clauses)
+    return text(
+        f"""
+        SELECT status, completed_at, last_error,
+               MAX(completed_at) FILTER (WHERE status = 'success') OVER () AS latest_success_at,
+               updated_at
+        FROM ingestion_runs
+        WHERE {where}
+        ORDER BY updated_at DESC NULLS LAST, started_at DESC NULLS LAST
+        LIMIT 1
+        """
+    ), params
+
+
+def source_sync_snapshot_from_row(row: Mapping[str, object]) -> SourceSyncSnapshot:
+    """Normalize the newest matching run and its historical success timestamp."""
+    status = row.get("status")
+    completed_at = row.get("completed_at")
+    latest_success_at = row.get("latest_success_at")
+    if latest_success_at is None and status == "success":
+        latest_success_at = completed_at
+    return SourceSyncSnapshot(
+        latest_success_at=latest_success_at if isinstance(latest_success_at, datetime) else None,
+        latest_status=status if isinstance(status, str) else None,
+        last_error=row.get("last_error") if isinstance(row.get("last_error"), str) else None,
+    )
+
+
 class SqlReadinessRepository:
     async def get_latest_data_date(self, source: str) -> date | None:
         sql_by_source = {
@@ -114,24 +162,7 @@ class SqlReadinessRepository:
         return value
 
     async def get_sync_snapshot(self, source: str) -> SourceSyncSnapshot:
-        patterns = SYNC_PATTERNS.get(source, (source,))
-        like_clauses = []
-        params = {}
-        for i, pattern in enumerate(patterns):
-            params[f"pattern_{i}"] = f"%{pattern}%"
-            like_clauses.append(
-                f"(LOWER(source) LIKE :pattern_{i} OR LOWER(task_name) LIKE :pattern_{i})"
-            )
-        where = " OR ".join(like_clauses)
-        sql = text(
-            f"""
-            SELECT status, completed_at, last_error, updated_at
-            FROM ingestion_runs
-            WHERE {where}
-            ORDER BY updated_at DESC NULLS LAST, started_at DESC NULLS LAST
-            LIMIT 1
-            """
-        )
+        sql, params = build_sync_query(source)
         try:
             async with engine.connect() as conn:
                 result = await conn.execute(sql, params)
@@ -141,13 +172,7 @@ class SqlReadinessRepository:
             return SourceSyncSnapshot(last_error=f"sync metadata lookup failed: {str(exc)[:300]}")
         if not row:
             return SourceSyncSnapshot()
-        completed_at = row.get("completed_at")
-        latest_success_at = completed_at if row.get("status") == "success" else None
-        return SourceSyncSnapshot(
-            latest_success_at=latest_success_at,
-            latest_status=row.get("status"),
-            last_error=row.get("last_error"),
-        )
+        return source_sync_snapshot_from_row(row)
 
 
 class DataReadinessService:
