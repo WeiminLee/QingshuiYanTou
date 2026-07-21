@@ -159,6 +159,24 @@ def test_merge_sync_snapshots_combines_acquisition_error_and_metadata_warnings()
     assert "sync checkpoint lookup failed" in merged.last_error
 
 
+def test_merge_sync_snapshots_keeps_warning_details_when_space_permits():
+    from app.readiness.service import merge_sync_snapshots
+
+    acquisition_failure = SourceSyncSnapshot(
+        latest_attempt_at=datetime(2026, 7, 21, 4, 0, tzinfo=UTC),
+        latest_status="failed",
+        last_error="timeout",
+    )
+    job_warning = SourceSyncSnapshot(last_error="sync job lookup failed: relation missing")
+    checkpoint_warning = SourceSyncSnapshot(last_error="sync checkpoint lookup failed: permission denied")
+
+    merged = merge_sync_snapshots([acquisition_failure, job_warning, checkpoint_warning])
+
+    assert merged.last_error is not None
+    assert "relation missing" in merged.last_error
+    assert "permission denied" in merged.last_error
+
+
 def test_merge_sync_snapshots_keeps_warning_labels_when_acquisition_error_is_long():
     from app.readiness.service import merge_sync_snapshots
 

@@ -304,17 +304,25 @@ def _compose_last_error(primary: str | None, warnings: list[str], limit: int = 3
     if not primary and len(unique_warnings) == 1:
         return unique_warnings[0][:limit]
 
-    parts = []
+    parts: list[str] = []
+    warning_details: list[tuple[int, str]] = []
     if primary:
         parts.append(primary[:120])
     for warning in unique_warnings:
         label, separator, detail = warning.partition(":")
         part = label if "lookup failed" in label else warning[:80]
-        if "lookup failed" not in label and separator and detail and len(part) + 2 < 80:
-            part = f"{part}: {detail.strip()[:80 - len(part) - 2]}"
         parts.append(part)
+        if separator and detail:
+            warning_details.append((len(parts) - 1, detail.strip()))
     if not parts:
         return None
+
+    for index, detail in warning_details:
+        current = "; ".join(parts)
+        remaining = limit - len(current) - 2
+        if remaining <= 0:
+            break
+        parts[index] = f"{parts[index]}: {detail[:remaining]}"
     return "; ".join(parts)[:limit]
 
 
