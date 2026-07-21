@@ -62,3 +62,19 @@ def test_prompt_template_includes_freshness_context():
     assert "<data_readiness>" in prompt
     assert "overall_status=degraded" in prompt
     assert "数据新鲜度" in prompt
+
+
+@pytest.mark.asyncio
+async def test_client_freshness_helper_returns_unavailable_on_loader_failure(monkeypatch):
+    import app.reasoning.langchain_agent.freshness as freshness
+    from app.reasoning.langchain_agent import client
+
+    async def boom():
+        raise RuntimeError("readiness db down")
+
+    monkeypatch.setattr(freshness, "load_freshness_context", boom)
+
+    text = await client._load_freshness_context_for_prompt()
+
+    assert "overall_status=unavailable" in text
+    assert "readiness db down" in text

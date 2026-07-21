@@ -102,6 +102,18 @@ def _create_chat_model(model_name: str) -> ChatOpenAI:
     return model
 
 
+async def _load_freshness_context_for_prompt() -> str:
+    try:
+        from app.reasoning.langchain_agent.freshness import load_freshness_context
+
+        return await load_freshness_context()
+    except Exception as exc:
+        logger.warning("[FreshnessGate] failed to load context: %s", exc)
+        from app.reasoning.langchain_agent.freshness import build_unavailable_freshness_context
+
+        return build_unavailable_freshness_context(str(exc))
+
+
 # ── LangChainAgentClient（SSE 端点用）────────────────────────────────────
 
 
@@ -281,6 +293,7 @@ async def run_lead_agent(
         kg_anchors_str = ""
         signal_context = ""
         system_prompt = ""
+        freshness_context = ""
         if not skip_preflight:
             if harness_config is not None:
                 harness = HarnessManager(harness_config, thread_id)
@@ -310,16 +323,7 @@ async def run_lead_agent(
                     logger.warning("[SignalContext] fetch failed, running without signal context")
                     signal_context = ""
 
-            freshness_context = ""
-            try:
-                from app.reasoning.langchain_agent.freshness import load_freshness_context
-
-                freshness_context = await load_freshness_context()
-            except Exception as exc:
-                logger.warning("[FreshnessGate] failed to load context: %s", exc)
-                from app.reasoning.langchain_agent.freshness import build_unavailable_freshness_context
-
-                freshness_context = build_unavailable_freshness_context(str(exc))
+            freshness_context = await _load_freshness_context_for_prompt()
 
             # 背景知识注入 system prompt（不进入 user message，不输出到前端）
             system_prompt = apply_prompt_template(
@@ -332,6 +336,12 @@ async def run_lead_agent(
                 signal_context=signal_context or "",
                 freshness_context=freshness_context,
             )
+        elif prebuilt_messages is not None:
+            # HITL resume skips expensive preflight (clarification, pre-search, memory),
+            # but still needs the freshness gate because the checkpoint does not carry
+            # LangGraph's system prompt.
+            freshness_context = await _load_freshness_context_for_prompt()
+            system_prompt = apply_prompt_template(freshness_context=freshness_context)
 
         # ── Memory tool injection ──
         if memory_manager is not None:

@@ -49,12 +49,35 @@ def test_sync_snapshot_preserves_previous_success_after_latest_failure():
             "status": "failed",
             "completed_at": datetime(2026, 7, 21, 1, 0, tzinfo=UTC),
             "latest_success_at": previous_success,
+            "latest_attempt_at": datetime(2026, 7, 21, 1, 0, tzinfo=UTC),
             "last_error": "timeout",
         }
     )
 
     assert snapshot.latest_status == "failed"
     assert snapshot.latest_success_at == previous_success
+
+
+def test_merge_sync_snapshots_prefers_newest_attempt_status():
+    from app.readiness.service import merge_sync_snapshots
+
+    older_ingestion_success = SourceSyncSnapshot(
+        latest_success_at=datetime(2026, 7, 20, 3, 0, tzinfo=UTC),
+        latest_attempt_at=datetime(2026, 7, 20, 3, 0, tzinfo=UTC),
+        latest_status="success",
+    )
+    newer_scheduler_failure = SourceSyncSnapshot(
+        latest_success_at=datetime(2026, 7, 20, 3, 0, tzinfo=UTC),
+        latest_attempt_at=datetime(2026, 7, 21, 9, 0, tzinfo=UTC),
+        latest_status="failed",
+        last_error="scheduler failed",
+    )
+
+    merged = merge_sync_snapshots([older_ingestion_success, newer_scheduler_failure])
+
+    assert merged.latest_status == "failed"
+    assert merged.last_error == "scheduler failed"
+    assert merged.latest_success_at == older_ingestion_success.latest_success_at
 
 
 def test_monitor_query_covers_daily_scheduler_task_names():

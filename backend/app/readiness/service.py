@@ -28,6 +28,7 @@ class SourceSpec:
 @dataclass(frozen=True)
 class SourceSyncSnapshot:
     latest_success_at: datetime | None = None
+    latest_attempt_at: datetime | None = None
     latest_status: str | None = None
     last_error: str | None = None
 
@@ -89,7 +90,7 @@ def _now_utc() -> datetime:
 
 def _as_utc(value: datetime) -> datetime:
     if value.tzinfo is None:
-        return value.replace(tzinfo=UTC)
+        return value.replace(tzinfo=SH_TZ).astimezone(UTC)
     return value.astimezone(UTC)
 
 
@@ -132,7 +133,7 @@ def build_sync_query(source: str):
         f"""
         SELECT status, completed_at, last_error,
                MAX(completed_at) FILTER (WHERE status = 'success') OVER () AS latest_success_at,
-               updated_at
+               COALESCE(updated_at, completed_at, started_at) AS latest_attempt_at
         FROM ingestion_runs
         WHERE {where}
         ORDER BY updated_at DESC NULLS LAST, started_at DESC NULLS LAST
@@ -153,7 +154,7 @@ def build_monitor_query(source: str):
         f"""
         SELECT status, completed_at, error_message AS last_error,
                MAX(completed_at) FILTER (WHERE status IN ('success', 'partial')) OVER () AS latest_success_at,
-               updated_at
+               COALESCE(updated_at, completed_at, started_at) AS latest_attempt_at
         FROM sync_task_status
         WHERE LOWER(task_name) IN ({placeholders})
         ORDER BY updated_at DESC NULLS LAST, started_at DESC NULLS LAST
@@ -167,10 +168,12 @@ def source_sync_snapshot_from_row(row: Mapping[str, object]) -> SourceSyncSnapsh
     status = row.get("status")
     completed_at = row.get("completed_at")
     latest_success_at = row.get("latest_success_at")
+    latest_attempt_at = row.get("latest_attempt_at")
     if latest_success_at is None and status == "success":
         latest_success_at = completed_at
     return SourceSyncSnapshot(
-        latest_success_at=latest_success_at if isinstance(latest_success_at, datetime) else None,
+        latest_success_at=_as_utc(latest_success_at) if isinstance(latest_success_at, datetime) else None,
+        latest_attempt_at=_as_utc(latest_attempt_at) if isinstance(latest_attempt_at, datetime) else None,
         latest_status=status if isinstance(status, str) else None,
         last_error=row.get("last_error") if isinstance(row.get("last_error"), str) else None,
     )
@@ -193,17 +196,21 @@ def merge_sync_snapshots(snapshots: list[SourceSyncSnapshot]) -> SourceSyncSnaps
         ):
             latest_success_at = snapshot.latest_success_at
 
-    latest_status = None
-    last_error = None
-    # Repository queries are ordered newest-per-source; prefer the first status/error we have.
-    for snapshot in present:
-        if latest_status is None and snapshot.latest_status:
-            latest_status = snapshot.latest_status
-        if last_error is None and snapshot.last_error:
-            last_error = snapshot.last_error
+    newest = max(
+        present,
+        key=lambda snapshot: snapshot.latest_attempt_at or snapshot.latest_success_at or datetime.min.replace(tzinfo=UTC),
+    )
+    latest_status = newest.latest_status
+    last_error = newest.last_error
+    if not last_error:
+        for snapshot in present:
+            if snapshot.last_error:
+                last_error = snapshot.last_error
+                break
 
     return SourceSyncSnapshot(
         latest_success_at=latest_success_at,
+        latest_attempt_at=newest.latest_attempt_at,
         latest_status=latest_status,
         last_error=last_error,
     )
