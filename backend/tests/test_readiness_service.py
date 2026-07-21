@@ -82,6 +82,28 @@ def test_merge_sync_snapshots_prefers_newest_attempt_status():
     assert merged.latest_success_at == older_ingestion_success.latest_success_at
 
 
+def test_merge_sync_snapshots_keeps_unresolved_durable_failure_after_new_enqueue_success():
+    from app.readiness.service import merge_sync_snapshots
+
+    durable_failure = SourceSyncSnapshot(
+        latest_attempt_at=datetime(2026, 7, 20, 3, 0, tzinfo=UTC),
+        latest_status="failed",
+        last_error="job 20260720 failed",
+        unresolved_failure=True,
+    )
+    newer_enqueue_success = SourceSyncSnapshot(
+        latest_success_at=datetime(2026, 7, 21, 3, 0, tzinfo=UTC),
+        latest_attempt_at=datetime(2026, 7, 21, 3, 0, tzinfo=UTC),
+        latest_status="success",
+    )
+
+    merged = merge_sync_snapshots([durable_failure, newer_enqueue_success])
+
+    assert merged.latest_status == "failed"
+    assert merged.last_error == "job 20260720 failed"
+    assert merged.latest_success_at == newer_enqueue_success.latest_success_at
+
+
 def test_merge_sync_snapshots_does_not_carry_old_error_after_new_success():
     from app.readiness.service import merge_sync_snapshots
 
@@ -116,6 +138,25 @@ def test_merge_sync_snapshots_preserves_metadata_lookup_warning_after_new_succes
 
     assert merged.latest_status == "success"
     assert merged.last_error == "sync job lookup failed: relation missing"
+
+
+def test_merge_sync_snapshots_combines_acquisition_error_and_metadata_warnings():
+    from app.readiness.service import merge_sync_snapshots
+
+    acquisition_failure = SourceSyncSnapshot(
+        latest_attempt_at=datetime(2026, 7, 21, 4, 0, tzinfo=UTC),
+        latest_status="failed",
+        last_error="timeout fetching source",
+    )
+    job_warning = SourceSyncSnapshot(last_error="sync job lookup failed: relation missing")
+    checkpoint_warning = SourceSyncSnapshot(last_error="sync checkpoint lookup failed: permission denied")
+
+    merged = merge_sync_snapshots([acquisition_failure, job_warning, checkpoint_warning])
+
+    assert merged.latest_status == "failed"
+    assert "timeout fetching source" in merged.last_error
+    assert "sync job lookup failed" in merged.last_error
+    assert "sync checkpoint lookup failed" in merged.last_error
 
 
 def test_monitor_query_covers_daily_scheduler_task_names():

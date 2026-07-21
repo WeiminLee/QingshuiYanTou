@@ -31,6 +31,7 @@ class SourceSyncSnapshot:
     latest_attempt_at: datetime | None = None
     latest_status: str | None = None
     last_error: str | None = None
+    unresolved_failure: bool = False
 
 
 @dataclass(frozen=True)
@@ -207,7 +208,8 @@ def build_ingestion_jobs_query(source: str):
                COALESCE(f.completed_at, a.completed_at) AS completed_at,
                COALESCE(f.last_error, a.last_error) AS last_error,
                s.latest_success_at,
-               COALESCE(f.latest_attempt_at, a.latest_attempt_at) AS latest_attempt_at
+               COALESCE(f.latest_attempt_at, a.latest_attempt_at) AS latest_attempt_at,
+               (f.status IS NOT NULL) AS unresolved_failure
         FROM latest_success s
         LEFT JOIN latest_failure f ON TRUE
         LEFT JOIN latest_attempt a ON TRUE
@@ -266,7 +268,8 @@ def build_checkpoint_query(source: str):
                COALESCE(f.completed_at, a.completed_at) AS completed_at,
                COALESCE(f.last_error, a.last_error) AS last_error,
                s.latest_success_at,
-               COALESCE(f.latest_attempt_at, a.latest_attempt_at) AS latest_attempt_at
+               COALESCE(f.latest_attempt_at, a.latest_attempt_at) AS latest_attempt_at,
+               (f.status IS NOT NULL) AS unresolved_failure
         FROM latest_success s
         LEFT JOIN latest_failure f ON TRUE
         LEFT JOIN latest_attempt a ON TRUE
@@ -291,6 +294,7 @@ def source_sync_snapshot_from_row(row: Mapping[str, object]) -> SourceSyncSnapsh
         latest_attempt_at=_as_utc(latest_attempt_at) if isinstance(latest_attempt_at, datetime) else None,
         latest_status=status if isinstance(status, str) else None,
         last_error=row.get("last_error") if isinstance(row.get("last_error"), str) else None,
+        unresolved_failure=row.get("unresolved_failure") is True,
     )
 
 
@@ -311,30 +315,43 @@ def merge_sync_snapshots(snapshots: list[SourceSyncSnapshot]) -> SourceSyncSnaps
         ):
             latest_success_at = snapshot.latest_success_at
 
+    metadata_warnings = [
+        snapshot.last_error
+        for snapshot in present
+        if snapshot.last_error
+        and "lookup failed" in snapshot.last_error
+        and snapshot.latest_status is None
+        and snapshot.latest_attempt_at is None
+        and snapshot.latest_success_at is None
+    ]
+    operational = [
+        snapshot
+        for snapshot in present
+        if snapshot.latest_status or snapshot.latest_success_at or snapshot.latest_attempt_at
+    ]
+    unresolved_failures = [
+        snapshot
+        for snapshot in operational
+        if snapshot.unresolved_failure and snapshot.latest_status in {"failed", "dead"}
+    ]
+    newest_pool = unresolved_failures or operational or present
     newest = max(
-        present,
+        newest_pool,
         key=lambda snapshot: snapshot.latest_attempt_at or snapshot.latest_success_at or datetime.min.replace(tzinfo=UTC),
     )
     latest_status = newest.latest_status
     last_error = newest.last_error
-    if not last_error:
-        metadata_warnings = [
-            snapshot.last_error
-            for snapshot in present
-            if snapshot.last_error
-            and "lookup failed" in snapshot.last_error
-            and snapshot.latest_status is None
-            and snapshot.latest_attempt_at is None
-            and snapshot.latest_success_at is None
-        ]
-        if metadata_warnings:
-            last_error = "; ".join(metadata_warnings)[:300]
+    warning_text = "; ".join(dict.fromkeys(metadata_warnings))
+    if warning_text:
+        last_error = f"{last_error}; {warning_text}" if last_error else warning_text
+        last_error = last_error[:300]
 
     return SourceSyncSnapshot(
         latest_success_at=latest_success_at,
         latest_attempt_at=newest.latest_attempt_at,
         latest_status=latest_status,
         last_error=last_error,
+        unresolved_failure=newest.unresolved_failure,
     )
 
 
