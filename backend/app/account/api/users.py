@@ -18,5 +18,13 @@ async def list_users(
     db: AsyncSession = Depends(get_db),
     _=Depends(verify_master_token),
 ) -> UserBriefList:
-    users = await user_service.list_active(db)
-    return UserBriefList(users=[UserBrief.model_validate(u) for u in users])
+    try:
+        users = await user_service.list_active(db)
+        briefs = [UserBrief.model_validate(u) for u in users]
+    except Exception:
+        # 空库/无 PostgreSQL 降级：从 users.yaml 读取可选身份，保证选择身份页可用。
+        from app.account import config as account_cfg
+
+        yaml_users = account_cfg.load_users_from_yaml()
+        briefs = [UserBrief(user_id=u.user_id, display_name=u.display_name) for u in yaml_users]
+    return UserBriefList(users=briefs)

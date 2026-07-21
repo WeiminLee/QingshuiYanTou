@@ -139,6 +139,7 @@ class AnalysisReport:
     evidence_refs: list[dict] = field(default_factory=list)  # 可追溯证据引用（从工具/上下文汇总）
     tool_audit: list[dict] = field(default_factory=list)  # 工具调用审计轨迹
     graph_refs: list[dict] = field(default_factory=list)  # 图谱关系/查询引用
+    readiness_binding: dict = field(default_factory=dict)  # 数据新鲜度/同步状态运行时绑定
 
     def __post_init__(self):
         if not self.generated_at:
@@ -239,6 +240,7 @@ class AnalysisReport:
             "evidence_refs": self.evidence_refs,
             "tool_audit": self.tool_audit,
             "graph_refs": self.graph_refs,
+            "readiness_binding": self.readiness_binding,
         }
 
     # ── Markdown 导出 ────────────────────

@@ -15,7 +15,7 @@ from dataclasses import dataclass
 
 from langchain.agents import create_agent
 from langchain_core.runnables import RunnableConfig
-from langchain_core.tools import BaseTool
+from langchain_core.tools import BaseTool, StructuredTool
 
 from app.reasoning.langchain_agent.middlewares.context_compressor import ContextCompressorMiddleware
 from app.reasoning.langchain_agent.middlewares.loop_detection import LoopDetectionMiddleware
@@ -26,12 +26,50 @@ from app.reasoning.langchain_agent.middlewares.reasoning_validation import (
 logger = logging.getLogger(__name__)
 
 
+def _harden_tool(tool: BaseTool) -> BaseTool:
+    """给工具包一层异常保护壳：执行抛异常时返回友好文本而非冒泡。
+
+    空库/无外部服务（PostgreSQL/Neo4j/Qdrant/Tavily 未就绪）时，个别工具会抛出
+    未捕获异常（如 find_events 连 PG 抛 OSError），冒泡到 LangGraph ToolNode 会
+    终止整个 agent 流。包一层后，工具失败降级为一条结果消息，LLM 可继续推理。
+    """
+
+    def _fallback(exc: Exception) -> str:
+        return (
+            f"[数据服务暂不可用] 工具 {tool.name} 本次未能返回数据"
+            f"（{type(exc).__name__}: {exc}）。当前为空数据/无外部服务环境，"
+            f"请基于已有信息继续分析，或在结论中说明该项数据缺失。"
+        )
+
+    async def _acall(**kwargs):
+        try:
+            return await tool.ainvoke(kwargs)
+        except Exception as e:  # noqa: BLE001 — 故意兜底，保证 agent 不因工具失败中断
+            logger.warning("[LeadAgent] tool %s failed (async), degraded: %s", tool.name, e)
+            return _fallback(e)
+
+    def _call(**kwargs):
+        try:
+            return tool.invoke(kwargs)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("[LeadAgent] tool %s failed (sync), degraded: %s", tool.name, e)
+            return _fallback(e)
+
+    return StructuredTool.from_function(
+        func=_call,
+        coroutine=_acall,
+        name=tool.name,
+        description=tool.description,
+        args_schema=tool.args_schema,
+    )
+
+
 def _filter_langchain_tools(tools: list) -> list:
     """Keep tools that LangChain can safely pass to ToolNode."""
     valid = []
     for item in tools:
         if isinstance(item, BaseTool):
-            valid.append(item)
+            valid.append(_harden_tool(item))
             continue
         if callable(item) and hasattr(item, "__name__"):
             valid.append(item)

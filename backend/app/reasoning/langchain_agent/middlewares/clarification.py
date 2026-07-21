@@ -43,7 +43,9 @@ class ClarificationMiddleware(AgentMiddleware):
     @staticmethod
     def _needs_clarification(user_content: str) -> bool:
         """判断用户输入是否需要澄清。"""
-        if not user_content or len(user_content.strip()) < 5:
+        # 仅空输入强制澄清；短问候/闲聊（如"你好"）放行给 agent 自然回复，
+        # 不再因长度过短就一律拦截（此前 <5 字符全拦，导致问候语也被要求补股票代码）。
+        if not user_content or not user_content.strip():
             return True
 
         ambiguity_score = 0.0

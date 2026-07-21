@@ -29,7 +29,11 @@ async def list_portfolio(
     user: User = Depends(get_current_user),
     _=Depends(verify_master_token),
 ) -> PortfolioListResponse:
-    rows = await portfolio_service.list_for_user(db, user.user_id)
+    try:
+        rows = await portfolio_service.list_for_user(db, user.user_id)
+    except Exception:
+        # 空库/无 PostgreSQL 降级：返回空持仓，保证登录后主页可加载。
+        rows = []
     return PortfolioListResponse(positions=[PortfolioPositionOut.model_validate(r) for r in rows])
 
 

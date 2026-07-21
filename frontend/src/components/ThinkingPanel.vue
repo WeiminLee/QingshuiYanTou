@@ -9,14 +9,13 @@
       @keydown.enter.prevent="toggleCollapse"
       @keydown.space.prevent="toggleCollapse"
     >
-      <Brain class="thinking-icon" :size="15" :stroke-width="1.6" />
       <span class="thinking-label">
-        <template v-if="loading">思考中...</template>
-        <template v-else>思考完成</template>
+        <template v-if="loading">正在思考…</template>
+        <template v-else>已完成思考</template>
       </span>
       <span v-if="elapsedText" class="thinking-elapsed">{{ elapsedText }}</span>
       <span class="thinking-arrow" :class="{ 'thinking-arrow--expanded': !isCollapsed }">
-        <ChevronDown :size="12" :stroke-width="1.6" />
+        <ChevronDown :size="14" :stroke-width="2" />
       </span>
     </div>
     <Transition name="thinking-collapse">
@@ -29,7 +28,7 @@
 
 <script setup lang="ts">
 import { ref, computed, watch, onUnmounted } from "vue";
-import { Brain, ChevronDown } from "lucide-vue-next";
+import { ChevronDown } from "lucide-vue-next";
 import { sanitize } from "@/utils/sanitize.js";
 import { formatDuration } from "@/utils/toolHelpers";
 
@@ -119,57 +118,49 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+/* open-webui 极简思考折叠：无盒子，一行灰字 + chevron，展开内容左竖线 */
 .thinking-panel {
-  border-radius: 4px;
-  border: 1px solid var(--ledger-rule);
-  background: var(--ledger-entry);
-  overflow: hidden;
-  transition: border-color 0.2s;
+  font-family: var(--ow-font);
+  margin: 2px 0;
 }
 
 .thinking-header {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 10px 14px;
+  gap: 6px;
+  padding: 4px 6px;
+  margin-left: -6px;
+  border-radius: var(--ow-radius-xs);
   cursor: pointer;
   user-select: none;
-  transition: background 0.15s;
+  color: var(--ow-text-2);
+  transition:
+    color 0.15s,
+    background 0.15s;
 }
 
 .thinking-header:hover {
-  background: var(--ledger-entry);
-}
-
-.thinking-icon {
-  line-height: 1;
-  flex-shrink: 0;
-  color: var(--ledger-gold);
+  color: var(--ow-text);
+  background: var(--ow-hover);
 }
 
 .thinking-label {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--ledger-ink);
-  flex: 1;
+  font-size: 13.5px;
+  font-weight: 500;
 }
 
 .thinking-elapsed {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--ledger-blue);
-  background: rgba(59, 91, 219, 0.08);
-  padding: 1px 8px;
-  border-radius: 4px;
-  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--ow-text-3);
+  font-variant-numeric: tabular-nums;
   white-space: nowrap;
-  letter-spacing: 0.02em;
 }
 
 .thinking-arrow {
   display: flex;
   align-items: center;
-  color: var(--ledger-gray);
+  color: var(--ow-text-3);
   transition: transform 0.2s ease;
   transform: rotate(-90deg);
   flex-shrink: 0;
@@ -180,17 +171,17 @@ onUnmounted(() => {
 }
 
 .thinking-body {
-  border-top: 1px solid var(--ledger-rule);
-  padding: 10px 14px;
+  margin-top: 6px;
+  padding-left: 12px;
+  border-left: 2px solid var(--ow-border-strong);
 }
 
 .thinking-content {
-  font-size: 13px;
-  line-height: 1.7;
-  color: var(--text-main-2);
-  max-height: 300px;
+  font-size: 13.5px;
+  line-height: 1.75;
+  color: var(--ow-text-2);
+  max-height: 320px;
   overflow-y: auto;
-  padding: 4px 0;
 }
 
 .thinking-content :deep(p) {
@@ -198,14 +189,14 @@ onUnmounted(() => {
 }
 
 .thinking-content :deep(strong) {
-  color: var(--ledger-ink);
+  color: var(--ow-text);
   font-weight: 600;
 }
 
 .thinking-collapse-enter-active,
 .thinking-collapse-leave-active {
   transition:
-    max-height 0.28s cubic-bezier(0.4, 0, 0.2, 1),
+    max-height 0.3s cubic-bezier(0.22, 1, 0.36, 1),
     opacity 0.2s ease-out;
   overflow: hidden;
 }
@@ -214,19 +205,17 @@ onUnmounted(() => {
 .thinking-collapse-leave-to {
   opacity: 0;
   max-height: 0;
-  padding-top: 0;
-  padding-bottom: 0;
+  margin-top: 0;
 }
 
 .thinking-collapse-enter-to,
 .thinking-collapse-leave-from {
   opacity: 1;
-  max-height: 320px;
+  max-height: 340px;
 }
 
 .thinking-header:focus-visible {
-  outline: 2px solid var(--ledger-blue);
+  outline: 2px solid var(--ow-accent);
   outline-offset: 2px;
-  border-radius: inherit;
 }
 </style>

@@ -62,6 +62,36 @@
   --status-success: #2d9e6c;
   --status-running: var(--ledger-blue);
   --status-error: var(--ledger-red);
+
+  /* ── open-webui 对话区设计令牌（--ow-*）─────────────────
+     借鉴 open-webui 极简中性风，仅用于 agent 对话区（.main）。
+     不影响侧边栏/其它页的 --ledger-* 主题。 */
+  /* 亮色 */
+  --ow-bg: #ffffff;            /* 底 */
+  --ow-surface: #f9fafb;       /* 面：气泡/工具面板 gray-50 */
+  --ow-surface-2: #f3f4f6;     /* 更深面 gray-100 */
+  --ow-border: #ececee;        /* 细边 gray-100 */
+  --ow-border-strong: #e2e2e5; /* 稍强边 */
+  --ow-text: #1f2937;          /* 文字主 gray-800 */
+  --ow-text-2: #6b7280;        /* 文字次 gray-500 */
+  --ow-text-3: #9ca3af;        /* 文字弱 gray-400 */
+  --ow-accent: #0ea5e9;        /* 强调 sky-500 */
+  --ow-accent-soft: rgba(14, 165, 233, 0.1);
+  --ow-hover: rgba(0, 0, 0, 0.05);   /* hover:bg-black/5 */
+  --ow-success: #10b981;
+  --ow-error: #ef4444;
+  --ow-code-bg: #f6f6f7;
+
+  /* 字体：干净 sans 栈（Mac 上 -apple-system 接近 Inter 观感，无网络依赖） */
+  --ow-font: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+    "Microsoft YaHei", "Noto Sans SC", sans-serif;
+  --ow-font-mono: "SF Mono", "JetBrains Mono", "Fira Code", ui-monospace, monospace;
+
+  /* 圆角 */
+  --ow-radius-lg: 24px;  /* 气泡/输入框 */
+  --ow-radius-md: 16px;  /* 卡片 */
+  --ow-radius-sm: 12px;  /* chips */
+  --ow-radius-xs: 8px;   /* 小元素 */
 }
 
 /* ── Global Reset ──────────────────────────────────────── */
@@ -137,95 +167,121 @@ html {
   }
 }
 
-/* ── T-Chat Avatar — ink seal aesthetic ─────────── */
+/* ── T-Chat Avatar — open-webui 中性风 ─────────── */
 .t-chat-avatar {
-  width: 34px;
-  height: 34px;
-  border-radius: 8px;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  /* Subtle antique gold ring — like a wax seal */
-  box-shadow:
-    0 0 0 2px rgba(201, 148, 58, 0.15),
-    0 2px 8px rgba(0, 0, 0, 0.12);
 }
 .t-chat-avatar--user {
-  background: linear-gradient(135deg, #4f7fde 0%, #2d5fb8 100%);
-  color: #fff;
+  background: var(--ow-surface-2);
+  color: var(--ow-text-2);
 }
 .t-chat-avatar--assistant {
-  background: linear-gradient(135deg, #fbf4e3 0%, #f0d89a 100%);
-  color: #c9943a;
+  background: var(--ow-text);
+  color: #fff;
 }
 
-/* ── Report Body — ledger rule styling ────────────── */
+/* ── Report Body — open-webui prose 排版 ────────────── */
+.report-body {
+  font-family: var(--ow-font);
+  color: var(--ow-text);
+}
 .report-body h1 {
-  font-family: var(--font-display);
-  font-size: 20px;
-  font-weight: 700;
+  font-size: 22px;
+  font-weight: 600;
   margin: 24px 0 12px;
-  color: var(--ledger-ink);
-  border-bottom: 2px solid var(--ledger-rule);
-  padding-bottom: 8px;
-  letter-spacing: -0.2px;
+  color: var(--ow-text);
+  letter-spacing: -0.01em;
 }
 .report-body h2 {
-  font-family: var(--font-display);
-  font-size: 17px;
-  font-weight: 700;
-  margin: 20px 0 10px;
-  color: var(--ledger-ink);
-  border-bottom: 1px solid var(--ledger-rule);
-  padding-bottom: 6px;
+  font-size: 18px;
+  font-weight: 600;
+  margin: 22px 0 10px;
+  color: var(--ow-text);
+  letter-spacing: -0.01em;
 }
 .report-body h3 {
-  font-size: 15px;
-  font-weight: 700;
-  margin: 16px 0 8px;
+  font-size: 15.5px;
+  font-weight: 600;
+  margin: 18px 0 8px;
+  color: var(--ow-text);
 }
 .report-body p {
   margin: 0 0 12px;
 }
 .report-body ul,
 .report-body ol {
-  padding-left: 20px;
-  margin: 8px 0;
+  padding-left: 22px;
+  margin: 10px 0;
 }
 .report-body li {
-  margin: 5px 0;
+  margin: 4px 0;
 }
 .report-body strong {
-  font-weight: 700;
+  font-weight: 600;
+  color: var(--ow-text);
+}
+.report-body a {
+  color: var(--ow-accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 .report-body code {
-  background: var(--ledger-entry);
-  color: var(--ledger-gold);
-  padding: 1px 6px;
-  border-radius: 4px;
-  font-family: var(--font-mono);
-  font-size: 12.5px;
-  border: 1px solid var(--ledger-rule);
+  background: var(--ow-code-bg);
+  color: var(--ow-text);
+  padding: 1.5px 6px;
+  border-radius: 6px;
+  font-family: var(--ow-font-mono);
+  font-size: 13px;
+  border: 1px solid var(--ow-border);
 }
 .report-body pre {
-  background: var(--ledger-spine);
-  color: #d8c89a;
+  background: var(--ow-code-bg);
+  color: var(--ow-text);
   padding: 14px 16px;
-  border-radius: 8px;
+  border-radius: var(--ow-radius-sm);
   overflow-x: auto;
-  margin: 12px 0;
-  font-family: var(--font-mono);
-  font-size: 12px;
-  border: 1px solid rgba(184, 134, 11, 0.2);
+  margin: 14px 0;
+  font-family: var(--ow-font-mono);
+  font-size: 13px;
+  border: 1px solid var(--ow-border);
+}
+.report-body pre code {
+  background: transparent;
+  border: none;
+  padding: 0;
 }
 .report-body blockquote {
-  border-left: 3px solid var(--ledger-gold);
-  padding: 8px 14px;
-  background: var(--ledger-entry);
-  border-radius: 0 6px 6px 0;
+  border-left: 3px solid var(--ow-border-strong);
+  padding: 2px 14px;
   margin: 14px 0;
-  color: var(--text-main-2);
+  color: var(--ow-text-2);
   font-style: normal;
+}
+.report-body table {
+  border-collapse: collapse;
+  margin: 14px 0;
+  font-size: 14px;
+  width: 100%;
+}
+.report-body th,
+.report-body td {
+  border: 1px solid var(--ow-border);
+  padding: 7px 12px;
+  text-align: left;
+}
+.report-body th {
+  background: var(--ow-surface);
+  font-weight: 600;
+}
+.report-body hr {
+  border: none;
+  border-top: 1px solid var(--ow-border);
+  margin: 20px 0;
 }
 </style>
