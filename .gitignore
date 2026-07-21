@@ -102,6 +102,7 @@ Desktop.ini
 
 .claude/
 .planning/
+.worktrees/
 
 # 板块概念抓取结果（脚本运行产物）
 backend/data/board_concept/
