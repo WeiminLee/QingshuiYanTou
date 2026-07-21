@@ -178,12 +178,101 @@ def build_ingestion_jobs_query(source: str):
     placeholders = ", ".join(f":job_type_{index}" for index in range(len(job_types)))
     return text(
         f"""
-        SELECT status, updated_at AS completed_at, last_error,
-               MAX(updated_at) FILTER (WHERE status IN ('success', 'partial')) OVER () AS latest_success_at,
-               updated_at AS latest_attempt_at
-        FROM ingestion_jobs
-        WHERE job_type IN ({placeholders})
-        ORDER BY updated_at DESC NULLS LAST, id DESC
+        WITH job_rows AS (
+            SELECT id, status, updated_at, last_error
+            FROM ingestion_jobs
+            WHERE job_type IN ({placeholders})
+        ),
+        latest_success AS (
+            SELECT MAX(updated_at) AS latest_success_at
+            FROM job_rows
+            WHERE status IN ('success', 'partial')
+        ),
+        latest_failure AS (
+            SELECT status, updated_at AS completed_at, last_error,
+                   updated_at AS latest_attempt_at
+            FROM job_rows
+            WHERE status IN ('failed', 'dead')
+            ORDER BY updated_at DESC NULLS LAST, id DESC
+            LIMIT 1
+        ),
+        latest_attempt AS (
+            SELECT status, updated_at AS completed_at, last_error,
+                   updated_at AS latest_attempt_at
+            FROM job_rows
+            ORDER BY updated_at DESC NULLS LAST, id DESC
+            LIMIT 1
+        )
+        SELECT COALESCE(f.status, a.status) AS status,
+               COALESCE(f.completed_at, a.completed_at) AS completed_at,
+               COALESCE(f.last_error, a.last_error) AS last_error,
+               s.latest_success_at,
+               COALESCE(f.latest_attempt_at, a.latest_attempt_at) AS latest_attempt_at
+        FROM latest_success s
+        LEFT JOIN latest_failure f ON TRUE
+        LEFT JOIN latest_attempt a ON TRUE
+        WHERE f.status IS NOT NULL
+           OR a.status IS NOT NULL
+           OR s.latest_success_at IS NOT NULL
+        LIMIT 1
+        """
+    ), params
+
+
+def build_checkpoint_query(source: str):
+    """Build an ingestion_checkpoints query for checkpoint-backed sync state."""
+    pairs = SYNC_ACQUISITION_PAIRS.get(source, ())
+    if not pairs:
+        return text("SELECT NULL WHERE FALSE"), {}
+
+    clauses = []
+    params = {}
+    for index, (run_source, task_name) in enumerate(pairs):
+        source_param = f"checkpoint_source_{index}"
+        task_param = f"checkpoint_task_{index}"
+        params[source_param] = run_source
+        params[task_param] = task_name
+        clauses.append(
+            f"(LOWER(source) = :{source_param} AND LOWER(task_name) = :{task_param})"
+        )
+    where = " OR ".join(clauses)
+    return text(
+        f"""
+        WITH checkpoint_rows AS (
+            SELECT id, last_status, last_success_at, last_attempt_at, updated_at
+            FROM ingestion_checkpoints
+            WHERE {where}
+        ),
+        latest_success AS (
+            SELECT MAX(last_success_at) AS latest_success_at
+            FROM checkpoint_rows
+        ),
+        latest_failure AS (
+            SELECT last_status AS status, last_attempt_at AS completed_at,
+                   NULL::text AS last_error, last_attempt_at AS latest_attempt_at
+            FROM checkpoint_rows
+            WHERE last_status IN ('failed', 'dead')
+            ORDER BY last_attempt_at DESC NULLS LAST, updated_at DESC NULLS LAST, id DESC
+            LIMIT 1
+        ),
+        latest_attempt AS (
+            SELECT last_status AS status, last_attempt_at AS completed_at,
+                   NULL::text AS last_error, last_attempt_at AS latest_attempt_at
+            FROM checkpoint_rows
+            ORDER BY last_attempt_at DESC NULLS LAST, updated_at DESC NULLS LAST, id DESC
+            LIMIT 1
+        )
+        SELECT COALESCE(f.status, a.status) AS status,
+               COALESCE(f.completed_at, a.completed_at) AS completed_at,
+               COALESCE(f.last_error, a.last_error) AS last_error,
+               s.latest_success_at,
+               COALESCE(f.latest_attempt_at, a.latest_attempt_at) AS latest_attempt_at
+        FROM latest_success s
+        LEFT JOIN latest_failure f ON TRUE
+        LEFT JOIN latest_attempt a ON TRUE
+        WHERE f.status IS NOT NULL
+           OR a.status IS NOT NULL
+           OR s.latest_success_at IS NOT NULL
         LIMIT 1
         """
     ), params
@@ -228,6 +317,18 @@ def merge_sync_snapshots(snapshots: list[SourceSyncSnapshot]) -> SourceSyncSnaps
     )
     latest_status = newest.latest_status
     last_error = newest.last_error
+    if not last_error:
+        metadata_warnings = [
+            snapshot.last_error
+            for snapshot in present
+            if snapshot.last_error
+            and "lookup failed" in snapshot.last_error
+            and snapshot.latest_status is None
+            and snapshot.latest_attempt_at is None
+            and snapshot.latest_success_at is None
+        ]
+        if metadata_warnings:
+            last_error = "; ".join(metadata_warnings)[:300]
 
     return SourceSyncSnapshot(
         latest_success_at=latest_success_at,
@@ -291,6 +392,17 @@ class SqlReadinessRepository:
         except Exception as exc:
             logger.warning("[Readiness] ingestion job metadata lookup failed for %s: %s", source, exc)
             snapshots.append(SourceSyncSnapshot(last_error=f"sync job lookup failed: {str(exc)[:300]}"))
+        else:
+            snapshots.append(source_sync_snapshot_from_row(row) if row else SourceSyncSnapshot())
+
+        checkpoint_sql, checkpoint_params = build_checkpoint_query(source)
+        try:
+            async with engine.connect() as conn:
+                result = await conn.execute(checkpoint_sql, checkpoint_params)
+                row = result.mappings().first()
+        except Exception as exc:
+            logger.warning("[Readiness] checkpoint metadata lookup failed for %s: %s", source, exc)
+            snapshots.append(SourceSyncSnapshot(last_error=f"sync checkpoint lookup failed: {str(exc)[:300]}"))
         else:
             snapshots.append(source_sync_snapshot_from_row(row) if row else SourceSyncSnapshot())
 

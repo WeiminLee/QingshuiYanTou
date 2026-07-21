@@ -7,6 +7,7 @@ from app.readiness.service import (
     DataReadinessService,
     SourceDataSnapshot,
     SourceSyncSnapshot,
+    build_checkpoint_query,
     build_ingestion_jobs_query,
     build_sync_query,
     build_monitor_query,
@@ -101,6 +102,22 @@ def test_merge_sync_snapshots_does_not_carry_old_error_after_new_success():
     assert merged.last_error is None
 
 
+def test_merge_sync_snapshots_preserves_metadata_lookup_warning_after_new_success():
+    from app.readiness.service import merge_sync_snapshots
+
+    newer_success = SourceSyncSnapshot(
+        latest_success_at=datetime(2026, 7, 21, 3, 0, tzinfo=UTC),
+        latest_attempt_at=datetime(2026, 7, 21, 3, 0, tzinfo=UTC),
+        latest_status="success",
+    )
+    lookup_warning = SourceSyncSnapshot(last_error="sync job lookup failed: relation missing")
+
+    merged = merge_sync_snapshots([newer_success, lookup_warning])
+
+    assert merged.latest_status == "success"
+    assert merged.last_error == "sync job lookup failed: relation missing"
+
+
 def test_monitor_query_covers_daily_scheduler_task_names():
     query, params = build_monitor_query("kline")
 
@@ -126,6 +143,17 @@ def test_ingestion_job_query_covers_durable_queue_types():
     sql = str(query).lower()
     assert "ingestion_jobs" in sql
     assert "cninfo_announcement_date" in params.values()
+    assert "failed" in sql
+    assert "dead" in sql
+
+
+def test_checkpoint_query_covers_acquisition_checkpoint_sources():
+    query, params = build_checkpoint_query("announcement")
+
+    sql = str(query).lower()
+    assert "ingestion_checkpoints" in sql
+    assert "cninfo" in params.values()
+    assert "announcements_history" in params.values()
 
 
 def test_shanghai_midnight_uses_local_business_date():
