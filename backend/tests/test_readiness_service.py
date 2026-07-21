@@ -7,6 +7,7 @@ from app.readiness.service import (
     DataReadinessService,
     SourceDataSnapshot,
     SourceSyncSnapshot,
+    build_ingestion_jobs_query,
     build_sync_query,
     build_monitor_query,
     count_weekday_lag,
@@ -80,6 +81,26 @@ def test_merge_sync_snapshots_prefers_newest_attempt_status():
     assert merged.latest_success_at == older_ingestion_success.latest_success_at
 
 
+def test_merge_sync_snapshots_does_not_carry_old_error_after_new_success():
+    from app.readiness.service import merge_sync_snapshots
+
+    older_failure = SourceSyncSnapshot(
+        latest_attempt_at=datetime(2026, 7, 20, 3, 0, tzinfo=UTC),
+        latest_status="failed",
+        last_error="old scheduler failed",
+    )
+    newer_success = SourceSyncSnapshot(
+        latest_success_at=datetime(2026, 7, 21, 3, 0, tzinfo=UTC),
+        latest_attempt_at=datetime(2026, 7, 21, 3, 0, tzinfo=UTC),
+        latest_status="success",
+    )
+
+    merged = merge_sync_snapshots([older_failure, newer_success])
+
+    assert merged.latest_status == "success"
+    assert merged.last_error is None
+
+
 def test_monitor_query_covers_daily_scheduler_task_names():
     query, params = build_monitor_query("kline")
 
@@ -87,6 +108,24 @@ def test_monitor_query_covers_daily_scheduler_task_names():
     assert "sync_task_status" in sql
     assert "task_name" in sql
     assert "kline" in params.values()
+
+
+def test_monitor_query_covers_enqueue_and_news_scheduler_task_names():
+    _, ann_params = build_monitor_query("announcement")
+    _, irm_params = build_monitor_query("irm")
+    _, news_params = build_monitor_query("news")
+
+    assert "cninfo_enqueue" in ann_params.values()
+    assert "irm_enqueue" in irm_params.values()
+    assert "news_sync" in news_params.values()
+
+
+def test_ingestion_job_query_covers_durable_queue_types():
+    query, params = build_ingestion_jobs_query("announcement")
+
+    sql = str(query).lower()
+    assert "ingestion_jobs" in sql
+    assert "cninfo_announcement_date" in params.values()
 
 
 def test_shanghai_midnight_uses_local_business_date():

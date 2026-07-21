@@ -176,6 +176,33 @@ def test_irm_scheduler_enqueues_company_jobs(monkeypatch):
     assert called == {"count": 1}
 
 
+def test_news_scheduler_records_monitor_status(monkeypatch):
+    from app.data_pipeline import monitor
+    from app.data_pipeline import scheduler as scheduler_mod
+
+    class FakeNewsService:
+        async def fetch_and_save(self):
+            return {"fetched": 4, "inserted": 3, "skipped": 1}
+
+    monkeypatch.setattr(
+        "app.data_pipeline.services.news_service.get_news_service",
+        lambda: FakeNewsService(),
+    )
+    monkeypatch.setattr(monitor, "init_monitor", AsyncMock())
+    monkeypatch.setattr(monitor, "record_task_start", AsyncMock())
+    monkeypatch.setattr(monitor, "record_task_result", AsyncMock())
+
+    asyncio.run(scheduler_mod._run_news_job())
+
+    monitor.record_task_start.assert_awaited_once_with("news_sync")
+    args = monitor.record_task_result.await_args.args
+    kwargs = monitor.record_task_result.await_args.kwargs
+    assert args[0] == "news_sync"
+    assert kwargs["total"] == 4
+    assert kwargs["success"] == 3
+    assert kwargs["skipped"] == 1
+
+
 def test_fire_all_once_uses_running_loop(monkeypatch):
     from app.data_pipeline import scheduler as sched
 

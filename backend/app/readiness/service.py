@@ -77,10 +77,15 @@ SYNC_ACQUISITION_PAIRS: dict[str, tuple[tuple[str, str], ...]] = {
 
 MONITOR_TASK_NAMES: dict[str, tuple[str, ...]] = {
     "kline": ("kline",),
-    "announcement": ("cninfo",),
-    "irm": ("irm",),
-    "news": ("news",),
+    "announcement": ("cninfo", "cninfo_enqueue"),
+    "irm": ("irm", "irm_enqueue"),
+    "news": ("news", "news_sync"),
     "research_report": ("reports",),
+}
+
+INGESTION_JOB_TYPES: dict[str, tuple[str, ...]] = {
+    "announcement": ("cninfo_announcement_date",),
+    "irm": ("irm_company",),
 }
 
 
@@ -163,6 +168,27 @@ def build_monitor_query(source: str):
     ), params
 
 
+def build_ingestion_jobs_query(source: str):
+    """Build an ingestion_jobs query for durable queued acquisition work."""
+    job_types = INGESTION_JOB_TYPES.get(source, ())
+    if not job_types:
+        return text("SELECT NULL WHERE FALSE"), {}
+
+    params = {f"job_type_{index}": job_type for index, job_type in enumerate(job_types)}
+    placeholders = ", ".join(f":job_type_{index}" for index in range(len(job_types)))
+    return text(
+        f"""
+        SELECT status, updated_at AS completed_at, last_error,
+               MAX(updated_at) FILTER (WHERE status IN ('success', 'partial')) OVER () AS latest_success_at,
+               updated_at AS latest_attempt_at
+        FROM ingestion_jobs
+        WHERE job_type IN ({placeholders})
+        ORDER BY updated_at DESC NULLS LAST, id DESC
+        LIMIT 1
+        """
+    ), params
+
+
 def source_sync_snapshot_from_row(row: Mapping[str, object]) -> SourceSyncSnapshot:
     """Normalize the newest matching run and its historical success timestamp."""
     status = row.get("status")
@@ -202,11 +228,6 @@ def merge_sync_snapshots(snapshots: list[SourceSyncSnapshot]) -> SourceSyncSnaps
     )
     latest_status = newest.latest_status
     last_error = newest.last_error
-    if not last_error:
-        for snapshot in present:
-            if snapshot.last_error:
-                last_error = snapshot.last_error
-                break
 
     return SourceSyncSnapshot(
         latest_success_at=latest_success_at,
@@ -259,6 +280,17 @@ class SqlReadinessRepository:
         except Exception as exc:
             logger.warning("[Readiness] monitor metadata lookup failed for %s: %s", source, exc)
             snapshots.append(SourceSyncSnapshot(last_error=f"sync monitor lookup failed: {str(exc)[:300]}"))
+        else:
+            snapshots.append(source_sync_snapshot_from_row(row) if row else SourceSyncSnapshot())
+
+        jobs_sql, jobs_params = build_ingestion_jobs_query(source)
+        try:
+            async with engine.connect() as conn:
+                result = await conn.execute(jobs_sql, jobs_params)
+                row = result.mappings().first()
+        except Exception as exc:
+            logger.warning("[Readiness] ingestion job metadata lookup failed for %s: %s", source, exc)
+            snapshots.append(SourceSyncSnapshot(last_error=f"sync job lookup failed: {str(exc)[:300]}"))
         else:
             snapshots.append(source_sync_snapshot_from_row(row) if row else SourceSyncSnapshot())
 

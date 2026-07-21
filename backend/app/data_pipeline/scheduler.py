@@ -338,16 +338,36 @@ async def _run_ingestion_worker_job() -> None:
 
 async def _run_news_job() -> None:
     """财联社新闻定时同步（每 5 分钟）。"""
+    from app.data_pipeline.monitor import (
+        TaskStatus,
+        init_monitor,
+        record_task_result,
+        record_task_start,
+    )
     from app.data_pipeline.services.news_service import get_news_service
 
+    await init_monitor()
+    await record_task_start("news_sync")
     service = get_news_service()
-    result = await service.fetch_and_save()
-    logger.info(
-        "[news_sync] 同步结果: fetched=%d inserted=%d skipped=%d",
-        result.get("fetched", 0),
-        result.get("inserted", 0),
-        result.get("skipped", 0),
-    )
+    try:
+        result = await service.fetch_and_save()
+        await record_task_result(
+            "news_sync",
+            TaskStatus.SUCCESS,
+            total=result.get("fetched", 0),
+            success=result.get("inserted", 0),
+            skipped=result.get("skipped", 0),
+            fail=0,
+        )
+        logger.info(
+            "[news_sync] 同步结果: fetched=%d inserted=%d skipped=%d",
+            result.get("fetched", 0),
+            result.get("inserted", 0),
+            result.get("skipped", 0),
+        )
+    except Exception as exc:
+        await record_task_result("news_sync", TaskStatus.FAILED, error_message=str(exc))
+        raise
 
 
 async def _run_pdf_rotation_job() -> None:
