@@ -159,6 +159,25 @@ def test_merge_sync_snapshots_combines_acquisition_error_and_metadata_warnings()
     assert "sync checkpoint lookup failed" in merged.last_error
 
 
+def test_merge_sync_snapshots_keeps_warning_labels_when_acquisition_error_is_long():
+    from app.readiness.service import merge_sync_snapshots
+
+    acquisition_failure = SourceSyncSnapshot(
+        latest_attempt_at=datetime(2026, 7, 21, 4, 0, tzinfo=UTC),
+        latest_status="failed",
+        last_error="x" * 300,
+    )
+    job_warning = SourceSyncSnapshot(last_error="sync job lookup failed: " + ("y" * 300))
+    checkpoint_warning = SourceSyncSnapshot(last_error="sync checkpoint lookup failed: " + ("z" * 300))
+
+    merged = merge_sync_snapshots([acquisition_failure, job_warning, checkpoint_warning])
+
+    assert merged.last_error is not None
+    assert len(merged.last_error) <= 300
+    assert "sync job lookup failed" in merged.last_error
+    assert "sync checkpoint lookup failed" in merged.last_error
+
+
 def test_monitor_query_covers_daily_scheduler_task_names():
     query, params = build_monitor_query("kline")
 

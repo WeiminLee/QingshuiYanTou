@@ -298,6 +298,17 @@ def source_sync_snapshot_from_row(row: Mapping[str, object]) -> SourceSyncSnapsh
     )
 
 
+def _compose_last_error(primary: str | None, warnings: list[str], limit: int = 300) -> str | None:
+    """Compose bounded error text without dropping metadata warning labels."""
+    parts = []
+    if primary:
+        parts.append(primary[:120])
+    parts.extend(warning[:80] for warning in dict.fromkeys(warnings))
+    if not parts:
+        return None
+    return "; ".join(parts)[:limit]
+
+
 def merge_sync_snapshots(snapshots: list[SourceSyncSnapshot]) -> SourceSyncSnapshot:
     """Merge multiple local sync metadata sources into one readiness snapshot."""
     present = [
@@ -340,11 +351,7 @@ def merge_sync_snapshots(snapshots: list[SourceSyncSnapshot]) -> SourceSyncSnaps
         key=lambda snapshot: snapshot.latest_attempt_at or snapshot.latest_success_at or datetime.min.replace(tzinfo=UTC),
     )
     latest_status = newest.latest_status
-    last_error = newest.last_error
-    warning_text = "; ".join(dict.fromkeys(metadata_warnings))
-    if warning_text:
-        last_error = f"{last_error}; {warning_text}" if last_error else warning_text
-        last_error = last_error[:300]
+    last_error = _compose_last_error(newest.last_error, metadata_warnings)
 
     return SourceSyncSnapshot(
         latest_success_at=latest_success_at,
