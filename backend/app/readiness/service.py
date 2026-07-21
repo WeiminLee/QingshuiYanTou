@@ -4,6 +4,7 @@ import logging
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from typing import Mapping, Protocol
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import text
 
@@ -11,6 +12,7 @@ from app.core.database import engine
 from app.readiness.schemas import ReadinessSource, ReadinessSummary, SourceStatus, ThresholdKind
 
 logger = logging.getLogger(__name__)
+SH_TZ = ZoneInfo("Asia/Shanghai")
 
 
 @dataclass(frozen=True)
@@ -72,6 +74,14 @@ SYNC_ACQUISITION_PAIRS: dict[str, tuple[tuple[str, str], ...]] = {
     "research_report": (("minishare", "reports_history"),),
 }
 
+MONITOR_TASK_NAMES: dict[str, tuple[str, ...]] = {
+    "kline": ("kline",),
+    "announcement": ("cninfo",),
+    "irm": ("irm",),
+    "news": ("news",),
+    "research_report": ("reports",),
+}
+
 
 def _now_utc() -> datetime:
     return datetime.now(UTC)
@@ -81,6 +91,12 @@ def _as_utc(value: datetime) -> datetime:
     if value.tzinfo is None:
         return value.replace(tzinfo=UTC)
     return value.astimezone(UTC)
+
+
+def _as_shanghai(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=SH_TZ)
+    return value.astimezone(SH_TZ)
 
 
 def count_weekday_lag(latest: date, current: date) -> int:
@@ -125,6 +141,27 @@ def build_sync_query(source: str):
     ), params
 
 
+def build_monitor_query(source: str):
+    """Build a sync_task_status query for scheduler-recorded daily tasks."""
+    task_names = MONITOR_TASK_NAMES.get(source, ())
+    if not task_names:
+        return text("SELECT NULL WHERE FALSE"), {}
+
+    params = {f"task_{index}": task_name for index, task_name in enumerate(task_names)}
+    placeholders = ", ".join(f":task_{index}" for index in range(len(task_names)))
+    return text(
+        f"""
+        SELECT status, completed_at, error_message AS last_error,
+               MAX(completed_at) FILTER (WHERE status IN ('success', 'partial')) OVER () AS latest_success_at,
+               updated_at
+        FROM sync_task_status
+        WHERE LOWER(task_name) IN ({placeholders})
+        ORDER BY updated_at DESC NULLS LAST, started_at DESC NULLS LAST
+        LIMIT 1
+        """
+    ), params
+
+
 def source_sync_snapshot_from_row(row: Mapping[str, object]) -> SourceSyncSnapshot:
     """Normalize the newest matching run and its historical success timestamp."""
     status = row.get("status")
@@ -139,6 +176,39 @@ def source_sync_snapshot_from_row(row: Mapping[str, object]) -> SourceSyncSnapsh
     )
 
 
+def merge_sync_snapshots(snapshots: list[SourceSyncSnapshot]) -> SourceSyncSnapshot:
+    """Merge multiple local sync metadata sources into one readiness snapshot."""
+    present = [
+        snapshot
+        for snapshot in snapshots
+        if snapshot.latest_status or snapshot.latest_success_at or snapshot.last_error
+    ]
+    if not present:
+        return SourceSyncSnapshot()
+
+    latest_success_at = None
+    for snapshot in present:
+        if snapshot.latest_success_at and (
+            latest_success_at is None or snapshot.latest_success_at > latest_success_at
+        ):
+            latest_success_at = snapshot.latest_success_at
+
+    latest_status = None
+    last_error = None
+    # Repository queries are ordered newest-per-source; prefer the first status/error we have.
+    for snapshot in present:
+        if latest_status is None and snapshot.latest_status:
+            latest_status = snapshot.latest_status
+        if last_error is None and snapshot.last_error:
+            last_error = snapshot.last_error
+
+    return SourceSyncSnapshot(
+        latest_success_at=latest_success_at,
+        latest_status=latest_status,
+        last_error=last_error,
+    )
+
+
 class SqlReadinessRepository:
     async def get_latest_data_date(self, source: str) -> date | None:
         sql_by_source = {
@@ -148,7 +218,7 @@ class SqlReadinessRepository:
                 "WHERE announcement_type IS NULL OR announcement_type NOT LIKE 'irm:%%'"
             ),
             "irm": "SELECT MAX(ann_date) FROM announcements WHERE announcement_type LIKE 'irm:%%'",
-            "news": "SELECT MAX(DATE(publish_at)) FROM events",
+            "news": "SELECT MAX(DATE(publish_at AT TIME ZONE 'Asia/Shanghai')) FROM events",
             "research_report": "SELECT MAX(trade_date) FROM research_report_meta",
         }
         sql = sql_by_source.get(source)
@@ -162,6 +232,7 @@ class SqlReadinessRepository:
         return value
 
     async def get_sync_snapshot(self, source: str) -> SourceSyncSnapshot:
+        snapshots = []
         sql, params = build_sync_query(source)
         try:
             async with engine.connect() as conn:
@@ -169,10 +240,22 @@ class SqlReadinessRepository:
                 row = result.mappings().first()
         except Exception as exc:
             logger.warning("[Readiness] sync metadata lookup failed for %s: %s", source, exc)
-            return SourceSyncSnapshot(last_error=f"sync metadata lookup failed: {str(exc)[:300]}")
-        if not row:
-            return SourceSyncSnapshot()
-        return source_sync_snapshot_from_row(row)
+            snapshots.append(SourceSyncSnapshot(last_error=f"sync metadata lookup failed: {str(exc)[:300]}"))
+        else:
+            snapshots.append(source_sync_snapshot_from_row(row) if row else SourceSyncSnapshot())
+
+        monitor_sql, monitor_params = build_monitor_query(source)
+        try:
+            async with engine.connect() as conn:
+                result = await conn.execute(monitor_sql, monitor_params)
+                row = result.mappings().first()
+        except Exception as exc:
+            logger.warning("[Readiness] monitor metadata lookup failed for %s: %s", source, exc)
+            snapshots.append(SourceSyncSnapshot(last_error=f"sync monitor lookup failed: {str(exc)[:300]}"))
+        else:
+            snapshots.append(source_sync_snapshot_from_row(row) if row else SourceSyncSnapshot())
+
+        return merge_sync_snapshots(snapshots)
 
 
 class DataReadinessService:
@@ -180,7 +263,7 @@ class DataReadinessService:
         self.repository = repository or SqlReadinessRepository()
 
     async def get_all(self, now: datetime | None = None) -> ReadinessSummary:
-        as_of = _as_utc(now or _now_utc())
+        as_of = _as_shanghai(now or _now_utc())
         snapshots: list[SourceDataSnapshot] = []
         for source in SOURCE_SPECS:
             snapshots.append(await self._load_snapshot(source))
@@ -189,7 +272,7 @@ class DataReadinessService:
     async def get_source(self, source: str, now: datetime | None = None) -> ReadinessSource | None:
         if source not in SOURCE_SPECS:
             return None
-        as_of = _as_utc(now or _now_utc())
+        as_of = _as_shanghai(now or _now_utc())
         summary = self.build_summary(as_of, [await self._load_snapshot(source)])
         return summary.sources[0]
 
@@ -211,7 +294,7 @@ class DataReadinessService:
         return SourceDataSnapshot(source=source, latest_data_date=latest, sync=sync)
 
     def build_summary(self, now: datetime, sources: list[SourceDataSnapshot]) -> ReadinessSummary:
-        as_of = _as_utc(now)
+        as_of = _as_shanghai(now)
         items = [self._build_source(as_of, snapshot) for snapshot in sources]
         overall = self._overall_status(items)
         stale_count = sum(1 for item in items if item.status == SourceStatus.STALE)
@@ -237,7 +320,7 @@ class DataReadinessService:
             status = SourceStatus.MISSING
             recommendation = "本地没有该数据源记录，需要先完成同步。"
         else:
-            current_date = now.date()
+            current_date = _as_shanghai(now).date()
             if spec.threshold_kind == ThresholdKind.TRADING_DAY:
                 lag_days = count_weekday_lag(latest, current_date)
             else:
@@ -248,15 +331,18 @@ class DataReadinessService:
             else:
                 status = SourceStatus.STALE
                 recommendation = f"数据已滞后 {lag_days} 天，回答需要声明基于截至 {latest.isoformat()} 的数据。"
-        if status in {SourceStatus.STALE, SourceStatus.MISSING} and snapshot.sync.latest_status in {
-            "failed",
-            "dead",
-        }:
-            status = SourceStatus.FAILED
-            recommendation = "最近同步失败，回答前应先修复并同步该数据源。"
         last_error = snapshot.sync.last_error
         if last_error and len(last_error) > 300:
             last_error = last_error[:300]
+        if snapshot.sync.latest_status in {"failed", "dead"}:
+            if status == SourceStatus.FRESH:
+                status = SourceStatus.STALE
+                recommendation = "最近同步失败；虽然本地数据仍在日级窗口内，回答需要降低结论强度并提示先确认同步。"
+            elif status in {SourceStatus.STALE, SourceStatus.MISSING}:
+                status = SourceStatus.FAILED
+                recommendation = "最近同步失败，回答前应先修复并同步该数据源。"
+        elif last_error and "lookup failed" in last_error:
+            recommendation = f"{recommendation} 同步元数据查询失败，需人工确认最近同步状态。"
         return ReadinessSource(
             source=spec.source,
             display_name=spec.display_name,

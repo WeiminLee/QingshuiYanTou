@@ -1,4 +1,4 @@
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timezone, timedelta
 
 import pytest
 
@@ -8,6 +8,7 @@ from app.readiness.service import (
     SourceDataSnapshot,
     SourceSyncSnapshot,
     build_sync_query,
+    build_monitor_query,
     count_weekday_lag,
     format_readiness_for_agent,
     source_sync_snapshot_from_row,
@@ -54,6 +55,32 @@ def test_sync_snapshot_preserves_previous_success_after_latest_failure():
 
     assert snapshot.latest_status == "failed"
     assert snapshot.latest_success_at == previous_success
+
+
+def test_monitor_query_covers_daily_scheduler_task_names():
+    query, params = build_monitor_query("kline")
+
+    sql = str(query).lower()
+    assert "sync_task_status" in sql
+    assert "task_name" in sql
+    assert "kline" in params.values()
+
+
+def test_shanghai_midnight_uses_local_business_date():
+    summary = DataReadinessService(repository=FakeRepository()).build_summary(
+        now=datetime(2026, 7, 22, 0, 30, tzinfo=timezone(timedelta(hours=8))),
+        sources=[
+            SourceDataSnapshot(
+                source="announcement",
+                latest_data_date=date(2026, 7, 20),
+                sync=SourceSyncSnapshot(),
+            )
+        ],
+    )
+
+    item = summary.sources[0]
+    assert item.lag_days == 2
+    assert item.status == SourceStatus.STALE
 
 
 @pytest.mark.asyncio
@@ -106,6 +133,43 @@ async def test_readiness_marks_failed_when_stale_and_latest_sync_failed():
     assert item.status == SourceStatus.FAILED
     assert item.last_error == "timeout while fetching irm"
     assert "同步失败" in item.recommendation
+
+
+@pytest.mark.asyncio
+async def test_readiness_degrades_fresh_data_when_latest_sync_failed():
+    repo = FakeRepository(
+        data={"announcement": date(2026, 7, 20)},
+        sync={
+            "announcement": SourceSyncSnapshot(
+                latest_success_at=datetime(2026, 7, 20, 22, 0, tzinfo=UTC),
+                latest_status="failed",
+                last_error="latest acquisition failed",
+            )
+        },
+    )
+    service = DataReadinessService(repository=repo)
+
+    item = await service.get_source("announcement", now=datetime(2026, 7, 21, 9, 0, tzinfo=UTC))
+
+    assert item is not None
+    assert item.status == SourceStatus.STALE
+    assert item.last_error == "latest acquisition failed"
+    assert "最近同步失败" in item.recommendation
+
+
+@pytest.mark.asyncio
+async def test_readiness_recommendation_mentions_sync_metadata_warning():
+    repo = FakeRepository(
+        data={"news": date(2026, 7, 21)},
+        sync={"news": SourceSyncSnapshot(last_error="sync metadata lookup failed: relation missing")},
+    )
+    service = DataReadinessService(repository=repo)
+
+    item = await service.get_source("news", now=datetime(2026, 7, 21, 9, 0, tzinfo=UTC))
+
+    assert item is not None
+    assert item.status == SourceStatus.FRESH
+    assert "同步元数据查询失败" in item.recommendation
 
 
 @pytest.mark.asyncio
