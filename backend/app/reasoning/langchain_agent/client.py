@@ -310,6 +310,17 @@ async def run_lead_agent(
                     logger.warning("[SignalContext] fetch failed, running without signal context")
                     signal_context = ""
 
+            freshness_context = ""
+            try:
+                from app.reasoning.langchain_agent.freshness import load_freshness_context
+
+                freshness_context = await load_freshness_context()
+            except Exception as exc:
+                logger.warning("[FreshnessGate] failed to load context: %s", exc)
+                from app.reasoning.langchain_agent.freshness import build_unavailable_freshness_context
+
+                freshness_context = build_unavailable_freshness_context(str(exc))
+
             # 背景知识注入 system prompt（不进入 user message，不输出到前端）
             system_prompt = apply_prompt_template(
                 subagent_enabled=subagent_enabled,
@@ -319,6 +330,7 @@ async def run_lead_agent(
                 background_context=background or "",
                 graph_context=graph_context or "",
                 signal_context=signal_context or "",
+                freshness_context=freshness_context,
             )
 
         # ── Memory tool injection ──

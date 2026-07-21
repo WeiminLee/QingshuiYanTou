@@ -385,6 +385,7 @@ def apply_prompt_template(
     background_context: str = "",
     graph_context: str = "",
     signal_context: str = "",
+    freshness_context: str = "",
 ) -> str:
     """
     生成完整的 Lead Agent system prompt。
@@ -397,6 +398,7 @@ def apply_prompt_template(
         background_context: Qdrant pre-search 检索的背景知识（注入 system prompt，不进入前端输出）
         graph_context: 图谱上下文查询结果（从 Neo4j 预查询，注入 system prompt，不进入前端输出）
         signal_context: 预期差信号上下文（注入 system prompt，不进入前端输出）
+        freshness_context: 数据新鲜度上下文（注入 system prompt，约束结论的时效边界）
 
     Returns:
         格式化后的完整 system prompt
@@ -423,6 +425,13 @@ def apply_prompt_template(
         summarize_routing_guide=SUMMARIZE_ROUTING_GUIDE,
     )
 
-    return prompt + f"\n<current_date>{datetime.now().strftime('%Y-%m-%d')}</current_date>\n"
+    if freshness_context:
+        prompt += (
+            "\n\n## 数据新鲜度与结论边界\n"
+            f"{freshness_context}\n"
+            "你必须遵守以上 data_readiness 约束：如果状态为 stale，需要声明数据截至日期并降低结论强度；"
+            "如果状态为 missing 或 failed，不得输出强时效结论。"
+        )
 
+    return prompt + f"\n<current_date>{datetime.now().strftime('%Y-%m-%d')}</current_date>\n"
 

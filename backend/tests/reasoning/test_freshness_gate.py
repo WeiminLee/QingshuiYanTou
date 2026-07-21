@@ -47,3 +47,18 @@ def test_build_unavailable_freshness_context_truncates_error():
     assert "overall_status=unavailable" in text
     assert "readiness_error=" in text
     assert len(text) < 700
+
+
+def test_prompt_template_includes_freshness_context():
+    from app.reasoning.langchain_agent.prompts.lead_system_prompt import apply_prompt_template
+
+    prompt = apply_prompt_template(
+        background_context="",
+        graph_context="",
+        signal_context="",
+        freshness_context="<data_readiness>\noverall_status=degraded\n</data_readiness>",
+    )
+
+    assert "<data_readiness>" in prompt
+    assert "overall_status=degraded" in prompt
+    assert "数据新鲜度" in prompt
