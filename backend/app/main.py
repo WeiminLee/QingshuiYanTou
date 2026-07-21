@@ -24,6 +24,7 @@ from app.knowledge.api.feedback import router as feedback_router
 from app.knowledge.api.knowledge_package import router as knowledge_package_router
 from app.reasoning.api import agent_router, stats_router
 from app.reasoning.subagents.polling import router as subagent_router
+from app.readiness.api import router as readiness_router
 from app.signals.api import router as signals_router
 from app.utils.auth import verify_api_key, verify_api_key_optional
 
@@ -149,6 +150,11 @@ app.include_router(
     signals_router,
     prefix="/api/v1/signals",
     tags=["信号"],
+    dependencies=[Depends(verify_api_key_optional)],
+)
+app.include_router(
+    readiness_router,
+    prefix="/api/v1/readiness",
     dependencies=[Depends(verify_api_key_optional)],
 )
 # 日志查询路由（读操作，可选认证）
