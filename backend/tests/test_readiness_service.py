@@ -169,13 +169,15 @@ def test_merge_sync_snapshots_keeps_warning_labels_when_acquisition_error_is_lon
     )
     job_warning = SourceSyncSnapshot(last_error="sync job lookup failed: " + ("y" * 300))
     checkpoint_warning = SourceSyncSnapshot(last_error="sync checkpoint lookup failed: " + ("z" * 300))
+    monitor_warning = SourceSyncSnapshot(last_error="sync monitor lookup failed: " + ("w" * 300))
 
-    merged = merge_sync_snapshots([acquisition_failure, job_warning, checkpoint_warning])
+    merged = merge_sync_snapshots([acquisition_failure, job_warning, checkpoint_warning, monitor_warning])
 
     assert merged.last_error is not None
     assert len(merged.last_error) <= 300
     assert "sync job lookup failed" in merged.last_error
     assert "sync checkpoint lookup failed" in merged.last_error
+    assert "sync monitor lookup failed" in merged.last_error
 
 
 def test_monitor_query_covers_daily_scheduler_task_names():

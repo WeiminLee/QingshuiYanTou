@@ -300,10 +300,19 @@ def source_sync_snapshot_from_row(row: Mapping[str, object]) -> SourceSyncSnapsh
 
 def _compose_last_error(primary: str | None, warnings: list[str], limit: int = 300) -> str | None:
     """Compose bounded error text without dropping metadata warning labels."""
+    unique_warnings = list(dict.fromkeys(warnings))
+    if not primary and len(unique_warnings) == 1:
+        return unique_warnings[0][:limit]
+
     parts = []
     if primary:
         parts.append(primary[:120])
-    parts.extend(warning[:80] for warning in dict.fromkeys(warnings))
+    for warning in unique_warnings:
+        label, separator, detail = warning.partition(":")
+        part = label if "lookup failed" in label else warning[:80]
+        if "lookup failed" not in label and separator and detail and len(part) + 2 < 80:
+            part = f"{part}: {detail.strip()[:80 - len(part) - 2]}"
+        parts.append(part)
     if not parts:
         return None
     return "; ".join(parts)[:limit]
