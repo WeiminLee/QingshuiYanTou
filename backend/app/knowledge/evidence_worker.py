@@ -8,7 +8,7 @@ import socket
 import time
 from typing import Any
 
-from app.knowledge.evidence import JOB_COMBINED, JOB_VECTOR
+from app.knowledge.evidence import JOB_COMBINED, JOB_SIGNAL, JOB_VECTOR
 from app.knowledge.evidence_service import EvidenceService
 from app.knowledge.extraction.irm_classifier import classify_irm_evidence, extraction_tier
 from app.knowledge.extraction.signal_extractor import (
@@ -18,6 +18,7 @@ from app.knowledge.extraction.signal_extractor import (
 from app.knowledge.kg_extractor import extract_evidence_async
 from app.knowledge.structured_fact_service import extract_rule_based_facts, upsert_structured_fact
 from app.knowledge.vector_client import upsert_evidence_chunk_vector
+from app.signals.auto_ingestion import ingest_evidence_signals
 
 logger = logging.getLogger(__name__)
 
@@ -138,6 +139,10 @@ class EvidenceExtractionWorker:
                     return {"status": "done", **result}
                 await self.service.mark_job_failed(job_id, "vector upsert failed")
                 return {"status": "failed", **result}
+            if job_type == JOB_SIGNAL:
+                result = await ingest_evidence_signals(evidence)
+                await self.service.mark_job_done(job_id, result)
+                return {"status": "done", **result}
             await self.service.mark_job_failed(job_id, f"unsupported job_type: {job_type}")
             return {"status": "failed", "error": f"unsupported job_type: {job_type}"}
         except Exception as exc:  # noqa: BLE001

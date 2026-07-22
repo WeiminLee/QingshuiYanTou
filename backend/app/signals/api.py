@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.signals.event_ingestion import backfill_event_signals
 from app.signals.evidence_ingestion import backfill_evidence_signals
+from app.signals.fixtures import seed_concept_board_fixture
 from app.signals.schemas import SignalDetail, SignalListResponse, SignalStatusUpdate
 from app.signals.service import get_signal_detail, list_signals, update_signal_status
 from app.utils.auth import verify_api_key
@@ -52,6 +53,15 @@ async def backfill_evidence(
     _=Depends(verify_api_key),
 ):
     return await backfill_evidence_signals(db, source_type=source_type, limit=limit)
+
+
+@router.post("/fixtures/concept-board")
+async def seed_fixture_concept_board(
+    concept: str = Query("optical_module"),
+    db: AsyncSession = Depends(get_db),
+    _=Depends(verify_api_key),
+):
+    return await seed_concept_board_fixture(db, concept)
 
 
 @router.get("/{signal_id}", response_model=SignalDetail)

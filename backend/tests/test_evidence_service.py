@@ -9,6 +9,7 @@ from typing import Any
 
 from app.knowledge.evidence import (
     JOB_COMBINED,
+    JOB_SIGNAL,
     JOB_VECTOR,
     STATUS_DONE,
     STATUS_FAILED,
@@ -186,15 +187,28 @@ def test_upsert_evidence_is_idempotent() -> None:
     asyncio.run(main())
 
 
+def test_upsert_evidence_auto_enqueues_default_jobs() -> None:
+    async def main():
+        svc = _service()
+        ev = await svc.upsert_evidence(_input(), chunk_index=0)
+
+        assert await svc._jobs.count_documents({}) == 3
+        jobs = svc._jobs.docs
+        assert {job["job_type"] for job in jobs} == {JOB_COMBINED, JOB_VECTOR, JOB_SIGNAL}
+        assert all(job["evidence_id"] == ev["evidence_id"] for job in jobs)
+
+    asyncio.run(main())
+
+
 def test_enqueue_default_jobs_is_idempotent() -> None:
     async def main():
         svc = _service()
         ev = await svc.upsert_evidence(_input())
         jobs1 = await svc.enqueue_default_jobs(ev["evidence_id"])
         jobs2 = await svc.enqueue_default_jobs(ev["evidence_id"])
-        assert {j["job_type"] for j in jobs1} == {JOB_COMBINED, JOB_VECTOR}
+        assert {j["job_type"] for j in jobs1} == {JOB_COMBINED, JOB_VECTOR, JOB_SIGNAL}
         assert [j["job_id"] for j in jobs1] == [j["job_id"] for j in jobs2]
-        assert await svc._jobs.count_documents({}) == 2
+        assert await svc._jobs.count_documents({}) == 3
 
     asyncio.run(main())
 

@@ -14,6 +14,7 @@ from app.knowledge.evidence import (
     EXTRACTION_JOBS_COLLECTION,
     EXTRACTOR_VERSION,
     JOB_COMBINED,
+    JOB_SIGNAL,
     JOB_VECTOR,
     STATUS_DONE,
     STATUS_FAILED,
@@ -91,6 +92,7 @@ class EvidenceService:
             "extraction_status": {
                 JOB_COMBINED: STATUS_PENDING,
                 JOB_VECTOR: STATUS_PENDING,
+                JOB_SIGNAL: STATUS_PENDING,
                 "last_extracted_at": None,
                 "extractor_version": EXTRACTOR_VERSION,
             },
@@ -101,6 +103,7 @@ class EvidenceService:
             upsert=True,
         )
         saved = await self.get_evidence(evidence_id)
+        await self.enqueue_default_jobs(evidence_id)
         return saved or {**set_on_insert, **doc}
 
     async def get_evidence(self, evidence_id: str) -> dict[str, Any] | None:
@@ -143,6 +146,7 @@ class EvidenceService:
         return [
             await self.enqueue_job(evidence_id, JOB_COMBINED),
             await self.enqueue_job(evidence_id, JOB_VECTOR),
+            await self.enqueue_job(evidence_id, JOB_SIGNAL),
         ]
 
     # ── 批量写入 ────────────────────────────────────────────────
@@ -185,6 +189,7 @@ class EvidenceService:
                 "extraction_status": {
                     JOB_COMBINED: STATUS_PENDING,
                     JOB_VECTOR: STATUS_PENDING,
+                    JOB_SIGNAL: STATUS_PENDING,
                     "last_extracted_at": None,
                     "extractor_version": EXTRACTOR_VERSION,
                 },
@@ -209,7 +214,7 @@ class EvidenceService:
         now = _utc_now()
         operations = []
         for evidence_id in evidence_ids:
-            for job_type in [JOB_COMBINED, JOB_VECTOR]:
+            for job_type in [JOB_COMBINED, JOB_VECTOR, JOB_SIGNAL]:
                 job_id = stable_job_id(evidence_id, job_type, EXTRACTOR_VERSION)
                 doc = {
                     "job_id": job_id,

@@ -39,7 +39,8 @@ SOURCE_TYPES = frozenset(
 
 JOB_COMBINED = "combined"
 JOB_VECTOR = "vector"
-JOB_TYPES = frozenset({JOB_COMBINED, JOB_VECTOR})
+JOB_SIGNAL = "signal"
+JOB_TYPES = frozenset({JOB_COMBINED, JOB_VECTOR, JOB_SIGNAL})
 
 STATUS_PENDING = "pending"
 STATUS_RUNNING = "running"
