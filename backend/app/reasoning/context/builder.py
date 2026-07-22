@@ -110,7 +110,11 @@ class AgentContextBuilder:
         readiness = ReadinessContextDTO(**await _load_readiness_context())
         signal_context = None
         if signal_id:
-            detail = await _load_signal_detail(signal_id)
+            try:
+                detail = await _load_signal_detail(signal_id)
+            except Exception:
+                detail = None
+                warnings.append("signal_context_read_failed")
             if detail:
                 hits = match_user_hits(detail, user_snapshot)
                 detail["user_hits"] = hits.model_dump()

@@ -69,3 +69,22 @@ async def test_builder_relation_without_signal_warns(monkeypatch):
     ctx = await AgentContextBuilder().build(user_id="lwm", thread_id="t1", question="光模块怎么看")
 
     assert "signal_context_missing" in ctx.warnings
+
+
+@pytest.mark.asyncio
+async def test_builder_signal_detail_failure_returns_prompt_context(monkeypatch):
+    async def fake_snapshot(user_id):
+        return UserSnapshotDTO(user_id=user_id), []
+
+    async def broken_signal(signal_id):
+        raise RuntimeError("signal detail unavailable")
+
+    monkeypatch.setattr(builder_mod, "build_user_snapshot", fake_snapshot)
+    monkeypatch.setattr(builder_mod, "_load_signal_detail", broken_signal)
+    monkeypatch.setattr(builder_mod, "_load_readiness_context", AsyncMock(return_value={"overall_status": "unknown", "answer_boundary": ""}))
+
+    ctx = await AgentContextBuilder().build(user_id="lwm", thread_id="t1", question="分析信号", signal_id="SIG:abc")
+
+    assert "signal_context_read_failed" in ctx.warnings
+    assert ctx.prompt_context
+    assert ctx.prompt_context.startswith("<signal-context>")
