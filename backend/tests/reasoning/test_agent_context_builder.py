@@ -55,6 +55,7 @@ async def test_builder_with_signal_id_builds_prompt_context(monkeypatch):
     assert ctx.route == "relation_reasoning"
     assert ctx.signal_context is not None
     assert "800G 光模块规模量产" in ctx.prompt_context
+    assert "<agent-context>" in ctx.prompt_context
     assert "<signal-context>" in ctx.prompt_context
 
 
@@ -87,4 +88,4 @@ async def test_builder_signal_detail_failure_returns_prompt_context(monkeypatch)
 
     assert "signal_context_read_failed" in ctx.warnings
     assert ctx.prompt_context
-    assert ctx.prompt_context.startswith("<signal-context>")
+    assert ctx.prompt_context.startswith("<agent-context>")

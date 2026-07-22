@@ -72,6 +72,14 @@ class TestApplyPromptTemplate:
         result = apply_prompt_template(signal_context="<signal-context>800G 光模块规模量产</signal-context>")
         assert "<signal-context>800G 光模块规模量产</signal-context>" in result
 
+    def test_agent_context_not_double_wrapped_as_signal_context(self):
+        from app.reasoning.langchain_agent.prompts.lead_system_prompt import apply_prompt_template
+
+        result = apply_prompt_template(signal_context="<agent-context><signal-context>信号</signal-context></agent-context>")
+
+        assert "<agent-context><signal-context>信号</signal-context></agent-context>" in result
+        assert result.count("<agent-context>") == 1
+
     def test_max_concurrent_in_subagent_section(self):
         """max_concurrent_subagents 参数正确注入"""
         from app.reasoning.langchain_agent.prompts.lead_system_prompt import apply_prompt_template

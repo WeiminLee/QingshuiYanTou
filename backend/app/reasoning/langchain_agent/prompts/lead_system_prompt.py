@@ -370,7 +370,7 @@ def _build_signal_context_section(signal_context: str) -> str:
     if not signal_context or not signal_context.strip():
         return ""
     stripped = signal_context.strip()
-    if stripped.startswith("<signal-context>"):
+    if stripped.startswith(("<signal-context>", "<agent-context>")):
         return stripped
     return f"""\
 <signal-context>

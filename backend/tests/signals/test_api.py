@@ -11,6 +11,7 @@ os.environ.setdefault("LLM_API_KEY", "test-key")
 os.environ.setdefault("NEO4J_PASSWORD", "test-password")
 os.environ.setdefault("MASTER_PASSWORD", "test-master-pass-1234")
 
+from app.reasoning.context.schemas import UserSnapshotDTO
 from app.signals.api import router
 
 
@@ -157,3 +158,72 @@ async def test_get_signal_detail_accepts_context_dto_fields(monkeypatch):
     assert body["schema_version"] == "signal.context.v1"
     assert body["user_hits"]["preferences"] == ["光模块"]
     assert body["memory"]["lifecycle_status"] == "active"
+
+
+@pytest.mark.asyncio
+async def test_get_signal_detail_resolves_user_hits_from_user_id(monkeypatch):
+    async def fake_get_signal_detail(*args, **kwargs):
+        return {
+            "schema_version": "signal.context.v1",
+            "signal_id": "SIG:abc",
+            "title": "800G 光模块规模量产",
+            "summary": "量产确认",
+            "source_type": "announcement",
+            "source_title": "公告标题",
+            "source_url": None,
+            "published_at": datetime(2026, 7, 13, tzinfo=UTC),
+            "subject_name": "中际旭创",
+            "subject_type": "company",
+            "signal_type": "mass_production",
+            "polarity": "positive",
+            "strength": 88,
+            "confidence": 0.92,
+            "value_score": 92,
+            "evidence_excerpt": "相关产品进入规模量产",
+            "status": "new",
+            "portfolio_hits": ["旧持仓"],
+            "memory": {
+                "schema_version": "signal.memory.v1",
+                "signal_id": "SIG:abc",
+                "lifecycle_status": "active",
+                "user_status": "new",
+            },
+            "user_hits": {"portfolio": [], "watchlist": [], "preferences": []},
+            "propagations": [
+                {
+                    "target_name": "光芯片",
+                    "target_type": "product",
+                    "relation_path": "中际旭创 -> 光模块 -> 光芯片",
+                    "direction": "beneficiary",
+                    "impact_horizon": "short",
+                    "confidence": 0.8,
+                    "reasoning": "上游需求增强",
+                    "signal_path": {
+                        "nodes": ["中际旭创", "光模块", "光芯片"],
+                        "edges": [],
+                        "hops": 2,
+                        "confidence": 0.8,
+                    },
+                }
+            ],
+        }
+
+    async def fake_snapshot(user_id):
+        assert user_id == "lwm"
+        return UserSnapshotDTO(
+            user_id=user_id,
+            portfolio=[{"name": "中际旭创", "ts_code": "300308.SZ"}],
+            preferences=[{"subject": "光模块", "stance": "关注"}],
+        ), []
+
+    monkeypatch.setattr("app.signals.api.get_signal_detail", fake_get_signal_detail)
+    monkeypatch.setattr("app.reasoning.context.user_snapshot.build_user_snapshot", fake_snapshot)
+
+    async with AsyncClient(transport=ASGITransport(app=_test_app()), base_url="http://test") as client:
+        res = await client.get("/api/v1/signals/SIG:abc?user_id=lwm")
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body["portfolio_hits"] == ["旧持仓"]
+    assert body["user_hits"]["portfolio"] == ["中际旭创"]
+    assert body["user_hits"]["preferences"] == ["光模块"]

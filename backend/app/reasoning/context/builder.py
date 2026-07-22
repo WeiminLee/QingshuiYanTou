@@ -168,7 +168,7 @@ def _signal_summary(detail: dict) -> dict[str, Any]:
 
 
 def render_prompt_context(ctx: AgentContextDTO) -> str:
-    lines = ["<signal-context>", f"route: {ctx.route}"]
+    lines = ["<agent-context>", f"route: {ctx.route}"]
     if ctx.user_snapshot:
         portfolio = "、".join(item.get("name") or item.get("ts_code", "") for item in ctx.user_snapshot.portfolio)
         prefs = "、".join(item.get("subject", "") for item in ctx.user_snapshot.preferences)
@@ -186,7 +186,7 @@ def render_prompt_context(ctx: AgentContextDTO) -> str:
         lines.extend(
             [
                 "",
-                "<signal-detail>",
+                "<signal-context>",
                 f"- 信号: {sig.get('title', '')}",
                 f"  signal_id: {sig.get('signal_id', '')}",
                 f"  value_score: {sig.get('value_score', '')}, confidence: {sig.get('confidence', '')}",
@@ -210,7 +210,7 @@ def render_prompt_context(ctx: AgentContextDTO) -> str:
                 lines.append(f"  传导: {nodes}")
             if prop.get("reasoning"):
                 lines.append(f"  理由: {prop['reasoning']}")
-        lines.append("</signal-detail>")
+        lines.append("</signal-context>")
     lines.extend(
         [
             "",
@@ -222,5 +222,5 @@ def render_prompt_context(ctx: AgentContextDTO) -> str:
     )
     if ctx.warnings:
         lines.append(f"warnings: {', '.join(ctx.warnings)}")
-    lines.append("</signal-context>")
+    lines.append("</agent-context>")
     return "\n".join(lines)

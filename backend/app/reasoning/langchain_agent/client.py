@@ -329,23 +329,22 @@ async def run_lead_agent(
             if harness is not None and harness.config.kg_anchors_enabled:
                 kg_anchors_str = format_kg_anchors(thread_id)
 
-            # Signal Context 注入
-            if signal_id:
-                try:
-                    from app.reasoning.context.builder import AgentContextBuilder
+            # Agent Context 注入（Signal 主链路 + 事实查找/长历史降级）
+            try:
+                from app.reasoning.context.builder import AgentContextBuilder
 
-                    agent_context = await AgentContextBuilder().build(
-                        user_id=resolved_user_id,
-                        thread_id=thread_id,
-                        question=question,
-                        signal_id=signal_id,
-                    )
-                    signal_context = agent_context.prompt_context
-                    agent_context_payload = agent_context.model_dump(mode="json")
-                except Exception:
-                    logger.warning("[AgentContext] build failed, running without signal context")
-                    signal_context = ""
-                    agent_context_payload = {}
+                agent_context = await AgentContextBuilder().build(
+                    user_id=resolved_user_id,
+                    thread_id=thread_id,
+                    question=question,
+                    signal_id=signal_id,
+                )
+                signal_context = agent_context.prompt_context
+                agent_context_payload = agent_context.model_dump(mode="json")
+            except Exception:
+                logger.warning("[AgentContext] build failed, running without signal context")
+                signal_context = ""
+                agent_context_payload = {}
 
             freshness_context = await _load_freshness_context_for_prompt()
 

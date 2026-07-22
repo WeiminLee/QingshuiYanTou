@@ -169,7 +169,7 @@ async def get_signal_detail(session: AsyncSession, signal_id: str) -> dict | Non
             "source_count": _metadata_int(signal.metadata_, "source_count", 1),
         },
         "user_hits": {
-            "portfolio": _portfolio_hits(signal.metadata_),
+            "portfolio": [],
             "watchlist": [],
             "preferences": [],
         },

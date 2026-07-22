@@ -1028,6 +1028,71 @@ class TestRunLeadAgentE2E:
 
         fake_memory.shutdown_all.assert_awaited_once()
 
+    def test_run_lead_agent_builds_agent_context_with_resolved_user(self):
+        asyncio.run(self._test_run_lead_agent_builds_agent_context_with_resolved_user())
+
+    async def _test_run_lead_agent_builds_agent_context_with_resolved_user(self):
+        from app.reasoning.context.schemas import AgentContextDTO
+        from app.reasoning.langchain_agent.client import run_lead_agent
+
+        fake_memory = MagicMock()
+        fake_memory.add_provider = MagicMock()
+        fake_memory.on_turn_start = AsyncMock()
+        fake_memory.prefetch_all = AsyncMock(return_value="")
+        fake_memory.shutdown_all = AsyncMock()
+
+        fake_provider = MagicMock()
+        fake_provider.initialize = MagicMock()
+
+        fake_builder = MagicMock()
+        fake_builder.build = AsyncMock(
+            return_value=AgentContextDTO(
+                context_type="general_research",
+                route="broad_synthesis",
+                user_id="resolved-lwm",
+                thread_id="test-agent-context",
+                question="总结过去一个月光模块方向变化",
+                prompt_context="<agent-context>warn</agent-context>",
+                warnings=["long_history_synthesis_not_enabled"],
+            )
+        )
+
+        with (
+            patch("app.reasoning.langchain_agent.memory.user_resolver.resolve_user_id", return_value="resolved-lwm"),
+            patch("app.reasoning.langchain_agent.memory.user_memory_provider.UserMemoryProvider", return_value=fake_provider),
+            patch("app.reasoning.langchain_agent.memory.manager.MemoryManager", return_value=fake_memory),
+            patch("app.reasoning.langchain_agent.client._pre_search", new_callable=AsyncMock) as mock_pre,
+            patch("app.reasoning.langchain_agent.client._load_freshness_context_for_prompt", new_callable=AsyncMock) as mock_freshness,
+            patch("app.reasoning.context.builder.AgentContextBuilder", return_value=fake_builder),
+            patch("app.reasoning.langchain_agent.client._create_chat_model") as mock_model_fn,
+            patch("app.reasoning.langchain_agent.client._get_tools") as mock_tools,
+            patch("app.reasoning.langchain_agent.client.make_lead_agent") as mock_make_agent,
+        ):
+            mock_pre.return_value = ""
+            mock_freshness.return_value = ""
+            mock_model_fn.return_value = MagicMock()
+            mock_tools.return_value = []
+
+            class FailingAgent:
+                async def astream(self, state, config=None, stream_mode=None):
+                    raise RuntimeError("stop after preflight")
+                    yield {}
+
+            mock_make_agent.return_value = FailingAgent()
+
+            with pytest.raises(RuntimeError):
+                await run_lead_agent(
+                    question="总结过去一个月光模块方向变化",
+                    thread_id="test-agent-context",
+                    user_id=None,
+                    model_name="test-model",
+                    max_turns=2,
+                )
+
+        fake_builder.build.assert_awaited_once()
+        assert fake_builder.build.await_args.kwargs["user_id"] == "resolved-lwm"
+        assert fake_builder.build.await_args.kwargs["signal_id"] is None
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # 测试 7: SSE 事件 JSON 可序列化

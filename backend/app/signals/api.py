@@ -65,11 +65,31 @@ async def seed_fixture_concept_board(
 
 
 @router.get("/{signal_id}", response_model=SignalDetail)
-async def get_signal_item(signal_id: str, db: AsyncSession = Depends(get_db)):
+async def get_signal_item(
+    signal_id: str,
+    user_id: str | None = None,
+    db: AsyncSession = Depends(get_db),
+):
     detail = await get_signal_detail(db, signal_id)
     if detail is None:
         raise HTTPException(status_code=404, detail=f"Signal {signal_id} not found")
+    if user_id:
+        detail = await _apply_user_hits(detail, user_id)
     return detail
+
+
+async def _apply_user_hits(detail: dict, user_id: str) -> dict:
+    try:
+        from app.reasoning.context.builder import match_user_hits
+        from app.reasoning.context.user_snapshot import build_user_snapshot
+
+        snapshot, _warnings = await build_user_snapshot(user_id)
+        hits = match_user_hits(detail, snapshot)
+        detail = dict(detail)
+        detail["user_hits"] = hits.model_dump()
+        return detail
+    except Exception:
+        return detail
 
 
 @router.post("/{signal_id}/status", response_model=SignalDetail)
