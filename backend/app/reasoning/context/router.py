@@ -26,12 +26,6 @@ class MemoryRouter:
                 reason="signal_id provided",
                 required_context=["user_snapshot", "signal_context", "readiness_context"],
             )
-        if any(key in text for key in ["过去", "最近一个月", "总结", "复盘", "长期", "变化趋势"]):
-            return MemoryRoute(
-                route="broad_synthesis",
-                reason="long history keyword",
-                required_context=["user_snapshot"],
-            )
         if any(key in text for key in ["我是否", "我有没有", "我的持仓", "我的关注"]):
             return MemoryRoute(
                 route="factual_lookup",
@@ -43,6 +37,12 @@ class MemoryRouter:
                 route="relation_reasoning",
                 reason="relation keyword",
                 required_context=["user_snapshot", "signal_context", "readiness_context"],
+            )
+        if any(key in text for key in ["过去", "最近一个月", "总结", "复盘", "长期", "变化趋势"]):
+            return MemoryRoute(
+                route="broad_synthesis",
+                reason="long history keyword",
+                required_context=["user_snapshot"],
             )
         return MemoryRoute(
             route="relation_reasoning",

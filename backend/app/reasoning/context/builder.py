@@ -60,6 +60,9 @@ def _candidate_names(signal_detail: dict) -> list[str]:
     for prop in signal_detail.get("propagations") or []:
         if prop.get("target_name"):
             values.append(str(prop["target_name"]))
+        metadata = prop.get("metadata") or {}
+        if isinstance(metadata, dict) and metadata.get("primary_subject"):
+            values.append(str(metadata["primary_subject"]))
         path = prop.get("signal_path") or {}
         values.extend(str(node) for node in path.get("nodes") or [] if node)
     seen: set[str] = set()

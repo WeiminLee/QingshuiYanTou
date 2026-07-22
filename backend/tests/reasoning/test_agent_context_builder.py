@@ -24,6 +24,21 @@ def test_match_user_hits_uses_signal_path_nodes_and_preferences():
     assert hits.preferences == ["光模块"]
 
 
+def test_match_user_hits_uses_propagation_primary_subject_metadata():
+    detail = {
+        "subject_name": "外部客户",
+        "propagations": [{"target_name": "光芯片", "metadata": {"primary_subject": "中际旭创"}}],
+    }
+    snapshot = UserSnapshotDTO(
+        user_id="lwm",
+        portfolio=[{"ts_code": "300308.SZ", "name": "中际旭创"}],
+    )
+
+    hits = match_user_hits(detail, snapshot)
+
+    assert hits.portfolio == ["中际旭创"]
+
+
 @pytest.mark.asyncio
 async def test_builder_with_signal_id_builds_prompt_context(monkeypatch):
     async def fake_snapshot(user_id):

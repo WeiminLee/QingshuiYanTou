@@ -16,6 +16,12 @@ def test_portfolio_question_routes_to_factual_lookup():
     assert result.required_context == ["user_snapshot"]
 
 
+def test_portfolio_fact_keyword_takes_priority_over_summary_keyword():
+    result = MemoryRouter().classify("总结我的持仓")
+
+    assert result.route == "factual_lookup"
+
+
 def test_long_history_question_routes_to_broad_synthesis():
     result = MemoryRouter().classify("总结过去一个月我关注方向的变化")
 
