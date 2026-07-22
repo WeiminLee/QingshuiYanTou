@@ -25,6 +25,7 @@ def test_agent_turn_context_binds_readiness_on_create():
         "tool_results": [],
         "background": "",
         "graph_context": "",
+        "agent_context": {},
         "freshness_context": ctx.freshness_context,
         "turns": 0,
         "run_id": "run-1",
