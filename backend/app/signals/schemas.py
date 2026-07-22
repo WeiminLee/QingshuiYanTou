@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -32,6 +33,8 @@ class SignalPropagationOut(BaseModel):
     impact_horizon: str
     confidence: float
     reasoning: str
+    evidence_refs: list[dict[str, Any]] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class SignalDetail(BaseModel):
@@ -57,4 +60,3 @@ class SignalDetail(BaseModel):
 
 class SignalStatusUpdate(BaseModel):
     status: str
-

@@ -4,8 +4,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.signals.evidence_ingestion import backfill_evidence_signals
 from app.signals.event_ingestion import backfill_event_signals
+from app.signals.evidence_ingestion import backfill_evidence_signals
 from app.signals.schemas import SignalDetail, SignalListResponse, SignalStatusUpdate
 from app.signals.service import get_signal_detail, list_signals, update_signal_status
 from app.utils.auth import verify_api_key

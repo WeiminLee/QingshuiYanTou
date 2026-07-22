@@ -15,6 +15,10 @@ def test_format_signal_context_includes_source_anchor_and_propagation():
                 {
                     "relation_path": "量产确认 -> 订单兑现概率提升 -> 供应链需求增强",
                     "reasoning": "高速光模块放量可能提升上游需求",
+                    "metadata": {
+                        "secondary_type": "supply_chain_validation",
+                        "path_nodes": ["中际旭创", "800G光模块", "光芯片"],
+                    },
                 }
             ],
         }
@@ -25,3 +29,5 @@ def test_format_signal_context_includes_source_anchor_and_propagation():
     assert "相关产品已进入规模量产阶段" in context
     assert "中际旭创、新易盛" in context
     assert "量产确认 -> 订单兑现概率提升" in context
+    assert "supply_chain_validation" in context
+    assert "中际旭创 -> 800G光模块 -> 光芯片" in context

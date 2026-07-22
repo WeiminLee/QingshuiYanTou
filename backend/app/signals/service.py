@@ -123,6 +123,8 @@ async def get_signal_detail(session: AsyncSession, signal_id: str) -> dict | Non
                 "impact_horizon": p.impact_horizon,
                 "confidence": _to_float(p.confidence),
                 "reasoning": p.reasoning,
+                "evidence_refs": p.evidence_refs,
+                "metadata": p.metadata_,
             }
             for p in propagations
         ],

@@ -23,8 +23,19 @@ def format_signal_context(detail: dict | None) -> str:
     for item in detail.get("propagations") or []:
         path = item.get("relation_path") or ""
         reasoning = item.get("reasoning") or ""
+        metadata = item.get("metadata") or {}
+        secondary_type = metadata.get("secondary_type") or ""
+        path_nodes = metadata.get("path_nodes") or []
+        path_node_text = " -> ".join(str(node) for node in path_nodes if node)
         if path or reasoning:
-            propagation_lines.append(f"  传导: {path}\n  理由: {reasoning}".strip())
+            lines = [f"  传导: {path}"]
+            if secondary_type:
+                lines.append(f"  二阶类型: {secondary_type}")
+            if path_node_text:
+                lines.append(f"  KG路径: {path_node_text}")
+            if reasoning:
+                lines.append(f"  理由: {reasoning}")
+            propagation_lines.append("\n".join(lines).strip())
 
     parts = [
         "<signal-context>",

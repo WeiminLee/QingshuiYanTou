@@ -8,7 +8,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.mongodb import get_mongo_db
 from app.knowledge.evidence import EVIDENCE_COLLECTION
 from app.signals.event_ingestion import _propagation_values, _signal_values
-from app.signals.extractor import RuleSignalExtractor, SourcePayload
+from app.signals.extractor import RuleSignalExtractor, SignalCandidate, SourcePayload
+from app.signals.kg_propagation import KGPath, KGPathProvider, Neo4jKGPathProvider, build_kg_propagations
 from app.signals.models import Signal, SignalPropagation
 from app.signals.propagation import build_lightweight_propagations
 
@@ -57,15 +58,52 @@ def evidence_to_source_payload(evidence: dict[str, Any]) -> SourcePayload:
     )
 
 
-def extract_evidence_signal_records(evidence: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+def extract_evidence_signal_records(
+    evidence: dict[str, Any],
+    *,
+    kg_paths_by_subject: dict[str, list[KGPath]] | None = None,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     payload = evidence_to_source_payload(evidence)
     candidates = RuleSignalExtractor().extract(payload)
+    return _records_from_candidates(candidates, kg_paths_by_subject=kg_paths_by_subject)
+
+
+async def build_kg_paths_by_subject(
+    candidates: list[SignalCandidate],
+    provider: KGPathProvider | None = None,
+) -> dict[str, list[KGPath]]:
+    provider = provider or Neo4jKGPathProvider()
+    result: dict[str, list[KGPath]] = {}
+    for subject in dict.fromkeys(candidate.subject_name for candidate in candidates if candidate.subject_name):
+        result[subject] = await provider.fetch_paths(subject, max_hops=2)
+    return result
+
+
+async def extract_evidence_signal_records_with_kg(
+    evidence: dict[str, Any],
+    provider: KGPathProvider | None = None,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    payload = evidence_to_source_payload(evidence)
+    candidates = RuleSignalExtractor().extract(payload)
+    kg_paths_by_subject = await build_kg_paths_by_subject(candidates, provider)
+    return _records_from_candidates(candidates, kg_paths_by_subject=kg_paths_by_subject)
+
+
+def _records_from_candidates(
+    candidates: list[SignalCandidate],
+    *,
+    kg_paths_by_subject: dict[str, list[KGPath]] | None = None,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     signals: list[dict[str, Any]] = []
     propagations: list[dict[str, Any]] = []
     for candidate in candidates:
         signal_values = _signal_values(candidate)
         signals.append(signal_values)
-        for propagation in build_lightweight_propagations(candidate):
+        kg_paths = (kg_paths_by_subject or {}).get(candidate.subject_name, [])
+        propagation_candidates = build_kg_propagations(candidate, kg_paths) if kg_paths else []
+        if not propagation_candidates:
+            propagation_candidates = build_lightweight_propagations(candidate)
+        for propagation in propagation_candidates:
             propagations.append(_propagation_values(signal_values["signal_id"], propagation))
     return signals, propagations
 
@@ -125,7 +163,7 @@ async def backfill_evidence_signals(
     propagations_upserted = 0
     async for evidence in cursor:
         evidence_scanned += 1
-        signals, propagations = extract_evidence_signal_records(evidence)
+        signals, propagations = await extract_evidence_signal_records_with_kg(evidence)
         sig_count, prop_count = await _upsert_signal_records(session, signals, propagations)
         signals_upserted += sig_count
         propagations_upserted += prop_count
