@@ -1,3 +1,4 @@
+from app.reasoning.context.builder import AgentContextBuilder, match_user_hits
 from app.reasoning.context.router import MemoryRoute, MemoryRouter
 from app.reasoning.context.schemas import (
     AgentContextDTO,
@@ -9,6 +10,7 @@ from app.reasoning.context.schemas import (
 )
 
 __all__ = [
+    "AgentContextBuilder",
     "AgentContextDTO",
     "MemoryRoute",
     "MemoryRouter",
@@ -17,4 +19,5 @@ __all__ = [
     "SignalMemoryDTO",
     "UserHitDTO",
     "UserSnapshotDTO",
+    "match_user_hits",
 ]
