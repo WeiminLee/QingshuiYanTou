@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import uuid
 from datetime import datetime, timezone
 from typing import Any
@@ -112,7 +113,22 @@ class UserMemoryProvider(MemoryProvider):
         return (doc or {}).get("entries", []) or []
 
     async def sync_turn(self, user: str, assistant: str) -> None:
-        # C 方案：留空接口。未来可在此实现每轮 LLM 偏好抽取。
+        """Conservatively persist explicit long-lived user preferences.
+
+        This intentionally avoids broad LLM summarization. Only first-person,
+        explicit preference/focus statements are persisted automatically.
+        """
+        if not self._user_id:
+            return None
+        for item in _extract_explicit_preferences(user):
+            await self.add_preference(
+                item["subject"],
+                item["stance"],
+                item.get("subject_type", "sector"),
+                item.get("reason", ""),
+            )
+        for note in _extract_explicit_notes(user):
+            await self.add_note(note, "general")
         return None
 
     # ── profile ──
@@ -272,3 +288,49 @@ _MANAGE_MEMORY_SCHEMA: dict[str, Any] = {
         "required": ["action", "target"],
     },
 }
+
+
+def _extract_explicit_preferences(text: str) -> list[dict[str, str]]:
+    safe = filter_research_memory_text(text)
+    if not safe:
+        return []
+    patterns = [
+        re.compile(r"我(?:比较|很|长期|重点)?(?P<stance>看好|看空|关注|回避)(?P<subject>[^，。；,.;\n]{2,24})(?:[，,](?:因为|原因是|主要是)(?P<reason>[^。；;\n]{2,80}))?"),
+        re.compile(r"我(?:以后|后续)?(?:重点|主要)?关注(?P<subject>[^，。；,.;\n]{2,24})(?:[，,](?:因为|原因是|主要是)(?P<reason>[^。；;\n]{2,80}))?"),
+    ]
+    items: list[dict[str, str]] = []
+    for pattern in patterns:
+        for match in pattern.finditer(safe):
+            stance = match.groupdict().get("stance") or "关注"
+            subject = _clean_memory_subject(match.group("subject"))
+            if not subject:
+                continue
+            items.append(
+                {
+                    "subject": subject,
+                    "stance": stance,
+                    "subject_type": "sector",
+                    "reason": (match.groupdict().get("reason") or "").strip(),
+                }
+            )
+    return items[:3]
+
+
+def _extract_explicit_notes(text: str) -> list[str]:
+    safe = filter_research_memory_text(text)
+    if not safe:
+        return []
+    notes: list[str] = []
+    for match in re.finditer(r"(以后帮我[^。；;\n]{4,80})", safe):
+        note = match.group(1).strip()
+        if note:
+            notes.append(f"用户要求：{note}")
+    return notes[:3]
+
+
+def _clean_memory_subject(subject: str) -> str:
+    cleaned = normalize_subject(subject)
+    cleaned = re.sub(r"^(板块|概念|方向|行业)", "", cleaned)
+    cleaned = re.sub(r"(板块|概念|方向|行业)$", "", cleaned)
+    cleaned = re.split(r"(?:因为|原因是|主要是)", cleaned, maxsplit=1)[0].strip()
+    return cleaned[:40]

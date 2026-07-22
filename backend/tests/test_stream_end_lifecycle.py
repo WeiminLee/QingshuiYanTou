@@ -8,13 +8,16 @@ _run_stream_report 只负责把最终结果写入 TaskStateManager，不重复�
 
 def test_run_lead_agent_stream_end_has_report_and_trace_fields():
     with open("app/reasoning/langchain_agent/client.py") as f:
-        source = f.read()
+        client_source = f.read()
+    with open("app/reasoning/runtime/turn_finalizer.py") as f:
+        finalizer_source = f.read()
 
-    assert 'emit_fn(\n                "stream_end"' in source
-    assert '"report_content": report.to_markdown()' in source
-    assert '"report_json": report.to_dict()' in source
-    assert "trace_metadata = _build_trace_metadata(" in source
-    assert "trace=trace_metadata" in source
+    assert "finalize_agent_turn(" in client_source
+    assert "build_trace_metadata(**context.to_trace_inputs())" in finalizer_source
+    assert 'emit_fn(\n            "stream_end"' in finalizer_source
+    assert '"report_content": report.to_markdown()' in finalizer_source
+    assert '"report_json": report.to_dict()' in finalizer_source
+    assert "trace=trace" in finalizer_source
 
 
 def test_api_stream_report_does_not_emit_duplicate_stream_end():

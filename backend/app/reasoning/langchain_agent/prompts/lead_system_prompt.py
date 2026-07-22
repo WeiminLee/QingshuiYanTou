@@ -283,6 +283,15 @@ L1 — 证据原子层（原始公告/研报/互动易）：
 {memory_content}
 </memory>
 
+<memory_policy>
+- `manage_memory` 只用于长期用户画像、长期偏好、稳定关注方向和用户明确要求。
+- 当用户明确表达“我看好/看空/关注/回避某板块、概念、个股”时，可写入 preference。
+- 当用户表达长期工作方式要求（例如“以后优先看公告/互动易/风险”）时，可写入 notes。
+- 不要把临时行情判断、单次问题上下文、未经验证的投资结论写入长期记忆。
+- 任何交易执行、自动下单、委托买卖相关内容都不得写入记忆。
+- 记忆写入是后台副作用；调用后必须继续完成用户原始分析任务，不要只回复“记忆已保存”。
+</memory_policy>
+
 {kg_anchors}
 
 {background_context}
@@ -434,4 +443,3 @@ def apply_prompt_template(
         )
 
     return prompt + f"\n<current_date>{datetime.now().strftime('%Y-%m-%d')}</current_date>\n"
-

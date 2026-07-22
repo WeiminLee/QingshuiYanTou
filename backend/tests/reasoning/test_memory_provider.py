@@ -407,12 +407,49 @@ class TestMemoryManager:
         assert len(p2._prefetch_calls) == 1
 
     @pytest.mark.asyncio
+    async def test_prefetch_all_wraps_memory_context_with_system_note(self):
+        mgr = MemoryManager()
+        p = _MockProvider("p")
+        mgr.add_provider(p)
+
+        result = await mgr.prefetch_all("test query")
+
+        assert result.startswith("<memory-context>")
+        assert "NOT new user input" in result
+        assert "mock:test query" in result
+        assert result.endswith("</memory-context>")
+
+    @pytest.mark.asyncio
+    async def test_prefetch_all_strips_nested_memory_context_tags(self):
+        mgr = MemoryManager()
+        p = _MockProvider("p")
+        p.prefetch = AsyncMock(return_value="<memory-context>inner</memory-context>")  # type: ignore
+        mgr.add_provider(p)
+
+        result = await mgr.prefetch_all("test query")
+
+        assert result.count("<memory-context>") == 1
+        assert result.count("</memory-context>") == 1
+        assert "inner" in result
+
+    @pytest.mark.asyncio
     async def test_sync_all_calls_all_providers(self):
         mgr = MemoryManager()
         p1 = _MockProvider("p1")
         mgr.add_provider(p1)
         await mgr.sync_all("user msg", "asst msg")
         assert p1._sync_calls == [("user msg", "asst msg")]
+
+    @pytest.mark.asyncio
+    async def test_queue_sync_all_drains_on_shutdown(self):
+        mgr = MemoryManager()
+        p = _MockProvider("p")
+        mgr.add_provider(p)
+
+        mgr.queue_sync_all("user msg", "asst msg")
+        await mgr.shutdown_all()
+
+        assert p._sync_calls == [("user msg", "asst msg")]
 
     @pytest.mark.asyncio
     async def test_initialize_all(self):
@@ -504,6 +541,21 @@ class TestMemoryManager:
         result = await mgr.on_pre_compress([{"role": "user", "content": "hi"}])
         assert result == "insight"
 
+    @pytest.mark.asyncio
+    async def test_on_session_switch_calls_all_providers(self):
+        mgr = MemoryManager()
+        p = _MockProvider("p")
+        p.on_session_switch = MagicMock()  # type: ignore
+        mgr.add_provider(p)
+
+        await mgr.on_session_switch("new-thread", parent_session_id="old-thread", reset=True)
+
+        p.on_session_switch.assert_called_once_with(
+            "new-thread",
+            parent_session_id="old-thread",
+            reset=True,
+        )
+
 
 class TestManageMemoryTool:
     @pytest.fixture
@@ -526,7 +578,7 @@ class TestManageMemoryTool:
         assert tool.name == "manage_memory"
 
     def test_tool_return_direct(self, tool):
-        assert tool.return_direct is True
+        assert tool.return_direct is False
 
     @pytest.mark.asyncio
     async def test_add_note_basic(self, tool, mock_manager):
@@ -585,7 +637,7 @@ class TestManageMemoryTool:
 
     @pytest.mark.asyncio
     async def test_no_manager_returns_error(self):
-        from app.reasoning.langchain_agent.memory.tool import set_memory_manager, manage_memory
+        from app.reasoning.langchain_agent.memory.tool import manage_memory, set_memory_manager
 
         set_memory_manager(None)
         result = await manage_memory.coroutine(action="add", target="notes", content="test")

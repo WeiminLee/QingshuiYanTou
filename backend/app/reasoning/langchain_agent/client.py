@@ -219,8 +219,9 @@ async def run_lead_agent(
     from app.reasoning.langchain_agent.memory.user_resolver import resolve_user_id
 
     memory_manager: MemoryManager | None = None
+    memory_shutdown_done = False
+    resolved_user_id = resolve_user_id(user_id)
     try:
-        resolved_user_id = resolve_user_id(user_id)
         provider = UserMemoryProvider()
         provider.initialize(resolved_user_id)
         memory_manager = MemoryManager()
@@ -314,6 +315,7 @@ async def run_lead_agent(
             # Memory Context 注入
             if memory_manager is not None:
                 try:
+                    await memory_manager.on_turn_start(0, question)
                     memory_context = await memory_manager.prefetch_all(question)
                 except Exception:
                     logger.warning("[Memory] prefetch_all failed, running without memory context")
@@ -369,12 +371,11 @@ async def run_lead_agent(
 
         # ── Memory tool injection ──
         if memory_manager is not None:
-            from app.reasoning.langchain_agent.memory.tool import manage_memory, set_memory_manager
+            from app.reasoning.langchain_agent.memory.tool import create_manage_memory_tool
 
-            set_memory_manager(memory_manager)
+            manage_memory_tool = create_manage_memory_tool(memory_manager)
             tools = list(tools)
-            if manage_memory not in tools:
-                tools.append(manage_memory)
+            tools.append(manage_memory_tool)
 
         # ── 创建 Agent（DeerFlow 风格）──────────────────────────────
         model = _create_chat_model(model_name)
@@ -527,6 +528,7 @@ async def run_lead_agent(
                                     "thread_id": thread_id,
                                     "plan_mode": plan_mode,
                                     "question": question,
+                                    "user_id": resolved_user_id,
                                 },
                             ))
                             if emit_fn:
@@ -608,7 +610,7 @@ async def run_lead_agent(
                                 break
                     if asst_text and asst_text != _last_synced_asst:
                         try:
-                            await memory_manager.sync_all(question, asst_text)
+                            memory_manager.queue_sync_all(question, asst_text)
                         except Exception:
                             logger.warning("[Memory] sync_all failed, skipping turn sync")
                         _last_synced_asst = asst_text
@@ -684,6 +686,7 @@ async def run_lead_agent(
         if memory_manager is not None:
             try:
                 await memory_manager.shutdown_all()
+                memory_shutdown_done = True
             except Exception:
                 logger.warning("[Memory] shutdown_all failed")
 
@@ -709,6 +712,11 @@ async def run_lead_agent(
             await emit_fn("error", {"error": str(e)})
         raise
     finally:
+        if memory_manager is not None and not memory_shutdown_done:
+            try:
+                await memory_manager.shutdown_all()
+            except Exception:
+                logger.warning("[Memory] shutdown_all failed during final cleanup")
         if get_current_journal() is journal:
             reset_current_journal(journal_token)
 
