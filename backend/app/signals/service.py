@@ -18,8 +18,33 @@ def _to_float(value: Decimal | float | int | None) -> float:
     return float(value)
 
 
-def _portfolio_hits(metadata: dict[str, Any] | None) -> list[str]:
-    hits = (metadata or {}).get("portfolio_hits", [])
+def _metadata_dict(metadata: Any) -> dict[str, Any]:
+    return metadata if isinstance(metadata, dict) else {}
+
+
+def _metadata_text(metadata: Any, keys: tuple[str, ...], default: str) -> str:
+    values = _metadata_dict(metadata)
+    for key in keys:
+        value = values.get(key)
+        if isinstance(value, str) and value:
+            return value
+    return default
+
+
+def _metadata_int(metadata: Any, key: str, default: int) -> int:
+    value = _metadata_dict(metadata).get(key, default)
+    if value is None or value == "":
+        return default
+    if isinstance(value, bool):
+        return default
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _portfolio_hits(metadata: Any) -> list[str]:
+    hits = _metadata_dict(metadata).get("portfolio_hits", [])
     return [str(item) for item in hits] if isinstance(hits, list) else []
 
 
@@ -135,13 +160,13 @@ async def get_signal_detail(session: AsyncSession, signal_id: str) -> dict | Non
         "memory": {
             "schema_version": "signal.memory.v1",
             "signal_id": signal.signal_id,
-            "lifecycle_status": (signal.metadata_ or {}).get("lifecycle", "active"),
+            "lifecycle_status": _metadata_text(signal.metadata_, ("lifecycle_status", "lifecycle"), "active"),
             "user_status": signal.status,
             "first_seen_at": signal.created_at,
             "last_seen_at": signal.updated_at or signal.detected_at,
-            "reinforced_count": int((signal.metadata_ or {}).get("reinforced_count", 0) or 0),
-            "contradicted_count": int((signal.metadata_ or {}).get("contradicted_count", 0) or 0),
-            "source_count": int((signal.metadata_ or {}).get("source_count", 1) or 1),
+            "reinforced_count": _metadata_int(signal.metadata_, "reinforced_count", 0),
+            "contradicted_count": _metadata_int(signal.metadata_, "contradicted_count", 0),
+            "source_count": _metadata_int(signal.metadata_, "source_count", 1),
         },
         "user_hits": {
             "portfolio": _portfolio_hits(signal.metadata_),
