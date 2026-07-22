@@ -111,3 +111,49 @@ async def test_get_signal_detail_returns_propagations(monkeypatch):
     assert res.status_code == 200
     assert res.json()["propagations"][0]["target_name"] == "光芯片"
     assert res.json()["propagations"][0]["signal_path"]["nodes"] == ["中际旭创", "800G光模块", "光芯片"]
+
+
+@pytest.mark.asyncio
+async def test_get_signal_detail_accepts_context_dto_fields(monkeypatch):
+    async def fake_get_signal_detail(*args, **kwargs):
+        return {
+            "schema_version": "signal.context.v1",
+            "signal_id": "SIG:abc",
+            "title": "800G 光模块规模量产",
+            "summary": "量产确认",
+            "source_type": "announcement",
+            "source_title": "公告标题",
+            "source_url": None,
+            "published_at": datetime(2026, 7, 13, tzinfo=UTC),
+            "subject_name": "光模块",
+            "subject_type": "product",
+            "signal_type": "mass_production",
+            "polarity": "positive",
+            "strength": 88,
+            "confidence": 0.92,
+            "value_score": 92,
+            "evidence_excerpt": "相关产品进入规模量产",
+            "status": "new",
+            "portfolio_hits": ["中际旭创"],
+            "source": {"type": "announcement", "id": "EV:1", "title": "公告标题", "url": None},
+            "primary_signal": {"subject_name": "光模块", "signal_type": "mass_production"},
+            "memory": {
+                "schema_version": "signal.memory.v1",
+                "signal_id": "SIG:abc",
+                "lifecycle_status": "active",
+                "user_status": "new",
+            },
+            "user_hits": {"portfolio": ["中际旭创"], "watchlist": [], "preferences": ["光模块"]},
+            "propagations": [],
+        }
+
+    monkeypatch.setattr("app.signals.api.get_signal_detail", fake_get_signal_detail)
+
+    async with AsyncClient(transport=ASGITransport(app=_test_app()), base_url="http://test") as client:
+        res = await client.get("/api/v1/signals/SIG:abc")
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body["schema_version"] == "signal.context.v1"
+    assert body["user_hits"]["preferences"] == ["光模块"]
+    assert body["memory"]["lifecycle_status"] == "active"

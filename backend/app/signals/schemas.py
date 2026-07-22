@@ -53,7 +53,26 @@ class SignalPropagationOut(BaseModel):
     signal_path: SignalPathOut | None = None
 
 
+class SignalUserHits(BaseModel):
+    portfolio: list[str] = Field(default_factory=list)
+    watchlist: list[str] = Field(default_factory=list)
+    preferences: list[str] = Field(default_factory=list)
+
+
+class SignalMemoryOut(BaseModel):
+    schema_version: str = "signal.memory.v1"
+    signal_id: str
+    lifecycle_status: str = "active"
+    user_status: str = "new"
+    first_seen_at: datetime | None = None
+    last_seen_at: datetime | None = None
+    reinforced_count: int = 0
+    contradicted_count: int = 0
+    source_count: int = 1
+
+
 class SignalDetail(BaseModel):
+    schema_version: str = "signal.context.v1"
     signal_id: str
     title: str
     summary: str
@@ -71,6 +90,10 @@ class SignalDetail(BaseModel):
     evidence_excerpt: str | None = None
     status: str
     portfolio_hits: list[str] = Field(default_factory=list)
+    source: dict[str, Any] = Field(default_factory=dict)
+    primary_signal: dict[str, Any] = Field(default_factory=dict)
+    memory: SignalMemoryOut | None = None
+    user_hits: SignalUserHits = Field(default_factory=SignalUserHits)
     propagations: list[SignalPropagationOut] = Field(default_factory=list)
 
 

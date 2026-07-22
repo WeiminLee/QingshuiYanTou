@@ -98,6 +98,7 @@ async def get_signal_detail(session: AsyncSession, signal_id: str) -> dict | Non
     )
     propagations = prop_result.scalars().all()
     return {
+        "schema_version": "signal.context.v1",
         "signal_id": signal.signal_id,
         "title": _title(signal),
         "summary": signal.summary,
@@ -115,6 +116,38 @@ async def get_signal_detail(session: AsyncSession, signal_id: str) -> dict | Non
         "evidence_excerpt": signal.evidence_excerpt,
         "status": signal.status,
         "portfolio_hits": _portfolio_hits(signal.metadata_),
+        "source": {
+            "type": signal.source_type,
+            "id": signal.source_id,
+            "title": signal.source_title,
+            "url": signal.source_url,
+            "published_at": signal.published_at,
+        },
+        "primary_signal": {
+            "subject_name": signal.subject_name,
+            "subject_type": signal.subject_type,
+            "signal_type": signal.signal_type,
+            "polarity": signal.polarity,
+            "strength": signal.strength,
+            "confidence": _to_float(signal.confidence),
+            "evidence_excerpt": signal.evidence_excerpt,
+        },
+        "memory": {
+            "schema_version": "signal.memory.v1",
+            "signal_id": signal.signal_id,
+            "lifecycle_status": (signal.metadata_ or {}).get("lifecycle", "active"),
+            "user_status": signal.status,
+            "first_seen_at": signal.created_at,
+            "last_seen_at": signal.updated_at or signal.detected_at,
+            "reinforced_count": int((signal.metadata_ or {}).get("reinforced_count", 0) or 0),
+            "contradicted_count": int((signal.metadata_ or {}).get("contradicted_count", 0) or 0),
+            "source_count": int((signal.metadata_ or {}).get("source_count", 1) or 1),
+        },
+        "user_hits": {
+            "portfolio": _portfolio_hits(signal.metadata_),
+            "watchlist": [],
+            "preferences": [],
+        },
         "propagations": [
             {
                 "target_name": p.target_name,
