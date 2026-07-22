@@ -25,6 +25,21 @@ class SignalListResponse(BaseModel):
     total: int
 
 
+class SignalPathEdge(BaseModel):
+    src: str
+    rel_type: str
+    tgt: str
+    weight: float
+    text: str = ""
+
+
+class SignalPathOut(BaseModel):
+    nodes: list[str] = Field(default_factory=list)
+    edges: list[SignalPathEdge] = Field(default_factory=list)
+    hops: int
+    confidence: float
+
+
 class SignalPropagationOut(BaseModel):
     target_name: str
     target_type: str
@@ -35,6 +50,7 @@ class SignalPropagationOut(BaseModel):
     reasoning: str
     evidence_refs: list[dict[str, Any]] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
+    signal_path: SignalPathOut | None = None
 
 
 class SignalDetail(BaseModel):

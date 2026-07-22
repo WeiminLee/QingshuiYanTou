@@ -7,6 +7,7 @@ from sqlalchemy import desc, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.signals.models import Signal, SignalPropagation
+from app.signals.path import build_signal_path
 
 _ALLOWED_STATUSES = {"new", "viewed", "reviewed", "dismissed", "archived"}
 
@@ -125,6 +126,7 @@ async def get_signal_detail(session: AsyncSession, signal_id: str) -> dict | Non
                 "reasoning": p.reasoning,
                 "evidence_refs": p.evidence_refs,
                 "metadata": p.metadata_,
+                "signal_path": build_signal_path(p.metadata_, confidence=_to_float(p.confidence)),
             }
             for p in propagations
         ],

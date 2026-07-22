@@ -24,8 +24,9 @@ def format_signal_context(detail: dict | None) -> str:
         path = item.get("relation_path") or ""
         reasoning = item.get("reasoning") or ""
         metadata = item.get("metadata") or {}
+        signal_path = item.get("signal_path") or {}
         secondary_type = metadata.get("secondary_type") or ""
-        path_nodes = metadata.get("path_nodes") or []
+        path_nodes = signal_path.get("nodes") or metadata.get("path_nodes") or []
         path_node_text = " -> ".join(str(node) for node in path_nodes if node)
         if path or reasoning:
             lines = [f"  传导: {path}"]

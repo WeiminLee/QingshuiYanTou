@@ -78,6 +78,27 @@ async def test_get_signal_detail_returns_propagations(monkeypatch):
                     "impact_horizon": "short",
                     "confidence": 0.7,
                     "reasoning": "高速光模块放量可能提升上游需求",
+                    "signal_path": {
+                        "nodes": ["中际旭创", "800G光模块", "光芯片"],
+                        "edges": [
+                            {
+                                "src": "中际旭创",
+                                "rel_type": "RELATES",
+                                "tgt": "800G光模块",
+                                "weight": 0.9,
+                                "text": "生产 800G 光模块",
+                            },
+                            {
+                                "src": "800G光模块",
+                                "rel_type": "RELATES",
+                                "tgt": "光芯片",
+                                "weight": 0.8,
+                                "text": "上游依赖光芯片",
+                            },
+                        ],
+                        "hops": 2,
+                        "confidence": 0.7,
+                    },
                 }
             ],
         }
@@ -89,3 +110,4 @@ async def test_get_signal_detail_returns_propagations(monkeypatch):
 
     assert res.status_code == 200
     assert res.json()["propagations"][0]["target_name"] == "光芯片"
+    assert res.json()["propagations"][0]["signal_path"]["nodes"] == ["中际旭创", "800G光模块", "光芯片"]
