@@ -17,7 +17,10 @@ def format_signal_context(detail: dict | None) -> str:
     confidence = detail.get("confidence", "")
     source_type = detail.get("source_type", "")
     excerpt = detail.get("evidence_excerpt") or ""
-    hits = detail.get("portfolio_hits") or []
+    user_hits = detail.get("user_hits") or {}
+    hits = user_hits.get("portfolio") or detail.get("portfolio_hits") or []
+    preferences = user_hits.get("preferences") or []
+    memory = detail.get("memory") or {}
     hit_text = "、".join(str(item) for item in hits if item)
     propagation_lines = []
     for item in detail.get("propagations") or []:
@@ -50,6 +53,10 @@ def format_signal_context(detail: dict | None) -> str:
     parts.extend(propagation_lines)
     if hit_text:
         parts.append(f"  相关持仓: {hit_text}")
+    if memory.get("lifecycle_status"):
+        parts.append(f"  生命周期: {memory.get('lifecycle_status')}, 用户状态: {memory.get('user_status', '')}")
+    if preferences:
+        parts.append(f"  用户偏好: {'、'.join(str(item) for item in preferences if item)}")
     parts.append("</signal-context>")
     return "\n".join(parts)
 
