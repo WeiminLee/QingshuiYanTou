@@ -20,6 +20,7 @@ import re
 import time
 import uuid
 from datetime import datetime
+from typing import Any
 
 from langchain_core.messages import AIMessage, AIMessageChunk, BaseMessage, HumanMessage, ToolMessage
 from langchain_core.runnables import RunnableConfig
@@ -232,6 +233,7 @@ async def run_lead_agent(
 
     # Phase A: 重置 task 事件队列
     reset_task_events_queue()
+    agent_context_payload: dict = {}
 
     if not skip_preflight:
         # 澄清拦截（前置检查，不在 agent 内部）
@@ -330,12 +332,20 @@ async def run_lead_agent(
             # Signal Context 注入
             if signal_id:
                 try:
-                    from app.signals.context_provider import fetch_signal_context
+                    from app.reasoning.context.builder import AgentContextBuilder
 
-                    signal_context = await fetch_signal_context(signal_id=signal_id, question=question)
+                    agent_context = await AgentContextBuilder().build(
+                        user_id=resolved_user_id,
+                        thread_id=thread_id,
+                        question=question,
+                        signal_id=signal_id,
+                    )
+                    signal_context = agent_context.prompt_context
+                    agent_context_payload = agent_context.model_dump(mode="json")
                 except Exception:
-                    logger.warning("[SignalContext] fetch failed, running without signal context")
+                    logger.warning("[AgentContext] build failed, running without signal context")
                     signal_context = ""
+                    agent_context_payload = {}
 
             freshness_context = await _load_freshness_context_for_prompt()
 
@@ -366,6 +376,7 @@ async def run_lead_agent(
             background_context=background or "",
             graph_context=graph_context or "",
             signal_context=signal_context,
+            agent_context=agent_context_payload,
             kg_anchors=kg_anchors_str,
         )
 
@@ -847,6 +858,7 @@ def _build_trace_metadata(
     tool_results: list[dict],
     background: str = "",
     graph_context: str = "",
+    agent_context: dict[str, Any] | None = None,
     freshness_context: str = "",
     turns: int = 0,
     run_id: str = "",
@@ -1034,6 +1046,7 @@ def _build_trace_metadata(
         "evidence_refs": evidence_refs,
         "tool_audit": tool_audit,
         "graph_refs": graph_refs,
+        "agent_context": agent_context or {},
         "readiness_binding": readiness_binding,
     }
 

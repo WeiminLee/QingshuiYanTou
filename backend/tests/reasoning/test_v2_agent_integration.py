@@ -1085,3 +1085,24 @@ class TestSSEEventSerialization:
             serialized = json.dumps(report_json, ensure_ascii=False, default=str)
         except (TypeError, ValueError) as e:
             pytest.fail(f"report_json 无法 JSON 序列化：{e}")
+
+
+def test_agent_turn_context_declares_agent_context_field():
+    from dataclasses import fields
+
+    from app.reasoning.runtime.turn_context import AgentTurnContext
+
+    field_names = {field.name for field in fields(AgentTurnContext)}
+    assert "agent_context" in field_names
+
+
+def test_trace_metadata_accepts_agent_context_payload():
+    from app.reasoning.langchain_agent.client import _build_trace_metadata
+
+    trace = _build_trace_metadata(
+        tool_calls=[],
+        tool_results=[],
+        agent_context={"route": "relation_reasoning", "warnings": []},
+    )
+
+    assert trace["agent_context"]["route"] == "relation_reasoning"

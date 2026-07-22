@@ -20,6 +20,7 @@ class AgentTurnContext:
     background_context: str = ""
     graph_context: str = ""
     signal_context: str = ""
+    agent_context: dict[str, Any] = field(default_factory=dict)
     kg_anchors: str = ""
     turns: int = 0
     truncated: bool = False
@@ -41,6 +42,7 @@ class AgentTurnContext:
             "tool_results": self.tool_results,
             "background": self.background_context,
             "graph_context": self.graph_context,
+            "agent_context": self.agent_context,
             "freshness_context": self.freshness_context,
             "turns": self.turns,
             "run_id": self.run_id,
