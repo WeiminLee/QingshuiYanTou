@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.signals.catalyst import generate_catalyst_signals
 from app.signals.event_ingestion import backfill_event_signals
 from app.signals.evidence_ingestion import backfill_evidence_signals
 from app.signals.fixtures import seed_concept_board_fixture
@@ -20,16 +21,23 @@ async def list_signal_items(
     source_type: str | None = None,
     signal_type: str | None = None,
     status: str | None = None,
+    signal_kind: str | None = None,
+    include_kinds: str | None = None,
+    window_days: int | None = Query(None, ge=0, le=30),
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
 ):
+    kind_list = [item.strip() for item in include_kinds.split(",") if item.strip()] if include_kinds else None
     items, total = await list_signals(
         db,
         scope=scope,
         source_type=source_type,
         signal_type=signal_type,
         status=status,
+        signal_kind=signal_kind,
+        include_kinds=kind_list,
+        window_days=window_days,
         limit=limit,
         offset=offset,
     )
@@ -53,6 +61,15 @@ async def backfill_evidence(
     _=Depends(verify_api_key),
 ):
     return await backfill_evidence_signals(db, source_type=source_type, limit=limit)
+
+
+@router.post("/backfill/catalysts")
+async def backfill_catalysts(
+    window_days: int = Query(5, ge=0, le=30),
+    db: AsyncSession = Depends(get_db),
+    _=Depends(verify_api_key),
+):
+    return await generate_catalyst_signals(db, window_days=window_days)
 
 
 @router.post("/fixtures/concept-board")

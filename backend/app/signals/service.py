@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date, timedelta
 from decimal import Decimal
 from typing import Any
 
@@ -44,12 +45,22 @@ def _metadata_int(metadata: Any, key: str, default: int) -> int:
 
 
 def _portfolio_hits(metadata: Any) -> list[str]:
-    hits = _metadata_dict(metadata).get("portfolio_hits", [])
+    values = _metadata_dict(metadata)
+    user_hits = values.get("user_hits")
+    if isinstance(user_hits, dict) and isinstance(user_hits.get("portfolio"), list):
+        hits = user_hits.get("portfolio", [])
+    else:
+        hits = values.get("portfolio_hits", [])
     return [str(item) for item in hits] if isinstance(hits, list) else []
 
 
 def _title(row: Signal) -> str:
     return row.source_title or row.summary
+
+
+def _catalyst_metadata(metadata: Any) -> dict[str, Any]:
+    catalyst = _metadata_dict(metadata).get("catalyst", {})
+    return catalyst if isinstance(catalyst, dict) else {}
 
 
 async def list_signals(
@@ -59,6 +70,9 @@ async def list_signals(
     source_type: str | None = None,
     signal_type: str | None = None,
     status: str | None = None,
+    signal_kind: str | None = None,
+    include_kinds: list[str] | None = None,
+    window_days: int | None = None,
     limit: int = 20,
     offset: int = 0,
 ) -> tuple[list[dict], int]:
@@ -69,6 +83,14 @@ async def list_signals(
         filters.append(Signal.signal_type == signal_type)
     if status:
         filters.append(Signal.status == status)
+    if signal_kind:
+        filters.append(Signal.signal_kind == signal_kind)
+    elif include_kinds:
+        filters.append(Signal.signal_kind.in_(include_kinds))
+    if window_days is not None:
+        today = date.today()
+        filters.append(Signal.event_date >= today)
+        filters.append(Signal.event_date <= today + timedelta(days=window_days))
     if scope == "risk":
         filters.append(Signal.polarity == "risk")
     if scope == "portfolio":
@@ -91,22 +113,29 @@ async def list_signals(
         .limit(limit)
     )
     rows = row_result.scalars().all()
-    items = [
-        {
+    items = []
+    for row in rows:
+        catalyst = _catalyst_metadata(row.metadata_)
+        items.append(
+            {
             "signal_id": row.signal_id,
             "title": _title(row),
             "summary": row.summary,
             "source_type": row.source_type,
             "published_at": row.published_at,
+            "signal_kind": row.signal_kind,
+            "event_date": row.event_date,
             "subject_name": row.subject_name,
             "signal_type": row.signal_type,
             "polarity": row.polarity,
             "value_score": row.value_score,
             "confidence": _to_float(row.confidence),
             "portfolio_hits": _portfolio_hits(row.metadata_),
-        }
-        for row in rows
-    ]
+            "lead_days": catalyst.get("lead_days"),
+            "alert_level": catalyst.get("alert_level"),
+            "impact_scope": catalyst.get("impact_scope", []),
+            }
+        )
     return items, total
 
 
@@ -131,6 +160,8 @@ async def get_signal_detail(session: AsyncSession, signal_id: str) -> dict | Non
         "source_title": signal.source_title,
         "source_url": signal.source_url,
         "published_at": signal.published_at,
+        "signal_kind": signal.signal_kind,
+        "event_date": signal.event_date,
         "subject_name": signal.subject_name,
         "subject_type": signal.subject_type,
         "signal_type": signal.signal_type,
@@ -157,6 +188,7 @@ async def get_signal_detail(session: AsyncSession, signal_id: str) -> dict | Non
             "confidence": _to_float(signal.confidence),
             "evidence_excerpt": signal.evidence_excerpt,
         },
+        "catalyst": _catalyst_metadata(signal.metadata_),
         "memory": {
             "schema_version": "signal.memory.v1",
             "signal_id": signal.signal_id,

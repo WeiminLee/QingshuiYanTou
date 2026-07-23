@@ -12,12 +12,17 @@ class SignalListItem(BaseModel):
     summary: str
     source_type: str
     published_at: datetime | None = None
+    signal_kind: str = "observed"
+    event_date: datetime | str | None = None
     subject_name: str
     signal_type: str
     polarity: str
     value_score: int
     confidence: float
     portfolio_hits: list[str] = Field(default_factory=list)
+    lead_days: int | None = None
+    alert_level: str | None = None
+    impact_scope: list[str] = Field(default_factory=list)
 
 
 class SignalListResponse(BaseModel):
@@ -80,6 +85,8 @@ class SignalDetail(BaseModel):
     source_title: str | None = None
     source_url: str | None = None
     published_at: datetime | None = None
+    signal_kind: str = "observed"
+    event_date: datetime | str | None = None
     subject_name: str
     subject_type: str
     signal_type: str
@@ -92,6 +99,7 @@ class SignalDetail(BaseModel):
     portfolio_hits: list[str] = Field(default_factory=list)
     source: dict[str, Any] = Field(default_factory=dict)
     primary_signal: dict[str, Any] = Field(default_factory=dict)
+    catalyst: dict[str, Any] = Field(default_factory=dict)
     memory: SignalMemoryOut | None = None
     user_hits: SignalUserHits = Field(default_factory=SignalUserHits)
     propagations: list[SignalPropagationOut] = Field(default_factory=list)

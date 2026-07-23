@@ -127,6 +127,9 @@ class AgentContextBuilder:
                     signal=_signal_summary(detail),
                     source=detail.get("source") or {},
                     primary_signal=detail.get("primary_signal") or {},
+                    catalyst=detail.get("catalyst") or {},
+                    signal_kind=detail.get("signal_kind") or "observed",
+                    event_date=detail.get("event_date"),
                     memory=SignalMemoryDTO(**memory),
                     user_hits=hits,
                     portfolio_hits=detail.get("portfolio_hits") or [],
@@ -160,6 +163,8 @@ def _signal_summary(detail: dict) -> dict[str, Any]:
         "summary",
         "source_type",
         "published_at",
+        "signal_kind",
+        "event_date",
         "subject_name",
         "subject_type",
         "signal_type",
@@ -186,34 +191,10 @@ def render_prompt_context(ctx: AgentContextDTO) -> str:
         )
     if ctx.signal_context:
         sig = ctx.signal_context.signal
-        lines.extend(
-            [
-                "",
-                "<signal-context>",
-                f"- 信号: {sig.get('title', '')}",
-                f"  signal_id: {sig.get('signal_id', '')}",
-                f"  value_score: {sig.get('value_score', '')}, confidence: {sig.get('confidence', '')}",
-            ]
-        )
-        if ctx.signal_context.primary_signal.get("evidence_excerpt"):
-            lines.append(f"  原文锚点: {ctx.signal_context.primary_signal['evidence_excerpt']}")
-        if ctx.signal_context.memory:
-            lines.append(
-                f"  生命周期: {ctx.signal_context.memory.lifecycle_status}, 用户状态: {ctx.signal_context.memory.user_status}"
-            )
-        hits = ctx.signal_context.user_hits
-        if hits.portfolio or hits.watchlist or hits.preferences:
-            lines.append(
-                f"  用户命中: portfolio={','.join(hits.portfolio)}; watchlist={','.join(hits.watchlist)}; preferences={','.join(hits.preferences)}"
-            )
-        for prop in ctx.signal_context.propagations[:5]:
-            path = prop.get("signal_path") or {}
-            nodes = " -> ".join(str(node) for node in path.get("nodes") or [] if node)
-            if nodes:
-                lines.append(f"  传导: {nodes}")
-            if prop.get("reasoning"):
-                lines.append(f"  理由: {prop['reasoning']}")
-        lines.append("</signal-context>")
+        if ctx.signal_context.signal_kind == "catalyst":
+            lines.extend(_render_catalyst_signal_context(ctx))
+        else:
+            lines.extend(_render_observed_signal_context(ctx, sig))
     lines.extend(
         [
             "",
@@ -227,3 +208,70 @@ def render_prompt_context(ctx: AgentContextDTO) -> str:
         lines.append(f"warnings: {', '.join(ctx.warnings)}")
     lines.append("</agent-context>")
     return "\n".join(lines)
+
+
+def _render_observed_signal_context(ctx: AgentContextDTO, sig: dict[str, Any]) -> list[str]:
+    lines = [
+        "",
+        "<signal-context>",
+        f"- 信号: {sig.get('title', '')}",
+        f"  signal_id: {sig.get('signal_id', '')}",
+        f"  value_score: {sig.get('value_score', '')}, confidence: {sig.get('confidence', '')}",
+    ]
+    if ctx.signal_context is None:
+        return lines
+    if ctx.signal_context.primary_signal.get("evidence_excerpt"):
+        lines.append(f"  原文锚点: {ctx.signal_context.primary_signal['evidence_excerpt']}")
+    if ctx.signal_context.memory:
+        lines.append(
+            f"  生命周期: {ctx.signal_context.memory.lifecycle_status}, 用户状态: {ctx.signal_context.memory.user_status}"
+        )
+    hits = ctx.signal_context.user_hits
+    if hits.portfolio or hits.watchlist or hits.preferences:
+        lines.append(
+            f"  用户命中: portfolio={','.join(hits.portfolio)}; watchlist={','.join(hits.watchlist)}; preferences={','.join(hits.preferences)}"
+        )
+    for prop in ctx.signal_context.propagations[:5]:
+        path = prop.get("signal_path") or {}
+        nodes = " -> ".join(str(node) for node in path.get("nodes") or [] if node)
+        if nodes:
+            lines.append(f"  传导: {nodes}")
+        if prop.get("reasoning"):
+            lines.append(f"  理由: {prop['reasoning']}")
+    lines.append("</signal-context>")
+    return lines
+
+
+def _render_catalyst_signal_context(ctx: AgentContextDTO) -> list[str]:
+    signal_context = ctx.signal_context
+    if signal_context is None:
+        return []
+    sig = signal_context.signal
+    catalyst = signal_context.catalyst
+    lines = [
+        "",
+        "<signal-context>",
+        "[未来催化预警]",
+        f"- 信号: {sig.get('title', '')}",
+        f"  signal_id: {sig.get('signal_id', '')}",
+        f"  event_date: {signal_context.event_date or ''}, lead_days: {catalyst.get('lead_days', '')}, alert_level: {catalyst.get('alert_level', '')}",
+    ]
+    subjects = catalyst.get("subjects") or []
+    if subjects:
+        lines.append(f"  影响主题: {'、'.join(str(item) for item in subjects if item)}")
+    hits = signal_context.user_hits
+    if hits.portfolio or hits.watchlist or hits.preferences:
+        lines.append(
+            f"  用户命中: portfolio={','.join(hits.portfolio)}; watchlist={','.join(hits.watchlist)}; preferences={','.join(hits.preferences)}"
+        )
+    for prop in signal_context.propagations[:5]:
+        path = prop.get("signal_path") or {}
+        nodes = " -> ".join(str(node) for node in path.get("nodes") or [] if node)
+        if nodes:
+            lines.append(f"  KG路径: {nodes}")
+        elif prop.get("relation_path"):
+            lines.append(f"  KG路径: {prop['relation_path']}")
+        if prop.get("reasoning"):
+            lines.append(f"  理由: {prop['reasoning']}")
+    lines.append("</signal-context>")
+    return lines

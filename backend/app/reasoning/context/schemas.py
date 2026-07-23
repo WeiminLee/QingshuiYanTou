@@ -42,6 +42,9 @@ class SignalContextDTO(BaseModel):
     signal: dict[str, Any] = Field(default_factory=dict)
     source: dict[str, Any] = Field(default_factory=dict)
     primary_signal: dict[str, Any] = Field(default_factory=dict)
+    catalyst: dict[str, Any] = Field(default_factory=dict)
+    signal_kind: str = "observed"
+    event_date: datetime | str | None = None
     memory: SignalMemoryDTO | None = None
     user_hits: UserHitDTO = Field(default_factory=UserHitDTO)
     portfolio_hits: list[str] = Field(default_factory=list)
