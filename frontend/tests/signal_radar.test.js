@@ -82,6 +82,50 @@ describe("SignalRadar", () => {
       question: "请结合我的持仓，分析这个信号的预期差、传导逻辑、可能受益/受损对象和主要风险。",
     });
   });
+
+  it("renders catalyst alert fields", async () => {
+    listSignals.mockResolvedValueOnce({
+      items: [
+        {
+          signal_id: "SIG:cat",
+          title: "未来5天英伟达GTC可能影响AI算力链",
+          summary: "海外 AI 算力大会可能影响光模块/CPO 链预期",
+          source_type: "catalyst_event",
+          signal_kind: "catalyst",
+          value_score: 86,
+          confidence: 0.72,
+          portfolio_hits: ["中际旭创", "新易盛"],
+          lead_days: 5,
+          alert_level: "high",
+          impact_scope: ["portfolio", "market"],
+        },
+      ],
+      total: 1,
+    });
+    const { default: SignalRadar } = await import("../src/components/SignalRadar.vue");
+    const wrapper = mount(SignalRadar);
+    await flushPromises();
+
+    expect(wrapper.text()).toContain("未来预警");
+    expect(wrapper.text()).toContain("5天后");
+    expect(wrapper.text()).toContain("持仓 2");
+  });
+
+  it("loads catalyst filter with five day window", async () => {
+    const { default: SignalRadar } = await import("../src/components/SignalRadar.vue");
+    const wrapper = mount(SignalRadar);
+    await flushPromises();
+
+    await wrapper.find('[data-testid="signal-kind-catalyst"]').trigger("click");
+    await flushPromises();
+
+    expect(listSignals).toHaveBeenLastCalledWith({
+      scope: "all",
+      limit: 8,
+      signal_kind: "catalyst",
+      window_days: 5,
+    });
+  });
 });
 
 async function flushPromises() {

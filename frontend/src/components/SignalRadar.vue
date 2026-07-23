@@ -9,6 +9,19 @@
       <span class="signal-radar__label">预期差信号</span>
       <span class="signal-radar__count">{{ total }}</span>
     </div>
+    <div class="signal-radar__filters" aria-label="信号类型筛选">
+      <button
+        v-for="option in kindOptions"
+        :key="option.value"
+        class="signal-radar__filter"
+        :class="{ 'is-active': activeKind === option.value }"
+        type="button"
+        :data-testid="`signal-kind-${option.value}`"
+        @click="setKind(option.value)"
+      >
+        {{ option.label }}
+      </button>
+    </div>
 
     <div v-if="loading" class="signal-radar__state">加载信号中</div>
     <div v-else-if="error" class="signal-radar__state">{{ error }}</div>
@@ -36,7 +49,9 @@
               <span class="signal-card__title">{{ signal.title }}</span>
               <span class="signal-card__summary">{{ signal.summary }}</span>
               <span class="signal-card__meta">
-                {{ sourceLabel(signal.source_type) }}
+                <span v-if="isCatalyst(signal)" class="signal-card__badge">未来预警</span>
+                <span v-if="isCatalyst(signal)"> · {{ leadLabel(signal) }}</span>
+                <span v-else>{{ sourceLabel(signal.source_type) }}</span>
                 <span v-if="signal.portfolio_hits?.length"> · 持仓 {{ signal.portfolio_hits.length }}</span>
               </span>
             </span>
@@ -62,6 +77,9 @@
       <p v-if="selectedDetail.evidence_excerpt" class="signal-detail__excerpt">
         {{ selectedDetail.evidence_excerpt }}
       </p>
+      <div v-if="isCatalyst(selectedDetail)" class="signal-detail__path">
+        {{ catalystDetailLine(selectedDetail) }}
+      </div>
       <div v-if="selectedDetail.propagations?.length" class="signal-detail__path">
         {{ selectedDetail.propagations[0].relation_path }}
       </div>
@@ -92,6 +110,12 @@ const loading = ref(false);
 const error = ref("");
 const paused = ref(false);
 const selectedDetail = ref(null);
+const activeKind = ref("all");
+const kindOptions = [
+  { value: "all", label: "全部" },
+  { value: "observed", label: "已发生" },
+  { value: "catalyst", label: "未来预警" },
+];
 
 const DEFAULT_SIGNAL_QUESTION =
   "请结合我的持仓，分析这个信号的预期差、传导逻辑、可能受益/受损对象和主要风险。";
@@ -102,7 +126,7 @@ async function loadSignals() {
   loading.value = true;
   error.value = "";
   try {
-    const data = await listSignals({ scope: "all", limit: 8 });
+    const data = await listSignals(buildListParams());
     signals.value = data.items || [];
     total.value = data.total || signals.value.length;
   } catch {
@@ -110,6 +134,26 @@ async function loadSignals() {
   } finally {
     loading.value = false;
   }
+}
+
+function buildListParams() {
+  const params = { scope: "all", limit: 8 };
+  if (activeKind.value === "observed") {
+    params.signal_kind = "observed";
+  } else if (activeKind.value === "catalyst") {
+    params.signal_kind = "catalyst";
+    params.window_days = 5;
+  } else {
+    params.include_kinds = "observed,catalyst";
+  }
+  return params;
+}
+
+async function setKind(kind) {
+  if (activeKind.value === kind) return;
+  activeKind.value = kind;
+  selectedDetail.value = null;
+  await loadSignals();
 }
 
 async function openDetail(signal) {
@@ -135,8 +179,27 @@ function sourceLabel(sourceType) {
     evidence: "证据",
     irm: "互动易",
     research_report: "研报",
+    catalyst_event: "未来事件",
   };
   return labels[sourceType] || sourceType || "来源";
+}
+
+function isCatalyst(signal) {
+  return signal?.signal_kind === "catalyst";
+}
+
+function leadLabel(signal) {
+  const leadDays = signal?.lead_days ?? signal?.catalyst?.lead_days;
+  if (leadDays === 0) return "今日";
+  if (leadDays || leadDays === 0) return `${leadDays}天后`;
+  return "未来";
+}
+
+function catalystDetailLine(signal) {
+  const catalyst = signal?.catalyst || {};
+  const subjects = Array.isArray(catalyst.subjects) ? catalyst.subjects.join("、") : "";
+  const level = catalyst.alert_level || signal?.alert_level || "";
+  return [leadLabel(signal), level ? `预警 ${level}` : "", subjects].filter(Boolean).join(" · ");
 }
 </script>
 
@@ -152,6 +215,36 @@ function sourceLabel(sourceType) {
   justify-content: space-between;
   margin-bottom: 8px;
   padding: 0 4px;
+}
+
+.signal-radar__filters {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+  margin: 0 0 8px;
+  padding: 2px;
+  border: 1px solid var(--ow-border);
+  border-radius: var(--ow-radius-xs);
+  background: var(--ow-bg);
+}
+
+.signal-radar__filter {
+  min-width: 0;
+  height: 24px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--ow-text-3);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.signal-radar__filter.is-active {
+  background: var(--ow-surface);
+  color: var(--ow-text);
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
 }
 
 .signal-radar__label {
@@ -271,6 +364,11 @@ function sourceLabel(sourceType) {
   margin-top: 4px;
   color: var(--ow-text-3);
   font-size: 11.5px;
+}
+
+.signal-card__badge {
+  color: #a15c07;
+  font-weight: 600;
 }
 
 .signal-card__ask {
