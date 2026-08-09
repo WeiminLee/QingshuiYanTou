@@ -2088,24 +2088,68 @@ class DataFetcher:
         except IntegrityError:
             return None
 
+    async def _save_daily_basic(
+        self,
+        ts_code: str,
+        trade_date: date,
+        rec: dict[str, Any],
+    ) -> bool:
+        """Best-effort 保存 daily_basic 记录。
+
+        仅 upsert 非空字段，不因 basic 失败影响 daily_data 结果。
+        """
+        close = _safe_float(rec.get("close"))
+        turnover_rate = _safe_float(rec.get("turn"))
+
+        # 只处理有实际数据的字段
+        fields: dict[str, Any] = {"ts_code": ts_code, "trade_date": trade_date}
+        has_data = False
+        if close is not None:
+            fields["close"] = close
+            has_data = True
+        if turnover_rate is not None:
+            fields["turnover_rate"] = turnover_rate
+            has_data = True
+
+        if not has_data:
+            return False
+
+        cols = ", ".join(fields.keys())
+        placeholders = ", ".join(f":{k}" for k in fields)
+        updates = ", ".join(f"{k} = EXCLUDED.{k}" for k in fields if k not in ("ts_code", "trade_date"))
+
+        sql = f"""
+        INSERT INTO daily_basic ({cols})
+        VALUES ({placeholders})
+        ON CONFLICT (ts_code, trade_date) DO UPDATE SET {updates}
+        """
+        try:
+            async with engine.begin() as conn:
+                await conn.execute(text(sql), fields)
+            return True
+        except Exception:
+            return False
+
     async def _save_stock_kline(
         self,
         ts_code: str,
         trade_date: str,
         rec: dict[str, Any],
-    ) -> bool | None:
-        """保存个股 K 线（Phase 31 D-A3）。True=新建/更新成功，None=IntegrityError，False=其他失败。
+    ) -> dict[str, Any]:
+        """保存个股 K 线和 best-effort daily_basic（Phase 31 D-A3）。
 
-        FK 约束：daily_data.ts_code → stocks.ts_code，需先确保 stocks 表已同步。
+        Returns:
+            dict: {"daily_saved": bool|None, "basic_success": int, "basic_fail": int}
+            daily_saved=True=新建/更新成功，None=IntegrityError，False=其他失败。
+            basic_success=1 表示 basic 成功写入，0 表示未写入。
         """
         parsed_date = _yyyymmdd_to_date(trade_date)
         if parsed_date is None:
-            return None
+            return {"daily_saved": None, "basic_success": 0, "basic_fail": 0}
 
         close = _safe_float(rec.get("close"))
         preclose = _safe_float(rec.get("preclose"))
         change = (close - preclose) if (close is not None and preclose is not None) else None
-        # baostock tradestatus："1" 正常 / "0" 停牌（白名单转换，T-A-baostock-dirty mitigation）
         is_suspended = str(rec.get("tradestatus", "1")) == "0"
 
         sql = """
@@ -2147,12 +2191,18 @@ class DataFetcher:
                         "is_suspended": is_suspended,
                     },
                 )
-            return True
+            # daily_data 成功，尝试 best-effort daily_basic
+            basic_ok = await self._save_daily_basic(ts_code, parsed_date, rec)
+            return {
+                "daily_saved": True,
+                "basic_success": 1 if basic_ok else 0,
+                "basic_fail": 0 if basic_ok else 1,
+            }
         except IntegrityError:
-            return None
+            return {"daily_saved": None, "basic_success": 0, "basic_fail": 0}
         except Exception as exc:
             logger.warning("保存个股 K 线失败 [%s %s]: %s", ts_code, trade_date, exc)
-            return False
+            return {"daily_saved": False, "basic_success": 0, "basic_fail": 0}
 
     async def fetch_stock_kline(
         self,
@@ -2187,20 +2237,31 @@ class DataFetcher:
             return {"total": 0, "success": 0, "skipped": 0, "fail": 0}
 
         success = skipped = fail = 0
+        basic_success = basic_fail = 0
         for rec in records:
             trade_date = str(rec.get("date") or "").replace("-", "")
             try:
                 saved = await self._save_stock_kline(ts_code, trade_date, rec)
-                if saved is True:
+                daily_saved = saved.get("daily_saved")
+                if daily_saved is True:
                     success += 1
-                elif saved is None:
+                elif daily_saved is None:
                     skipped += 1
                 else:
                     fail += 1
+                basic_success += saved.get("basic_success", 0)
+                basic_fail += saved.get("basic_fail", 0)
             except Exception as exc:
                 fail += 1
                 logger.debug("保存个股K线失败 [%s %s]: %s", ts_code, trade_date, exc)
-        return {"total": len(records), "success": success, "skipped": skipped, "fail": fail}
+        return {
+            "total": len(records),
+            "success": success,
+            "skipped": skipped,
+            "fail": fail,
+            "basic_success": basic_success,
+            "basic_fail": basic_fail,
+        }
 
     async def fetch_all_stocks_kline(
         self,

@@ -24,7 +24,7 @@ import logging
 import os
 import sys
 import time
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -94,7 +94,7 @@ def _fetch_baostock_raw(bs_code: str, start_date: str, end_date: str) -> list[di
     try:
         rs = bs.query_history_k_data_plus(
             bs_code,
-            "date,code,open,high,low,close,volume,amount",
+            "date,code,open,high,low,close,preclose,volume,amount,pctChg,tradestatus,isST",
             start_date=start_date,
             end_date=end_date,
             frequency="d",
@@ -114,10 +114,14 @@ def _fetch_baostock_raw(bs_code: str, start_date: str, end_date: str) -> list[di
 
 
 def _process_rows(ts_code: str, rows: list[list]) -> list[dict]:
-    """将 baostock 原始行转换为入库记录。"""
+    """将 baostock 原始行转换为入库记录。
+
+    使用源数据中的 preclose 和 pctChg。仅当源 pctChg 缺失时，
+    从 preclose/close 计算。
+    """
     records = []
     prev_close = None
-    # baostock 返回字段: date,code,open,high,low,close,volume,amount
+    # baostock 返回字段: date,code,open,high,low,close,preclose,volume,amount,pctChg,tradestatus,isST
     for row in rows:
         trade_date_str = row[0]
         open_price = float(row[2]) if row[2] else 0.0
@@ -127,9 +131,23 @@ def _process_rows(ts_code: str, rows: list[list]) -> list[dict]:
         vol = float(row[6]) if row[6] else 0.0
         amount = float(row[7]) if row[7] else 0.0
 
-        pre_close = prev_close if prev_close is not None else close_price
-        change = close_price - pre_close
-        pct_chg = (change / pre_close * 100) if pre_close else 0.0
+        # 使用源 preclose（字段 8），缺失时 fallback 到 prev_close
+        raw_preclose = row[8] if len(row) > 8 and row[8] else None
+        if raw_preclose is not None:
+            pre_close = float(raw_preclose)
+        elif prev_close is not None:
+            pre_close = prev_close
+        else:
+            pre_close = close_price
+
+        # 使用源 pctChg（字段 9），缺失时计算
+        raw_pctchg = row[9] if len(row) > 9 and row[9] else None
+        if raw_pctchg is not None:
+            pct_chg = float(raw_pctchg)
+        else:
+            change = close_price - pre_close
+            pct_chg = (change / pre_close * 100) if pre_close else 0.0
+
         is_suspended = vol == 0
 
         records.append(
@@ -141,7 +159,7 @@ def _process_rows(ts_code: str, rows: list[list]) -> list[dict]:
                 "low": low_price,
                 "close": close_price,
                 "pre_close": pre_close,
-                "change": round(change, 3),
+                "change": round(close_price - pre_close, 3),
                 "pct_chg": round(pct_chg, 2),
                 "vol": vol,
                 "amount": amount,
@@ -153,6 +171,53 @@ def _process_rows(ts_code: str, rows: list[list]) -> list[dict]:
 
 
 # ── 数据入库 ──────────────────────────────────────────────
+
+
+def _apply_qfq(
+    records: list[dict],
+    factors: dict[str, float],
+    end_date: str,
+) -> list[dict]:
+    """对记录应用前复权调整（仅变换 OHLC，保留 volume/amount）。
+
+    使用 ``price * latest_factor / hist_factor`` 公式。
+    跳过不含有效因子日期的记录，保持原值。
+
+    Args:
+        records: 入库记录列表（含 trade_date 字段）
+        factors: 复权因子 {date_str: factor}，日期格式 YYYY-MM-DD
+        end_date: 基准日期，用于确定 latest_factor YYYY-MM-DD
+
+    Returns:
+        调整后的记录列表（直接修改，不创建副本）
+    """
+    latest_factor = factors.get(end_date)
+    if latest_factor is None or latest_factor <= 0:
+        return records
+
+    for rec in records:
+        trade_date = rec["trade_date"]
+        if isinstance(trade_date, date):
+            date_str = trade_date.isoformat()
+        else:
+            date_str = str(trade_date)
+
+        hist_factor = factors.get(date_str)
+        if hist_factor is None or hist_factor <= 0:
+            continue
+
+        ratio = latest_factor / hist_factor
+        if ratio == 1.0:
+            continue
+
+        rec["open"] = round(rec["open"] * ratio, 2)
+        rec["high"] = round(rec["high"] * ratio, 2)
+        rec["low"] = round(rec["low"] * ratio, 2)
+        rec["close"] = round(rec["close"] * ratio, 2)
+        rec["pre_close"] = round(rec["pre_close"] * ratio, 2)
+        # volume/amount 不变
+
+    return records
 
 
 async def _batch_insert(data: list[dict]) -> int:
