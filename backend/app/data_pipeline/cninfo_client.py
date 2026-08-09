@@ -35,12 +35,12 @@ CNINFO_QUERY_API = "http://www.cninfo.com.cn/new/hisAnnouncement/query"
 CNINFO_PDF_BASE = "http://static.cninfo.com.cn/"
 
 # ── 监管公告 plate 分类 ──────────────────────────────────────────
-# 巨潮监管公告按四个 plate 分类，各有独立 column 参数
+# 参考项目：column='regulator'，plate 分别为深交所/上交所/结算公司/证监会
 REGU_PLATES = {
-    "szse": {"column": "regu_szse", "plate": "szse", "label": "深交所监管"},
-    "sh": {"column": "regu_sh", "plate": "sh", "label": "上交所监管"},
-    "bse": {"column": "regu_bse", "plate": "bse", "label": "北交所监管"},
-    "all": {"column": "regu", "plate": "", "label": "全市场监管"},
+    "szse": {"column": "regulator", "plate": "jgjg_sz;", "label": "深交所监管"},
+    "sh": {"column": "regulator", "plate": "jgjg_sh;", "label": "上交所监管"},
+    "jsgs": {"column": "regulator", "plate": "jgjg_jsgs;", "label": "结算公司监管"},
+    "zjh": {"column": "regulator", "plate": "jgjg_zjh;", "label": "证监会监管"},
 }
 
 # ── 请求头 ───────────────────────────────────────────────────────
@@ -344,7 +344,7 @@ class CninfoClient:
 
     async def query_regulatory_announcements(
         self,
-        plate: str = "all",
+        plate: str = "szse",
         ann_date: str | None = None,
         ann_date_end: str | None = None,
         page: int = 1,
@@ -353,7 +353,7 @@ class CninfoClient:
         """查询单页监管公告列表。
 
         Args:
-            plate: REGU_PLATES 中的 key，如 "szse"/"sh"/"bse"/"all"
+            plate: REGU_PLATES 中的 key，如 "szse"/"sh"/"jsgs"/"zjh"
             ann_date: 起始日期 YYYYMMDD
             ann_date_end: 结束日期 YYYYMMDD
             page: 页码
@@ -432,7 +432,7 @@ class CninfoClient:
 
     async def get_regulatory_announcements(
         self,
-        plate: str = "all",
+        plate: str = "szse",
         ann_date: str | None = None,
         ann_date_end: str | None = None,
         max_pages: int = 500,

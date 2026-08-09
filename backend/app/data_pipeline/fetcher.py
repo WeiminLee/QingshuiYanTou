@@ -1997,13 +1997,13 @@ class DataFetcher:
 
     async def fetch_regulatory_announcements(
         self,
-        plate: str = "all",
+        plate: str = "szse",
         ann_date: str | None = None,
     ) -> dict[str, int]:
         """从巨潮拉取指定 plate 的监管公告，去重后经标准流程入库。
 
         Args:
-            plate: REGU_PLATES 中的 key，如 "szse"/"sh"/"bse"/"all"
+            plate: REGU_PLATES 中的 key，如 "szse"/"sh"/"jsgs"/"zjh"
             ann_date: 日期 YYYYMMDD，默认昨天
 
         Returns:
