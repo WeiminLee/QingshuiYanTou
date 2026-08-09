@@ -1393,8 +1393,12 @@ class DataFetcher:
         run_ctx: Any,
         *,
         is_history: bool = False,
+        skip_stock_scope: bool = False,
     ) -> dict[str, int]:
         """共享的公告列表处理逻辑（fetch_announcements / fetch_announcements_history 共用）。
+
+        Args:
+            skip_stock_scope: True 时跳过白名单股票过滤（监管公告等全市场类型使用）。
 
         Returns:
             {"total", "success", "skipped", "downloaded", "fail"}
@@ -1417,7 +1421,7 @@ class DataFetcher:
             )
             return {"total": 0, "success": 0, "skipped": 0, "downloaded": 0, "fail": 0}
 
-        # ── 白名单过滤 ──
+        # ── 白名单过滤（监管公告等跳过） ──
         from app.data_pipeline.backfill_config import load_backfill_settings
 
         bf_cfg = load_backfill_settings()
@@ -1429,16 +1433,20 @@ class DataFetcher:
             cninfo_id = CninfoClient.get_announcement_id(ann)
             if not cninfo_id:
                 continue
-            ts_code_raw = CninfoClient.get_ts_code(ann)
-            if bf_cfg.scope == "tech_mvp" and ts_code_raw not in bf_cfg.ts_codes:
-                continue
+            if not skip_stock_scope:
+                ts_code_raw = CninfoClient.get_ts_code(ann)
+                if bf_cfg.scope == "tech_mvp" and ts_code_raw not in bf_cfg.ts_codes:
+                    continue
+            # 监管公告可能有多股票 secCode（逗号分隔），无法映射单一 ts_code
+            raw_sec_code = str(ann.get("secCode", "") or "")
+            ts_code = CninfoClient.get_ts_code(ann) if "," not in raw_sec_code else ""
             candidate_ids.append(cninfo_id)
             prepared.append(
                 {
                     "raw": ann,
                     "cninfo_id": cninfo_id,
                     "title": CninfoClient.get_title(ann),
-                    "ts_code": CninfoClient.get_ts_code(ann),
+                    "ts_code": ts_code,
                     "ann_date_str": CninfoClient.get_ann_date(ann) or default_date,
                     "name": str(ann.get("secName", "")),
                     "pdf_url": CninfoClient.get_pdf_url(ann),
@@ -2046,6 +2054,7 @@ class DataFetcher:
             scope=f"regu:{plate}",
             tracker=tracker,
             run_ctx=run_ctx,
+            skip_stock_scope=True,
         )
 
     # ---------- 指数 K 线 ----------
