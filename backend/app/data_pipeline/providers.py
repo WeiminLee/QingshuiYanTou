@@ -37,12 +37,13 @@ STANDARD_KEYS = [
     "preclose",
     "volume",
     "amount",
+    "turn",
     "pctChg",
     "tradestatus",
 ]
 
 # 需要转为 float 的数值字段
-_FLOAT_FIELDS = {"open", "high", "low", "close", "preclose", "amount", "pctChg"}
+_FLOAT_FIELDS = {"open", "high", "low", "close", "preclose", "amount", "turn", "pctChg"}
 
 # 需要转为 int 的字段
 _INT_FIELDS = {"volume"}

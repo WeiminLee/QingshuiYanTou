@@ -267,6 +267,50 @@ class TestNormalizeKlineRecord:
         result = normalize_kline_record(raw, "600000.SH")
 
         assert isinstance(result["volume"], int)
+
+    def test_normalizes_turn_field(self):
+        """turn field should be preserved as float in normalized output."""
+        from app.data_pipeline.providers import normalize_kline_record
+
+        raw = {
+            "date": "2026-05-12",
+            "code": "sh.600000",
+            "open": "10.0",
+            "high": "10.5",
+            "low": "9.8",
+            "close": "10.2",
+            "preclose": "10.0",
+            "volume": "1000000",
+            "amount": "10200000",
+            "turn": "1.5",
+            "pctChg": "2.0",
+            "tradestatus": "1",
+        }
+        result = normalize_kline_record(raw, "600000.SH")
+
+        assert result["turn"] == 1.5
+        assert isinstance(result["turn"], float)
+
+    def test_normalizes_turn_none(self):
+        """Missing turn should be None in normalized output."""
+        from app.data_pipeline.providers import normalize_kline_record
+
+        raw = {
+            "date": "2026-05-12",
+            "code": "sh.600000",
+            "open": "10.0",
+            "high": "10.5",
+            "low": "9.8",
+            "close": "10.2",
+            "preclose": "10.0",
+            "volume": "1000000",
+            "amount": "10200000",
+            "pctChg": "2.0",
+            "tradestatus": "1",
+        }
+        result = normalize_kline_record(raw, "600000.SH")
+
+        assert result["turn"] is None
         assert isinstance(result["amount"], float)
 
 
