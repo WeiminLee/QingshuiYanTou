@@ -298,3 +298,37 @@ def test_scheduler_registers_ingestion_worker_drain(monkeypatch):
     assert "irm_daily" not in ids
     assert ingestion_worker_drain["max_instances"] == 1
     assert ingestion_worker_drain["coalesce"] is True
+
+
+def test_kline_job_passes_scope_from_settings(monkeypatch):
+    """_run_kline_job() 必须将 load_backfill_settings().scope 传给 sync_daily。"""
+    from app.data_pipeline import scheduler as scheduler_mod
+
+    received = {}
+
+    async def fake_sync_daily(*, scope):
+        received["scope"] = scope
+        return {"ok": 1, "skip": 0, "fail": 0, "saved": 1, "total": 1}
+
+    monkeypatch.setattr(
+        "scripts.sync_daily_baostock.sync_daily",
+        fake_sync_daily,
+        raising=False,
+    )
+
+    import app.data_pipeline.monitor as monitor
+    monkeypatch.setattr(monitor, "init_monitor", AsyncMock())
+    monkeypatch.setattr(monitor, "record_task_start", AsyncMock())
+    monkeypatch.setattr(monitor, "record_task_result", AsyncMock())
+
+    import app.data_pipeline.dingtalk as dt
+    monkeypatch.setattr(dt, "notify_task_start", AsyncMock())
+    monkeypatch.setattr(dt, "notify_task_success", AsyncMock())
+    monkeypatch.setattr(dt, "notify_task_failed", AsyncMock())
+
+    # 设置 BACKFILL_SCOPE=all
+    monkeypatch.setenv("BACKFILL_SCOPE", "all")
+
+    asyncio.run(scheduler_mod._run_kline_job())
+
+    assert received["scope"] == "all"
