@@ -1993,6 +1993,61 @@ class DataFetcher:
         )
         return result
 
+    # ---------- 监管公告 ----------
+
+    async def fetch_regulatory_announcements(
+        self,
+        plate: str = "all",
+        ann_date: str | None = None,
+    ) -> dict[str, int]:
+        """从巨潮拉取指定 plate 的监管公告，去重后经标准流程入库。
+
+        Args:
+            plate: REGU_PLATES 中的 key，如 "szse"/"sh"/"bse"/"all"
+            ann_date: 日期 YYYYMMDD，默认昨天
+
+        Returns:
+            {"total", "success", "skipped", "downloaded", "fail"}
+        """
+        task_id = generate_task_id()
+        set_task_id(task_id)
+
+        if ann_date is None:
+            ann_date = (datetime.now() - timedelta(days=1)).strftime("%Y%m%d")
+
+        tracker = IngestionProgressTracker(
+            source="cninfo_regu",
+            task_name="regulatory_announcements",
+            scope=f"regu:{plate}",
+        )
+        run_ctx = await tracker.start_run(
+            metadata={"plate": plate, "ann_date": ann_date},
+        )
+
+        try:
+            announcements = await self.cninfo_client.get_regulatory_announcements(
+                plate=plate,
+                ann_date=ann_date,
+            )
+        except Exception as exc:
+            logger.warning("监管公告 %s %s 获取失败: %s", plate, ann_date, exc)
+            await tracker.finish_run(
+                run_ctx, status=FAILED, total_items=0, processed_items=0,
+                success_count=0, skipped_count=0, downloaded_count=0,
+                fail_count=1, current_watermark=ann_date,
+                checkpoint_watermark=ann_date, next_from_watermark=ann_date,
+                metadata={"plate": plate, "error": str(exc)},
+            )
+            return {"total": 0, "success": 0, "skipped": 0, "downloaded": 0, "fail": 1}
+
+        return await self._process_announcement_list(
+            announcements,
+            default_date=ann_date,
+            scope=f"regu:{plate}",
+            tracker=tracker,
+            run_ctx=run_ctx,
+        )
+
     # ---------- 指数 K 线 ----------
 
     async def fetch_index_kline(
