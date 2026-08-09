@@ -228,7 +228,8 @@ def _apply_qfq(
         rec["high"] = round(rec["high"] * ratio, 2)
         rec["low"] = round(rec["low"] * ratio, 2)
         rec["close"] = round(rec["close"] * ratio, 2)
-        rec["pre_close"] = round(rec["pre_close"] * ratio, 2)
+        if rec.get("pre_close") is not None:
+            rec["pre_close"] = round(rec["pre_close"] * ratio, 2)
         # volume/amount 不变
 
     return records
@@ -247,7 +248,14 @@ async def _batch_insert(data: list[dict]) -> int:
             :change, :pct_chg, :vol, :amount, :is_suspended
         ) ON CONFLICT (ts_code, trade_date) DO NOTHING
     """)
-    basic_stmt = text("""
+    # daily_basic upsert 两条 SQL：有无 turn 各一条，避免传 null 占位
+    basic_close_stmt = text("""
+        INSERT INTO daily_basic (ts_code, trade_date, close)
+        VALUES (:ts_code, :trade_date, :close)
+        ON CONFLICT (ts_code, trade_date) DO UPDATE SET
+            close = EXCLUDED.close
+    """)
+    basic_with_turn_stmt = text("""
         INSERT INTO daily_basic (ts_code, trade_date, close, turnover_rate)
         VALUES (:ts_code, :trade_date, :close, :turnover_rate)
         ON CONFLICT (ts_code, trade_date) DO UPDATE SET
@@ -258,23 +266,33 @@ async def _batch_insert(data: list[dict]) -> int:
         async with engine.begin() as conn:
             result = await conn.execute(stmt, data)
             saved = result.rowcount if result.rowcount else 0
-        # best-effort daily_basic upsert（仅写入 close 和实际 turn 值）
+        # best-effort daily_basic upsert（close 始终写入，turn 有则写）
         for rec in data:
             close = rec.get("close")
             if close is None or close == 0.0:
                 continue
-            basic_fields = {
-                "ts_code": rec["ts_code"],
-                "trade_date": rec["trade_date"],
-                "close": close,
-                "turnover_rate": rec.get("turn"),  # baostock turn 为真实换手率，缺失时传 None
-            }
-            # 仅当至少有一个 basic 字段有值时写入
-            if basic_fields["turnover_rate"] is None:
-                continue
+            turn = rec.get("turn")
             try:
                 async with engine.begin() as conn:
-                    await conn.execute(basic_stmt, basic_fields)
+                    if turn is not None:
+                        await conn.execute(
+                            basic_with_turn_stmt,
+                            {
+                                "ts_code": rec["ts_code"],
+                                "trade_date": rec["trade_date"],
+                                "close": close,
+                                "turnover_rate": turn,
+                            },
+                        )
+                    else:
+                        await conn.execute(
+                            basic_close_stmt,
+                            {
+                                "ts_code": rec["ts_code"],
+                                "trade_date": rec["trade_date"],
+                                "close": close,
+                            },
+                        )
             except Exception:
                 pass
         return saved

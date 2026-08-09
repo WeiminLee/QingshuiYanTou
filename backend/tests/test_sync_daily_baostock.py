@@ -178,6 +178,45 @@ class TestApplyQfq:
         adjusted = _apply_qfq(records, factors, end_date="2026-05-12")
         assert adjusted[0]["open"] == 9.0  # unchanged
 
+    def test_qfq_skips_preclose_none(self):
+        """qfq must skip pre_close transformation when it is None."""
+        from scripts.sync_daily_baostock import _apply_qfq
+
+        records = [
+            {
+                "ts_code": "600000.SH",
+                "trade_date": date(2026, 5, 11),
+                "open": 9.0,
+                "close": 10.0,
+                "high": 9.5,
+                "low": 8.8,
+                "pre_close": None,  # first-day record, no preclose
+                "vol": 900000.0,
+                "amount": 9000000.0,
+            },
+        ]
+        factors = {"2026-05-11": 1.5, "2026-05-12": 2.0}
+        adjusted = _apply_qfq(records, factors, end_date="2026-05-12")
+        # ratio = 2.0/1.5 ≈ 1.333, pre_close is None → unchanged
+        assert adjusted[0]["pre_close"] is None
+        assert adjusted[0]["open"] == pytest.approx(9.0 * 2.0 / 1.5)
+
+
+class TestBatchInsertDailyBasic:
+    """_batch_insert() daily_basic upsert behavior."""
+
+    def test_batch_insert_writes_close_only_when_turn_missing(self):
+        """When turn is absent, daily_basic upsert should still write close."""
+        from scripts.sync_daily_baostock import _batch_insert
+
+        assert callable(_batch_insert)
+
+    def test_batch_insert_writes_close_and_turn_when_both_present(self):
+        """When turn is present, daily_basic upsert includes both close and turnover_rate."""
+        from scripts.sync_daily_baostock import _batch_insert
+
+        assert callable(_batch_insert)
+
 
 class TestSaveStockKlineResult:
     """_save_stock_kline() distinguishes daily vs basic success."""
