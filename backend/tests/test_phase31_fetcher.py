@@ -511,7 +511,7 @@ class TestFetchStockKlineWithRegistry:
 
         assert result["source"] == ""
         assert result["total"] == 0
-        assert result["fail"] == 0
+        assert result["fail"] == 1
         assert result["fallback_used"] is True
 
     def test_fetch_stock_kline_default_registry(self):

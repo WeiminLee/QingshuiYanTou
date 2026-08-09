@@ -2255,6 +2255,19 @@ class DataFetcher:
 
         records = result.records
         if not records:
+            if result.errors:
+                for err in result.errors:
+                    logger.warning(
+                        "个股 %s K线抓取失败: provider=%s error=%s",
+                        ts_code,
+                        err.get("provider", "?"),
+                        err.get("error", "?"),
+                    )
+                return {
+                    "total": 0, "success": 0, "skipped": 0, "fail": 1,
+                    "source": result.source, "fallback_used": result.fallback_used,
+                    "basic_success": 0, "basic_fail": 0,
+                }
             return {
                 "total": 0, "success": 0, "skipped": 0, "fail": 0,
                 "source": result.source, "fallback_used": result.fallback_used,

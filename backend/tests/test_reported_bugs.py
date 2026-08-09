@@ -291,7 +291,7 @@ def test_stock_kline_fetch_failure_counts_as_fail():
 
     assert result["total"] == 0
     assert result["success"] == 0
-    assert result["fail"] == 0
+    assert result["fail"] == 1
     assert result["fallback_used"] is True
 
 
