@@ -90,7 +90,7 @@ class NewsService:
                         "event_id": eid,
                         "title": title,
                         "summary": str(row.get("content") or row.get("summary") or ""),
-                        "source": "cls",
+                        "source": "tushare",
                         "url": str(row.get("url") or ""),
                         "publish_at": publish_at,
                         "metadata": json.dumps(metadata, ensure_ascii=False),

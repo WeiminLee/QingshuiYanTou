@@ -145,3 +145,38 @@ class TestNewsServiceFallback:
         assert captured["summary"] == "内容A"
         assert captured["source"] == "cls"
         assert captured["event_id"] == stable_event_id("标题A")
+
+    @pytest.mark.asyncio
+    async def test_tushare_source_tag(self):
+        """Tushare 路径应使用 source='tushare'，CLS 路径应使用 source='cls'。"""
+        import pandas as pd
+
+        import app.data_pipeline.services.news_service as ns_mod
+        from app.data_pipeline.services.news_service import NewsService, stable_event_id
+
+        svc = NewsService()
+        fake_pro = MagicMock()
+        fake_pro.news.return_value = pd.DataFrame([{"title": "Tushare新闻", "content": "内容", "pub_time": "2026-05-12 09:00", "url": "http://t.cn"}])
+
+        captured = {}
+
+        async def fake_execute(stmt, params):
+            captured["source"] = params.get("source")
+            result = MagicMock()
+            result.rowcount = 1
+            return result
+
+        fake_conn = AsyncMock()
+        fake_conn.__aenter__.return_value = fake_conn
+        fake_conn.execute = fake_execute
+
+        fake_engine = MagicMock()
+        fake_engine.connect.return_value = fake_conn
+
+        with patch.object(ns_mod, "_get_ts_pro", return_value=fake_pro):
+            with patch.object(ns_mod, "settings", MagicMock(tushare_token="test", tushare_http_url="http://test")):
+                with patch.object(svc, "_load_concept_names", new_callable=AsyncMock, return_value=[]):
+                    with patch.object(ns_mod, "engine", fake_engine):
+                        await svc.fetch_and_save()
+
+        assert captured["source"] == "tushare"
