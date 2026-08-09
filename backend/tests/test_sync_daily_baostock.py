@@ -32,38 +32,43 @@ class TestProcessRows:
         """When baostock returns preclose, use it directly.
 
         Field order: date(0),code(1),open(2),high(3),low(4),close(5),
-                     preclose(6),volume(7),amount(8),pctChg(9),tradestatus(10),isST(11)
+                     preclose(6),volume(7),amount(8),turn(9),pctChg(10),
+                     tradestatus(11),isST(12)
         """
         from scripts.sync_daily_baostock import _process_rows
 
         rows = [
-            ["2026-05-12", "sh.600000", "10.0", "10.5", "9.8", "11.0", "10.0", "1000000", "11000000", "10.0", "1", "0"],
+            ["2026-05-12", "sh.600000", "10.0", "10.5", "9.8", "11.0", "10.0", "1000000", "11000000", "1.5", "10.0", "1", "0"],
         ]
         records = _process_rows("600000.SH", rows)
         assert len(records) == 1
         assert records[0]["pre_close"] == 10.0
         assert records[0]["pct_chg"] == 10.0  # (11-10)/10*100
+        assert records[0]["turn"] == 1.5
 
-    def test_missing_preclose_falls_back_to_prev_close(self):
-        """When preclose is missing/empty, use previous close."""
+    def test_missing_preclose_on_first_row_returns_none(self):
+        """First record without source preclose keeps pre_close=None, change=None, pct_chg=None."""
         from scripts.sync_daily_baostock import _process_rows
 
         rows = [
-            ["2026-05-11", "sh.600000", "9.0", "9.5", "8.8", "10.0", "", "900000", "9000000", "", "1", "0"],
-            ["2026-05-12", "sh.600000", "10.0", "10.5", "9.8", "11.0", "", "1000000", "11000000", "", "1", "0"],
+            ["2026-05-11", "sh.600000", "9.0", "9.5", "8.8", "10.0", "", "900000", "9000000", "1.0", "", "1", "0"],
+            ["2026-05-12", "sh.600000", "10.0", "10.5", "9.8", "11.0", "10.0", "1000000", "11000000", "1.5", "5.0", "1", "0"],
         ]
         records = _process_rows("600000.SH", rows)
-        # First row: no preclose, falls back to close
-        assert records[0]["pre_close"] == 10.0
-        # Second row: no preclose, falls back to prev close (10.0)
+        # First row: no preclose → None
+        assert records[0]["pre_close"] is None
+        assert records[0]["change"] is None
+        assert records[0]["pct_chg"] is None
+        # Second row: has preclose → 10.0
         assert records[1]["pre_close"] == 10.0
+        assert records[1]["pct_chg"] == 5.0  # source value
 
     def test_uses_source_pctchg_when_present(self):
         """When source pctChg is present, use it instead of computing."""
         from scripts.sync_daily_baostock import _process_rows
 
         rows = [
-            ["2026-05-12", "sh.600000", "10.0", "10.5", "9.8", "11.0", "10.0", "1000000", "11000000", "5.0", "1", "0"],
+            ["2026-05-12", "sh.600000", "10.0", "10.5", "9.8", "11.0", "10.0", "1000000", "11000000", "1.5", "5.0", "1", "0"],
         ]
         records = _process_rows("600000.SH", rows)
         assert records[0]["pct_chg"] == 5.0  # source value, not computed
@@ -73,10 +78,22 @@ class TestProcessRows:
         from scripts.sync_daily_baostock import _process_rows
 
         rows = [
-            ["2026-05-12", "sh.600000", "10.0", "10.5", "9.8", "11.0", "10.0", "1000000", "11000000", "", "1", "0"],
+            ["2026-05-12", "sh.600000", "10.0", "10.5", "9.8", "11.0", "10.0", "1000000", "11000000", "1.5", "", "1", "0"],
         ]
         records = _process_rows("600000.SH", rows)
         assert records[0]["pct_chg"] == 10.0  # (11-10)/10*100, computed
+
+    def test_pctchg_none_when_preclose_none(self):
+        """When preclose is None, pct_chg should also be None (not computed with 0)."""
+        from scripts.sync_daily_baostock import _process_rows
+
+        rows = [
+            ["2026-05-12", "sh.600000", "10.0", "10.5", "9.8", "11.0", "", "1000000", "11000000", "1.5", "", "1", "0"],
+        ]
+        records = _process_rows("600000.SH", rows)
+        assert records[0]["pre_close"] is None
+        assert records[0]["pct_chg"] is None
+        assert records[0]["change"] is None
 
 
 class TestApplyQfq:
@@ -180,12 +197,11 @@ class TestSaveStockKlineResult:
         fetcher = DataFetcher()
         fetcher.data_source = MagicMock()
 
-        # Mock _save_stock_kline to return True (daily success)
+        # Mock _save_stock_kline to return dict with daily_saved=True, basic_success=0
         with patch.object(fetcher, "_save_stock_kline", new_callable=AsyncMock) as mock_save:
-            mock_save.return_value = True
+            mock_save.return_value = {"daily_saved": True, "basic_success": 0, "basic_fail": 0}
 
-            # Mock save_basic or daily_basic upsert to be absent
-            # The result dict should still contain basic_success=0
+            # The result dict should contain basic_success=0
             result = {"total": 1, "success": 1, "skipped": 0, "fail": 0, "basic_success": 0, "basic_fail": 0}
             # Verify the expected shape of the result
             assert result["success"] == 1

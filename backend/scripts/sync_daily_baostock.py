@@ -94,7 +94,7 @@ def _fetch_baostock_raw(bs_code: str, start_date: str, end_date: str) -> list[di
     try:
         rs = bs.query_history_k_data_plus(
             bs_code,
-            "date,code,open,high,low,close,preclose,volume,amount,pctChg,tradestatus,isST",
+            "date,code,open,high,low,close,preclose,volume,amount,turn,pctChg,tradestatus,isST",
             start_date=start_date,
             end_date=end_date,
             frequency="d",
@@ -117,10 +117,11 @@ def _process_rows(ts_code: str, rows: list[list]) -> list[dict]:
     """将 baostock 原始行转换为入库记录。
 
     使用源数据中的 preclose 和 pctChg。仅当源 pctChg 缺失时，
-    从 preclose/close 计算。
+    从 preclose/close 计算。首条记录缺少 preclose 时保持 None，
+    change/pct_chg 也保持 None。
 
     baostock 字段顺序: date(0),code(1),open(2),high(3),low(4),close(5),
-    preclose(6),volume(7),amount(8),pctChg(9),tradestatus(10),isST(11)
+    preclose(6),volume(7),amount(8),turn(9),pctChg(10),tradestatus(11),isST(12)
     """
     records = []
     prev_close = None
@@ -133,22 +134,32 @@ def _process_rows(ts_code: str, rows: list[list]) -> list[dict]:
         raw_preclose = row[6] if len(row) > 6 and row[6] else None
         vol = float(row[7]) if len(row) > 7 and row[7] else 0.0
         amount = float(row[8]) if len(row) > 8 and row[8] else 0.0
-        raw_pctchg = row[9] if len(row) > 9 and row[9] else None
+        raw_turn = row[9] if len(row) > 9 and row[9] else None
+        raw_pctchg = row[10] if len(row) > 10 and row[10] else None
 
-        # 使用源 preclose，缺失时 fallback 到 prev_close
+        # 使用源 preclose，缺失时 fallback 到 prev_close（首条无源值则保持 None）
         if raw_preclose is not None:
             pre_close = float(raw_preclose)
         elif prev_close is not None:
             pre_close = prev_close
         else:
-            pre_close = close_price
+            pre_close = None
 
-        # 使用源 pctChg，缺失时计算
+        # 使用源 pctChg，缺失且 pre_close 可用时计算，否则 None
         if raw_pctchg is not None:
             pct_chg = float(raw_pctchg)
-        else:
+        elif pre_close is not None and pre_close != 0:
             change = close_price - pre_close
-            pct_chg = (change / pre_close * 100) if pre_close else 0.0
+            pct_chg = (change / pre_close * 100)
+        else:
+            pct_chg = None
+
+        if pre_close is not None:
+            change = round(close_price - pre_close, 3)
+        else:
+            change = None
+
+        turn = float(raw_turn) if raw_turn is not None else None
 
         is_suspended = vol == 0
 
@@ -161,10 +172,11 @@ def _process_rows(ts_code: str, rows: list[list]) -> list[dict]:
                 "low": low_price,
                 "close": close_price,
                 "pre_close": pre_close,
-                "change": round(close_price - pre_close, 3),
-                "pct_chg": round(pct_chg, 2),
+                "change": change,
+                "pct_chg": round(pct_chg, 2) if pct_chg is not None else None,
                 "vol": vol,
                 "amount": amount,
+                "turn": turn,
                 "is_suspended": is_suspended,
             }
         )
@@ -246,22 +258,23 @@ async def _batch_insert(data: list[dict]) -> int:
         async with engine.begin() as conn:
             result = await conn.execute(stmt, data)
             saved = result.rowcount if result.rowcount else 0
-        # best-effort daily_basic upsert（仅写入非空 close/turnover_rate）
+        # best-effort daily_basic upsert（仅写入 close 和实际 turn 值）
         for rec in data:
             close = rec.get("close")
             if close is None or close == 0.0:
                 continue
+            basic_fields = {
+                "ts_code": rec["ts_code"],
+                "trade_date": rec["trade_date"],
+                "close": close,
+                "turnover_rate": rec.get("turn"),  # baostock turn 为真实换手率，缺失时传 None
+            }
+            # 仅当至少有一个 basic 字段有值时写入
+            if basic_fields["turnover_rate"] is None:
+                continue
             try:
                 async with engine.begin() as conn:
-                    await conn.execute(
-                        basic_stmt,
-                        {
-                            "ts_code": rec["ts_code"],
-                            "trade_date": rec["trade_date"],
-                            "close": close,
-                            "turnover_rate": None,  # baostock 不提供换手率
-                        },
-                    )
+                    await conn.execute(basic_stmt, basic_fields)
             except Exception:
                 pass
         return saved
