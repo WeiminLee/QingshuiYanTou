@@ -29,11 +29,15 @@ class TestProcessRows:
         assert callable(_process_rows)
 
     def test_uses_source_preclose(self):
-        """When baostock returns preclose, use it directly."""
+        """When baostock returns preclose, use it directly.
+
+        Field order: date(0),code(1),open(2),high(3),low(4),close(5),
+                     preclose(6),volume(7),amount(8),pctChg(9),tradestatus(10),isST(11)
+        """
         from scripts.sync_daily_baostock import _process_rows
 
         rows = [
-            ["2026-05-12", "sh.600000", "10.0", "10.5", "9.8", "11.0", "1000000", "11000000", "10.0", "10.0", "1", "0"],
+            ["2026-05-12", "sh.600000", "10.0", "10.5", "9.8", "11.0", "10.0", "1000000", "11000000", "10.0", "1", "0"],
         ]
         records = _process_rows("600000.SH", rows)
         assert len(records) == 1
@@ -45,8 +49,8 @@ class TestProcessRows:
         from scripts.sync_daily_baostock import _process_rows
 
         rows = [
-            ["2026-05-11", "sh.600000", "9.0", "9.5", "8.8", "10.0", "900000", "9000000", "", "", "1", "0"],
-            ["2026-05-12", "sh.600000", "10.0", "10.5", "9.8", "11.0", "1000000", "11000000", "", "", "1", "0"],
+            ["2026-05-11", "sh.600000", "9.0", "9.5", "8.8", "10.0", "", "900000", "9000000", "", "1", "0"],
+            ["2026-05-12", "sh.600000", "10.0", "10.5", "9.8", "11.0", "", "1000000", "11000000", "", "1", "0"],
         ]
         records = _process_rows("600000.SH", rows)
         # First row: no preclose, falls back to close
@@ -59,7 +63,7 @@ class TestProcessRows:
         from scripts.sync_daily_baostock import _process_rows
 
         rows = [
-            ["2026-05-12", "sh.600000", "10.0", "10.5", "9.8", "11.0", "1000000", "11000000", "10.0", "5.0", "1", "0"],
+            ["2026-05-12", "sh.600000", "10.0", "10.5", "9.8", "11.0", "10.0", "1000000", "11000000", "5.0", "1", "0"],
         ]
         records = _process_rows("600000.SH", rows)
         assert records[0]["pct_chg"] == 5.0  # source value, not computed
@@ -69,7 +73,7 @@ class TestProcessRows:
         from scripts.sync_daily_baostock import _process_rows
 
         rows = [
-            ["2026-05-12", "sh.600000", "10.0", "10.5", "9.8", "11.0", "1000000", "11000000", "10.0", "", "1", "0"],
+            ["2026-05-12", "sh.600000", "10.0", "10.5", "9.8", "11.0", "10.0", "1000000", "11000000", "", "1", "0"],
         ]
         records = _process_rows("600000.SH", rows)
         assert records[0]["pct_chg"] == 10.0  # (11-10)/10*100, computed

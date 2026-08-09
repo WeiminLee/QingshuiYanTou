@@ -2412,9 +2412,10 @@ class DataFetcher:
                     trade_date = str(rec.get("date", "")).replace("-", "")
                     try:
                         saved = await self._save_stock_kline(code, trade_date, rec)
-                        if saved is True:
+                        daily_saved = saved.get("daily_saved")
+                        if daily_saved is True:
                             counters["success"] += 1
-                        elif saved is False:
+                        elif daily_saved is False:
                             counters["fail"] += 1
                     except Exception as exc:
                         counters["fail"] += 1

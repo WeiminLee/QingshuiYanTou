@@ -118,21 +118,24 @@ def _process_rows(ts_code: str, rows: list[list]) -> list[dict]:
 
     使用源数据中的 preclose 和 pctChg。仅当源 pctChg 缺失时，
     从 preclose/close 计算。
+
+    baostock 字段顺序: date(0),code(1),open(2),high(3),low(4),close(5),
+    preclose(6),volume(7),amount(8),pctChg(9),tradestatus(10),isST(11)
     """
     records = []
     prev_close = None
-    # baostock 返回字段: date,code,open,high,low,close,preclose,volume,amount,pctChg,tradestatus,isST
     for row in rows:
         trade_date_str = row[0]
         open_price = float(row[2]) if row[2] else 0.0
         high_price = float(row[3]) if row[3] else 0.0
         low_price = float(row[4]) if row[4] else 0.0
         close_price = float(row[5]) if row[5] else 0.0
-        vol = float(row[6]) if row[6] else 0.0
-        amount = float(row[7]) if row[7] else 0.0
+        raw_preclose = row[6] if len(row) > 6 and row[6] else None
+        vol = float(row[7]) if len(row) > 7 and row[7] else 0.0
+        amount = float(row[8]) if len(row) > 8 and row[8] else 0.0
+        raw_pctchg = row[9] if len(row) > 9 and row[9] else None
 
-        # 使用源 preclose（字段 8），缺失时 fallback 到 prev_close
-        raw_preclose = row[8] if len(row) > 8 and row[8] else None
+        # 使用源 preclose，缺失时 fallback 到 prev_close
         if raw_preclose is not None:
             pre_close = float(raw_preclose)
         elif prev_close is not None:
@@ -140,8 +143,7 @@ def _process_rows(ts_code: str, rows: list[list]) -> list[dict]:
         else:
             pre_close = close_price
 
-        # 使用源 pctChg（字段 9），缺失时计算
-        raw_pctchg = row[9] if len(row) > 9 and row[9] else None
+        # 使用源 pctChg，缺失时计算
         if raw_pctchg is not None:
             pct_chg = float(raw_pctchg)
         else:
@@ -221,7 +223,7 @@ def _apply_qfq(
 
 
 async def _batch_insert(data: list[dict]) -> int:
-    """批量 INSERT daily_data。"""
+    """批量 INSERT daily_data 并 best-effort upsert daily_basic。"""
     if not data:
         return 0
     stmt = text("""
@@ -233,10 +235,36 @@ async def _batch_insert(data: list[dict]) -> int:
             :change, :pct_chg, :vol, :amount, :is_suspended
         ) ON CONFLICT (ts_code, trade_date) DO NOTHING
     """)
+    basic_stmt = text("""
+        INSERT INTO daily_basic (ts_code, trade_date, close, turnover_rate)
+        VALUES (:ts_code, :trade_date, :close, :turnover_rate)
+        ON CONFLICT (ts_code, trade_date) DO UPDATE SET
+            close = EXCLUDED.close,
+            turnover_rate = EXCLUDED.turnover_rate
+    """)
     try:
         async with engine.begin() as conn:
             result = await conn.execute(stmt, data)
-            return result.rowcount if result.rowcount else 0
+            saved = result.rowcount if result.rowcount else 0
+        # best-effort daily_basic upsert（仅写入非空 close/turnover_rate）
+        for rec in data:
+            close = rec.get("close")
+            if close is None or close == 0.0:
+                continue
+            try:
+                async with engine.begin() as conn:
+                    await conn.execute(
+                        basic_stmt,
+                        {
+                            "ts_code": rec["ts_code"],
+                            "trade_date": rec["trade_date"],
+                            "close": close,
+                            "turnover_rate": None,  # baostock 不提供换手率
+                        },
+                    )
+            except Exception:
+                pass
+        return saved
     except Exception as e:
         logger.warning(f"批量插入失败，降级逐条: {e}")
         saved = 0

@@ -94,7 +94,7 @@ class TestPerStockKlineCatchup:
             return [{"date": "2026-05-22"}]
 
         fetcher.data_source.get_stock_kline.side_effect = fake_get_stock_kline
-        fetcher._save_stock_kline = AsyncMock(return_value=True)
+        fetcher._save_stock_kline = AsyncMock(return_value={"daily_saved": True, "basic_success": 0, "basic_fail": 0})
 
         asyncio.run(fetcher.fetch_all_stocks_kline(end_date="20260522"))
 
@@ -125,7 +125,9 @@ class TestSaveStockKline:
             "isST": "0",
         }
         saved = await fetcher._save_stock_kline("600000.SH", "20260512", rec)
-        assert saved is True or saved is None
+        # _save_stock_kline now returns a dict; daily_saved is True/None/False
+        assert isinstance(saved, dict)
+        assert saved.get("daily_saved") is True or saved.get("daily_saved") is None
 
 
 class TestAkshareThrottleApplied:
@@ -354,7 +356,7 @@ def test_fetch_all_stocks_kline_uses_isolated_data_source(monkeypatch):
         {"ts_code": "600000.SH"},
         {"ts_code": "000001.SZ"},
     ]
-    fetcher._save_stock_kline = AsyncMock(return_value=True)
+    fetcher._save_stock_kline = AsyncMock(return_value={"daily_saved": True, "basic_success": 0, "basic_fail": 0})
 
     result = asyncio.run(fetcher.fetch_all_stocks_kline(end_date="20260522"))
 
