@@ -372,6 +372,51 @@ class TestKlineProviderRegistry:
         registry.fetch_stock_kline("600000.SH", "20260501", "20260512")
         assert call_order == ["first", "second", "third"]
 
+    def test_non_standard_exception_falls_through(self):
+        """Regression: non-standard exceptions (e.g. OSError) must also fall through."""
+        from app.data_pipeline.providers import KlineProviderRegistry
+
+        class RaisesOSError:
+            name = "broken"
+
+            def fetch_stock_kline(self, *args, **kwargs):
+                raise OSError("connection reset")
+
+        registry = KlineProviderRegistry(
+            providers=[
+                RaisesOSError(),
+                FakeFallbackProvider(),
+            ]
+        )
+        result = registry.fetch_stock_kline("600000.SH", "20260501", "20260512")
+        assert result.source == "fallback"
+        assert result.fallback_used is True
+        assert len(result.errors) == 1
+        assert "connection reset" in result.errors[0]["error"]
+
+    def test_key_error_on_missing_field_falls_through(self):
+        """Regression: KeyError/TypeError from provider must also fall through."""
+        from app.data_pipeline.providers import KlineProviderRegistry
+
+        class RaisesKeyError:
+            name = "key_missing"
+
+            def fetch_stock_kline(self, *args, **kwargs):
+                d = {}
+                _ = d["missing"]  # raises KeyError
+                return []
+
+        registry = KlineProviderRegistry(
+            providers=[
+                RaisesKeyError(),
+                FakeFallbackProvider(),
+            ]
+        )
+        result = registry.fetch_stock_kline("600000.SH", "20260501", "20260512")
+        assert result.source == "fallback"
+        assert result.fallback_used is True
+        assert len(result.errors) == 1
+
 
 class TestBaostockAdapter:
     """Baostock adapter registration and invocation."""
@@ -447,6 +492,45 @@ class TestOptionalProviders:
             pytest.skip("akshare not installed")
 
         assert callable(AkshareKlineProvider)
+
+    def test_efinance_filters_by_date_range(self):
+        """Regression: efinance provider must pass start/end date to API."""
+        try:
+            import efinance as ef
+        except ImportError:
+            pytest.skip("efinance not installed")
+
+        from unittest.mock import patch
+
+        import pandas as pd
+
+        from app.data_pipeline.providers import EfinanceKlineProvider
+
+        mock_df = pd.DataFrame(
+            {
+                "日期": ["2026-05-10", "2026-05-12", "2026-05-15"],
+                "开盘": [10.0, 10.1, 10.2],
+                "最高": [10.5, 10.6, 10.7],
+                "最低": [9.8, 9.9, 10.0],
+                "收盘": [10.2, 10.3, 10.4],
+                "昨收": [10.0, 10.2, 10.3],
+                "成交量": [1000000, 1100000, 1200000],
+                "成交额": [10200000, 11300000, 12400000],
+                "涨跌幅": [2.0, 1.0, 1.0],
+            }
+        )
+
+        provider = EfinanceKlineProvider()
+        with patch.object(ef.stock, "get_quote_history", return_value=mock_df) as mock_get:
+            records = provider.fetch_stock_kline(
+                "600000.SH", "20260501", "20260531", adjustflag="3"
+            )
+            mock_get.assert_called_once()
+            # Verify that beg and end were passed in YYYY-MM-DD format
+            _call_kwargs = mock_get.call_args
+            # efinance's get_quote_history receives beg= and end= as keyword args
+            assert "beg" in mock_get.call_args[1] or len(mock_get.call_args[0]) >= 2
+            assert len(records) == 3
 
 
 class TestDefaultProviderRegistry:

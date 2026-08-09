@@ -81,6 +81,13 @@ def _safe_str(val: Any) -> str:
     return str(val)
 
 
+def _yyyymmdd_to_dash(yyyymmdd: str) -> Optional[str]:
+    """YYYYMMDD → YYYY-MM-DD，无效输入返回 None。"""
+    if not yyyymmdd or len(yyyymmdd) < 8 or not yyyymmdd[:8].isdigit():
+        return None
+    return f"{yyyymmdd[:4]}-{yyyymmdd[4:6]}-{yyyymmdd[6:8]}"
+
+
 # =========================================================================
 # Provider 协议
 # =========================================================================
@@ -302,7 +309,7 @@ class KlineProviderRegistry:
                     errors=errors,
                 )
 
-            except (RuntimeError, ValueError) as e:
+            except Exception as e:
                 errors.append(
                     {
                         "provider": provider.name,
@@ -388,7 +395,10 @@ class EfinanceKlineProvider:
 
         try:
             numeric = "".join(filter(str.isdigit, ts_code))
-            df = ef.stock.get_quote_history(numeric)
+            # efinance get_quote_history 支持 beg/end 参数过滤日期范围
+            beg = _yyyymmdd_to_dash(start_date)
+            end = _yyyymmdd_to_dash(end_date)
+            df = ef.stock.get_quote_history(numeric, beg=beg, end=end)
             if df is None or len(df) == 0:
                 return []
             records: list[dict[str, Any]] = []
