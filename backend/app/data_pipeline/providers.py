@@ -365,7 +365,7 @@ class BaostockKlineProvider:
 # =========================================================================
 
 
-class _LazyEfinanceKlineProvider:
+class EfinanceKlineProvider:
     """efinance K 线 provider（懒加载，仅在 efinance 可导入时创建）。"""
 
     name = "efinance"
@@ -413,7 +413,7 @@ class _LazyEfinanceKlineProvider:
             raise RuntimeError(f"efinance fetch failed: {e}")
 
 
-class _LazyAkshareKlineProvider:
+class AkshareKlineProvider:
     """akshare K 线 provider（懒加载，仅在 akshare 可导入时创建）。"""
 
     name = "akshare"
@@ -479,7 +479,7 @@ def _try_import_optional_provider(
     """尝试导入可选 provider 的依赖库，成功则返回实例。
 
     Args:
-        provider_cls: provider 类（如 ``_LazyEfinanceKlineProvider``）
+        provider_cls: provider 类（如 ``EfinanceKlineProvider``）
         client: 可选的已初始化 client 实例
 
     Returns:
@@ -513,12 +513,12 @@ def create_default_registry(
     providers.append(BaostockKlineProvider(client=client or DataSourceClient()))
 
     # 2. Efinance（可选）
-    efinance = _try_import_optional_provider(_LazyEfinanceKlineProvider, client=client)
+    efinance = _try_import_optional_provider(EfinanceKlineProvider, client=client)
     if efinance is not None:
         providers.append(efinance)
 
     # 3. Akshare（可选）
-    akshare = _try_import_optional_provider(_LazyAkshareKlineProvider, client=client)
+    akshare = _try_import_optional_provider(AkshareKlineProvider, client=client)
     if akshare is not None:
         providers.append(akshare)
 
