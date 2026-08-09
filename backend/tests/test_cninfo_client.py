@@ -520,9 +520,9 @@ class TestRunCninfoJobBehavior:
         mock_fetcher_mod.DataFetcher = MagicMock(return_value=fake_fetcher)
 
         mock_dingtalk = MagicMock()
-        mock_dingtalk.notify_task_start = MagicMock()
-        mock_dingtalk.notify_task_success = MagicMock()
-        mock_dingtalk.notify_task_failed = MagicMock()
+        mock_dingtalk.notify_task_start = AsyncMock()
+        mock_dingtalk.notify_task_success = AsyncMock()
+        mock_dingtalk.notify_task_failed = AsyncMock()
 
         with patch.dict(
             "sys.modules",
@@ -551,9 +551,9 @@ class TestRunCninfoJobBehavior:
             "fail": 0,
         }
         # notify_task_start / notify_task_success 被调用
-        mock_dingtalk.notify_task_start.assert_called_once_with("巨潮公告同步")
-        mock_dingtalk.notify_task_success.assert_called_once()
-        mock_dingtalk.notify_task_failed.assert_not_called()
+        mock_dingtalk.notify_task_start.assert_awaited_once_with("巨潮公告同步")
+        mock_dingtalk.notify_task_success.assert_awaited_once()
+        mock_dingtalk.notify_task_failed.assert_not_awaited()
 
     def test_run_cninfo_job_partial_flow(self):
         """fail > 0 -> PARTIAL 状态。"""
@@ -585,9 +585,9 @@ class TestRunCninfoJobBehavior:
         mock_fetcher_mod.DataFetcher = MagicMock(return_value=fake_fetcher)
 
         mock_dingtalk = MagicMock()
-        mock_dingtalk.notify_task_start = MagicMock()
-        mock_dingtalk.notify_task_success = MagicMock()
-        mock_dingtalk.notify_task_failed = MagicMock()
+        mock_dingtalk.notify_task_start = AsyncMock()
+        mock_dingtalk.notify_task_success = AsyncMock()
+        mock_dingtalk.notify_task_failed = AsyncMock()
 
         with patch.dict(
             "sys.modules",
@@ -626,9 +626,9 @@ class TestRunCninfoJobBehavior:
         mock_fetcher_mod.DataFetcher = MagicMock(return_value=fake_fetcher)
 
         mock_dingtalk = MagicMock()
-        mock_dingtalk.notify_task_start = MagicMock()
-        mock_dingtalk.notify_task_success = MagicMock()
-        mock_dingtalk.notify_task_failed = MagicMock()
+        mock_dingtalk.notify_task_start = AsyncMock()
+        mock_dingtalk.notify_task_success = AsyncMock()
+        mock_dingtalk.notify_task_failed = AsyncMock()
 
         with patch.dict(
             "sys.modules",
@@ -648,7 +648,7 @@ class TestRunCninfoJobBehavior:
         assert args[1] == _TS.FAILED
         assert kwargs.get("error_message") == "boom"
 
-        mock_dingtalk.notify_task_failed.assert_called_once_with(
+        mock_dingtalk.notify_task_failed.assert_awaited_once_with(
             "巨潮公告同步",
             "boom",
         )
