@@ -41,8 +41,8 @@ class TestNewsServiceFallback:
                         with patch("app.data_pipeline.data_source.DataSourceClient") as mock_ds_cls:
                             mock_ds = MagicMock()
                             mock_ds.get_cls_telegraph.return_value = [
-                                {"标题": "利好公告", "内容": "某公司发布业绩预增", "发布日期": "2026-05-12", "发布时间": "2026-05-12 09:00"},
-                                {"标题": "利好公告", "内容": "重复内容", "发布日期": "2026-05-12", "发布时间": "2026-05-12 09:00"},
+                                {"title": "利好公告", "content": "某公司发布业绩预增", "pub_date": "2026-05-12", "pub_time": "2026-05-12 09:00"},
+                                {"title": "利好公告", "content": "重复内容", "pub_date": "2026-05-12", "pub_time": "2026-05-12 09:00"},
                             ]
                             mock_ds_cls.return_value = mock_ds
                             result = await svc.fetch_and_save()
@@ -83,7 +83,7 @@ class TestNewsServiceFallback:
                         with patch("app.data_pipeline.data_source.DataSourceClient") as mock_ds_cls:
                             mock_ds = MagicMock()
                             mock_ds.get_cls_telegraph.return_value = [
-                                {"标题": "CLS新闻", "内容": "这是一条财联社新闻", "发布日期": "2026-05-12", "发布时间": "2026-05-12 10:00"},
+                                {"title": "CLS新闻", "content": "这是一条财联社新闻", "pub_date": "2026-05-12", "pub_time": "2026-05-12 10:00"},
                             ]
                             mock_ds_cls.return_value = mock_ds
                             result = await svc.fetch_and_save()
@@ -136,7 +136,7 @@ class TestNewsServiceFallback:
                         with patch("app.data_pipeline.data_source.DataSourceClient") as mock_ds_cls:
                             mock_ds = MagicMock()
                             mock_ds.get_cls_telegraph.return_value = [
-                                {"标题": "标题A", "内容": "内容A", "发布日期": "2026-05-12", "发布时间": "2026-05-12 08:30"},
+                                {"title": "标题A", "content": "内容A", "pub_date": "2026-05-12", "pub_time": "2026-05-12 08:30"},
                             ]
                             mock_ds_cls.return_value = mock_ds
                             await svc.fetch_and_save()

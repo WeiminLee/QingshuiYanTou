@@ -149,7 +149,7 @@ class NewsService:
 
         async with engine.connect() as conn:
             for rec in cls_records[:limit]:
-                title = str(rec.get("标题") or "")
+                title = str(rec.get("title") or "")
                 if not title.strip():
                     skipped += 1
                     continue
@@ -158,9 +158,9 @@ class NewsService:
                 tags = auto_tag(title, concept_names)
                 metadata = {"tags": tags} if tags else {}
 
-                content = str(rec.get("内容") or "")
-                pub_date = str(rec.get("发布日期") or "")
-                pub_time = str(rec.get("发布时间") or "")
+                content = str(rec.get("content") or "")
+                pub_date = str(rec.get("pub_date") or "")
+                pub_time = str(rec.get("pub_time") or "")
                 pub_datetime_str = f"{pub_date} {pub_time}".strip() if pub_date and pub_time else pub_date
 
                 from sqlalchemy import text
