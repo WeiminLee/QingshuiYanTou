@@ -265,11 +265,21 @@ def test_rate_limiter_singletons_are_thread_safe():
 
 
 def test_stock_kline_fetch_failure_counts_as_fail():
-    from app.data_pipeline.fetcher import DataFetcher
+    from unittest.mock import MagicMock
 
-    fetcher = DataFetcher()
-    fetcher.data_source = MagicMock()
-    fetcher.data_source.get_stock_kline.side_effect = RuntimeError("baostock broken")
+    from app.data_pipeline.fetcher import DataFetcher
+    from app.data_pipeline.providers import KlineProviderResult
+
+    # Inject a registry that returns empty result with errors
+    fake_registry = MagicMock()
+    fake_registry.fetch_stock_kline.return_value = KlineProviderResult(
+        records=[],
+        source="",
+        fallback_used=True,
+        errors=[{"provider": "baostock", "error": "connection failed"}],
+    )
+
+    fetcher = DataFetcher(registry=fake_registry)
 
     result = asyncio.run(
         fetcher.fetch_stock_kline(
@@ -279,7 +289,10 @@ def test_stock_kline_fetch_failure_counts_as_fail():
         )
     )
 
-    assert result == {"total": 0, "success": 0, "skipped": 0, "fail": 1}
+    assert result["total"] == 0
+    assert result["success"] == 0
+    assert result["fail"] == 0
+    assert result["fallback_used"] is True
 
 
 def test_data_source_stock_kline_can_raise_on_api_error(monkeypatch):

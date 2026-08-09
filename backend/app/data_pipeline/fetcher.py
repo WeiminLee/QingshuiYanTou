@@ -139,8 +139,12 @@ def _concept_code(concept_name: str) -> str:
 class DataFetcher:
     """数据获取服务"""
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        registry: Any | None = None,
+    ) -> None:
         self.data_source = DataSourceClient()
+        self._registry = registry
         self.storage = FileStorage()
         self.cninfo_client = CninfoClient()
         self.audit_logger = AsyncAuditLogger("data_pipeline")
@@ -2209,8 +2213,12 @@ class DataFetcher:
         ts_code: str,
         start_date: str | None = None,
         end_date: str | None = None,
-    ) -> dict[str, int]:
-        """单只个股 K 线 orchestration（Phase 31 D-A1）。"""
+    ) -> dict[str, Any]:
+        """单只个股 K 线 orchestration（Phase 31 D-A1）。
+
+        通过 KlineProviderRegistry 获取数据，支持多源 fallback。
+        返回统计包含 source 和 fallback_used 字段。
+        """
         today = datetime.now()
         end = datetime.strptime(end_date, "%Y%m%d") if end_date else today - timedelta(days=1)
         start = (
@@ -2219,22 +2227,39 @@ class DataFetcher:
         start_str = start.strftime("%Y%m%d")
         end_str = end.strftime("%Y%m%d")
 
+        # 懒加载 registry（使用当前 self.data_source，支持测试注入 mock）
+        registry = self._registry
+        if registry is None:
+            from app.data_pipeline.providers import create_default_registry
+
+            registry = create_default_registry(client=self.data_source)
+            self._registry = registry
+
         try:
-            records = await asyncio.to_thread(
+            result = await asyncio.to_thread(
                 partial(
-                    self.data_source.get_stock_kline,
+                    registry.fetch_stock_kline,
                     ts_code=ts_code,
                     start_date=start_str,
                     end_date=end_str,
                     adjustflag="3",
-                    raise_on_error=True,
                 )
             )
         except Exception as exc:
             logger.warning("个股 %s K线抓取失败: %s", ts_code, exc)
-            return {"total": 0, "success": 0, "skipped": 0, "fail": 1}
+            return {
+                "total": 0, "success": 0, "skipped": 0, "fail": 1,
+                "source": "", "fallback_used": False,
+                "basic_success": 0, "basic_fail": 0,
+            }
+
+        records = result.records
         if not records:
-            return {"total": 0, "success": 0, "skipped": 0, "fail": 0}
+            return {
+                "total": 0, "success": 0, "skipped": 0, "fail": 0,
+                "source": result.source, "fallback_used": result.fallback_used,
+                "basic_success": 0, "basic_fail": 0,
+            }
 
         success = skipped = fail = 0
         basic_success = basic_fail = 0
@@ -2259,6 +2284,8 @@ class DataFetcher:
             "success": success,
             "skipped": skipped,
             "fail": fail,
+            "source": result.source,
+            "fallback_used": result.fallback_used,
             "basic_success": basic_success,
             "basic_fail": basic_fail,
         }

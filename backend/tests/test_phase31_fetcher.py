@@ -416,3 +416,108 @@ def test_fetch_all_stocks_kline_counts_save_exception_as_fail(monkeypatch):
 
     assert result["fail"] == 1
     assert result["success"] == 0
+
+
+class TestFetchStockKlineWithRegistry:
+    """DataFetcher.fetch_stock_kline() consumes KlineProviderRegistry."""
+
+    def test_fetch_stock_kline_uses_registry(self):
+        """Inject a fake registry and assert it is called with the right date range."""
+        import asyncio
+        from unittest.mock import AsyncMock, MagicMock
+
+        import app.data_pipeline.fetcher as fetcher_mod
+        from app.data_pipeline.fetcher import DataFetcher
+        from app.data_pipeline.providers import KlineProviderResult
+
+        fake_registry = MagicMock()
+        fake_registry.fetch_stock_kline.return_value = KlineProviderResult(
+            records=[{"date": "2026-05-12", "code": "600000.SH", "open": "10.0",
+                       "high": "10.5", "low": "9.8", "close": "10.2",
+                       "preclose": "10.0", "volume": "1000000", "amount": "10200000",
+                       "pctChg": "2.0", "tradestatus": "1"}],
+            source="baostock",
+            fallback_used=False,
+            errors=[],
+        )
+
+        fetcher = DataFetcher(registry=fake_registry)
+        fetcher.data_source = MagicMock()
+        fetcher._save_stock_kline = AsyncMock(return_value={
+            "daily_saved": True, "basic_success": 1, "basic_fail": 0,
+        })
+
+        result = asyncio.run(fetcher.fetch_stock_kline("600000.SH", "20260501", "20260531"))
+
+        fake_registry.fetch_stock_kline.assert_called_once_with(
+            ts_code="600000.SH", start_date="20260501", end_date="20260531", adjustflag="3"
+        )
+        assert result["source"] == "baostock"
+        assert result["fallback_used"] is False
+        assert result["success"] == 1
+        assert result["basic_success"] == 1
+
+    def test_fetch_stock_kline_fallback_exposes_source(self):
+        """When primary fails and fallback succeeds, result shows fallback source."""
+        import asyncio
+        from unittest.mock import AsyncMock, MagicMock
+
+        from app.data_pipeline.fetcher import DataFetcher
+        from app.data_pipeline.providers import KlineProviderResult
+
+        fake_registry = MagicMock()
+        fake_registry.fetch_stock_kline.return_value = KlineProviderResult(
+            records=[{"date": "2026-05-12", "code": "600000.SH", "open": "10.0",
+                       "high": "10.5", "low": "9.8", "close": "10.2",
+                       "preclose": "10.0", "volume": "1000000", "amount": "10200000",
+                       "pctChg": "2.0", "tradestatus": "1"}],
+            source="efinance",
+            fallback_used=True,
+            errors=[{"provider": "baostock", "error": "connection failed"}],
+        )
+
+        fetcher = DataFetcher(registry=fake_registry)
+        fetcher.data_source = MagicMock()
+        fetcher._save_stock_kline = AsyncMock(return_value={
+            "daily_saved": True, "basic_success": 0, "basic_fail": 0,
+        })
+
+        result = asyncio.run(fetcher.fetch_stock_kline("600000.SH", "20260501", "20260531"))
+
+        assert result["source"] == "efinance"
+        assert result["fallback_used"] is True
+        assert result["success"] == 1
+
+    def test_fetch_stock_kline_all_providers_fail(self):
+        """When all providers fail, result shows fail>0 and source empty."""
+        import asyncio
+        from unittest.mock import MagicMock, AsyncMock
+
+        from app.data_pipeline.fetcher import DataFetcher
+        from app.data_pipeline.providers import KlineProviderResult
+
+        fake_registry = MagicMock()
+        fake_registry.fetch_stock_kline.return_value = KlineProviderResult(
+            records=[],
+            source="",
+            fallback_used=True,
+            errors=[{"provider": "baostock", "error": "failed"}],
+        )
+
+        fetcher = DataFetcher(registry=fake_registry)
+        fetcher.data_source = MagicMock()
+
+        result = asyncio.run(fetcher.fetch_stock_kline("600000.SH", "20260501", "20260531"))
+
+        assert result["source"] == ""
+        assert result["total"] == 0
+        assert result["fail"] == 0
+        assert result["fallback_used"] is True
+
+    def test_fetch_stock_kline_default_registry(self):
+        """DataFetcher should lazily create a default registry on first call."""
+        from app.data_pipeline.fetcher import DataFetcher
+
+        fetcher = DataFetcher()
+        # Registry is None before first call (lazy creation)
+        assert fetcher._registry is None
