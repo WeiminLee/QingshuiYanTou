@@ -17,6 +17,7 @@ def _make_kline_row(
     high: float = 10.5,
     low: float = 9.8,
     close: float = 10.2,
+    pre_close: float = 10.0,
     volume: float = 1000000,
     amount: float = 10200000,
     pct_chg: float = 2.0,
@@ -29,6 +30,7 @@ def _make_kline_row(
         "high": high,
         "low": low,
         "close": close,
+        "pre_close": pre_close,
         "volume": volume,
         "amount": amount,
         "pct_chg": pct_chg,
@@ -58,6 +60,7 @@ class _MockConn:
                 r["high"],
                 r["low"],
                 r["close"],
+                r["pre_close"],
                 r["volume"],
                 r["amount"],
                 r["pct_chg"],
@@ -122,12 +125,16 @@ class TestKlineServiceAggregation:
         assert w1["volume"] == 2_100_000
         assert w1["amount"] == 21_000_000
         assert w1["turnover_rate"] is not None
+        # pct_chg = (last_close - first_pre_close) / first_pre_close * 100 = (10.6 - 10.0) / 10.0 * 100 = 6.0
+        assert w1["pct_chg"] == 6.0
 
         w2 = result[1]
         assert w2["trade_date"] == "20260511"
         assert w2["open"] == 10.4
         assert w2["close"] == 10.5
         assert w2["volume"] == 900_000
+        # pct_chg = (10.5 - 10.0) / 10.0 * 100 = 5.0
+        assert w2["pct_chg"] == 5.0
 
     @pytest.mark.asyncio
     async def test_monthly_aggregation(self):
@@ -157,6 +164,8 @@ class TestKlineServiceAggregation:
         assert m1["close"] == 10.6
         assert m1["volume"] == 2_100_000
         assert m1["amount"] == 21_000_000
+        # pct_chg = (10.6 - 10.0) / 10.0 * 100 = 6.0
+        assert m1["pct_chg"] == 6.0
 
         m2 = result[1]
         assert m2["trade_date"] == "20260601"

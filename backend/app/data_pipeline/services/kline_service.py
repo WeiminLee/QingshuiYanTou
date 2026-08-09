@@ -23,6 +23,25 @@ def _parse_yyyymmdd(value: str) -> str | None:
     return f"{value[:4]}-{value[4:6]}-{value[6:8]}"
 
 
+def _compute_period_pct_chg(
+    first_row: dict[str, Any],
+    last_row: dict[str, Any],
+) -> float:
+    """计算聚合周期的涨跌幅。
+
+    使用 period 首条记录的 pre_close 作为基准，末条记录的 close 作为当前值。
+    若 pre_close 不可用，回退到首条 open。
+
+    Returns:
+        涨跌幅百分比，基准不可用时返回 0。
+    """
+    base = first_row.get("pre_close") or first_row.get("open", 0)
+    close = last_row.get("close", 0)
+    if base and base > 0:
+        return round((close - base) / base * 100, 2)
+    return 0.0
+
+
 def _aggregate_kline_rows(
     rows: list[dict[str, Any]],
     frequency: str,
@@ -76,7 +95,7 @@ def _aggregate_kline_rows(
             "close": last.get("close", 0),
             "volume": sum(r.get("volume", 0) for r in group_rows),
             "amount": sum(r.get("amount", 0) for r in group_rows),
-            "pct_chg": first.get("pct_chg", 0),
+            "pct_chg": _compute_period_pct_chg(first, last),
             "turnover_rate": first.get("turnover_rate"),
         }
         result.append(aggregated)
@@ -121,6 +140,7 @@ class KlineService:
             d.high,
             d.low,
             d.close,
+            d.pre_close,
             d.vol,
             d.amount,
             d.pct_chg,
@@ -154,10 +174,11 @@ class KlineService:
                     "high": row[3] or 0,
                     "low": row[4] or 0,
                     "close": row[5] or 0,
-                    "volume": row[6] or 0,
-                    "amount": row[7] or 0,
-                    "pct_chg": row[8] or 0,
-                    "turnover_rate": row[9] or 0,
+                    "pre_close": row[6] or 0,
+                    "volume": row[7] or 0,
+                    "amount": row[8] or 0,
+                    "pct_chg": row[9] or 0,
+                    "turnover_rate": row[10] or 0,
                 }
                 for row in rows
             ]
