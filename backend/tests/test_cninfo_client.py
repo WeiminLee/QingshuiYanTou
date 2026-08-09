@@ -1155,16 +1155,93 @@ class TestCninfoClientRegulatory:
 
     @pytest.mark.asyncio
     async def test_query_regulatory_returns_empty_list_on_error(self):
-        """query_regulatory_announcements should return empty list on API error."""
+        """query_regulatory_announcements should return empty list via mock."""
+        from unittest.mock import AsyncMock, MagicMock, patch
+
         from app.data_pipeline.cninfo_client import CninfoClient
 
         client = CninfoClient()
-        with patch.object(client, "query_announcements", return_value={"total": 0, "list": []}):
-            result = await client.query_regulatory_announcements(
-                plate="szse", ann_date="20260501"
-            )
-            assert result["total"] == 0
-            assert result["list"] == []
+        # Mock session.post to avoid real HTTP, mock limiter + session init
+        mock_response = MagicMock()
+        mock_response.json.return_value = {"code": "0", "announcements": [], "totalRecordNum": 0}
+        mock_response.raise_for_status.return_value = None
+
+        with patch.object(client, "_ensure_session_sync"):
+            with patch.object(client, "session") as mock_session:
+                mock_session.post.return_value = mock_response
+                with patch("app.data_pipeline.cninfo_client.get_cninfo_api_limiter") as mock_limiter:
+                    mock_lim = AsyncMock()
+                    mock_lim.wait_and_acquire.return_value = None
+                    mock_limiter.return_value = mock_lim
+                    result = await client.query_regulatory_announcements(
+                        plate="szse", ann_date="20260501"
+                    )
+        assert result["total"] == 0
+        assert result["list"] == []
+
+    @pytest.mark.asyncio
+    async def test_query_regulatory_posts_correct_payload(self):
+        """query_regulatory_announcements should post correct payload with column=regulator."""
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        from app.data_pipeline.cninfo_client import CninfoClient
+
+        client = CninfoClient()
+        mock_response = MagicMock()
+        mock_response.json.return_value = {"code": "0", "announcements": [], "totalRecordNum": 0}
+        mock_response.raise_for_status.return_value = None
+
+        captured = {}
+
+        with patch.object(client, "_ensure_session_sync"):
+            with patch.object(client, "session") as mock_session:
+                def sync_post(url, data, **kw):
+                    captured["url"] = url
+                    captured["data"] = data
+                    return mock_response
+                mock_session.post = sync_post
+                with patch("app.data_pipeline.cninfo_client.get_cninfo_api_limiter") as mock_limiter:
+                    mock_lim = AsyncMock()
+                    mock_lim.wait_and_acquire.return_value = None
+                    mock_limiter.return_value = mock_lim
+                    await client.query_regulatory_announcements(
+                        plate="szse", ann_date="20260501"
+                    )
+
+        assert "hisAnnouncement/query" in captured["url"]
+        payload = captured["data"]
+        assert payload["column"] == "regulator"
+        assert payload["plate"] == "jgjg_sz;"
+        assert payload["pageNum"] == "1"
+        assert "2026-05-01" in payload["seDate"]
+
+    @pytest.mark.asyncio
+    async def test_get_regulatory_dedup(self):
+        """get_regulatory_announcements should dedup by announcementId."""
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        from app.data_pipeline.cninfo_client import CninfoClient
+
+        client = CninfoClient()
+        pages = [
+            {"total": 3, "list": [
+                {"announcementId": "1", "announcementTitle": "A"},
+                {"announcementId": "2", "announcementTitle": "B"},
+            ], "has_more": True, "total_pages": 2},
+            {"total": 3, "list": [
+                {"announcementId": "2", "announcementTitle": "B_dup"},
+                {"announcementId": "3", "announcementTitle": "C"},
+            ], "has_more": False, "total_pages": 2},
+        ]
+        page_iter = iter(pages)
+
+        with patch.object(client, "query_regulatory_announcements") as mock_query:
+            mock_query.side_effect = [next(page_iter), next(page_iter)]
+            result = await client.get_regulatory_announcements(plate="szse", ann_date="20260501")
+
+        assert len(result) == 3
+        ids = [a["announcementId"] for a in result]
+        assert ids == ["1", "2", "3"]
 
 
 class TestRegulatoryAnnouncementDedup:
@@ -1191,3 +1268,36 @@ class TestDataFetcherRegulatoryEntry:
         from app.data_pipeline.fetcher import DataFetcher
 
         assert hasattr(DataFetcher, "fetch_regulatory_announcements")
+
+    @pytest.mark.asyncio
+    async def test_fetch_regulatory_passes_plate_to_client(self):
+        """fetch_regulatory_announcements should pass plate to cninfo_client."""
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        from app.data_pipeline.fetcher import DataFetcher
+
+        fetcher = DataFetcher()
+        mock_client = MagicMock()
+        mock_client.get_regulatory_announcements = AsyncMock(return_value=[
+            {"announcementId": "1", "announcementTitle": "A", "secCode": "000001"},
+        ])
+        fetcher.cninfo_client = mock_client
+
+        mock_process = AsyncMock()
+        mock_process.return_value = {"total": 1, "success": 1, "skipped": 0, "downloaded": 0, "fail": 0}
+        fetcher._process_announcement_list = mock_process
+
+        import app.data_pipeline.fetcher as fetcher_mod
+        mock_tracker = AsyncMock()
+        mock_tracker.start_run.return_value = MagicMock()
+
+        with patch.object(fetcher_mod, "IngestionProgressTracker", return_value=mock_tracker):
+            result = await fetcher.fetch_regulatory_announcements(
+                plate="szse", ann_date="20260501"
+            )
+
+        mock_client.get_regulatory_announcements.assert_called_once_with(
+            plate="szse", ann_date="20260501"
+        )
+        assert result["total"] == 1
+        assert result["success"] == 1
