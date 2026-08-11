@@ -3,6 +3,8 @@
 
 使用钉钉自定义机器人 Webhook 推送告警消息。
 配置方式：在 .env 中设置 DINGTALK_WEBHOOK_URL 和 DINGTALK_SECRET（加签模式）
+
+所有公共函数均为 async，避免在异步事件循环中阻塞。
 """
 
 import base64
@@ -59,7 +61,7 @@ def _get_webhook_url() -> str:
     return f"{DINGTALK_WEBHOOK_URL}{separator}timestamp={timestamp}&sign={sign}"
 
 
-def send_text(content: str, at_mobiles: list[str] = None) -> bool:
+async def send_text(content: str, at_mobiles: list[str] = None) -> bool:
     """
     发送文本消息
 
@@ -87,10 +89,10 @@ def send_text(content: str, at_mobiles: list[str] = None) -> bool:
             "isAtAll": False,
         }
 
-    return _send(payload)
+    return await _send(payload)
 
 
-def send_markdown(title: str, content: str, at_mobiles: list[str] = None) -> bool:
+async def send_markdown(title: str, content: str, at_mobiles: list[str] = None) -> bool:
     """
     发送 Markdown 消息
 
@@ -119,15 +121,15 @@ def send_markdown(title: str, content: str, at_mobiles: list[str] = None) -> boo
             "isAtAll": False,
         }
 
-    return _send(payload)
+    return await _send(payload)
 
 
-def _send(payload: dict) -> bool:
-    """发送请求到钉钉"""
+async def _send(payload: dict) -> bool:
+    """异步发送请求到钉钉"""
     try:
         webhook_url = _get_webhook_url()
-        with httpx.Client(timeout=10) as client:
-            response = client.post(
+        async with httpx.AsyncClient(timeout=10) as client:
+            response = await client.post(
                 webhook_url,
                 json=payload,
                 headers={"Content-Type": "application/json"},
@@ -149,12 +151,12 @@ def _send(payload: dict) -> bool:
 # ── 快捷函数 ─────────────────────────────────────────────
 
 
-def notify_task_start(task_name: str) -> bool:
+async def notify_task_start(task_name: str) -> bool:
     """通知任务开始"""
-    return send_text(f"🔄 数据同步任务开始\n任务: {task_name}")
+    return await send_text(f"🔄 数据同步任务开始\n任务: {task_name}")
 
 
-def notify_task_success(task_name: str, total: int, success: int, fail: int) -> bool:
+async def notify_task_success(task_name: str, total: int, success: int, fail: int) -> bool:
     """通知任务成功"""
     emoji = "✅" if fail == 0 else "⚠️"
     content = f"""**{emoji} 数据同步完成**
@@ -163,10 +165,10 @@ def notify_task_success(task_name: str, total: int, success: int, fail: int) -> 
 **总数**: {total}
 **成功**: {success}
 **失败**: {fail}"""
-    return send_markdown(f"{emoji} {task_name} 完成", content)
+    return await send_markdown(f"{emoji} {task_name} 完成", content)
 
 
-def notify_task_failed(task_name: str, error: str) -> bool:
+async def notify_task_failed(task_name: str, error: str) -> bool:
     """通知任务失败"""
     content = f"""**❌ 数据同步失败**
 
@@ -174,10 +176,10 @@ def notify_task_failed(task_name: str, error: str) -> bool:
 **错误**: {error}
 
 请及时检查！"""
-    return send_markdown(f"❌ {task_name} 失败", content)
+    return await send_markdown(f"❌ {task_name} 失败", content)
 
 
-def notify_alert(level: str, task_name: str, message: str) -> bool:
+async def notify_alert(level: str, task_name: str, message: str) -> bool:
     """通知告警"""
     level_emoji = {"error": "🔴", "warning": "🟡", "info": "🔵"}.get(level, "📢")
     content = f"""**{level_emoji} 数据同步告警**
@@ -185,4 +187,4 @@ def notify_alert(level: str, task_name: str, message: str) -> bool:
 **级别**: {level.upper()}
 **任务**: {task_name}
 **详情**: {message}"""
-    return send_markdown(f"{level_emoji} 告警: {task_name}", content)
+    return await send_markdown(f"{level_emoji} 告警: {task_name}", content)

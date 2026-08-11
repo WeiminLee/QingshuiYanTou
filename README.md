@@ -219,21 +219,54 @@ FastAPI 入口在 `backend/app/main.py`。主要路由类别：
 
 ## 运行环境
 
-### 基础服务
+### Docker Compose（完整环境）
 
-使用 Docker Compose 启动依赖服务：
+一键启动所有依赖服务 + 应用容器：
 
 ```bash
+# 启动全部服务
 docker compose up -d
+
+# 查看状态
+docker compose ps
+
+# 查看日志
+docker compose logs -f backend
+
+# 仅启动基础设施（应用通过宿主机连接）
+docker compose up -d neo4j postgres mongo redis qdrant
+
+# 停止
+docker compose down
 ```
 
 包含：
 
-- Neo4j: `7474`, `7687`
-- PostgreSQL: host `5433`, container `5432`
-- MongoDB: host `27018`, container `27017`
-- Redis: `6379`
-- Qdrant: `6333`, `6334`
+| 服务 | 容器名 | 端口（宿主机:容器） |
+|------|--------|-------------------|
+| Neo4j | `qingshui_neo4j` | `7474:7474`, `7687:7687` |
+| PostgreSQL | `qingshui_postgres` | `5433:5432` |
+| MongoDB | `qingshui_mongo` | `27018:27017` |
+| Redis | `qingshui_redis` | `6379:6379` |
+| Qdrant | `qingshui_qdrant` | `6333:6333`, `6334:6334` |
+| Backend API | `qingshui_backend` | `8080:8000` |
+| Frontend | `qingshui_frontend` | `80:80`, `443:443` |
+| Scheduler | `qingshui_scheduler` | — |
+| Job Worker (×2) | 自动分配 | — |
+
+> **注意：** `backend/.env` 不会被 COPY 进 Docker 镜像（已通过 `.dockerignore` 排除）。
+> 容器内 LLM 密钥等敏感配置通过 `--env-file` 传入：
+> ```bash
+> # 推荐：使用 backend/.env 中的真实密钥
+> docker compose --env-file backend/.env up -d
+>
+> # 或使用宿主机 shell 变量
+> export LLM_API_KEY=sk-xxx && docker compose up -d
+> ```
+>
+> `docker-compose.yml` 的 `environment` 段使用 `${VAR:-default}` 语法：
+> - 未传 `--env-file` 时使用默认值（如 `NEO4J_URL=bolt://neo4j:7687`）
+> - 传了 `--env-file` 时 `.env` 中的值覆盖默认值（如 `NEO4J_URL=bolt://localhost:7687` 适用于宿主机开发）
 
 ### 后端配置
 
@@ -251,7 +284,7 @@ NEO4J_USER
 NEO4J_PASSWORD
 QDRANT_URL
 API_KEY
-HUNYUAN_API_KEY
+MASTER_PASSWORD
 ```
 
 不要把真实密钥提交到仓库。

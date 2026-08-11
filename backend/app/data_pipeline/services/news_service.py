@@ -6,7 +6,7 @@ import logging
 from datetime import UTC, datetime
 from typing import Any
 
-import tushare as ts
+import tinyshare as ts
 
 from app.config import settings
 from app.core.database import engine

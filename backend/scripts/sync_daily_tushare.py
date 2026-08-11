@@ -2,7 +2,7 @@
 """
 Tushare K线回补脚本
 
-用 tushare 回补日线数据，替代 akshare / baostock 方式。
+用 tinyshare 回补日线数据，替代 akshare / baostock 方式。
 健壮性保证：
 1. 以数据库已有数据为锚点，只回补缺失的日期
 2. 只在数据成功入库后才标记完成
@@ -31,22 +31,20 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pandas as pd
-import tushare as ts
+import tinyshare as ts
 from sqlalchemy import text
 
 from app.core.database import engine
 from app.data_pipeline.backfill_config import load_backfill_settings, reset_settings_cache
 
-# ── Teajoin Tushare 初始化 ─────────────────────────────────
-# teajoin token 从环境变量读取（默认使用 .env 中配置）
+# ── Tinyshare 初始化 ─────────────────────────────────
+# tinyshare 授权码从环境变量读取（默认使用 .env 中配置）
 _TEAJOIN_TOKEN = os.environ.get("TUSHARE_TOKEN", "")
 if not _TEAJOIN_TOKEN:
-    # 回退到 .env 中 hardcode 的 apikey
-    _TEAJOIN_TOKEN = "086520ee148add8a401f8a5f04644ef2d04abbff5494461a"
+    raise RuntimeError("TUSHARE_TOKEN 未配置，请在 backend/.env 中填写 tinyshare 授权码")
 
 ts.set_token(_TEAJOIN_TOKEN)
 _TUSHARE_API = ts.pro_api()
-_TUSHARE_API._DataApi__http_url = "https://teajoin.com"
 
 logging.basicConfig(
     level=logging.INFO,
@@ -267,7 +265,7 @@ async def sync_stock(
 
     if not rows:
         # tushare 无数据，不标记完成（可能是停牌/退市等）
-        return {"status": "skip", "saved": 0, "msg": "no data from tushare"}
+        return {"status": "skip", "saved": 0, "msg": "no data from tinyshare"}
 
     # 5. 转换格式并入库（tushare 已提供 pre_close/change/pct_chg）
     records = []

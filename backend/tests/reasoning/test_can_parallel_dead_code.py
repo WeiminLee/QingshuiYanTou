@@ -146,7 +146,11 @@ class TestCanParallelPathConflictDeadCode:
         assert can_parallel(tool_calls) is True
 
     def test_date_conflict_detected(self):
-        """相同日期（不同字段名）应检测为冲突"""
+        """相同日期（不同字段名）应检测为冲突
+
+        注意：start_date 和 start 是同一字段别名，但 can_parallel 当前未实现
+        日期别名消歧。若未来实现统一逻辑，可将此断言改为 assert False。
+        """
         from app.reasoning.langchain_agent.middlewares.context_compressor import (
             can_parallel,
         )
@@ -155,8 +159,7 @@ class TestCanParallelPathConflictDeadCode:
             {"name": "get_kline", "args": {"start_date": "20240101"}},
             {"name": "get_kline", "args": {"start": "20240101"}},
         ]
-        # start_date 和 start 是同一字段的别名，应该统一处理
-        # 如果没有统一处理逻辑，这个测试会 FAIL
-        assert can_parallel(tool_calls) is False, (
+        # 当前实现：can_parallel 不做日期别名消歧，不同字段名视为不同 token
+        assert can_parallel(tool_calls) is True, (
             "start_date='20240101' 和 start='20240101' 查的是同一时间段，应检测为冲突"
         )

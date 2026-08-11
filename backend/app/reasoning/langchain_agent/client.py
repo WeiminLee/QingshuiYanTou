@@ -41,6 +41,7 @@ from app.reasoning.langchain_agent.lead_agent import make_lead_agent
 from app.reasoning.langchain_agent.llm_engine import get_global_engine
 from app.reasoning.langchain_agent.middlewares.clarification import ClarificationMiddleware
 from app.reasoning.langchain_agent.prompts.lead_system_prompt import apply_prompt_template
+from app.reasoning.langchain_agent.retry import ExponentialBackoff
 from app.reasoning.langchain_agent.task_events import drain_all_task_events, reset_task_events_queue
 from app.reasoning.langchain_agent.tool_executor import build_preview
 from app.reasoning.runtime.journal import (
@@ -302,6 +303,30 @@ async def run_lead_agent(
 
         tools = _get_tools(subagent_enabled=subagent_enabled)
 
+        # ── ToolExecutor 配置（超时 + 重试 + 并发限制）───────────
+        # 每个工具的超时和重试策略注入到 lead_agent 的 _harden_tool 中：
+        # - 超时：asyncio.wait_for(timeout) 防止工具卡死
+        # - 重试：RetryStrategy.execute() 指数退避重试
+        # - 并发：asyncio.Semaphore 控制全局并发数
+        # - NEVER_PARALLEL：asyncio.Lock 互斥锁
+        # 对已知的慢/不可靠工具设置更宽松的超时和重试：
+        # - tavily_search: 联网检索，偶尔超时 → 重试 2 次
+        # - web_fetch: 网页抓取，受目标站点响应速度影响 → 重试 2 次
+        # - get_announcement: 公告检索，数据量大 → 60s 超时
+        # - get_research_report: 研报检索，数据量大 → 60s 超时
+        _tool_configs: dict[str, dict] = {
+            "tavily_search": {"timeout": 45.0, "retry": ExponentialBackoff(max_attempts=2, base_delay=1.0, jitter=False)},
+            "web_fetch": {"timeout": 45.0, "retry": ExponentialBackoff(max_attempts=2, base_delay=1.0, jitter=False)},
+            "get_announcement": {"timeout": 60.0},
+            "get_research_report": {"timeout": 60.0},
+            "get_kline": {"timeout": 30.0},
+            "get_concept_hot": {"timeout": 30.0},
+            "get_market_breadth": {"timeout": 30.0},
+            "neo4j_kg_search": {"timeout": 30.0},
+            "get_irm": {"timeout": 30.0},
+            "get_stock_profile": {"timeout": 30.0},
+        }
+
         # ── Harness Manager ──
         harness: HarnessManager | None = None
         memory_context = ""
@@ -409,6 +434,7 @@ async def run_lead_agent(
             config=config,
             thread_id=thread_id,
             plan_mode=plan_mode,
+            tool_configs=_tool_configs,
         )
 
         # ── 执行 Agent Stream ───────────────────────────────────────

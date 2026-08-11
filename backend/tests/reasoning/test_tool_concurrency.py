@@ -108,17 +108,19 @@ class TestToolExecutorFactory:
 class TestToolConcurrencyIntegration:
     """Phase E: 并发执行与 client.py 集成"""
 
-    def test_client_imports_can_parallel(self):
-        """client.py 导入了 can_parallel 启发式"""
+    def test_client_uses_concurrency_features(self):
+        """client.py 通过 lead_agent 使用并发控制"""
         import inspect
 
         from app.reasoning.langchain_agent import client
 
         src = inspect.getsource(client)
-        # 可以通过 context_compressor 模块引用，或直接导入
-        assert "can_parallel" in src or "context_compressor" in src or "tool_concurrency" in src, (
-            "client.py 未引用工具并发相关模块"
+        # 新版 client.py 通过 _tool_configs + make_lead_agent(tool_configs=...)
+        # 将超时/重试/并发配置传递给 lead_agent._harden_tool()
+        assert "tool_configs" in src or "_tool_configs" in src, (
+            "client.py 未引用工具超时/重试/并发配置"
         )
+        assert "ExponentialBackoff" in src, "client.py 应导入重试策略"
 
     def test_client_has_concurrent_execution_logic(self):
         """client.py 包含并发执行逻辑"""

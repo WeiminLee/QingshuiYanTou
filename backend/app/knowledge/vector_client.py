@@ -65,41 +65,68 @@ def get_vector_client() -> VectorClient:
 def get_embedding_model() -> EmbeddingModelBase:
     """获取全局 Embedding 模型（懒加载）。
 
-    优先级：
-    1. 本地 Embedding 服务（.env 配置 EMBEDDING_API_URL）
-    2. Hunyuan API key（备用）
-    3. PlaceholderEmbedding（仅开发环境）
+    通过 EMBEDDING_BACKEND 环境变量显式选择后端：
+      - openai      — OpenAI 兼容格式（默认，qwen3-embedding 等）
+      - local       — 本地 BGE-M3 服务（http://localhost:8000/api/v1/embed）
+      - hunyuan     — 腾讯云 Hunyuan / MemTensor relay
+      - placeholder — 开发环境占位（返回 SHA-256 伪向量）
     """
     global _embedding_model
     if _embedding_model is None:
         from app.config import settings
 
-        # 优先级 1: 本地 Embedding 服务
-        emb_url = getattr(settings, "embedding_api_url", None) or ""
-        emb_key = getattr(settings, "embedding_api_key", "") or ""
-        if emb_url:
-            _embedding_model = LocalEmbedding(api_url=emb_url, api_key=emb_key)
-            logger.info(f"Embedding 模型: LocalEmbedding ({emb_url})")
-            return _embedding_model
+        backend = (getattr(settings, "embedding_backend", None) or "openai").strip().lower()
 
-        # 优先级 2: Hunyuan (备用)
-        sf_key = getattr(settings, "hunyuan_api_key", None) or ""
-        if sf_key:
-            _embedding_model = HunyuanEmbedding(
-                api_key=sf_key,
-                model=getattr(settings, "hunyuan_model", "hunyuan-embedding"),
-                api_url=getattr(
-                    settings,
-                    "hunyuan_embedding_url",
-                    "https://api.hunyuan.cloud.tencent.com/v1/embeddings",
-                ),
-            )
-            logger.info(f"Embedding 模型: Hunyuan ({_embedding_model._model})")
-            return _embedding_model
+        if backend == "openai":
+            emb_base_url = getattr(settings, "embedding_base_url", None) or ""
+            emb_api_key = getattr(settings, "embedding_api_key", "") or ""
+            emb_model = getattr(settings, "embedding_model_name", "qwen3-embedding:4b") or "qwen3-embedding:4b"
+            if not emb_base_url:
+                logger.warning("EMBEDDING_BACKEND=openai 但未设置 EMBEDDING_BASE_URL，回退到 PlaceholderEmbedding")
+                _embedding_model = PlaceholderEmbedding()
+            else:
+                _embedding_model = OpenAICompatibleEmbedding(
+                    base_url=emb_base_url,
+                    api_key=emb_api_key,
+                    model=emb_model,
+                )
+                logger.info(f"Embedding 模型: OpenAICompatible ({_embedding_model._model} @ {emb_base_url})")
 
-        # 优先级 3: Placeholder（仅开发环境）
-        _embedding_model = PlaceholderEmbedding()
-        logger.warning("Embedding 模型: PlaceholderEmbedding（请在 .env 配置 EMBEDDING_API_URL 用于生产）")
+        elif backend == "local":
+            emb_url = getattr(settings, "embedding_api_url", None) or ""
+            emb_api_key = getattr(settings, "embedding_api_key", "") or ""
+            if not emb_url:
+                logger.warning("EMBEDDING_BACKEND=local 但未设置 EMBEDDING_API_URL，回退到 PlaceholderEmbedding")
+                _embedding_model = PlaceholderEmbedding()
+            else:
+                _embedding_model = LocalEmbedding(api_url=emb_url, api_key=emb_api_key)
+                logger.info(f"Embedding 模型: LocalEmbedding ({emb_url})")
+
+        elif backend == "hunyuan":
+            sf_key = getattr(settings, "hunyuan_api_key", None) or ""
+            if not sf_key:
+                logger.warning("EMBEDDING_BACKEND=hunyuan 但未设置 HUNYUAN_API_KEY，回退到 PlaceholderEmbedding")
+                _embedding_model = PlaceholderEmbedding()
+            else:
+                _embedding_model = HunyuanEmbedding(
+                    api_key=sf_key,
+                    model=getattr(settings, "hunyuan_model", "hunyuan-embedding"),
+                    api_url=getattr(
+                        settings,
+                        "hunyuan_embedding_url",
+                        "https://api.hunyuan.cloud.tencent.com/v1/embeddings",
+                    ),
+                )
+                logger.info(f"Embedding 模型: Hunyuan ({_embedding_model._model})")
+
+        elif backend == "placeholder":
+            _embedding_model = PlaceholderEmbedding()
+            logger.info("Embedding 模型: PlaceholderEmbedding（开发占位）")
+
+        else:
+            logger.warning(f"未知 EMBEDDING_BACKEND={backend!r}，回退到 PlaceholderEmbedding")
+            _embedding_model = PlaceholderEmbedding()
+
     return _embedding_model
 
 
@@ -305,6 +332,122 @@ class PlaceholderEmbedding(EmbeddingModelBase):
 
     def dimension(self) -> int:
         return self._dim
+
+
+class OpenAICompatibleEmbedding(EmbeddingModelBase):
+    """
+    通用 OpenAI 兼容 Embedding 服务。
+
+    适用于任何遵循 OpenAI /v1/embeddings 格式的 API：
+      - 端点：POST {base_url}/embeddings
+      - 请求：{"input": [...], "model": "..."}
+      - 响应：{"data": [{"embedding": [...]}, ...]}
+
+    当前配置：qwen3-embedding:4b via http://100.65.0.118:8000/v1
+    """
+
+    def __init__(
+        self,
+        base_url: str = "http://100.65.0.118:8000/v1",
+        api_key: str = "",
+        model: str = "qwen3-embedding:4b",
+        timeout: float = 60.0,
+        max_retries: int = 3,
+    ):
+        self._base_url = base_url.rstrip("/")
+        self._api_key = api_key
+        self._model = model
+        self._timeout = timeout
+        self._max_retries = max_retries
+        self._dim: int | None = None
+        self._sync_client: httpx.Client | None = None
+        self._async_client: httpx.AsyncClient | None = None
+
+    def _api_url(self) -> str:
+        return f"{self._base_url}/embeddings"
+
+    def _headers(self) -> dict:
+        headers = {"Content-Type": "application/json"}
+        if self._api_key:
+            headers["Authorization"] = f"Bearer {self._api_key}"
+        return headers
+
+    def embed(self, text: str) -> list[float]:
+        client = self._get_sync()
+        resp = client.post(
+            self._api_url(),
+            json={"input": [text], "model": self._model},
+            headers=self._headers(),
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        embeddings = [item["embedding"] for item in data["data"]]
+        if self._dim is None and embeddings:
+            self._dim = len(embeddings[0])
+            logger.info(f"[OpenAICompatibleEmbedding] 检测到向量维度: {self._dim}")
+        return embeddings[0]
+
+    def embed_batch(self, texts: list[str]) -> list[list[float]]:
+        raise NotImplementedError("embed_batch is async-only; use aembed()")
+
+    async def aembed(self, texts: list[str]) -> list[list[float]]:
+        import tenacity
+
+        retry_policy = tenacity.retry(
+            stop=tenacity.stop_after_attempt(self._max_retries),
+            wait=tenacity.wait_exponential(multiplier=1, min=2, max=30),
+            retry=tenacity.retry_if_exception_type((httpx.HTTPStatusError, httpx.ConnectError)),
+        )
+
+        @retry_policy
+        async def _call_api():
+            async with httpx.AsyncClient(timeout=self._timeout) as client:
+                resp = await client.post(
+                    self._api_url(),
+                    json={"input": texts, "model": self._model},
+                    headers=self._headers(),
+                )
+                resp.raise_for_status()
+                return resp.json()
+
+        data = await _call_api()
+        embeddings = [item["embedding"] for item in data["data"]]
+        if self._dim is None and embeddings:
+            self._dim = len(embeddings[0])
+            logger.info(f"[OpenAICompatibleEmbedding] 检测到向量维度: {self._dim}")
+        return embeddings
+
+    def _get_sync(self) -> httpx.Client:
+        if self._sync_client is None:
+            self._sync_client = httpx.Client(timeout=self._timeout)
+        return self._sync_client
+
+    def dimension(self) -> int:
+        if self._dim is None:
+            return default_embedding_dimension()
+        return self._dim
+
+    async def aclose(self) -> None:
+        if self._async_client is not None:
+            await self._async_client.aclose()
+            self._async_client = None
+
+    def close(self) -> None:
+        if self._sync_client is not None:
+            self._sync_client.close()
+            self._sync_client = None
+
+    async def __aenter__(self) -> OpenAICompatibleEmbedding:
+        return self
+
+    async def __aexit__(self, *args) -> None:
+        await self.aclose()
+
+    def __enter__(self) -> OpenAICompatibleEmbedding:
+        return self
+
+    def __exit__(self, *args) -> None:
+        self.close()
 
 
 class HunyuanEmbedding(EmbeddingModelBase):
@@ -536,19 +679,13 @@ class QdrantClient(VectorClient):
         self._connected = False
 
     def _create_qdrant_client(self) -> Any:
-        """创建 Qdrant 客户端，配置不使用代理（localhost 不走全局代理）"""
+        """创建 Qdrant 客户端"""
         import qdrant_client
 
         try:
-            import httpx
-
-            # 创建不使用代理的 httpx 客户端
-            # Qdrant 部署在 localhost，不需要走全局 SOCKS/HTTP 代理
-            http_client = httpx.Client(proxy=None, trust_env=False)
             return qdrant_client.QdrantClient(
                 url=self._url,
                 api_key=self._api_key or None,
-                http_client=http_client,
             )
         except ImportError:
             # httpx 不可用时，使用默认配置

@@ -58,16 +58,27 @@ class Settings(BaseSettings):
     neo4j_user: str = "neo4j"
     neo4j_password: str = ""
 
-    # 本地 BGE-M3 Embedding 服务（http://0.0.0.0:8000/api/v1/embed）
-    embedding_api_url: str = "http://localhost:8000"
+    # Embedding 后端选择器
+    # 可选值：openai（默认，qwen3-embedding 等 OpenAI 兼容格式）、
+    #         local（BGE-M3 本地服务）、
+    #         hunyuan（腾讯云 Hunyuan / MemTensor relay）、
+    #         placeholder（开发占位，返回伪向量）
+    embedding_backend: str = "openai"
+
+    # OpenAI 兼容 Embedding 服务（qwen3-embedding:4b）
+    embedding_base_url: str = "http://100.65.0.118:8000/v1"
+    embedding_model_name: str = "qwen3-embedding:4b"
     embedding_api_key: str = ""
 
-    # Tencent Cloud Hunyuan Embedding API（Phase 06 - 已弃用）
+    # 本地 BGE-M3 Embedding 服务（http://0.0.0.0:8000/api/v1/embed，旧备用）
+    embedding_api_url: str = "http://localhost:8000"
+
+    # Tencent Cloud Hunyuan Embedding API（旧备用）
     hunyuan_api_key: str = ""
     hunyuan_model: str = "hunyuan-embedding"
     hunyuan_embedding_url: str = "https://api.hunyuan.cloud.tencent.com/v1/embeddings"
-    # BGE-M3 dense 向量维度
-    embedding_dimension: int = 1024
+    # qwen3-embedding:4b 向量维度（所有后端共用）
+    embedding_dimension: int = 2560
 
     # 向量数据库（Qdrant）
     qdrant_url: str = "http://localhost:6333"
