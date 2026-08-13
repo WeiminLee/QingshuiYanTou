@@ -4,13 +4,14 @@
 - 互动易Q&A查询（MongoDB qa_interactive）
 - 公告列表查询（PostgreSQL announcements）
 - 研报元数据查询（PostgreSQL research_report_meta）
+- 财联社新闻查询（PostgreSQL events）
 """
 
 import logging
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import desc, select
+from sqlalchemy import desc, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -28,38 +29,39 @@ logger = logging.getLogger(__name__)
 async def get_cls_news(
     limit: int = Query(default=50, ge=1, le=200),
     skip: int = Query(default=0, ge=0),
+    db: AsyncSession = Depends(get_db),
 ):
     """
-    查询财联社电报（MongoDB cls_news）
-    按发布时间降序，保留最新3天数据
+    查询财联社电报（PostgreSQL events 表）
+    按发布时间降序，只返回 source='cls' 的数据
     """
-    db = get_mongo_db()
-    collection = db["cls_news"]
+    # 总条数
+    count_sql = text("SELECT count(*) FROM events WHERE source = 'cls'")
+    result = await db.execute(count_sql)
+    total = result.scalar() or 0
 
-    total = await collection.count_documents({})
-
-    cursor = (
-        collection.find(
-            {},
-            {"_id": 0},
-        )
-        .sort("pub_date", -1)
-        .sort("pub_time", -1)
-        .skip(skip)
-        .limit(limit)
-    )
+    # 分页查询
+    query_sql = text("""
+        SELECT title, summary, content, source, url, publish_at, metadata
+        FROM events
+        WHERE source = 'cls'
+        ORDER BY publish_at DESC
+        LIMIT :limit OFFSET :skip
+    """)
+    rows = await db.execute(query_sql, {"limit": limit, "skip": skip})
 
     items = []
-    async for doc in cursor:
+    for row in rows:
+        metadata = row.metadata or {}
         items.append(
             {
-                "title": doc.get("title"),
-                "content": doc.get("content"),
-                "pub_date": doc.get("pub_date"),
-                "pub_time": doc.get("pub_time"),
-                "full_datetime": doc.get("full_datetime"),
-                "category": doc.get("category"),
-                "signals": doc.get("signals", []),
+                "title": row.title,
+                "content": row.summary or row.content or "",
+                "pub_date": row.publish_at.strftime("%Y-%m-%d") if row.publish_at else None,
+                "pub_time": row.publish_at.strftime("%H:%M:%S") if row.publish_at else None,
+                "full_datetime": row.publish_at.isoformat() if row.publish_at else None,
+                "category": None,
+                "signals": metadata.get("tags", []),
             }
         )
 

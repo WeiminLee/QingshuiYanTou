@@ -1,6 +1,6 @@
-version: '3.8'
-
 services:
+  # ── 基础设施 ──────────────────────────────────────────
+
   neo4j:
     image: swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/neo4j:latest
     container_name: qingshui_neo4j
@@ -21,9 +21,8 @@ services:
     networks:
       - qingshui-net
 
-  # PostgreSQL（已有宿主机端口映射，保留在此便于统一管理）
   postgres:
-    image: postgres:15
+    image: swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/postgres:15
     container_name: qingshui_postgres
     environment:
       - POSTGRES_DB=qingshui
@@ -42,9 +41,8 @@ services:
     networks:
       - qingshui-net
 
-  # MongoDB
   mongo:
-    image: mongo:7
+    image: swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/mongo:4.4
     container_name: qingshui_mongo
     ports:
       - "27018:27017"
@@ -52,23 +50,6 @@ services:
       - mongo_data:/data/db
     healthcheck:
       test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    restart: unless-stopped
-    networks:
-      - qingshui-net
-
-  # Redis
-  redis:
-    image: redis:7
-    container_name: qingshui_redis
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis_data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -96,18 +77,39 @@ services:
       dockerfile: Dockerfile
     container_name: qingshui_backend
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+    # 所有可变变量通过 ${VAR:-default} 映射，由 --env-file backend/.env 注入；
+    # 不设 env_file 指令，避免 env_file 与 environment 段的优先级冲突。
+    # 密钥通过 --env-file 传入，不进镜像层（.dockerignore 已排除 .env）。
     environment:
-      - ENABLE_API_SCHEDULER=false
+      # LLM
+      - LLM_API_KEY=${LLM_API_KEY:-your_llm_api_key_here}
+      - LLM_BASE_URL=${LLM_BASE_URL:-https://api-int.memtensor.cn/v1}
+      - LLM_MODEL=${LLM_MODEL:-deepseek-v4-flash}
+      # Embedding（通过 --env-file backend/.env 传入）
+      - EMBEDDING_BACKEND=${EMBEDDING_BACKEND:-openai}
+      - EMBEDDING_BASE_URL=${EMBEDDING_BASE_URL:-http://100.65.0.118:8000/v1}
+      - EMBEDDING_API_KEY=${EMBEDDING_API_KEY:-}
+      - EMBEDDING_MODEL_NAME=${EMBEDDING_MODEL_NAME:-qwen3-embedding:4b}
+      - EMBEDDING_DIMENSION=${EMBEDDING_DIMENSION:-2560}
+      - HUNYUAN_API_KEY=${HUNYUAN_API_KEY:-}
+      # API 认证
+      - API_KEY=${API_KEY:-dev-docker-key}
+      # 数据库
       - DATABASE_URL=postgresql+asyncpg://qingshui:qingshui123@postgres:5432/qingshui
       - MONGODB_URL=mongodb://mongo:27017/qingshui
-      - REDIS_URL=redis://redis:6379/0
-      - NEO4J__PASSWORD=qingshui123
+      - NEO4J_URL=bolt://neo4j:7687
+      - NEO4J_USER=neo4j
+      - NEO4J_PASSWORD=qingshui123
+      - QDRANT_URL=http://qdrant:6333
+      # 账号
+      - MASTER_PASSWORD=${MASTER_PASSWORD:-dev-docker-password}
+      - ACCOUNT_TOKEN_SECRET_SALT=${ACCOUNT_TOKEN_SECRET_SALT:-dev-docker-salt}
+      # 调度器
+      - ENABLE_API_SCHEDULER=${ENABLE_API_SCHEDULER:-false}
     depends_on:
       postgres:
         condition: service_healthy
       mongo:
-        condition: service_healthy
-      redis:
         condition: service_healthy
     restart: unless-stopped
     ports:
@@ -122,11 +124,29 @@ services:
     container_name: qingshui_scheduler
     command: python -m app.data_pipeline.scheduler
     environment:
-      - ENABLE_API_SCHEDULER=false
+      # LLM
+      - LLM_API_KEY=${LLM_API_KEY:-your_llm_api_key_here}
+      - LLM_BASE_URL=${LLM_BASE_URL:-https://api-int.memtensor.cn/v1}
+      - LLM_MODEL=${LLM_MODEL:-deepseek-v4-flash}
+      # Embedding（qwen3-embedding:4b）
+      - EMBEDDING_BACKEND=${EMBEDDING_BACKEND:-openai}
+      - EMBEDDING_BASE_URL=${EMBEDDING_BASE_URL:-http://100.65.0.118:8000/v1}
+      - EMBEDDING_API_KEY=${EMBEDDING_API_KEY:-}
+      - EMBEDDING_MODEL_NAME=${EMBEDDING_MODEL_NAME:-qwen3-embedding:4b}
+      - EMBEDDING_DIMENSION=${EMBEDDING_DIMENSION:-2560}
+      - HUNYUAN_API_KEY=${HUNYUAN_API_KEY:-}
+      # API 认证
+      - API_KEY=${API_KEY:-dev-docker-key}
+      # 数据库
       - DATABASE_URL=postgresql+asyncpg://qingshui:qingshui123@postgres:5432/qingshui
       - MONGODB_URL=mongodb://mongo:27017/qingshui
-      - REDIS_URL=redis://redis:6379/0
-      - NEO4J__PASSWORD=qingshui123
+      - NEO4J_URL=bolt://neo4j:7687
+      - NEO4J_USER=neo4j
+      - NEO4J_PASSWORD=qingshui123
+      - QDRANT_URL=http://qdrant:6333
+      # 账号
+      - MASTER_PASSWORD=${MASTER_PASSWORD:-dev-docker-password}
+      - ACCOUNT_TOKEN_SECRET_SALT=${ACCOUNT_TOKEN_SECRET_SALT:-dev-docker-salt}
     depends_on:
       postgres:
         condition: service_healthy
@@ -140,20 +160,50 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    container_name: qingshui_job_worker
+    # job-worker 使用 replicas: 2，不设固定 container_name（Docker 自动分配唯一名）
+    deploy:
+      replicas: 2
     command: python -m app.data_pipeline.job_worker
     environment:
-      - ENABLE_API_SCHEDULER=false
+      # LLM
+      - LLM_API_KEY=${LLM_API_KEY:-your_llm_api_key_here}
+      - LLM_BASE_URL=${LLM_BASE_URL:-https://api-int.memtensor.cn/v1}
+      - LLM_MODEL=${LLM_MODEL:-deepseek-v4-flash}
+      # Embedding（qwen3-embedding:4b）
+      - EMBEDDING_BACKEND=${EMBEDDING_BACKEND:-openai}
+      - EMBEDDING_BASE_URL=${EMBEDDING_BASE_URL:-http://100.65.0.118:8000/v1}
+      - EMBEDDING_API_KEY=${EMBEDDING_API_KEY:-}
+      - EMBEDDING_MODEL_NAME=${EMBEDDING_MODEL_NAME:-qwen3-embedding:4b}
+      - EMBEDDING_DIMENSION=${EMBEDDING_DIMENSION:-2560}
+      - HUNYUAN_API_KEY=${HUNYUAN_API_KEY:-}
+      # API 认证
+      - API_KEY=${API_KEY:-dev-docker-key}
+      # 数据库
       - DATABASE_URL=postgresql+asyncpg://qingshui:qingshui123@postgres:5432/qingshui
       - MONGODB_URL=mongodb://mongo:27017/qingshui
+      # 账号
+      - MASTER_PASSWORD=${MASTER_PASSWORD:-dev-docker-password}
+      - ACCOUNT_TOKEN_SECRET_SALT=${ACCOUNT_TOKEN_SECRET_SALT:-dev-docker-salt}
     depends_on:
       postgres:
         condition: service_healthy
       mongo:
         condition: service_healthy
     restart: unless-stopped
-    deploy:
-      replicas: 2
+    networks:
+      - qingshui-net
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: qingshui_frontend
+    ports:
+      - "443:443"
+      - "80:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
     networks:
       - qingshui-net
 
@@ -167,5 +217,4 @@ volumes:
   neo4j_import:
   postgres_data:
   mongo_data:
-  redis_data:
   qdrant_data:

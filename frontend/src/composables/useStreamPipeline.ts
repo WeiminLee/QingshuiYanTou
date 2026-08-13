@@ -92,8 +92,9 @@ export function useStreamPipeline(
       }
 
       case "stream_end": {
-        // stream_end -> reason_complete + content
-        const content = p?.report_content ?? p?.content ?? "";
+        // stream_end -> 用纯答案 content（不用带报告样板的 report_content），
+        // 作为气泡的最终权威内容（覆盖流式增量，修正可能的残缺）。
+        const content = p?.content ?? "";
         if (content) {
           callbacks.onContent?.(messageId, content as string);
         }

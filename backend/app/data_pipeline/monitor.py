@@ -266,7 +266,7 @@ async def check_and_send_alerts(
         try:
             from app.data_pipeline.dingtalk import notify_alert
 
-            notify_alert(alert["level"], task_name, alert["message"])
+            await notify_alert(alert["level"], task_name, alert["message"])
         except Exception as e:
             logger.debug("钉钉通知失败: %s", e)
 

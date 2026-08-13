@@ -123,8 +123,9 @@ MIGRATIONS = [
     );
     CREATE UNIQUE INDEX IF NOT EXISTS idx_index_ts_date ON index_daily(ts_code, trade_date);
     """,
-    # 003 - 唯一约束
+    # 003 - 唯一约束（幂等：先删后加）
     """
+    ALTER TABLE stocks DROP CONSTRAINT IF EXISTS stocks_symbol_unique;
     ALTER TABLE stocks ADD CONSTRAINT stocks_symbol_unique UNIQUE (symbol);
     """,
     # 004 - 概念涨停表
@@ -372,6 +373,43 @@ MIGRATIONS = [
     CREATE INDEX IF NOT EXISTS idx_et_status ON evidence_tracking(extraction_status);
     CREATE INDEX IF NOT EXISTS idx_et_source ON evidence_tracking(source_table, source_id);
     """,
+    # 019 - 备选池
+    """
+    CREATE TABLE IF NOT EXISTS candidate_pool (
+        ts_code VARCHAR(20) PRIMARY KEY REFERENCES stocks(ts_code),
+        name VARCHAR(50),
+        source VARCHAR(20) NOT NULL DEFAULT 'manual',
+        reason TEXT,
+        is_active BOOLEAN DEFAULT TRUE,
+        added_at TIMESTAMP DEFAULT now(),
+        updated_at TIMESTAMP DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS idx_candidate_pool_source ON candidate_pool(source);
+    CREATE INDEX IF NOT EXISTS idx_candidate_pool_active ON candidate_pool(is_active);
+    """,
+    # 020 - minishare 公告 PDF 下载状态
+    """
+    ALTER TABLE minishare_announcements
+    ADD COLUMN IF NOT EXISTS download_status VARCHAR(20) DEFAULT 'pending';
+    """,
+    # 021 - 主营业务构成明细
+    """
+    CREATE TABLE IF NOT EXISTS main_business_revenue (
+        id SERIAL PRIMARY KEY,
+        ts_code VARCHAR(20) NOT NULL,
+        end_date DATE NOT NULL,
+        bz_item TEXT NOT NULL,
+        bz_code VARCHAR(2) NOT NULL,
+        bz_sales NUMERIC(20, 2),
+        bz_profit NUMERIC(20, 2),
+        bz_cost NUMERIC(20, 2),
+        curr_type VARCHAR(10) DEFAULT 'CNY',
+        created_at TIMESTAMP DEFAULT now(),
+        UNIQUE(ts_code, end_date, bz_item, bz_code)
+    );
+    CREATE INDEX IF NOT EXISTS idx_mbr_ts_code ON main_business_revenue(ts_code);
+    CREATE INDEX IF NOT EXISTS idx_mbr_end_date ON main_business_revenue(end_date);
+    """,
 ]
 
 
@@ -383,12 +421,19 @@ def main():
     with engine.begin() as conn:
         for i, sql in enumerate(MIGRATIONS):
             try:
+                # 使用 SAVEPOINT 隔离每个迁移，防止单个失败中断整个事务
+                conn.execute(text("SAVEPOINT sp_migration"))
                 for statement in sql.strip().split(";"):
                     statement = statement.strip()
                     if statement:
                         conn.execute(text(statement))
+                conn.execute(text("RELEASE SAVEPOINT sp_migration"))
                 logger.info(f"迁移 {i + 1:03d} 执行完成")
             except Exception as e:
+                try:
+                    conn.execute(text("ROLLBACK TO SAVEPOINT sp_migration"))
+                except Exception:
+                    pass  # 如果 SAVEPOINT 创建失败，回滚也可能失败
                 logger.warning(f"迁移 {i + 1:03d} 跳过: {e}")
 
     # 验证表

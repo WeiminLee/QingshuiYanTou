@@ -101,7 +101,15 @@ Desktop.ini
 .idea/
 
 .claude/
+.codex/
+.superpowers/
 .planning/
+.worktrees/
+.memmy/
+.opencode/
 
 # 板块概念抓取结果（脚本运行产物）
 backend/data/board_concept/
+
+# Agent/图表工具生成的运行产物
+backend/static/charts/*.html

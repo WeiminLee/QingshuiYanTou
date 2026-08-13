@@ -25,7 +25,13 @@ def get_mongo_client() -> AsyncIOMotorClient:
     """获取 MongoDB 客户端（单例）"""
     global _client
     if _client is None:
-        _client = AsyncIOMotorClient(settings.mongodb_url)
+        # serverSelectionTimeoutMS 调短：无 MongoDB 时快速失败并降级，
+        # 避免 agent memory prefetch 卡满默认 30s 超时。
+        _client = AsyncIOMotorClient(
+            settings.mongodb_url,
+            serverSelectionTimeoutMS=2000,
+            connectTimeoutMS=2000,
+        )
         logger.info("MongoDB 客户端已初始化")
     return _client
 

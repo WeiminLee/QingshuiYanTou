@@ -843,7 +843,7 @@ class TestRunLeadAgentE2E:
 
             class FakeAgent:
                 async def astream(self, state, config=None, stream_mode=None):
-                    yield {
+                    yield "values", {
                         "messages": [
                             AIMessage(
                                 content="",
@@ -857,7 +857,7 @@ class TestRunLeadAgentE2E:
                             )
                         ]
                     }
-                    yield {
+                    yield "values", {
                         "messages": [
                             ToolMessage(
                                 content="K线数据：300308.SZ，共120条",
@@ -866,7 +866,7 @@ class TestRunLeadAgentE2E:
                             ),
                         ]
                     }
-                    yield {"messages": [AIMessage(content="K线分析完成，上涨趋势。")]}
+                    yield "values", {"messages": [AIMessage(content="K线分析完成，上涨趋势。")]}
 
             mock_make_agent.return_value = FakeAgent()
 
@@ -911,7 +911,7 @@ class TestRunLeadAgentE2E:
             mock_pre.return_value = ""
 
             result = await run_lead_agent(
-                question="分析",  # 太短，应被拦截
+                question="帮我看一下这只最近怎么样",
                 thread_id="test-clarify",
                 model_name="test-model",
                 max_turns=4,
@@ -980,6 +980,119 @@ class TestRunLeadAgentE2E:
         event_types = [e[0] for e in emitted]
         assert "error" in event_types, f"应有 error 事件，实际：{event_types}"
 
+    def test_run_lead_agent_shuts_down_memory_on_error(self):
+        """
+        场景：agent 执行过程中抛出异常
+        期望：MemoryManager 仍被 shutdown，用于 drain queued sync 与释放 provider
+        """
+        asyncio.run(self._test_memory_shutdown_on_error())
+
+    async def _test_memory_shutdown_on_error(self):
+        from app.reasoning.langchain_agent.client import run_lead_agent
+
+        fake_memory = MagicMock()
+        fake_memory.add_provider = MagicMock()
+        fake_memory.on_turn_start = AsyncMock()
+        fake_memory.prefetch_all = AsyncMock(return_value="")
+        fake_memory.shutdown_all = AsyncMock()
+
+        fake_provider = MagicMock()
+        fake_provider.initialize = MagicMock()
+
+        with (
+            patch("app.reasoning.langchain_agent.memory.user_memory_provider.UserMemoryProvider", return_value=fake_provider),
+            patch("app.reasoning.langchain_agent.memory.manager.MemoryManager", return_value=fake_memory),
+            patch("app.reasoning.langchain_agent.client._pre_search", new_callable=AsyncMock) as mock_pre,
+            patch("app.reasoning.langchain_agent.client._create_chat_model") as mock_model_fn,
+            patch("app.reasoning.langchain_agent.client._get_tools") as mock_tools,
+            patch("app.reasoning.langchain_agent.client.make_lead_agent") as mock_make_agent,
+        ):
+            mock_pre.return_value = ""
+            mock_model_fn.return_value = MagicMock()
+            mock_tools.return_value = []
+
+            class FailingAgent:
+                async def astream(self, state, config=None, stream_mode=None):
+                    raise RuntimeError("Model unavailable")
+                    yield {}
+
+            mock_make_agent.return_value = FailingAgent()
+
+            with pytest.raises(RuntimeError):
+                await run_lead_agent(
+                    question="测试错误处理",
+                    thread_id="test-memory-cleanup",
+                    model_name="test-model",
+                    max_turns=2,
+                )
+
+        fake_memory.shutdown_all.assert_awaited_once()
+
+    def test_run_lead_agent_builds_agent_context_with_resolved_user(self):
+        asyncio.run(self._test_run_lead_agent_builds_agent_context_with_resolved_user())
+
+    async def _test_run_lead_agent_builds_agent_context_with_resolved_user(self):
+        from app.reasoning.context.schemas import AgentContextDTO
+        from app.reasoning.langchain_agent.client import run_lead_agent
+
+        fake_memory = MagicMock()
+        fake_memory.add_provider = MagicMock()
+        fake_memory.on_turn_start = AsyncMock()
+        fake_memory.prefetch_all = AsyncMock(return_value="")
+        fake_memory.shutdown_all = AsyncMock()
+
+        fake_provider = MagicMock()
+        fake_provider.initialize = MagicMock()
+
+        fake_builder = MagicMock()
+        fake_builder.build = AsyncMock(
+            return_value=AgentContextDTO(
+                context_type="general_research",
+                route="broad_synthesis",
+                user_id="resolved-lwm",
+                thread_id="test-agent-context",
+                question="总结过去一个月光模块方向变化",
+                prompt_context="<agent-context>warn</agent-context>",
+                warnings=["long_history_synthesis_not_enabled"],
+            )
+        )
+
+        with (
+            patch("app.reasoning.langchain_agent.memory.user_resolver.resolve_user_id", return_value="resolved-lwm"),
+            patch("app.reasoning.langchain_agent.memory.user_memory_provider.UserMemoryProvider", return_value=fake_provider),
+            patch("app.reasoning.langchain_agent.memory.manager.MemoryManager", return_value=fake_memory),
+            patch("app.reasoning.langchain_agent.client._pre_search", new_callable=AsyncMock) as mock_pre,
+            patch("app.reasoning.langchain_agent.client._load_freshness_context_for_prompt", new_callable=AsyncMock) as mock_freshness,
+            patch("app.reasoning.context.builder.AgentContextBuilder", return_value=fake_builder),
+            patch("app.reasoning.langchain_agent.client._create_chat_model") as mock_model_fn,
+            patch("app.reasoning.langchain_agent.client._get_tools") as mock_tools,
+            patch("app.reasoning.langchain_agent.client.make_lead_agent") as mock_make_agent,
+        ):
+            mock_pre.return_value = ""
+            mock_freshness.return_value = ""
+            mock_model_fn.return_value = MagicMock()
+            mock_tools.return_value = []
+
+            class FailingAgent:
+                async def astream(self, state, config=None, stream_mode=None):
+                    raise RuntimeError("stop after preflight")
+                    yield {}
+
+            mock_make_agent.return_value = FailingAgent()
+
+            with pytest.raises(RuntimeError):
+                await run_lead_agent(
+                    question="总结过去一个月光模块方向变化",
+                    thread_id="test-agent-context",
+                    user_id=None,
+                    model_name="test-model",
+                    max_turns=2,
+                )
+
+        fake_builder.build.assert_awaited_once()
+        assert fake_builder.build.await_args.kwargs["user_id"] == "resolved-lwm"
+        assert fake_builder.build.await_args.kwargs["signal_id"] is None
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # 测试 7: SSE 事件 JSON 可序列化
@@ -1037,3 +1150,24 @@ class TestSSEEventSerialization:
             serialized = json.dumps(report_json, ensure_ascii=False, default=str)
         except (TypeError, ValueError) as e:
             pytest.fail(f"report_json 无法 JSON 序列化：{e}")
+
+
+def test_agent_turn_context_declares_agent_context_field():
+    from dataclasses import fields
+
+    from app.reasoning.runtime.turn_context import AgentTurnContext
+
+    field_names = {field.name for field in fields(AgentTurnContext)}
+    assert "agent_context" in field_names
+
+
+def test_trace_metadata_accepts_agent_context_payload():
+    from app.reasoning.langchain_agent.client import _build_trace_metadata
+
+    trace = _build_trace_metadata(
+        tool_calls=[],
+        tool_results=[],
+        agent_context={"route": "relation_reasoning", "warnings": []},
+    )
+
+    assert trace["agent_context"]["route"] == "relation_reasoning"

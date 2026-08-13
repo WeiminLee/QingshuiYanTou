@@ -32,7 +32,22 @@ async def get_current_user(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="未选择身份",
         )
-    user = await user_service.get_active(db, user_id)
+    try:
+        user = await user_service.get_active(db, user_id)
+    except Exception:
+        # 空库/无 PostgreSQL 降级：用 users.yaml 校验身份，返回轻量用户对象。
+        from types import SimpleNamespace
+
+        from app.account import config as account_cfg
+
+        yaml_users = account_cfg.load_users_from_yaml()
+        match = next((u for u in yaml_users if u.user_id == user_id), None)
+        if match is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="身份无效或已停用",
+            )
+        return SimpleNamespace(user_id=match.user_id, display_name=match.display_name, is_active=True)
     if user is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

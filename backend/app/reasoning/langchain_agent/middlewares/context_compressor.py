@@ -24,6 +24,8 @@ from langchain.agents.middleware import AgentMiddleware, Runtime
 from langchain_core.messages import BaseMessage, SystemMessage, ToolMessage
 
 from app.reasoning.harness.token_counter import count_messages_tokens
+from app.reasoning.runtime.context_snapshot import build_context_snapshot
+from app.reasoning.runtime.journal import append_journal_event
 
 logger = logging.getLogger(__name__)
 
@@ -172,6 +174,17 @@ class ContextCompressorMiddleware(AgentMiddleware):
 
         compressed_tokens = count_messages_tokens(compressed, self._model_name)
         self._record_compression(estimated_tokens, compressed_tokens)
+        append_journal_event(
+            "context_snapshot",
+            build_context_snapshot(
+                before_messages=messages,
+                after_messages=compressed,
+                before_tokens=estimated_tokens,
+                after_tokens=compressed_tokens,
+                reason="threshold_exceeded",
+                strategy="truncate",
+            ).to_dict(),
+        )
         logger.info(
             "[ContextCompressor] done: %d→%d msgs, tokens %d→%d (saved %d%%)",
             len(messages),
@@ -209,6 +222,17 @@ class ContextCompressorMiddleware(AgentMiddleware):
 
         compressed_tokens = count_messages_tokens(compressed, self._model_name)
         self._record_compression(estimated_tokens, compressed_tokens)
+        append_journal_event(
+            "context_snapshot",
+            build_context_snapshot(
+                before_messages=messages,
+                after_messages=compressed,
+                before_tokens=estimated_tokens,
+                after_tokens=compressed_tokens,
+                reason="threshold_exceeded",
+                strategy="llm_summary",
+            ).to_dict(),
+        )
         logger.info(
             "[ContextCompressor] async done: %d→%d msgs, tokens %d→%d (saved %d%%)",
             len(messages),

@@ -1,153 +1,172 @@
 #!/usr/bin/env python3
 """
-全量同步股票基础信息到stocks表（使用akshare数据源）
+sync_stock_basic.py — tinyshare stock_basic → stocks 表
+
+从 tinyshare（兼容 tushare SDK）获取全量 A 股基本信息，
+upsert 写入 PostgreSQL stocks 表。
+
+用法:
+    python -m scripts.sync_stock_basic
+    python -m scripts.sync_stock_basic --limit 100     # 仅测试前 100 条
+    python -m scripts.sync_stock_basic --dry-run       # 仅打印，不写入
 """
 
-import asyncio
+from __future__ import annotations
+
+import argparse
+import logging
 import sys
+from datetime import date as date_type
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-import logging
-from datetime import date as date_type
-
-import akshare as ak
 import pandas as pd
 from sqlalchemy import text
 
 from app.core.database import engine
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    datefmt="%H:%M:%S",
+)
 logger = logging.getLogger(__name__)
 
 
+# ── 数据获取 ────────────────────────────────────────────────
+
+
+def fetch_stock_basic(limit: int | None = None) -> pd.DataFrame:
+    """从 tinyshare 获取 stock_basic（全量 A 股）。"""
+    import tinyshare as ts
+    from app.config import settings
+
+    ts.set_token(settings.tushare_token)
+    pro = ts.pro_api()
+
+    fields = "ts_code,symbol,name,area,industry,market,list_date,is_hs"
+    df = pro.query("stock_basic", exchange="", list_status="L", fields=fields)
+
+    if df is None or df.empty:
+        logger.warning("tinyshare 返回空数据")
+        return pd.DataFrame()
+
+    logger.info("tinyshare stock_basic: 获取 %d 条", len(df))
+
+    if limit and limit > 0:
+        df = df.head(limit)
+        logger.info("  --limit=%d, 截取前 %d 条", limit, len(df))
+
+    return df
+
+
+# ── upsert 写入 stocks 表 ──────────────────────────────────
+
+
 def _parse_date(val) -> date_type | None:
-    """安全解析日期"""
-    if val is None or val == "":
+    """将 YYYYMMDD 字符串转 date，无效值返回 None。"""
+    if pd.isna(val) or not val:
+        return None
+    s = str(val).strip()[:8]
+    if not s.isdigit() or len(s) != 8:
         return None
     try:
-        if pd.isna(val):
-            return None
-        dt = pd.to_datetime(val)
-        return dt.date()
-    except Exception:
+        return date_type(int(s[:4]), int(s[4:6]), int(s[6:8]))
+    except (ValueError, IndexError):
         return None
 
 
-async def sync_stock_basic():
-    logger.info("开始同步全量A股股票基础信息...")
+async def upsert_stocks(df: pd.DataFrame, dry_run: bool = False) -> int:
+    """将 DataFrame 写入 stocks 表（upsert）。"""
+    if df.empty:
+        return 0
 
-    all_stocks = []
-
-    # 1. 沪市主板
-    logger.info("获取沪市主板...")
-    sh_df = ak.stock_info_sh_name_code(symbol="主板A股")
-    logger.info(f"沪市主板: {len(sh_df)} 只")
-    for _, row in sh_df.iterrows():
-        stock_name = row.get("证券简称") or row.get("证券名称", "")
-        all_stocks.append(
+    records = []
+    for _, row in df.iterrows():
+        ts_code = str(row.get("ts_code", "")).strip()
+        if not ts_code:
+            continue
+        records.append(
             {
-                "ts_code": f"{row['证券代码']}.SH",
-                "symbol": row["证券代码"],
-                "name": stock_name,
-                "area": row.get("省份", ""),
-                "industry": row.get("所属行业", ""),
-                "market": "沪市",
-                "list_date": _parse_date(row["上市日期"]),
-                "is_hs": "",
+                "ts_code": ts_code,
+                "symbol": str(row.get("symbol", "")).strip(),
+                "name": str(row.get("name", "")).strip(),
+                "area": str(row.get("area", "")).strip() or None,
+                "industry": str(row.get("industry", "")).strip() or None,
+                "market": str(row.get("market", "")).strip() or None,
+                "list_date": _parse_date(row.get("list_date")),
+                "is_hs": str(row.get("is_hs", "")).strip()[:1] or None,
             }
         )
 
-    # 2. 科创板（沪市）
-    logger.info("获取科创板...")
-    sh_kcb_df = ak.stock_info_sh_name_code(symbol="科创板")
-    logger.info(f"沪市科创板: {len(sh_kcb_df)} 只")
-    for _, row in sh_kcb_df.iterrows():
-        stock_name = row.get("证券简称") or row.get("证券名称", "")
-        all_stocks.append(
-            {
-                "ts_code": f"{row['证券代码']}.SH",
-                "symbol": row["证券代码"],
-                "name": stock_name,
-                "area": row.get("省份", ""),
-                "industry": row.get("所属行业", ""),
-                "market": "沪市",
-                "list_date": _parse_date(row["上市日期"]),
-                "is_hs": "",
-            }
-        )
+    logger.info("待写入 stocks: %d 条", len(records))
 
-    # 3. 深市A股
-    logger.info("获取深市A股...")
-    sz_df = ak.stock_info_sz_name_code(symbol="A股列表")
-    logger.info(f"深市A股: {len(sz_df)} 只")
-    for _, row in sz_df.iterrows():
-        all_stocks.append(
-            {
-                "ts_code": f"{row['A股代码']}.SZ",
-                "symbol": row["A股代码"],
-                "name": row["A股简称"],
-                "area": "",
-                "industry": row.get("所属行业", ""),
-                "market": "深市",
-                "list_date": _parse_date(row.get("A股上市日期")),
-                "is_hs": "",
-            }
-        )
+    if dry_run:
+        logger.info("[dry-run] 跳过写入")
+        return len(records)
 
-    # 4. 北证A股 (跳过 - 接口不稳定)
-    # try:
-    #     logger.info("获取北证A股...")
-    #     bj_df = ak.stock_info_bj_name_code()
-    #     logger.info(f"北证A股: {len(bj_df)} 只")
-    #     for _, row in bj_df.iterrows():
-    #         all_stocks.append({
-    #             "ts_code": f"{row['证券代码']}.BJ",
-    #             "symbol": row['证券代码'],
-    #             "name": row['证券简称'],
-    #             "area": "",
-    #             "industry": row.get('行业分类', ''),
-    #             "market": "北证",
-    #             "list_date": _parse_date(row['上市日期']),
-    #             "is_hs": '',
-    #         })
-    # except Exception as e:
-    #     logger.warning(f"北证获取失败: {e}")
+    # 批量 upsert
+    sql = text("""
+        INSERT INTO stocks (ts_code, symbol, name, area, industry, market, list_date, is_hs)
+        VALUES (:ts_code, :symbol, :name, :area, :industry, :market, :list_date, :is_hs)
+        ON CONFLICT (ts_code) DO UPDATE SET
+            symbol     = EXCLUDED.symbol,
+            name       = EXCLUDED.name,
+            area       = EXCLUDED.area,
+            industry   = EXCLUDED.industry,
+            market     = EXCLUDED.market,
+            list_date  = EXCLUDED.list_date,
+            is_hs      = EXCLUDED.is_hs
+    """)
 
-    if not all_stocks:
-        logger.error("没有获取到任何股票数据，退出")
-        return
+    total = 0
+    batch_size = 1000
+    for i in range(0, len(records), batch_size):
+        batch = records[i : i + batch_size]
+        async with engine.begin() as conn:
+            result = await conn.execute(sql, batch)
+            total += result.rowcount or 0
+        done = min(i + batch_size, len(records))
+        logger.info("  已写入 %d / %d", done, len(records))
 
-    logger.info(f"合计获取到 {len(all_stocks)} 只A股股票，开始入库...")
+    return total
 
-    # 5. 批量插入数据库
-    async with engine.begin() as conn:
-        # 先清空旧数据
-        await conn.execute(text("TRUNCATE TABLE stocks RESTART IDENTITY CASCADE"))
-        logger.info("已清空旧数据")
 
-        # 批量插入
-        await conn.execute(
-            text("""
-                INSERT INTO stocks (ts_code, symbol, name, area, industry, market, list_date, is_hs)
-                VALUES (:ts_code, :symbol, :name, :area, :industry, :market, :list_date, :is_hs)
-            """),
-            all_stocks,
-        )
-        logger.info("✅ 插入完成!")
+# ── main ────────────────────────────────────────────────────
 
-    # 验证结果
-    async with engine.connect() as conn:
-        result = await conn.execute(text("SELECT COUNT(*) FROM stocks"))
-        total = result.scalar()
-        result = await conn.execute(text("SELECT market, COUNT(*) FROM stocks GROUP BY market ORDER BY market"))
 
-        logger.info("📊 股票基础信息同步完成!")
-        logger.info(f"  总股票数: {total} 只")
-        for row in result.fetchall():
-            logger.info(f"    * {row[0]}: {row[1]} 只")
+async def main(*, limit: int | None = None, dry_run: bool = False) -> int:
+    logger.info("=" * 60)
+    logger.info("  tinyshare stock_basic → stocks 表")
+    logger.info("=" * 60)
+    logger.info("  模式: %s", "dry-run" if dry_run else "正式写入")
+    logger.info("")
+
+    # 1. 获取数据
+    df = fetch_stock_basic(limit=limit)
+    if df.empty:
+        logger.warning("无可写入数据")
+        return 0
+
+    # 2. 写入数据库
+    written = await upsert_stocks(df, dry_run=dry_run)
+
+    logger.info("")
+    logger.info("=" * 60)
+    logger.info("  完成！stocks 表写入 %d 条", written)
+    if dry_run:
+        logger.info("  （dry-run 模式，未实际写入）")
+    logger.info("=" * 60)
+    return written
 
 
 if __name__ == "__main__":
-    asyncio.run(sync_stock_basic())
+    import asyncio
+
+    parser = argparse.ArgumentParser(description="同步 A 股基本信息到 stocks 表")
+    parser.add_argument("--limit", type=int, default=None, help="限制获取条数（测试用）")
+    parser.add_argument("--dry-run", action="store_true", help="试运行，不写入数据库")
+    args = parser.parse_args()
+
+    asyncio.run(main(limit=args.limit, dry_run=args.dry_run))

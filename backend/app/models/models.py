@@ -736,3 +736,37 @@ class PortfolioPosition(Base):
     ts_code: Mapped[str] = mapped_column(String(16), nullable=False)
     stock_name: Mapped[str] = mapped_column(String(64), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class CandidatePool(Base):
+    """备选池 - 数据管线的工作集，日常只处理这些股票
+    区别于 watchlist（自选关注）和 stock_pool（板块调研池），
+    备选池是自动/半自动维护的候选列表，避免每次遍历全量A股。
+    """
+
+    __tablename__ = "candidate_pool"
+    __table_args__ = (
+        Index("idx_candidate_pool_source", "source"),
+        Index("idx_candidate_pool_active", "is_active"),
+    )
+
+    ts_code: Mapped[str] = mapped_column(
+        String(20), ForeignKey("stocks.ts_code"), primary_key=True
+    )
+    name: Mapped[str | None] = mapped_column(String(50))
+    source: Mapped[str] = mapped_column(
+        String(20),
+        nullable=False,
+        server_default=text("'manual'"),
+        comment="manual(手动) | watchlist(自选导入) | score(评分筛选) | rule(规则)",
+    )
+    reason: Mapped[str | None] = mapped_column(Text, comment="入选理由")
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("true")
+    )
+    added_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )

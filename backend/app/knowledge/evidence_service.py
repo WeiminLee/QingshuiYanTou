@@ -14,6 +14,7 @@ from app.knowledge.evidence import (
     EXTRACTION_JOBS_COLLECTION,
     EXTRACTOR_VERSION,
     JOB_COMBINED,
+    JOB_SIGNAL,
     JOB_VECTOR,
     STATUS_DONE,
     STATUS_FAILED,
@@ -41,8 +42,11 @@ class EvidenceService:
         self._db = db or get_mongo_db()
         self._evidence = self._db[EVIDENCE_COLLECTION]
         self._jobs = self._db[EXTRACTION_JOBS_COLLECTION]
+        self._indexes_ensured = False
 
     async def ensure_indexes(self) -> None:
+        if self._indexes_ensured:
+            return
         await self._evidence.create_index("evidence_id", unique=True)
         await self._evidence.create_index("checksum")
         await self._evidence.create_index("source_type")
@@ -54,6 +58,7 @@ class EvidenceService:
         await self._jobs.create_index("status")
         await self._jobs.create_index("job_type")
         await self._jobs.create_index("updated_at")
+        self._indexes_ensured = True
 
     async def upsert_evidence(self, input: EvidenceInput, chunk_index: int = 0) -> dict[str, Any]:
         await self.ensure_indexes()
@@ -91,6 +96,7 @@ class EvidenceService:
             "extraction_status": {
                 JOB_COMBINED: STATUS_PENDING,
                 JOB_VECTOR: STATUS_PENDING,
+                JOB_SIGNAL: STATUS_PENDING,
                 "last_extracted_at": None,
                 "extractor_version": EXTRACTOR_VERSION,
             },
@@ -101,6 +107,7 @@ class EvidenceService:
             upsert=True,
         )
         saved = await self.get_evidence(evidence_id)
+        await self.enqueue_default_jobs(evidence_id)
         return saved or {**set_on_insert, **doc}
 
     async def get_evidence(self, evidence_id: str) -> dict[str, Any] | None:

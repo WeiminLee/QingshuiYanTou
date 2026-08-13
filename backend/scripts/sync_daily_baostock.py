@@ -24,7 +24,7 @@ import logging
 import os
 import sys
 import time
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -94,7 +94,7 @@ def _fetch_baostock_raw(bs_code: str, start_date: str, end_date: str) -> list[di
     try:
         rs = bs.query_history_k_data_plus(
             bs_code,
-            "date,code,open,high,low,close,volume,amount",
+            "date,code,open,high,low,close,preclose,volume,amount,turn,pctChg,tradestatus,isST",
             start_date=start_date,
             end_date=end_date,
             frequency="d",
@@ -114,22 +114,53 @@ def _fetch_baostock_raw(bs_code: str, start_date: str, end_date: str) -> list[di
 
 
 def _process_rows(ts_code: str, rows: list[list]) -> list[dict]:
-    """将 baostock 原始行转换为入库记录。"""
+    """将 baostock 原始行转换为入库记录。
+
+    使用源数据中的 preclose 和 pctChg。仅当源 pctChg 缺失时，
+    从 preclose/close 计算。首条记录缺少 preclose 时保持 None，
+    change/pct_chg 也保持 None。
+
+    baostock 字段顺序: date(0),code(1),open(2),high(3),low(4),close(5),
+    preclose(6),volume(7),amount(8),turn(9),pctChg(10),tradestatus(11),isST(12)
+    """
     records = []
     prev_close = None
-    # baostock 返回字段: date,code,open,high,low,close,volume,amount
     for row in rows:
         trade_date_str = row[0]
         open_price = float(row[2]) if row[2] else 0.0
         high_price = float(row[3]) if row[3] else 0.0
         low_price = float(row[4]) if row[4] else 0.0
         close_price = float(row[5]) if row[5] else 0.0
-        vol = float(row[6]) if row[6] else 0.0
-        amount = float(row[7]) if row[7] else 0.0
+        raw_preclose = row[6] if len(row) > 6 and row[6] else None
+        vol = float(row[7]) if len(row) > 7 and row[7] else 0.0
+        amount = float(row[8]) if len(row) > 8 and row[8] else 0.0
+        raw_turn = row[9] if len(row) > 9 and row[9] else None
+        raw_pctchg = row[10] if len(row) > 10 and row[10] else None
 
-        pre_close = prev_close if prev_close is not None else close_price
-        change = close_price - pre_close
-        pct_chg = (change / pre_close * 100) if pre_close else 0.0
+        # 使用源 preclose，缺失时 fallback 到 prev_close（首条无源值则保持 None）
+        if raw_preclose is not None:
+            pre_close = float(raw_preclose)
+        elif prev_close is not None:
+            pre_close = prev_close
+        else:
+            pre_close = None
+
+        # 使用源 pctChg，缺失且 pre_close 可用时计算，否则 None
+        if raw_pctchg is not None:
+            pct_chg = float(raw_pctchg)
+        elif pre_close is not None and pre_close != 0:
+            change = close_price - pre_close
+            pct_chg = (change / pre_close * 100)
+        else:
+            pct_chg = None
+
+        if pre_close is not None:
+            change = round(close_price - pre_close, 3)
+        else:
+            change = None
+
+        turn = float(raw_turn) if raw_turn is not None else None
+
         is_suspended = vol == 0
 
         records.append(
@@ -141,10 +172,11 @@ def _process_rows(ts_code: str, rows: list[list]) -> list[dict]:
                 "low": low_price,
                 "close": close_price,
                 "pre_close": pre_close,
-                "change": round(change, 3),
-                "pct_chg": round(pct_chg, 2),
+                "change": change,
+                "pct_chg": round(pct_chg, 2) if pct_chg is not None else None,
                 "vol": vol,
                 "amount": amount,
+                "turn": turn,
                 "is_suspended": is_suspended,
             }
         )
@@ -155,8 +187,56 @@ def _process_rows(ts_code: str, rows: list[list]) -> list[dict]:
 # ── 数据入库 ──────────────────────────────────────────────
 
 
+def _apply_qfq(
+    records: list[dict],
+    factors: dict[str, float],
+    end_date: str,
+) -> list[dict]:
+    """对记录应用前复权调整（仅变换 OHLC，保留 volume/amount）。
+
+    使用 ``price * latest_factor / hist_factor`` 公式。
+    跳过不含有效因子日期的记录，保持原值。
+
+    Args:
+        records: 入库记录列表（含 trade_date 字段）
+        factors: 复权因子 {date_str: factor}，日期格式 YYYY-MM-DD
+        end_date: 基准日期，用于确定 latest_factor YYYY-MM-DD
+
+    Returns:
+        调整后的记录列表（直接修改，不创建副本）
+    """
+    latest_factor = factors.get(end_date)
+    if latest_factor is None or latest_factor <= 0:
+        return records
+
+    for rec in records:
+        trade_date = rec["trade_date"]
+        if isinstance(trade_date, date):
+            date_str = trade_date.isoformat()
+        else:
+            date_str = str(trade_date)
+
+        hist_factor = factors.get(date_str)
+        if hist_factor is None or hist_factor <= 0:
+            continue
+
+        ratio = latest_factor / hist_factor
+        if ratio == 1.0:
+            continue
+
+        rec["open"] = round(rec["open"] * ratio, 2)
+        rec["high"] = round(rec["high"] * ratio, 2)
+        rec["low"] = round(rec["low"] * ratio, 2)
+        rec["close"] = round(rec["close"] * ratio, 2)
+        if rec.get("pre_close") is not None:
+            rec["pre_close"] = round(rec["pre_close"] * ratio, 2)
+        # volume/amount 不变
+
+    return records
+
+
 async def _batch_insert(data: list[dict]) -> int:
-    """批量 INSERT daily_data。"""
+    """批量 INSERT daily_data 并 best-effort upsert daily_basic。"""
     if not data:
         return 0
     stmt = text("""
@@ -168,10 +248,54 @@ async def _batch_insert(data: list[dict]) -> int:
             :change, :pct_chg, :vol, :amount, :is_suspended
         ) ON CONFLICT (ts_code, trade_date) DO NOTHING
     """)
+    # daily_basic upsert 两条 SQL：有无 turn 各一条，避免传 null 占位
+    basic_close_stmt = text("""
+        INSERT INTO daily_basic (ts_code, trade_date, close)
+        VALUES (:ts_code, :trade_date, :close)
+        ON CONFLICT (ts_code, trade_date) DO UPDATE SET
+            close = EXCLUDED.close
+    """)
+    basic_with_turn_stmt = text("""
+        INSERT INTO daily_basic (ts_code, trade_date, close, turnover_rate)
+        VALUES (:ts_code, :trade_date, :close, :turnover_rate)
+        ON CONFLICT (ts_code, trade_date) DO UPDATE SET
+            close = EXCLUDED.close,
+            turnover_rate = EXCLUDED.turnover_rate
+    """)
     try:
         async with engine.begin() as conn:
             result = await conn.execute(stmt, data)
-            return result.rowcount if result.rowcount else 0
+            saved = result.rowcount if result.rowcount else 0
+        # best-effort daily_basic upsert（close 始终写入，turn 有则写）
+        for rec in data:
+            close = rec.get("close")
+            if close is None or close == 0.0:
+                continue
+            turn = rec.get("turn")
+            try:
+                async with engine.begin() as conn:
+                    if turn is not None:
+                        await conn.execute(
+                            basic_with_turn_stmt,
+                            {
+                                "ts_code": rec["ts_code"],
+                                "trade_date": rec["trade_date"],
+                                "close": close,
+                                "turnover_rate": turn,
+                            },
+                        )
+                    else:
+                        await conn.execute(
+                            basic_close_stmt,
+                            {
+                                "ts_code": rec["ts_code"],
+                                "trade_date": rec["trade_date"],
+                                "close": close,
+                            },
+                        )
+            except Exception:
+                pass
+        return saved
     except Exception as e:
         logger.warning(f"批量插入失败，降级逐条: {e}")
         saved = 0

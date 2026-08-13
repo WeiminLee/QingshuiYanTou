@@ -34,7 +34,7 @@ async def execute_ingestion_job(
     if job.job_type == JOB_IRM_COMPANY:
         ts_code = str(job.payload["ts_code"])
         active_fetcher = fetcher or DataFetcher()
-        result = await active_fetcher.fetch_irm(ts_codes=[ts_code], extract_to_kg=False)
+        result = await active_fetcher.fetch_irm(ts_codes=[ts_code], extract_to_kg=True)
         return _result_from_fetcher_result(result)
     raise ValueError(f"unsupported ingestion job_type: {job.job_type}")
 

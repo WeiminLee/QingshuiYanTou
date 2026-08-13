@@ -81,14 +81,16 @@ class TestLegacyStreamEndReport:
     """GAP-BE-03: 验证 legacy 路径 stream_end 包含完整报告"""
 
     def test_legacy_reasoning_end_has_report(self):
-        with open("app/reasoning/langchain_agent/client.py") as f:
+        # stream_end 的完整报告在 turn_finalizer.py 中发射：
+        #   emit_fn("stream_end", {"report_content": ..., "report_json": ...})
+        with open("app/reasoning/runtime/turn_finalizer.py") as f:
             source = f.read()
 
         assert '"report_content"' in source or "'report_content'" in source, (
-            "client.py 中 reasoning_end 缺少 report_content 字段"
+            "turn_finalizer.py 中 stream_end 缺少 report_content 字段"
         )
         assert '"report_json"' in source or "'report_json'" in source, (
-            "client.py 中 reasoning_end 缺少 report_json 字段"
+            "turn_finalizer.py 中 stream_end 缺少 report_json 字段"
         )
 
 
@@ -185,23 +187,37 @@ class TestLegacyBuildPreview:
 class TestNoDuplicateStreamEnd:
     """GAP-BE-12: 验证无重复 stream_end"""
 
-    def test_manual_loop_no_duplicate_reasoning_end(self):
-        # 结束事件统一为 stream_end。client.run_lead_agent 在 agent.stream() 循环里发射一次；
-        # agent.py 的 legacy 报告路径显式注明不再重复发射（避免前端收到重复 stream_end）。
+    def test_turn_finalizer_emits_single_stream_end(self):
+        # 结束事件统一为 stream_end。turn_finalizer.finalize_agent_turn() 发射一次；
+        # client.py 不直接发射 stream_end，agent.py 的报告路径也注明不再重复发射。
+        with open("app/reasoning/runtime/turn_finalizer.py") as f:
+            finalizer_source = f.read()
         with open("app/reasoning/langchain_agent/client.py") as f:
             client_source = f.read()
         with open("app/reasoning/api/agent.py") as f:
             agent_source = f.read()
 
-        # client 侧 SSE 发射一次：emit_fn(..., "stream_end", ...)。注意区分 append_journal_event
-        # 也带 "stream_end" 字面量（日志用，非 SSE），故排除 journal 行后计数。
+        # turn_finalizer 侧 SSE 发射一次 stream_end
         emit_stream_end_lines = [
-            ln for ln in client_source.splitlines()
+            ln for ln in finalizer_source.splitlines()
             if '"stream_end",' in ln and "append_journal_event" not in ln
         ]
         assert len(emit_stream_end_lines) == 1, (
-            f"client.py 应恰好发射一次 SSE stream_end，实际 {len(emit_stream_end_lines)}"
+            f"turn_finalizer.py 应恰好发射一次 SSE stream_end，实际 {len(emit_stream_end_lines)}"
         )
+
+        # client.py 不直接发射 stream_end（委托给 finalize_agent_turn）
+        direct_client_emits = [
+            ln for ln in client_source.splitlines()
+            if '"stream_end",' in ln and "append_journal_event" not in ln
+        ]
+        assert len(direct_client_emits) == 0, (
+            f"client.py 不应直接发射 stream_end（已委托给 turn_finalizer），实际 {len(direct_client_emits)}"
+        )
+
+        # agent.py 的报告路径注明不再重复发射 stream_end
+        agent_comment = "不再重复发射" if "不再重复发射" in agent_source else "stream_end 由 turn_finalizer 发射"
+        assert agent_comment, "agent.py 缺少 stream_end 重复发射的注释说明"
         # agent.py 侧留有防重复注释/逻辑
         assert "不再重复发射" in agent_source or "已经由 run_lead_agent" in agent_source, (
             "agent.py 缺少防止 stream_end 重复发射的说明/逻辑"

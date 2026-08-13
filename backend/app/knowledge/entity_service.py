@@ -218,7 +218,7 @@ def upsert_entity(
     WHERE n.evidence_url IS NULL AND $evidence_url IS NOT NULL
       SET n.evidence_url = $evidence_url
     WITH n, $extra_props AS extra
-    WHERE extra IS NOT NULL AND size(extra) > 0
+    WHERE extra IS NOT NULL AND keys(extra) <> []
       SET n += extra
     RETURN n, n.created_at = $created_at AS is_new
     """

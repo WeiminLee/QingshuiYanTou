@@ -34,6 +34,15 @@ logger = logging.getLogger(__name__)
 CNINFO_QUERY_API = "http://www.cninfo.com.cn/new/hisAnnouncement/query"
 CNINFO_PDF_BASE = "http://static.cninfo.com.cn/"
 
+# ── 监管公告 plate 分类 ──────────────────────────────────────────
+# 参考项目：column='regulator'，plate 分别为深交所/上交所/结算公司/证监会
+REGU_PLATES = {
+    "szse": {"column": "regulator", "plate": "jgjg_sz;", "label": "深交所监管"},
+    "sh": {"column": "regulator", "plate": "jgjg_sh;", "label": "上交所监管"},
+    "jsgs": {"column": "regulator", "plate": "jgjg_jsgs;", "label": "结算公司监管"},
+    "zjh": {"column": "regulator", "plate": "jgjg_zjh;", "label": "证监会监管"},
+}
+
 # ── 请求头 ───────────────────────────────────────────────────────
 # 模拟浏览器请求，参考旧项目和巨潮接口文档
 CNINFO_HEADERS: dict[str, str] = {
@@ -331,7 +340,168 @@ class CninfoClient:
         )
         return results
 
+    # ── 监管公告 ─────────────────────────────────────────────────
+
+    async def query_regulatory_announcements(
+        self,
+        plate: str = "szse",
+        ann_date: str | None = None,
+        ann_date_end: str | None = None,
+        page: int = 1,
+        page_size: int = DEFAULT_PAGE_SIZE,
+    ) -> dict[str, Any]:
+        """查询单页监管公告列表。
+
+        Args:
+            plate: REGU_PLATES 中的 key，如 "szse"/"sh"/"jsgs"/"zjh"
+            ann_date: 起始日期 YYYYMMDD
+            ann_date_end: 结束日期 YYYYMMDD
+            page: 页码
+            page_size: 每页数量
+
+        Returns:
+            {"total": int, "list": [announcement_dict, ...]}
+        """
+        plate_cfg = REGU_PLATES.get(plate)
+        if not plate_cfg:
+            raise ValueError(f"不支持的监管公告 plate: {plate!r}，可选: {list(REGU_PLATES.keys())}")
+
+        # 构建监管公告专用 payload
+        payload = {
+            "pageNum": str(page),
+            "pageSize": str(page_size),
+            "column": plate_cfg["column"],
+            "tabName": "fulltext",
+            "plate": plate_cfg["plate"],
+            "stock": "",
+            "searchkey": "",
+            "secid": "",
+            "category": "",
+            "trade": "",
+            "seDate": "",
+            "sortName": "",
+            "sortType": "",
+            "isHLtitle": "true",
+        }
+
+        if ann_date:
+            if len(ann_date) != 8 or not ann_date.isdigit():
+                raise ValueError(f"ann_date 必须是 YYYYMMDD 格式，收到: {ann_date!r}")
+            start_fmt = f"{ann_date[:4]}-{ann_date[4:6]}-{ann_date[6:8]}"
+            if ann_date_end and ann_date_end != ann_date:
+                if len(ann_date_end) != 8 or not ann_date_end.isdigit():
+                    raise ValueError(f"ann_date_end 必须是 YYYYMMDD 格式，收到: {ann_date_end!r}")
+                end_fmt = f"{ann_date_end[:4]}-{ann_date_end[4:6]}-{ann_date_end[6:8]}"
+                payload["seDate"] = f"{start_fmt}~{end_fmt}"
+            else:
+                payload["seDate"] = f"{start_fmt}~{start_fmt}"
+
+        await get_cninfo_api_limiter().wait_and_acquire()
+
+        def _sync():
+            if not self._session_initialized:
+                self._ensure_session_sync()
+                self._session_initialized = True
+            try:
+                response = self.session.post(
+                    CNINFO_QUERY_API,
+                    data=payload,
+                    timeout=DEFAULT_TIMEOUT,
+                )
+                response.raise_for_status()
+                data = response.json()
+            except Exception as e:
+                raise CninfoClientError(f"巨潮监管公告 API 请求失败: {e}") from e
+
+            code = data.get("code")
+            if code is not None and str(code) != "0":
+                raise CninfoClientError(
+                    f"巨潮监管公告 API 返回错误: code={code} message={data.get('message', '')}"
+                )
+
+            announcements = data.get("announcements") or []
+            total = int(data.get("totalRecordNum") or data.get("totalAnnouncement") or 0)
+            return {
+                "total": total,
+                "list": announcements,
+                "has_more": bool(data.get("hasMore")),
+                "total_pages": int(data.get("totalpages") or 0),
+            }
+
+        return await asyncio.to_thread(_sync)
+
+    async def get_regulatory_announcements(
+        self,
+        plate: str = "szse",
+        ann_date: str | None = None,
+        ann_date_end: str | None = None,
+        max_pages: int = 500,
+    ) -> list[dict[str, Any]]:
+        """获取指定 plate 的所有监管公告（自动分页，去重）。
+
+        Args:
+            plate: REGU_PLATES 中的 key
+            ann_date: 起始日期 YYYYMMDD
+            ann_date_end: 结束日期 YYYYMMDD
+            max_pages: 最大分页数
+
+        Returns:
+            去重后的监管公告列表
+        """
+        results: list[dict[str, Any]] = []
+        page = 1
+        page_size = DEFAULT_PAGE_SIZE
+
+        while True:
+            if page > max_pages:
+                raise CninfoClientError(
+                    f"监管公告分页超过最大分页数 {max_pages}: "
+                    f"plate={plate} ann_date={ann_date}"
+                )
+            resp = await self.query_regulatory_announcements(
+                plate=plate,
+                ann_date=ann_date,
+                ann_date_end=ann_date_end,
+                page=page,
+                page_size=page_size,
+            )
+            announcements = resp.get("list") or []
+            total = int(resp.get("total", 0))
+            has_more = bool(resp.get("has_more"))
+            results.extend(announcements)
+
+            if not announcements:
+                break
+            if total > 0 and len(results) >= total:
+                break
+            if not has_more:
+                break
+            page += 1
+
+        deduped = self.dedup_announcements(results)
+        logger.info(
+            "巨潮监管公告 %s: 获取 %d 条，去重后 %d 条",
+            plate,
+            len(results),
+            len(deduped),
+        )
+        return deduped
+
     # ── 静态解析助手 ──────────────────────────────────────────────
+
+    @staticmethod
+    def dedup_announcements(
+        announcements: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """按 announcementId 去重，保留首次出现的顺序。"""
+        seen: set[str] = set()
+        result: list[dict[str, Any]] = []
+        for ann in announcements:
+            ann_id = str(ann.get("announcementId", ""))
+            if ann_id and ann_id not in seen:
+                seen.add(ann_id)
+                result.append(ann)
+        return result
 
     @staticmethod
     def get_pdf_url(announcement: dict[str, Any]) -> str:

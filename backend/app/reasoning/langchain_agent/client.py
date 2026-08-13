@@ -20,8 +20,9 @@ import re
 import time
 import uuid
 from datetime import datetime
+from typing import Any
 
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
+from langchain_core.messages import AIMessage, AIMessageChunk, BaseMessage, HumanMessage, ToolMessage
 from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
 from langgraph.errors import GraphRecursionError
@@ -40,6 +41,7 @@ from app.reasoning.langchain_agent.lead_agent import make_lead_agent
 from app.reasoning.langchain_agent.llm_engine import get_global_engine
 from app.reasoning.langchain_agent.middlewares.clarification import ClarificationMiddleware
 from app.reasoning.langchain_agent.prompts.lead_system_prompt import apply_prompt_template
+from app.reasoning.langchain_agent.retry import ExponentialBackoff
 from app.reasoning.langchain_agent.task_events import drain_all_task_events, reset_task_events_queue
 from app.reasoning.langchain_agent.tool_executor import build_preview
 from app.reasoning.runtime.journal import (
@@ -49,6 +51,10 @@ from app.reasoning.runtime.journal import (
     reset_current_journal,
     set_current_journal,
 )
+from app.reasoning.runtime.run_ledger import JsonlRunLedgerStore, build_readiness_binding, build_readiness_evidence_ref
+from app.reasoning.runtime.tool_contract import build_tool_result_contract
+from app.reasoning.runtime.turn_context import AgentTurnContext
+from app.reasoning.runtime.turn_finalizer import finalize_agent_turn
 from app.reasoning.tools.tools import get_available_tools
 
 logger = logging.getLogger(__name__)
@@ -65,6 +71,7 @@ _SOURCE_LAYER_META = {
     "profile": {"label": "公司画像", "confidence": "TIER2_THIRD_PARTY"},
     "web": {"label": "公开网络来源", "confidence": "TIER4_ANALYSIS"},
     "background": {"label": "向量背景知识", "confidence": "TIER2_THIRD_PARTY"},
+    "readiness": {"label": "数据新鲜度与同步状态", "confidence": "TIER1_SYSTEM"},
     "other": {"label": "辅助工具", "confidence": "TIER4_ANALYSIS"},
 }
 
@@ -100,6 +107,18 @@ def _create_chat_model(model_name: str) -> ChatOpenAI:
     if model is None:
         raise ValueError("No primary LLM provider configured — check LLM_BASE_URL/LLM_API_KEY settings")
     return model
+
+
+async def _load_freshness_context_for_prompt() -> str:
+    try:
+        from app.reasoning.langchain_agent.freshness import load_freshness_context
+
+        return await load_freshness_context()
+    except Exception as exc:
+        logger.warning("[FreshnessGate] failed to load context: %s", exc)
+        from app.reasoning.langchain_agent.freshness import build_unavailable_freshness_context
+
+        return build_unavailable_freshness_context(str(exc))
 
 
 # ── LangChainAgentClient（SSE 端点用）────────────────────────────────────
@@ -202,8 +221,9 @@ async def run_lead_agent(
     from app.reasoning.langchain_agent.memory.user_resolver import resolve_user_id
 
     memory_manager: MemoryManager | None = None
+    memory_shutdown_done = False
+    resolved_user_id = resolve_user_id(user_id)
     try:
-        resolved_user_id = resolve_user_id(user_id)
         provider = UserMemoryProvider()
         provider.initialize(resolved_user_id)
         memory_manager = MemoryManager()
@@ -214,6 +234,7 @@ async def run_lead_agent(
 
     # Phase A: 重置 task 事件队列
     reset_task_events_queue()
+    agent_context_payload: dict = {}
 
     if not skip_preflight:
         # 澄清拦截（前置检查，不在 agent 内部）
@@ -226,11 +247,18 @@ async def run_lead_agent(
         if clarification_needed:
             if emit_fn:
                 suggestions = clarification_middleware._build_suggestions(question)
+                # question 字段是给前端展示的澄清"问题文案"，不能直接回填用户原话
+                # （否则弹框显示的就是用户自己输入的内容，令人困惑）。
+                clarify_prompt = (
+                    "请补充更具体的信息，以便我为你分析——例如具体的股票代码或名称、"
+                    "关注的维度（基本面 / 技术面 / 资金面 / 催化剂 / 风险）或时间范围。"
+                )
                 await emit_fn(
                     "clarification_request",
                     {
                         "type": "missing_info" if len(question.strip()) < 10 else "ambiguous_requirement",
-                        "question": question,
+                        "question": clarify_prompt,
+                        "original_input": question,
                         "reason": "用户输入模糊或缺少关键信息",
                         "suggestions": suggestions,
                     },
@@ -275,12 +303,37 @@ async def run_lead_agent(
 
         tools = _get_tools(subagent_enabled=subagent_enabled)
 
+        # ── ToolExecutor 配置（超时 + 重试 + 并发限制）───────────
+        # 每个工具的超时和重试策略注入到 lead_agent 的 _harden_tool 中：
+        # - 超时：asyncio.wait_for(timeout) 防止工具卡死
+        # - 重试：RetryStrategy.execute() 指数退避重试
+        # - 并发：asyncio.Semaphore 控制全局并发数
+        # - NEVER_PARALLEL：asyncio.Lock 互斥锁
+        # 对已知的慢/不可靠工具设置更宽松的超时和重试：
+        # - tavily_search: 联网检索，偶尔超时 → 重试 2 次
+        # - web_fetch: 网页抓取，受目标站点响应速度影响 → 重试 2 次
+        # - get_announcement: 公告检索，数据量大 → 60s 超时
+        # - get_research_report: 研报检索，数据量大 → 60s 超时
+        _tool_configs: dict[str, dict] = {
+            "tavily_search": {"timeout": 45.0, "retry": ExponentialBackoff(max_attempts=2, base_delay=1.0, jitter=False)},
+            "web_fetch": {"timeout": 45.0, "retry": ExponentialBackoff(max_attempts=2, base_delay=1.0, jitter=False)},
+            "get_announcement": {"timeout": 60.0},
+            "get_research_report": {"timeout": 60.0},
+            "get_kline": {"timeout": 30.0},
+            "get_concept_hot": {"timeout": 30.0},
+            "get_market_breadth": {"timeout": 30.0},
+            "neo4j_kg_search": {"timeout": 30.0},
+            "get_irm": {"timeout": 30.0},
+            "get_stock_profile": {"timeout": 30.0},
+        }
+
         # ── Harness Manager ──
         harness: HarnessManager | None = None
         memory_context = ""
         kg_anchors_str = ""
         signal_context = ""
         system_prompt = ""
+        freshness_context = ""
         if not skip_preflight:
             if harness_config is not None:
                 harness = HarnessManager(harness_config, thread_id)
@@ -289,6 +342,7 @@ async def run_lead_agent(
             # Memory Context 注入
             if memory_manager is not None:
                 try:
+                    await memory_manager.on_turn_start(0, question)
                     memory_context = await memory_manager.prefetch_all(question)
                 except Exception:
                     logger.warning("[Memory] prefetch_all failed, running without memory context")
@@ -300,15 +354,24 @@ async def run_lead_agent(
             if harness is not None and harness.config.kg_anchors_enabled:
                 kg_anchors_str = format_kg_anchors(thread_id)
 
-            # Signal Context 注入
-            if signal_id:
-                try:
-                    from app.signals.context_provider import fetch_signal_context
+            # Agent Context 注入（Signal 主链路 + 事实查找/长历史降级）
+            try:
+                from app.reasoning.context.builder import AgentContextBuilder
 
-                    signal_context = await fetch_signal_context(signal_id=signal_id, question=question)
-                except Exception:
-                    logger.warning("[SignalContext] fetch failed, running without signal context")
-                    signal_context = ""
+                agent_context = await AgentContextBuilder().build(
+                    user_id=resolved_user_id,
+                    thread_id=thread_id,
+                    question=question,
+                    signal_id=signal_id,
+                )
+                signal_context = agent_context.prompt_context
+                agent_context_payload = agent_context.model_dump(mode="json")
+            except Exception:
+                logger.warning("[AgentContext] build failed, running without signal context")
+                signal_context = ""
+                agent_context_payload = {}
+
+            freshness_context = await _load_freshness_context_for_prompt()
 
             # 背景知识注入 system prompt（不进入 user message，不输出到前端）
             system_prompt = apply_prompt_template(
@@ -319,16 +382,35 @@ async def run_lead_agent(
                 background_context=background or "",
                 graph_context=graph_context or "",
                 signal_context=signal_context or "",
+                freshness_context=freshness_context,
             )
+        elif prebuilt_messages is not None:
+            # HITL resume skips expensive preflight (clarification, pre-search, memory),
+            # but still needs the freshness gate because the checkpoint does not carry
+            # LangGraph's system prompt.
+            freshness_context = await _load_freshness_context_for_prompt()
+            system_prompt = apply_prompt_template(freshness_context=freshness_context)
+
+        turn_context = AgentTurnContext(
+            run_id=journal.run_id,
+            thread_id=thread_id,
+            question=question,
+            freshness_context=freshness_context,
+            memory_context=memory_context,
+            background_context=background or "",
+            graph_context=graph_context or "",
+            signal_context=signal_context,
+            agent_context=agent_context_payload,
+            kg_anchors=kg_anchors_str,
+        )
 
         # ── Memory tool injection ──
         if memory_manager is not None:
-            from app.reasoning.langchain_agent.memory.tool import manage_memory, set_memory_manager
+            from app.reasoning.langchain_agent.memory.tool import create_manage_memory_tool
 
-            set_memory_manager(memory_manager)
+            manage_memory_tool = create_manage_memory_tool(memory_manager)
             tools = list(tools)
-            if manage_memory not in tools:
-                tools.append(manage_memory)
+            tools.append(manage_memory_tool)
 
         # ── 创建 Agent（DeerFlow 风格）──────────────────────────────
         model = _create_chat_model(model_name)
@@ -352,6 +434,7 @@ async def run_lead_agent(
             config=config,
             thread_id=thread_id,
             plan_mode=plan_mode,
+            tool_configs=_tool_configs,
         )
 
         # ── 执行 Agent Stream ───────────────────────────────────────
@@ -378,8 +461,27 @@ async def run_lead_agent(
         tool_start_times: dict[str, float] = {}
 
         try:
-            async for chunk in agent.astream(state, config=config, stream_mode="values"):
-                messages = chunk.get("messages", [])
+            # stream_mode=["values", "messages"]：
+            #   - "messages" 逐 token 推送 LLM 文本增量（真正的流式，逐字出现）
+            #   - "values"   每个节点完成后的完整状态快照（工具调用/结果/澄清检测）
+            # 文本的实时流式由 messages 分支负责；values 分支只累积 full_content
+            # 作为最终报告的权威来源，不再重复 emit 整段文本。
+            async for stream_mode, chunk in agent.astream(
+                state, config=config, stream_mode=["values", "messages"]
+            ):
+                if stream_mode == "messages":
+                    msg_chunk, _meta = chunk
+                    if isinstance(msg_chunk, AIMessageChunk):
+                        delta_text = _extract_text(msg_chunk.content)
+                        if delta_text and emit_fn:
+                            await emit_fn(
+                                "thinking_delta",
+                                {"delta": delta_text, "turn": turn_count},
+                            )
+                    continue
+
+                chunk_messages = chunk.get("messages", [])
+                messages = chunk_messages
                 turn_count += 1
 
                 for msg in messages:
@@ -419,18 +521,13 @@ async def run_lead_agent(
                                     )
                                 append_journal_event("tool_called", {"id": tc_id, "name": tc_name})
 
-                        # Text content
+                        # Text content — 累积到 full_content 作为最终报告来源。
+                        # 实时逐 token 流式已由上方 "messages" 分支负责，此处不再重复 emit，
+                        # 避免整段文本二次推送导致「突然蹦出来」。
                         text = _extract_text(msg.content)
                         if text:
                             full_content.append(text)
-                            if emit_fn:
-                                await emit_fn(
-                                    "thinking_delta",
-                                    {
-                                        "delta": text,
-                                        "turn": turn_count,
-                                    },
-                                )
+                            turn_context.full_content.append(text)
                             append_journal_event("thinking_delta", {"turn": turn_count, "chars": len(text)})
                             if harness is not None and harness.config.memory_enabled:
                                 harness.update_memory([{"role": "assistant", "content": text}])
@@ -467,6 +564,7 @@ async def run_lead_agent(
                                     "thread_id": thread_id,
                                     "plan_mode": plan_mode,
                                     "question": question,
+                                    "user_id": resolved_user_id,
                                 },
                             ))
                             if emit_fn:
@@ -492,6 +590,7 @@ async def run_lead_agent(
                             consecutive_tool_failures += 1
                         else:
                             consecutive_tool_failures = 0
+                        turn_context.truncated = recursion_truncated
 
                         preview = build_preview(tool_name, result_str)
                         # Bug #4: 计算工具执行时长
@@ -547,7 +646,7 @@ async def run_lead_agent(
                                 break
                     if asst_text and asst_text != _last_synced_asst:
                         try:
-                            await memory_manager.sync_all(question, asst_text)
+                            memory_manager.queue_sync_all(question, asst_text)
                         except Exception:
                             logger.warning("[Memory] sync_all failed, skipping turn sync")
                         _last_synced_asst = asst_text
@@ -571,20 +670,24 @@ async def run_lead_agent(
                 if consecutive_tool_failures >= MAX_CONSECUTIVE_TOOL_FAILURES:
                     logger.warning(f"[Agent] 工具连续失败 {consecutive_tool_failures} 次，提前终止 ReAct 循环")
                     recursion_truncated = True
-                    full_content.append(
+                    failure_notice = (
                         f"\n\n> ⚠️ 检测到工具调用连续失败 {consecutive_tool_failures} 次（如外部 API 不可达），"
                         f"已提前终止本轮分析。请稍后再试或换一个角度提问。"
                     )
+                    full_content.append(failure_notice)
+                    turn_context.full_content.append(failure_notice)
                     break
 
         except GraphRecursionError as e:
             # LangGraph 触达递归上限：保留已收集结果，给前端可读提示。
             logger.warning(f"[Agent] GraphRecursionError: {e}")
             recursion_truncated = True
-            full_content.append(
+            recursion_notice = (
                 "\n\n> ⚠️ 推理深度达到上限（LangGraph recursion_limit），"
                 "已基于现有信息给出阶段性结论。如需更深入分析，请换一个更具体的问题。"
             )
+            full_content.append(recursion_notice)
+            turn_context.full_content.append(recursion_notice)
 
         # ── 发射 stream_end ────────────────────────────────────────
         if is_clarified:
@@ -596,36 +699,19 @@ async def run_lead_agent(
                 "content": "",
             }
 
-        if not is_clarified and emit_fn:
-            raw_analysis = "".join(full_content)
-            trace_metadata = _build_trace_metadata(
-                tool_calls=tool_calls_record,
-                tool_results=tool_results_record,
-                background=background,
-                graph_context=graph_context,
-                turns=turn_count,
-                run_id=journal.run_id,
-            )
-            report = _build_analysis_report(
-                topic=question,
-                raw_analysis=raw_analysis,
-                turns=turn_count,
-                trace=trace_metadata,
-            )
-            await emit_fn(
-                "stream_end",
-                {
-                    "report_content": report.to_markdown(),
-                    "report_json": report.to_dict(),
-                    "report_id": report.report_id,
-                    "compliance_passed": report.compliance_declared,
-                    "turns": turn_count,
-                    "content": raw_analysis,
-                    "stop_reason": "max_tool_calls" if recursion_truncated else None,
-                    "run_id": journal.run_id,
-                },
-            )
-        append_journal_event("stream_end", {"turns": turn_count, "truncated": recursion_truncated})
+        turn_context.turns = turn_count
+        turn_context.truncated = recursion_truncated
+        turn_context.tool_calls = tool_calls_record
+        turn_context.tool_results = tool_results_record
+        finalization = await finalize_agent_turn(
+            turn_context,
+            raw_analysis="".join(full_content),
+            build_trace_metadata=_build_trace_metadata,
+            build_analysis_report=_build_analysis_report,
+            emit_fn=emit_fn,
+            stop_reason="max_tool_calls" if recursion_truncated else None,
+            ledger_store=JsonlRunLedgerStore.default(),
+        )
 
         # ── Harness 收尾 ───────────────────────────────────────────
         if harness is not None:
@@ -636,26 +722,11 @@ async def run_lead_agent(
         if memory_manager is not None:
             try:
                 await memory_manager.shutdown_all()
+                memory_shutdown_done = True
             except Exception:
                 logger.warning("[Memory] shutdown_all failed")
 
-        result = {
-            "content": "".join(full_content),
-            "reasoning": "".join(full_content),
-            "turns": turn_count,
-            "tool_calls": tool_calls_record,
-            "tool_results": tool_results_record,
-            "thread_id": thread_id,
-            "truncated": recursion_truncated,
-        }
-        result["trace"] = _build_trace_metadata(
-            tool_calls=tool_calls_record,
-            tool_results=tool_results_record,
-            background=background,
-            graph_context=graph_context,
-            turns=turn_count,
-            run_id=journal.run_id,
-        )
+        result = finalization.result
 
         if harness is not None:
             summary = harness.get_summary()
@@ -677,6 +748,11 @@ async def run_lead_agent(
             await emit_fn("error", {"error": str(e)})
         raise
     finally:
+        if memory_manager is not None and not memory_shutdown_done:
+            try:
+                await memory_manager.shutdown_all()
+            except Exception:
+                logger.warning("[Memory] shutdown_all failed during final cleanup")
         if get_current_journal() is journal:
             reset_current_journal(journal_token)
 
@@ -760,6 +836,7 @@ def _build_analysis_report(
         report.evidence_refs = trace.get("evidence_refs", [])
         report.tool_audit = trace.get("tool_audit", [])
         report.graph_refs = trace.get("graph_refs", [])
+        report.readiness_binding = trace.get("readiness_binding", {})
 
     try:
         from app.reasoning.output.compliance import scan_content
@@ -806,6 +883,8 @@ def _build_trace_metadata(
     tool_results: list[dict],
     background: str = "",
     graph_context: str = "",
+    agent_context: dict[str, Any] | None = None,
+    freshness_context: str = "",
     turns: int = 0,
     run_id: str = "",
 ) -> dict:
@@ -820,6 +899,24 @@ def _build_trace_metadata(
     evidence_refs: list[dict] = []
     tool_audit: list[dict] = []
     graph_refs: list[dict] = []
+    readiness_binding = build_readiness_binding(freshness_context)
+    readiness_evidence = build_readiness_evidence_ref(readiness_binding)
+    if readiness_evidence is not None:
+        evidence_refs.append(readiness_evidence)
+        source_layers_map["readiness"] = {
+            "key": "readiness",
+            "label": _SOURCE_LAYER_META["readiness"]["label"],
+            "confidence": _SOURCE_LAYER_META["readiness"]["confidence"],
+            "tool_count": 0,
+            "success_count": 1 if readiness_binding.get("overall_status") != "unknown" else 0,
+            "items": [
+                {
+                    "tool": "freshness_gate",
+                    "preview": readiness_evidence["content"],
+                    "success": readiness_binding.get("overall_status") != "unavailable",
+                }
+            ],
+        }
 
     for index, result in enumerate(tool_results):
         tool_name = str(result.get("name") or "")
@@ -867,6 +964,16 @@ def _build_trace_metadata(
             "original_len": result.get("original_len", 0),
             "preview": preview,
         }
+        audit_item["contract"] = build_tool_result_contract(
+            tool_name=tool_name,
+            tool_call_id=call_id,
+            preview=preview,
+            success=success,
+            source_layer=layer,
+            readiness_binding=readiness_binding,
+            original_len=int(result.get("original_len", 0) or 0),
+            duration_ms=float(result.get("duration_ms", 0) or 0),
+        )
         tool_audit.append(audit_item)
 
         if success and preview:
@@ -884,6 +991,7 @@ def _build_trace_metadata(
                         "args": call.get("args", {}),
                         "original_len": result.get("original_len", 0),
                         "count": count,
+                        "contract": audit_item["contract"],
                     },
                 }
             )
@@ -953,6 +1061,8 @@ def _build_trace_metadata(
         "source_layer_count": len(source_layers),
         "evidence_ref_count": len(evidence_refs),
         "graph_ref_count": len(graph_refs),
+        "readiness_status": readiness_binding.get("overall_status", "unknown"),
+        "conclusion_policy": readiness_binding.get("conclusion_policy", "unknown"),
         "traceable": bool(tool_results or evidence_refs or graph_refs),
     }
     return {
@@ -961,6 +1071,8 @@ def _build_trace_metadata(
         "evidence_refs": evidence_refs,
         "tool_audit": tool_audit,
         "graph_refs": graph_refs,
+        "agent_context": agent_context or {},
+        "readiness_binding": readiness_binding,
     }
 
 

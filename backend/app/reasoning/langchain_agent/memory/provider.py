@@ -30,6 +30,15 @@ class MemoryProvider(abc.ABC):
     def on_turn_start(self, turn_number: int, message: str) -> None:
         """Called before each LLM turn."""
 
+    def on_session_switch(
+        self,
+        new_session_id: str,
+        *,
+        parent_session_id: str = "",
+        reset: bool = False,
+    ) -> None:
+        """Called when the runtime switches conversation/session context."""
+
     @abc.abstractmethod
     async def prefetch(self, query: str) -> str:
         """Recall relevant memory for the given query.

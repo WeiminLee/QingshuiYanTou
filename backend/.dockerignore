@@ -1,0 +1,59 @@
+# ── 环境/密钥 ──────────────────────────────────────────
+.env
+.env.*
+!.env.example
+
+# ── Python ─────────────────────────────────────────────
+.venv/
+venv/
+env/
+ENV/
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.tox/
+.nox/
+.hypothesis/
+
+# ── 构建产物 ───────────────────────────────────────────
+*.egg-info/
+*.egg
+dist/
+build/
+.eggs/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+
+# ── 数据与日志 ─────────────────────────────────────────
+logs/
+*.log
+*.pid
+.pids/
+data/
+storage/
+uploads/
+static/charts/
+*.db
+*.sqlite
+*.sqlite3
+
+# ── IDE/编辑器 ─────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# ── Git ───────────────────────────────────────────────
+.git/
+.gitattributes
+.gitignore
+
+# ── Docker ────────────────────────────────────────────
+Dockerfile
+.dockerignore

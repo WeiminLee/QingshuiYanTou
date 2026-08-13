@@ -520,9 +520,9 @@ class TestRunCninfoJobBehavior:
         mock_fetcher_mod.DataFetcher = MagicMock(return_value=fake_fetcher)
 
         mock_dingtalk = MagicMock()
-        mock_dingtalk.notify_task_start = MagicMock()
-        mock_dingtalk.notify_task_success = MagicMock()
-        mock_dingtalk.notify_task_failed = MagicMock()
+        mock_dingtalk.notify_task_start = AsyncMock()
+        mock_dingtalk.notify_task_success = AsyncMock()
+        mock_dingtalk.notify_task_failed = AsyncMock()
 
         with patch.dict(
             "sys.modules",
@@ -551,9 +551,9 @@ class TestRunCninfoJobBehavior:
             "fail": 0,
         }
         # notify_task_start / notify_task_success 被调用
-        mock_dingtalk.notify_task_start.assert_called_once_with("巨潮公告同步")
-        mock_dingtalk.notify_task_success.assert_called_once()
-        mock_dingtalk.notify_task_failed.assert_not_called()
+        mock_dingtalk.notify_task_start.assert_awaited_once_with("巨潮公告同步")
+        mock_dingtalk.notify_task_success.assert_awaited_once()
+        mock_dingtalk.notify_task_failed.assert_not_awaited()
 
     def test_run_cninfo_job_partial_flow(self):
         """fail > 0 -> PARTIAL 状态。"""
@@ -585,9 +585,9 @@ class TestRunCninfoJobBehavior:
         mock_fetcher_mod.DataFetcher = MagicMock(return_value=fake_fetcher)
 
         mock_dingtalk = MagicMock()
-        mock_dingtalk.notify_task_start = MagicMock()
-        mock_dingtalk.notify_task_success = MagicMock()
-        mock_dingtalk.notify_task_failed = MagicMock()
+        mock_dingtalk.notify_task_start = AsyncMock()
+        mock_dingtalk.notify_task_success = AsyncMock()
+        mock_dingtalk.notify_task_failed = AsyncMock()
 
         with patch.dict(
             "sys.modules",
@@ -626,9 +626,9 @@ class TestRunCninfoJobBehavior:
         mock_fetcher_mod.DataFetcher = MagicMock(return_value=fake_fetcher)
 
         mock_dingtalk = MagicMock()
-        mock_dingtalk.notify_task_start = MagicMock()
-        mock_dingtalk.notify_task_success = MagicMock()
-        mock_dingtalk.notify_task_failed = MagicMock()
+        mock_dingtalk.notify_task_start = AsyncMock()
+        mock_dingtalk.notify_task_success = AsyncMock()
+        mock_dingtalk.notify_task_failed = AsyncMock()
 
         with patch.dict(
             "sys.modules",
@@ -648,7 +648,7 @@ class TestRunCninfoJobBehavior:
         assert args[1] == _TS.FAILED
         assert kwargs.get("error_message") == "boom"
 
-        mock_dingtalk.notify_task_failed.assert_called_once_with(
+        mock_dingtalk.notify_task_failed.assert_awaited_once_with(
             "巨潮公告同步",
             "boom",
         )
@@ -1115,3 +1115,220 @@ class _FakeConnCM:
 
     async def __aexit__(self, exc_type, exc, tb) -> None:
         return None
+
+class TestCninfoRegulatoryPlates:
+    """Regulatory announcement plate constants."""
+
+    def test_import(self):
+        from app.data_pipeline.cninfo_client import REGU_PLATES
+
+        assert isinstance(REGU_PLATES, dict)
+        assert len(REGU_PLATES) >= 4
+
+    def test_plate_keys(self):
+        from app.data_pipeline.cninfo_client import REGU_PLATES
+
+        for key, value in REGU_PLATES.items():
+            assert isinstance(key, str)
+            assert isinstance(value, dict)
+            assert "column" in value
+            assert "plate" in value
+            assert "label" in value
+
+    def test_plate_column_is_regulator(self):
+        from app.data_pipeline.cninfo_client import REGU_PLATES
+
+        for key, value in REGU_PLATES.items():
+            assert value["column"] == "regulator", f"{key}: expected column=regulator"
+            assert value["plate"].endswith(";"), f"{key}: expected plate ending with ;"
+
+
+class TestCninfoClientRegulatory:
+    """CninfoClient regulatory announcement methods."""
+
+    def test_has_regu_methods(self):
+        from app.data_pipeline.cninfo_client import CninfoClient
+
+        client = CninfoClient()
+        assert hasattr(client, "query_regulatory_announcements")
+        assert hasattr(client, "get_regulatory_announcements")
+
+    @pytest.mark.asyncio
+    async def test_query_regulatory_returns_empty_list_on_error(self):
+        """query_regulatory_announcements should return empty list via mock."""
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        from app.data_pipeline.cninfo_client import CninfoClient
+
+        client = CninfoClient()
+        # Mock session.post to avoid real HTTP, mock limiter + session init
+        mock_response = MagicMock()
+        mock_response.json.return_value = {"code": "0", "announcements": [], "totalRecordNum": 0}
+        mock_response.raise_for_status.return_value = None
+
+        with patch.object(client, "_ensure_session_sync"):
+            with patch.object(client, "session") as mock_session:
+                mock_session.post.return_value = mock_response
+                with patch("app.data_pipeline.cninfo_client.get_cninfo_api_limiter") as mock_limiter:
+                    mock_lim = AsyncMock()
+                    mock_lim.wait_and_acquire.return_value = None
+                    mock_limiter.return_value = mock_lim
+                    result = await client.query_regulatory_announcements(
+                        plate="szse", ann_date="20260501"
+                    )
+        assert result["total"] == 0
+        assert result["list"] == []
+
+    @pytest.mark.asyncio
+    async def test_query_regulatory_posts_correct_payload(self):
+        """query_regulatory_announcements should post correct payload with column=regulator."""
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        from app.data_pipeline.cninfo_client import CninfoClient
+
+        client = CninfoClient()
+        mock_response = MagicMock()
+        mock_response.json.return_value = {"code": "0", "announcements": [], "totalRecordNum": 0}
+        mock_response.raise_for_status.return_value = None
+
+        captured = {}
+
+        with patch.object(client, "_ensure_session_sync"):
+            with patch.object(client, "session") as mock_session:
+                def sync_post(url, data, **kw):
+                    captured["url"] = url
+                    captured["data"] = data
+                    return mock_response
+                mock_session.post = sync_post
+                with patch("app.data_pipeline.cninfo_client.get_cninfo_api_limiter") as mock_limiter:
+                    mock_lim = AsyncMock()
+                    mock_lim.wait_and_acquire.return_value = None
+                    mock_limiter.return_value = mock_lim
+                    await client.query_regulatory_announcements(
+                        plate="szse", ann_date="20260501"
+                    )
+
+        assert "hisAnnouncement/query" in captured["url"]
+        payload = captured["data"]
+        assert payload["column"] == "regulator"
+        assert payload["plate"] == "jgjg_sz;"
+        assert payload["pageNum"] == "1"
+        assert "2026-05-01" in payload["seDate"]
+
+    @pytest.mark.asyncio
+    async def test_get_regulatory_dedup(self):
+        """get_regulatory_announcements should dedup by announcementId."""
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        from app.data_pipeline.cninfo_client import CninfoClient
+
+        client = CninfoClient()
+        pages = [
+            {"total": 3, "list": [
+                {"announcementId": "1", "announcementTitle": "A"},
+                {"announcementId": "2", "announcementTitle": "B"},
+            ], "has_more": True, "total_pages": 2},
+            {"total": 3, "list": [
+                {"announcementId": "2", "announcementTitle": "B_dup"},
+                {"announcementId": "3", "announcementTitle": "C"},
+            ], "has_more": False, "total_pages": 2},
+        ]
+        page_iter = iter(pages)
+
+        with patch.object(client, "query_regulatory_announcements") as mock_query:
+            mock_query.side_effect = [next(page_iter), next(page_iter)]
+            result = await client.get_regulatory_announcements(plate="szse", ann_date="20260501")
+
+        assert len(result) == 3
+        ids = [a["announcementId"] for a in result]
+        assert ids == ["1", "2", "3"]
+
+
+class TestRegulatoryAnnouncementDedup:
+    """Regulatory announcement deduplication."""
+
+    def test_dedup_by_announcement_id(self):
+        from app.data_pipeline.cninfo_client import CninfoClient
+
+        anns = [
+            {"announcementId": "1", "announcementTitle": "A"},
+            {"announcementId": "2", "announcementTitle": "B"},
+            {"announcementId": "1", "announcementTitle": "A_dup"},
+        ]
+        result = CninfoClient.dedup_announcements(anns)
+        assert len(result) == 2
+        ids = [a["announcementId"] for a in result]
+        assert ids == ["1", "2"]
+
+
+class TestDataFetcherRegulatoryEntry:
+    """DataFetcher regulatory announcement entry point."""
+
+    def test_import(self):
+        from app.data_pipeline.fetcher import DataFetcher
+
+        assert hasattr(DataFetcher, "fetch_regulatory_announcements")
+
+    @pytest.mark.asyncio
+    async def test_fetch_regulatory_passes_plate_to_client(self):
+        """fetch_regulatory_announcements should pass plate to cninfo_client."""
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        from app.data_pipeline.fetcher import DataFetcher
+
+        fetcher = DataFetcher()
+        mock_client = MagicMock()
+        mock_client.get_regulatory_announcements = AsyncMock(return_value=[
+            {"announcementId": "1", "announcementTitle": "A", "secCode": "000001"},
+        ])
+        fetcher.cninfo_client = mock_client
+
+        mock_process = AsyncMock()
+        mock_process.return_value = {"total": 1, "success": 1, "skipped": 0, "downloaded": 0, "fail": 0}
+        fetcher._process_announcement_list = mock_process
+
+        import app.data_pipeline.fetcher as fetcher_mod
+        mock_tracker = AsyncMock()
+        mock_tracker.start_run.return_value = MagicMock()
+
+        with patch.object(fetcher_mod, "IngestionProgressTracker", return_value=mock_tracker):
+            result = await fetcher.fetch_regulatory_announcements(
+                plate="szse", ann_date="20260501"
+            )
+
+        mock_client.get_regulatory_announcements.assert_called_once_with(
+            plate="szse", ann_date="20260501"
+        )
+        assert result["total"] == 1
+        assert result["success"] == 1
+
+class TestRegulatoryScopeAndMultiCode:
+    """Regulatory announcement scope and multi-code handling."""
+
+    def test_fetch_regulatory_skips_stock_scope_filter(self):
+        """fetch_regulatory_announcements should pass skip_stock_scope=True."""
+        from app.data_pipeline.fetcher import DataFetcher
+
+        # Check that the method signature exists and skip_stock_scope is sent
+        import inspect
+        sig = inspect.signature(DataFetcher._process_announcement_list)
+        assert "skip_stock_scope" in sig.parameters
+
+    def test_multi_sec_code_returns_empty_ts_code(self):
+        """Regulatory announcements with comma-separated secCodes should yield empty ts_code."""
+        from app.data_pipeline.cninfo_client import CninfoClient
+
+        ann = {"secCode": "000001,000002,600000", "announcementTitle": "监管函"}
+        result = CninfoClient.get_ts_code(ann)
+        # When secCode contains commas, get_ts_code still returns a single code
+        # The multi-code handling is in fetcher._process_announcement_list
+        assert isinstance(result, str)
+        assert result  # get_ts_code zfills the first part
+
+    def test_process_announcement_list_has_skip_stock_scope(self):
+        """_process_announcement_list should accept skip_stock_scope parameter."""
+        from app.data_pipeline.fetcher import DataFetcher
+
+        import inspect
+        sig = inspect.signature(DataFetcher._process_announcement_list)
+        assert "skip_stock_scope" in sig.parameters

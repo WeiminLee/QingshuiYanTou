@@ -157,3 +157,75 @@ def build_irm_evidence(record: dict[str, Any]) -> EvidenceInput:
         confidence=default_source_confidence("irm"),
         metadata={},
     )
+
+
+def build_irm_evidence_batch(records: list[dict]) -> list[EvidenceInput]:
+    """按 (ts_code, ann_date) 聚合 IRM 记录，返回合并后的 EvidenceInput 列表。
+
+    同一天同一公司的 IRM Q&A 合并为一条 evidence，减少 LLM 调用次数
+    并提升每条 evidence 的上下文丰富度。
+    """
+    from collections import defaultdict
+
+    # 按 (ts_code, ann_date) 分组
+    groups: dict[str, list[dict]] = defaultdict(list)
+    for rec in records:
+        ts_code = _as_str(rec.get("ts_code"))
+        ann_date = _to_iso_date(rec.get("ann_date")) or ""
+        key = f"{ts_code}|{ann_date}"
+        groups[key].append(rec)
+
+    results: list[EvidenceInput] = []
+    for key, group in groups.items():
+        ts_code, ann_date = key.split("|", 1)
+        # 取第一个记录的基础信息
+        first = group[0]
+        company_name = _as_str(first.get("company_name") or first.get("name"))
+        first_cninfo = _as_str(first.get("cninfo_id"))
+
+        # 合并所有 Q&A 文本
+        merged_texts: list[str] = []
+        cninfo_ids: list[str] = []
+        for rec in group:
+            question = _as_str(rec.get("question") or rec.get("title"))
+            answer = _as_str(rec.get("answer") or rec.get("type"))
+            merged_texts.append(f"问题：{question}\n回答：{answer}")
+            cid = _as_str(rec.get("cninfo_id"))
+            if cid:
+                cninfo_ids.append(cid)
+
+        # 合并后的 source_id 用首条 cninfo 或组哈希
+        if cninfo_ids:
+            source_id = cninfo_ids[0]
+        else:
+            combined = hashlib.sha256(
+                "|".join(merged_texts).encode("utf-8")
+            ).hexdigest()[:20]
+            source_id = f"{ts_code}:{combined}"
+
+        source_name = f"互动易:{first_cninfo}" if first_cninfo else f"互动易:{ts_code}"
+        text = "\n\n".join(merged_texts)
+        # 记录原始条数到 metadata 用于审计
+        metadata = {"merged_count": len(group)}
+
+        results.append(
+            EvidenceInput(
+                source_type="irm",
+                source_name=source_name,
+                source_id=source_id,
+                text_excerpt=text,
+                subject_hint={"ts_code": ts_code, "company_name": company_name},
+                publish_date=ann_date or None,
+                observed_at=_utc_now(),
+                source_ref={
+                    "cninfo_id": cninfo_ids[0] if cninfo_ids else "",
+                    "ts_code": ts_code,
+                    "ann_date": ann_date,
+                    "merged_ids": cninfo_ids,
+                },
+                confidence=default_source_confidence("irm"),
+                metadata=metadata,
+            )
+        )
+
+    return results

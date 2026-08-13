@@ -33,7 +33,7 @@ import time
 import uuid
 from datetime import datetime
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Cookie, Depends, HTTPException
 from langchain_core.messages import BaseMessage, HumanMessage
 from pydantic import BaseModel, Field
 from sse_starlette import EventSourceResponse
@@ -73,6 +73,7 @@ _VISIBLE_MAP = {
     "reasoning_started": "reasoning_start",
     "reasoning_end": "stream_end",
     "reasoning_completed": "stream_end",
+    "error": "error",  # 错误事件显式可见
 }
 
 _FILTERED: set[str] = set()  # Phase A: 不再过滤任何事件，全部透传给前端
@@ -106,6 +107,7 @@ class ChatRequest(BaseModel):
     thread_id: str | None = None
     signal_id: str | None = None
     max_turns: int = 5
+    user_id: str | None = None
 
 
 class ChatResponse(BaseModel):
@@ -121,6 +123,7 @@ class InvokeRequest(BaseModel):
     signal_id: str | None = None
     max_turns: int = 5
     model_name: str = "minimax2.5"
+    user_id: str | None = None
 
 
 class InvokeResponse(BaseModel):
@@ -161,6 +164,25 @@ def _apply_result_trace_to_report(report, result: dict | None) -> None:
     report.graph_refs = trace.get("graph_refs", [])
 
 
+def _resolve_request_user_id(body_user_id: str | None, cookie_user_id: str | None) -> str | None:
+    """Resolve the effective user id for agent memory binding.
+
+    When cookie_user_id is present, body_user_id must either be None or match
+    the cookie. This prevents privilege escalation by passing an arbitrary
+    user_id in the request body.
+    """
+    cookie = cookie_user_id.strip() if isinstance(cookie_user_id, str) and cookie_user_id.strip() else None
+    body = body_user_id.strip() if isinstance(body_user_id, str) and body_user_id.strip() else None
+
+    if cookie:
+        if body and body != cookie:
+            from fastapi import HTTPException
+
+            raise HTTPException(status_code=403, detail="body user_id does not match authenticated cookie user_id")
+        return cookie
+    return body
+
+
 async def _run_invoke_task(
     task_id: str,
     thread_id: str,
@@ -168,6 +190,7 @@ async def _run_invoke_task(
     max_turns: int,
     model_name: str,
     signal_id: str | None = None,
+    user_id: str | None = None,
 ):
     """后台执行分析（V2 引擎）"""
     _task_manager.create_task(task_id, thread_id, question)
@@ -179,6 +202,7 @@ async def _run_invoke_task(
             question=question,
             thread_id=thread_id,
             signal_id=signal_id,
+            user_id=user_id,
             model_name=model_name,
             max_turns=max_turns,
         )
@@ -195,7 +219,11 @@ async def _run_invoke_task(
 
 
 @router.post("/chat", response_model=ChatResponse)
-async def chat(request: ChatRequest, _=Depends(verify_api_key)):
+async def chat(
+    request: ChatRequest,
+    _=Depends(verify_api_key),
+    user_id_cookie: str | None = Cookie(default=None, alias="user_id"),
+):
     """
     直接返回分析结果（同步，V2 引擎）。
 
@@ -205,11 +233,13 @@ async def chat(request: ChatRequest, _=Depends(verify_api_key)):
     from app.reasoning.langchain_agent.client import run_lead_agent
 
     thread_id = request.thread_id or str(uuid.uuid4())
+    effective_user_id = _resolve_request_user_id(request.user_id, user_id_cookie)
     try:
         result = await run_lead_agent(
             question=request.question,
             thread_id=thread_id,
             signal_id=request.signal_id,
+            user_id=effective_user_id,
             max_turns=request.max_turns,
         )
         return ChatResponse(
@@ -228,6 +258,7 @@ async def invoke(
     request: InvokeRequest,
     background_tasks: BackgroundTasks,
     _=Depends(verify_api_key),
+    user_id_cookie: str | None = Cookie(default=None, alias="user_id"),
 ):
     """
     发起分析任务（后台执行，V2 引擎）。
@@ -238,6 +269,7 @@ async def invoke(
 
     task_id = str(uuid.uuid4())
     thread_id = request.thread_id or str(uuid.uuid4())
+    effective_user_id = _resolve_request_user_id(request.user_id, user_id_cookie)
 
     # Bug #6 修复：统一使用 _task_manager，移除冗余的 _task_store 写入
     _task_manager.create_task(task_id, thread_id, request.question)
@@ -255,6 +287,7 @@ async def invoke(
         request.max_turns,
         request.model_name,
         request.signal_id,
+        effective_user_id,
     )
 
     return InvokeResponse(
@@ -353,6 +386,7 @@ class ReportRequest(BaseModel):
     thread_id: str | None = None
     signal_id: str | None = None
     max_turns: int = 4
+    user_id: str | None = None
 
 
 class ReportResponse(BaseModel):
@@ -365,7 +399,11 @@ class ReportResponse(BaseModel):
 
 
 @router.post("/report", response_model=ReportResponse)
-async def generate_report(request: ReportRequest, _=Depends(verify_api_key)):
+async def generate_report(
+    request: ReportRequest,
+    _=Depends(verify_api_key),
+    user_id_cookie: str | None = Cookie(default=None, alias="user_id"),
+):
     """
     Layer 4 报告接口（V2 引擎）：生成完整的结构化分析报告。
 
@@ -383,12 +421,14 @@ async def generate_report(request: ReportRequest, _=Depends(verify_api_key)):
 
     task_id = str(uuid.uuid4())
     thread_id = request.thread_id or str(uuid.uuid4())
+    effective_user_id = _resolve_request_user_id(request.user_id, user_id_cookie)
 
     try:
         result = await run_lead_agent(
             question=request.question,
             thread_id=thread_id,
             signal_id=request.signal_id,
+            user_id=effective_user_id,
             max_turns=request.max_turns,
         )
         raw_analysis = result.get("content", "")
@@ -452,10 +492,15 @@ class StreamReportRequest(BaseModel):
     signal_id: str | None = None
     max_turns: int = 4
     model_name: str = "minimax2.5"
+    user_id: str | None = None
 
 
 @router.post("/stream/report")
-async def stream_report(request: StreamReportRequest, _=Depends(verify_api_key)):
+async def stream_report(
+    request: StreamReportRequest,
+    _=Depends(verify_api_key),
+    user_id_cookie: str | None = Cookie(default=None, alias="user_id"),
+):
     """
     流式报告接口（V2 引擎）：后台执行分析，通过 SSE 推送推理进度。
 
@@ -464,6 +509,7 @@ async def stream_report(request: StreamReportRequest, _=Depends(verify_api_key))
     """
     task_id = str(uuid.uuid4())
     thread_id = request.thread_id or str(uuid.uuid4())
+    effective_user_id = _resolve_request_user_id(request.user_id, user_id_cookie)
 
     _task_manager.create_task(task_id, thread_id, request.question)
     asyncio.create_task(
@@ -474,6 +520,7 @@ async def stream_report(request: StreamReportRequest, _=Depends(verify_api_key))
             request.max_turns,
             request.model_name,
             request.signal_id,
+            effective_user_id,
         )
     )
 
@@ -522,6 +569,7 @@ async def _run_stream_report(
     max_turns: int,
     model_name: str,
     signal_id: str | None = None,
+    user_id: str | None = None,
 ):
     """后台执行报告生成（V2 引擎），并推送 SSE 事件"""
     from app.reasoning.api.agent_events import ReasoningEvent
@@ -601,6 +649,7 @@ async def _run_stream_report(
                 thread_id=thread_id,
                 task_id=task_id,
                 signal_id=signal_id,
+                user_id=user_id,
                 model_name=model_name,
                 max_turns=max_turns,
                 emit_fn=emit_fn,
@@ -704,6 +753,7 @@ async def _resume_stream_report(
             question="",
             thread_id=thread_id,
             task_id=task_id,
+            user_id=run_config.get("user_id"),
             model_name=run_config.get("model_name"),
             max_turns=run_config.get("max_turns", 8),
             emit_fn=emit_fn,
@@ -768,7 +818,11 @@ class V2ChatRequest(BaseModel):
 
 
 @router.post("/v2/chat", response_model=ChatResponse)
-async def v2_chat(request: V2ChatRequest, _=Depends(verify_api_key)):
+async def v2_chat(
+    request: V2ChatRequest,
+    _=Depends(verify_api_key),
+    user_id_cookie: str | None = Cookie(default=None, alias="user_id"),
+):
     """
     V2 LangChain Agent 聊天接口（显式 V2 前缀，与 /chat 等价）。
 
@@ -782,12 +836,13 @@ async def v2_chat(request: V2ChatRequest, _=Depends(verify_api_key)):
     from app.reasoning.langchain_agent.client import run_lead_agent
 
     thread_id = request.thread_id or str(uuid.uuid4())
+    effective_user_id = _resolve_request_user_id(request.user_id, user_id_cookie)
 
     try:
         result = await run_lead_agent(
             question=request.question,
             thread_id=thread_id,
-            user_id=request.user_id,
+            user_id=effective_user_id,
             model_name=request.model_name,
             max_turns=request.max_turns,
             subagent_enabled=request.subagent_enabled,
@@ -820,7 +875,11 @@ class V2StreamRequest(BaseModel):
 
 
 @router.post("/v2/stream")
-async def v2_stream(request: V2StreamRequest, api_key: str = Depends(verify_api_key_query)):
+async def v2_stream(
+    request: V2StreamRequest,
+    api_key: str = Depends(verify_api_key_query),
+    user_id_cookie: str | None = Cookie(default=None, alias="user_id"),
+):
     """
     V2 SSE 流式推理端点。
 
@@ -837,6 +896,7 @@ async def v2_stream(request: V2StreamRequest, api_key: str = Depends(verify_api_
     from app.reasoning.langchain_agent.client import LangChainAgentClient
 
     thread_id = request.thread_id or str(uuid.uuid4())
+    effective_user_id = _resolve_request_user_id(request.user_id, user_id_cookie)
 
     async def event_generator():
         task_id = str(uuid.uuid4())
@@ -849,7 +909,7 @@ async def v2_stream(request: V2StreamRequest, api_key: str = Depends(verify_api_
             subagent_enabled=request.subagent_enabled,
             max_concurrent_subagents=request.max_concurrent_subagents,
             max_turns=request.max_turns,
-            user_id=request.user_id,
+            user_id=effective_user_id,
         )
 
         emitter_queue: asyncio.Queue = asyncio.Queue()
@@ -864,11 +924,11 @@ async def v2_stream(request: V2StreamRequest, api_key: str = Depends(verify_api_
                 _task_manager.update_status(task_id, "done")
             except Exception as e:
                 logger.exception(f"[V2Stream] agent failed: {e}")
+                await emit("error", {"error": str(e)})
                 _task_manager.update_status(task_id, "failed")
 
         stream_task = asyncio.create_task(run_and_stream())
 
-        # SSE 总超时 — 主 loop 不设外层超时，仅工具层有超时
         from app.config import settings
 
         SSE_TOTAL_TIMEOUT = settings.agent_sse_timeout
@@ -876,49 +936,54 @@ async def v2_stream(request: V2StreamRequest, api_key: str = Depends(verify_api_
         ping_count = 0
         start_time = time.monotonic()
 
-        while not stream_task.done() or not emitter_queue.empty():
-            # 检查总超时
-            elapsed = time.monotonic() - start_time
-            if elapsed > SSE_TOTAL_TIMEOUT:
-                logger.warning(f"[V2Stream] SSE stream timeout after {elapsed:.1f}s")
-                _task_manager.update_status(task_id, "timeout")
-                yield f"data: {json.dumps({'type': 'error', 'data': {'error': 'stream timeout'}})}\n\n"
-                break
-
-            try:
-                raw = await asyncio.wait_for(emitter_queue.get(), timeout=30.0)
-                ping_count = 0  # 收到数据，重置 ping 计数
-                parsed = json.loads(raw)
-                event_type = parsed.get("type", "")
-                data = parsed.get("data", {})
-                visible, mapped_type = _filter_sse_event(event_type, data)
-                if visible:
-                    yield f"data: {json.dumps({'type': mapped_type, 'data': data})}\n\n"
-            except TimeoutError:
-                ping_count += 1
-                if ping_count > SSE_MAX_CONSECUTIVE_PINGS:
-                    logger.warning(f"[V2Stream] Too many consecutive pings ({ping_count}), stream may be stuck")
-                    _task_manager.update_status(task_id, "stuck")
-                    yield f"data: {json.dumps({'type': 'error', 'data': {'error': 'stream stuck, too many pings'}})}\n\n"
+        try:
+            while not stream_task.done() or not emitter_queue.empty():
+                elapsed = time.monotonic() - start_time
+                if elapsed > SSE_TOTAL_TIMEOUT:
+                    logger.warning(f"[V2Stream] SSE stream timeout after {elapsed:.1f}s")
+                    _task_manager.update_status(task_id, "timeout")
+                    yield f"data: {json.dumps({'type': 'error', 'data': {'error': 'stream timeout'}})}\n\n"
                     break
-                yield f"data: {json.dumps({'type': 'ping'})}\n\n"
 
-        while not emitter_queue.empty():
-            try:
-                item = emitter_queue.get_nowait()
-                yield f"data: {item}\n\n"
-            except asyncio.QueueEmpty:
-                break
+                try:
+                    raw = await asyncio.wait_for(emitter_queue.get(), timeout=30.0)
+                    ping_count = 0
+                    parsed = json.loads(raw)
+                    event_type = parsed.get("type", "")
+                    data = parsed.get("data", {})
+                    visible, mapped_type = _filter_sse_event(event_type, data)
+                    if visible:
+                        yield f"data: {json.dumps({'type': mapped_type, 'data': data})}\n\n"
+                except TimeoutError:
+                    ping_count += 1
+                    if ping_count > SSE_MAX_CONSECUTIVE_PINGS:
+                        logger.warning(f"[V2Stream] Too many consecutive pings ({ping_count}), stream may be stuck")
+                        _task_manager.update_status(task_id, "stuck")
+                        yield f"data: {json.dumps({'type': 'error', 'data': {'error': 'stream stuck, too many pings'}})}\n\n"
+                        break
+                    yield f"data: {json.dumps({'type': 'ping'})}\n\n"
 
-        # client.run() owns stream_end emission. The API layer only forwards
-        # pending queued events and surfaces terminal errors.
-        if stream_task.done():
-            try:
-                exc = stream_task.exception()
-                if exc:
-                    yield f"data: {json.dumps({'type': 'error', 'data': {'error': str(exc)}})}\n\n"
-            except asyncio.CancelledError:
-                yield f"data: {json.dumps({'type': 'error', 'data': {'error': 'task cancelled'}})}\n\n"
+            while not emitter_queue.empty():
+                try:
+                    item = emitter_queue.get_nowait()
+                    yield f"data: {item}\n\n"
+                except asyncio.QueueEmpty:
+                    break
+
+            if stream_task.done():
+                try:
+                    exc = stream_task.exception()
+                    if exc:
+                        yield f"data: {json.dumps({'type': 'error', 'data': {'error': str(exc)}})}\n\n"
+                except asyncio.CancelledError:
+                    yield f"data: {json.dumps({'type': 'error', 'data': {'error': 'task cancelled'}})}\n\n"
+        finally:
+            if not stream_task.done():
+                stream_task.cancel()
+                try:
+                    await stream_task
+                except (asyncio.CancelledError, Exception):
+                    pass
 
     return EventSourceResponse(event_generator())
 

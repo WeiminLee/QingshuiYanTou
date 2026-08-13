@@ -283,6 +283,15 @@ L1 — 证据原子层（原始公告/研报/互动易）：
 {memory_content}
 </memory>
 
+<memory_policy>
+- `manage_memory` 只用于长期用户画像、长期偏好、稳定关注方向和用户明确要求。
+- 当用户明确表达“我看好/看空/关注/回避某板块、概念、个股”时，可写入 preference。
+- 当用户表达长期工作方式要求（例如“以后优先看公告/互动易/风险”）时，可写入 notes。
+- 不要把临时行情判断、单次问题上下文、未经验证的投资结论写入长期记忆。
+- 任何交易执行、自动下单、委托买卖相关内容都不得写入记忆。
+- 记忆写入是后台副作用；调用后必须继续完成用户原始分析任务，不要只回复“记忆已保存”。
+</memory_policy>
+
 {kg_anchors}
 
 {background_context}
@@ -361,7 +370,7 @@ def _build_signal_context_section(signal_context: str) -> str:
     if not signal_context or not signal_context.strip():
         return ""
     stripped = signal_context.strip()
-    if stripped.startswith("<signal-context>"):
+    if stripped.startswith(("<signal-context>", "<agent-context>")):
         return stripped
     return f"""\
 <signal-context>
@@ -385,6 +394,7 @@ def apply_prompt_template(
     background_context: str = "",
     graph_context: str = "",
     signal_context: str = "",
+    freshness_context: str = "",
 ) -> str:
     """
     生成完整的 Lead Agent system prompt。
@@ -397,6 +407,7 @@ def apply_prompt_template(
         background_context: Qdrant pre-search 检索的背景知识（注入 system prompt，不进入前端输出）
         graph_context: 图谱上下文查询结果（从 Neo4j 预查询，注入 system prompt，不进入前端输出）
         signal_context: 预期差信号上下文（注入 system prompt，不进入前端输出）
+        freshness_context: 数据新鲜度上下文（注入 system prompt，约束结论的时效边界）
 
     Returns:
         格式化后的完整 system prompt
@@ -423,6 +434,12 @@ def apply_prompt_template(
         summarize_routing_guide=SUMMARIZE_ROUTING_GUIDE,
     )
 
+    if freshness_context:
+        prompt += (
+            "\n\n## 数据新鲜度与结论边界\n"
+            f"{freshness_context}\n"
+            "你必须遵守以上 data_readiness 约束：如果状态为 stale，需要声明数据截至日期并降低结论强度；"
+            "如果状态为 missing 或 failed，不得输出强时效结论。"
+        )
+
     return prompt + f"\n<current_date>{datetime.now().strftime('%Y-%m-%d')}</current_date>\n"
-
-

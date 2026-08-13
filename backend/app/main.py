@@ -22,6 +22,7 @@ from app.knowledge.api import (
 )
 from app.knowledge.api.feedback import router as feedback_router
 from app.knowledge.api.knowledge_package import router as knowledge_package_router
+from app.readiness.api import router as readiness_router
 from app.reasoning.api import agent_router, stats_router
 from app.reasoning.subagents.polling import router as subagent_router
 from app.signals.api import router as signals_router
@@ -60,9 +61,67 @@ async def lifespan(app: FastAPI):
     from app.core.database import async_session
 
     account_cfg.validate_master_password()
-    async with async_session() as s:
-        n = await user_service.sync_from_yaml(s)
-        print(f"已同步 {n} 个用户: {[u.user_id for u in (await user_service.list_active(s))]}")
+    try:
+        async with async_session() as s:
+            n = await user_service.sync_from_yaml(s)
+            print(f"已同步 {n} 个用户: {[u.user_id for u in (await user_service.list_active(s))]}")
+    except Exception as e:
+        # 空库/无 DB 降级：允许在没有 PostgreSQL 的情况下启动，仅验证对话链路。
+        print(f"[降级] 用户同步跳过（PostgreSQL 不可用）: {e}")
+
+    # Readiness 使用的同步状态表（如不存在则创建）
+    from app.data_pipeline.monitor import init_sync_status_table, init_alert_log_table
+    from app.core.database import engine
+
+    try:
+        async with engine.begin() as conn:
+            from sqlalchemy import text
+
+            await conn.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS sync_task_status (
+                        id SERIAL PRIMARY KEY,
+                        task_name VARCHAR(50) NOT NULL,
+                        status VARCHAR(20) NOT NULL,
+                        started_at TIMESTAMP,
+                        completed_at TIMESTAMP,
+                        total_items INTEGER DEFAULT 0,
+                        success_count INTEGER DEFAULT 0,
+                        skipped_count INTEGER DEFAULT 0,
+                        fail_count INTEGER DEFAULT 0,
+                        error_message TEXT,
+                        consecutive_failures INTEGER DEFAULT 0,
+                        created_at TIMESTAMP DEFAULT now(),
+                        updated_at TIMESTAMP DEFAULT now()
+                    )
+                    """
+                )
+            )
+            await conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS idx_sync_task_name ON sync_task_status(task_name)"
+                )
+            )
+            await conn.execute(
+                text("CREATE INDEX IF NOT EXISTS idx_sync_status ON sync_task_status(status)")
+            )
+            await conn.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS sync_alerts (
+                        id SERIAL PRIMARY KEY,
+                        task_name VARCHAR(50) NOT NULL,
+                        alert_type VARCHAR(50) NOT NULL,
+                        message TEXT,
+                        created_at TIMESTAMP DEFAULT now()
+                    )
+                    """
+                )
+            )
+        print("同步状态表已就绪")
+    except Exception as e:
+        print(f"[降级] 同步状态表创建跳过: {e}")
 
     from app.reasoning.api.agent import _periodic_hitl_cleanup
     hitl_cleanup_task = asyncio.create_task(_periodic_hitl_cleanup())
@@ -149,6 +208,11 @@ app.include_router(
     signals_router,
     prefix="/api/v1/signals",
     tags=["信号"],
+    dependencies=[Depends(verify_api_key_optional)],
+)
+app.include_router(
+    readiness_router,
+    prefix="/api/v1/readiness",
     dependencies=[Depends(verify_api_key_optional)],
 )
 # 日志查询路由（读操作，可选认证）

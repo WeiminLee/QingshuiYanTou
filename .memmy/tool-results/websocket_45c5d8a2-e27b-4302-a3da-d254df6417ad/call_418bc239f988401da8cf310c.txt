@@ -1,0 +1,374 @@
+2026-08-11 14:21:18,968 - WARNING - 请求失败，第3次重试，等待 20 秒: get_stock_daily
+2026-08-11 14:21:19,097 - WARNING - 请求失败，第3次重试，等待 20 秒: get_stock_daily
+2026-08-11 14:21:20,042 - WARNING - 请求失败，第3次重试，等待 20 秒: get_stock_daily
+2026-08-11 14:21:27,027 - WARNING - 请求失败，第4次重试，等待 40 秒: get_stock_daily
+2026-08-11 14:21:27,220 - WARNING - 请求失败，第4次重试，等待 40 秒: get_stock_daily
+2026-08-11 14:21:28,139 - WARNING - 请求失败，第4次重试，等待 40 秒: get_stock_daily
+2026-08-11 14:21:43,184 - ERROR - ❌ 688381.SH 同步失败: RetryError[<Future at 0x10d282850 state=finished raised ProxyError>]
+Traceback (most recent call last):
+  File "/Users/lwm/dev/QingshuiYanTou/backend/.venv/lib/python3.13/site-packages/urllib3/connectionpool.py", line 788, in urlopen
+    response = self._make_request(
+        conn,
+    ...<10 lines>...
+        **response_kw,
+    )
+  File "/Users/lwm/dev/QingshuiYanTou/backend/.venv/lib/python3.13/site-packages/urllib3/connectionpool.py", line 534, in _make_request
+    response = conn.getresponse()
+  File "/Users/lwm/dev/QingshuiYanTou/backend/.venv/lib/python3.13/site-packages/urllib3/connection.py", line 571, in getresponse
+    httplib_response = super().getresponse()
+  File "/Users/lwm/.local/share/uv/python/cpython-3.13.14-macos-aarch64-none/lib/python3.13/http/client.py", line 1459, in getresponse
+    response.begin()
+    ~~~~~~~~~~~~~~^^
+  File "/Users/lwm/.local/share/uv/python/cpython-3.13.14-macos-aarch64-none/lib/python3.13/http/client.py", line 336, in begin
+    version, status, reason = self._read_status()
+                              ~~~~~~~~~~~~~~~~~^^
+  File "/Users/lwm/.local/share/uv/python/cpython-3.13.14-macos-aarch64-none/lib/python3.13/http/client.py", line 305, in _read_status
+    raise RemoteDisconnected("Remote end closed connection without"
+                             " response")
+http.client.RemoteDisconnected: Remote end closed connection without response
+
+The above exception was the direct cause of the following exception:
+
+urllib3.exceptions.ProxyError: ('Unable to connect to proxy', RemoteDisconnected('Remote end closed connection without response'))
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/Users/lwm/dev/QingshuiYanTou/backend/.venv/lib/python3.13/site-packages/requests/adapters.py", line 667, in send
+    resp = conn.urlopen(
+        method=request.method,
+    ...<9 lines>...
+        chunked=chunked,
+    )
+  File "/Users/lwm/dev/QingshuiYanTou/backend/.venv/lib/python3.13/site-packages/urllib3/connectionpool.py", line 842, in urlopen
+    retries = retries.increment(
+        method, url, error=new_e, _pool=self, _stacktrace=sys.exc_info()[2]
+    )
+  File "/Users/lwm/dev/QingshuiYanTou/backend/.venv/lib/python3.13/site-packages/urllib3/util/retry.py", line 543, in increment
+    raise MaxRetryError(_pool, url, reason) from reason  # type: ignore[arg-type]
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+urllib3.exceptions.MaxRetryError: HTTPSConnectionPool(host='push2his.eastmoney.com', port=443): Max retries exceeded with url: /api/qt/stock/kline/get?fields1=f1%2Cf2%2Cf3%2Cf4%2Cf5%2Cf6&fields2=f51%2Cf52%2Cf53%2Cf54%2Cf55%2Cf56%2Cf57%2Cf58%2Cf59%2Cf60%2Cf61%2Cf116&ut=7eea3edcaed734bea9cbfc24409ed989&klt=101&fqt=0&secid=1.688381&beg=20240101&end=20260811 (Caused by ProxyError('Unable to connect to proxy', RemoteDisconnected('Remote end closed connection without response')))
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/Users/lwm/dev/QingshuiYanTou/backend/.venv/lib/python3.13/site-packages/tenacity/__init__.py", line 478, in __call__
+    result = fn(*args, **kwargs)
+  File "/Users/lwm/dev/QingshuiYanTou/backend/scripts/sync_daily_data.py", line 76, in get_stock_daily
+    df = ak.stock_zh_a_hist(
+        symbol=symbol,
+    ...<3 lines>...
+        adjust="",  # 不复权
+    )
+  File "/Users/lwm/dev/QingshuiYanTou/backend/.venv/lib/python3.13/site-packages/akshare/stock_feature/stock_hist_em.py", line 992, in stock_zh_a_hist
+    r = requests.get(url, params=params, timeout=timeout)
+  File "/Users/lwm/dev/QingshuiYanTou/backend/.venv/lib/python3.13/site-packages/requests/api.py", line 73, in get
+    return request("get", url, params=params, **kwargs)
+  File "/Users/lwm/dev/QingshuiYanTou/backend/.venv/lib/python3.13/site-packages/requests/api.py", line 59, in request
+    return session.request(method=method, url=url, **kwargs)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/lwm/dev/QingshuiYanTou/backend/.venv/lib/python3.13/site-packages/requests/sessions.py", line 589, in request
+    resp = self.send(prep, **send_kwargs)
+  File "/Users/lwm/dev/QingshuiYanTou/backend/.venv/lib/python3.13/site-packages/requests/sessions.py", line 703, in send
+    r = adapter.send(request, **kwargs)
+  File "/Users/lwm/dev/QingshuiYanTou/backend/.venv/lib/python3.13/site-packages/requests/adapters.py", line 694, in send
+    raise ProxyError(e, request=request)
+requests.exceptions.ProxyError: HTTPSConnectionPool(host='push2his.eastmoney.com', port=443): Max retries exceeded with url: /api/qt/stock/kline/get?fields1=f1%2Cf2%2Cf3%2Cf4%2Cf5%2Cf6&fields2=f51%2Cf52%2Cf53%2Cf54%2Cf55%2Cf56%2Cf57%2Cf58%2Cf59%2Cf60%2Cf61%2Cf116&ut=7eea3edcaed734bea9cbfc24409ed989&klt=101&fqt=0&secid=1.688381&beg=20240101&end=20260811 (Caused by ProxyError('Unable to connect to proxy', RemoteDisconnected('Remote end closed connection without response')))
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/Users/lwm/dev/QingshuiYanTou/backend/scripts/sync_daily_data.py", line 141, in sync_single_stock
+    data = await loop.run_in_executor(None, get_stock_daily, ts_code, start_date, end_date)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/lwm/.local/share/uv/python/cpython-3.13.14-macos-aarch64-none/lib/python3.13/concurrent/futures/thread.py", line 59, in run
+    result = self.fn(*self.args, **self.kwargs)
+  File "/Users/lwm/dev/QingshuiYanTou/backend/.venv/lib/python3.13/site-packages/tenacity/__init__.py", line 336, in wrapped_f
+    return copy(f, *args, **kw)
+  File "/Users/lwm/dev/QingshuiYanTou/backend/.venv/lib/python3.13/site-packages/tenacity/__init__.py", line 475, in __call__
+    do = self.iter(retry_state=retry_state)
+  File "/Users/lwm/dev/QingshuiYanTou/backend/.venv/lib/python3.13/site-packages/tenacity/__init__.py", line 376, in iter
+    result = action(retry_state)
+  File "/Users/lwm/dev/QingshuiYanTou/backend/.venv/lib/python3.13/site-packages/tenacity/__init__.py", line 419, in exc_check
+    raise retry_exc from fut.exception()
+tenacity.RetryError: RetryError[<Future at 0x10d282850 state=finished raised ProxyError>]
+2026-08-11 14:21:43,310 - WARNING - 请求失败，第1次重试，等待 5 秒: get_stock_daily
+2026-08-11 14:21:43,713 - INFO - ✅ 688543.SH 同步完成，共 631 条记录
+2026-08-11 14:21:43,848 - WARNING - 请求失败，第1次重试，等待 5 秒: get_stock_daily
+2026-08-11 14:21:44,281 - ERROR - ❌ 688695.SH 同步失败: RetryError[<Future at 0x10d2821d0 state=finished raised ProxyError>]
+Traceback (most recent call last):
+  File "/Users/lwm/dev/QingshuiYanTou/backend/.venv/lib/python3.13/site-packages/urllib3/connectionpool.py", line 788, in urlopen
+    response = self._make_request(
+        conn,
+    ...<10 lines>...
+        **response_kw,
+    )
+  File "/Users/lwm/dev/QingshuiYanTou/backend/.venv/lib/python3.13/site-packages/urllib3/connectionpool.py", line 534, in _make_request
+    response = conn.getresponse()
+  File "/Users/lwm/dev/QingshuiYanTou/backend/.venv/lib/python3.13/site-packages/urllib3/connection.py", line 571, in getresponse
+    httplib_response = super().getresponse()
+  File "/Users/lwm/.local/share/uv/python/cpython-3.13.14-macos-aarch64-none/lib/python3.13/http/client.py", line 1459, in getresponse
+    response.begin()
+    ~~~~~~~~~~~~~~^^
+  File "/Users/lwm/.local/share/uv/python/cpython-3.13.14-macos-aarch64-none/lib/python3.13/http/client.py", line 336, in begin
+    version, status, reason = self._read_status()
+                              ~~~~~~~~~~~~~~~~~^^
+  File "/Users/lwm/.local/share/uv/python/cpython-3.13.14-macos-aarch64-none/lib/python3.13/http/client.py", line 305, in _read_status
+    raise RemoteDisconnected("Remote end closed connection without"
+                             " response")
+http.client.RemoteDisconnected: Remote end closed connection without response
+
+The above exception was the direct cause of the following exception:
+
+urllib3.exceptions.ProxyError: ('Unable to connect to proxy', RemoteDisconnected('Remote end closed connection without response'))
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/Users/lwm/dev/QingshuiYanTou/backend/.venv/lib/python3.13/site-packages/requests/adapters.py", line 667, in send
+    resp = conn.urlopen(
+        method=request.method,
+    ...<9 lines>...
+        chunked=chunked,
+    )
+  File "/Users/lwm/dev/QingshuiYanTou/backend/.venv/lib/python3.13/site-packages/urllib3/connectionpool.py", line 842, in urlopen
+    retries = retries.increment(
+        method, url, error=new_e, _pool=self, _stacktrace=sys.exc_info()[2]
+    )
+  File "/Users/lwm/dev/QingshuiYanTou/backend/.venv/lib/python3.13/site-packages/urllib3/util/retry.py", line 543, in increment
+    raise MaxRetryError(_pool, url, reason) from reason  # type: ignore[arg-type]
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+urllib3.exceptions.MaxRetryError: HTTPSConnectionPool(host='push2his.eastmoney.com', port=443): Max retries exceeded with url: /api/qt/stock/kline/get?fields1=f1%2Cf2%2Cf3%2Cf4%2Cf5%2Cf6&fields2=f51%2Cf52%2Cf53%2Cf54%2Cf55%2Cf56%2Cf57%2Cf58%2Cf59%2Cf60%2Cf61%2Cf116&ut=7eea3edcaed734bea9cbfc24409ed989&klt=101&fqt=0&secid=1.688695&beg=20240101&end=20260811 (Caused by ProxyError('Unable to connect to proxy', RemoteDisconnected('Remote end closed connection without response')))
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/Users/lwm/dev/QingshuiYanTou/backend/.venv/lib/python3.13/site-packages/tenacity/__init__.py", line 478, in __call__
+    result = fn(*args, **kwargs)
+  File "/Users/lwm/dev/QingshuiYanTou/backend/scripts/sync_daily_data.py", line 76, in get_stock_daily
+    df = ak.stock_zh_a_hist(
+        symbol=symbol,
+    ...<3 lines>...
+        adjust="",  # 不复权
+    )
+  File "/Users/lwm/dev/QingshuiYanTou/backend/.venv/lib/python3.13/site-packages/akshare/stock_feature/stock_hist_em.py", line 992, in stock_zh_a_hist
+    r = requests.get(url, params=params, timeout=timeout)
+  File "/Users/lwm/dev/QingshuiYanTou/backend/.venv/lib/python3.13/site-packages/requests/api.py", line 73, in get
+    return request("get", url, params=params, **kwargs)
+  File "/Users/lwm/dev/QingshuiYanTou/backend/.venv/lib/python3.13/site-packages/requests/api.py", line 59, in request
+    return session.request(method=method, url=url, **kwargs)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/lwm/dev/QingshuiYanTou/backend/.venv/lib/python3.13/site-packages/requests/sessions.py", line 589, in request
+    resp = self.send(prep, **send_kwargs)
+  File "/Users/lwm/dev/QingshuiYanTou/backend/.venv/lib/python3.13/site-packages/requests/sessions.py", line 703, in send
+    r = adapter.send(request, **kwargs)
+  File "/Users/lwm/dev/QingshuiYanTou/backend/.venv/lib/python3.13/site-packages/requests/adapters.py", line 694, in send
+    raise ProxyError(e, request=request)
+requests.exceptions.ProxyError: HTTPSConnectionPool(host='push2his.eastmoney.com', port=443): Max retries exceeded with url: /api/qt/stock/kline/get?fields1=f1%2Cf2%2Cf3%2Cf4%2Cf5%2Cf6&fields2=f51%2Cf52%2Cf53%2Cf54%2Cf55%2Cf56%2Cf57%2Cf58%2Cf59%2Cf60%2Cf61%2Cf116&ut=7eea3edcaed734bea9cbfc24409ed989&klt=101&fqt=0&secid=1.688695&beg=20240101&end=20260811 (Caused by ProxyError('Unable to connect to proxy', RemoteDisconnected('Remote end closed connection without response')))
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/Users/lwm/dev/QingshuiYanTou/backend/scripts/sync_daily_data.py", line 141, in sync_single_stock
+    data = await loop.run_in_executor(None, get_stock_daily, ts_code, start_date, end_date)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/lwm/.local/share/uv/python/cpython-3.13.14-macos-aarch64-none/lib/python3.13/concurrent/futures/thread.py", line 59, in run
+    result = self.fn(*self.args, **self.kwargs)
+  File "/Users/lwm/dev/QingshuiYanTou/backend/.venv/lib/python3.13/site-packages/tenacity/__init__.py", line 336, in wrapped_f
+    return copy(f, *args, **kw)
+  File "/Users/lwm/dev/QingshuiYanTou/backend/.venv/lib/python3.13/site-packages/tenacity/__init__.py", line 475, in __call__
+    do = self.iter(retry_state=retry_state)
+  File "/Users/lwm/dev/QingshuiYanTou/backend/.venv/lib/python3.13/site-packages/tenacity/__init__.py", line 376, in iter
+    result = action(retry_state)
+  File "/Users/lwm/dev/QingshuiYanTou/backend/.venv/lib/python3.13/site-packages/tenacity/__init__.py", line 419, in exc_check
+    raise retry_exc from fut.exception()
+tenacity.RetryError: RetryError[<Future at 0x10d2821d0 state=finished raised ProxyError>]
+2026-08-11 14:21:44,346 - WARNING - 请求失败，第1次重试，等待 5 秒: get_stock_daily
+2026-08-11 14:21:48,896 - INFO - ✅ 688800.SH 同步完成，共 631 条记录
+2026-08-11 14:21:49,179 - INFO - ✅ 688802.SH 同步完成，共 157 条记录
+2026-08-11 14:21:49,317 - INFO - ✅ 920249.BJ 同步完成，共 631 条记录
+2026-08-11 14:21:49,616 - INFO - ✅ 920263.BJ 同步完成，共 631 条记录
+2026-08-11 14:21:49,650 - INFO - ✅ 688809.SH 同步完成，共 148 条记录
+2026-08-11 14:21:49,729 - INFO - ✅ 920274.BJ 同步完成，共 631 条记录
+2026-08-11 14:21:50,058 - INFO - ✅ 920284.BJ 同步完成，共 631 条记录
+2026-08-11 14:21:50,100 - INFO - ✅ 920299.BJ 同步完成，共 631 条记录
+2026-08-11 14:21:50,125 - INFO - ✅ 920300.BJ 同步完成，共 631 条记录
+2026-08-11 14:21:50,566 - INFO - ✅ 920367.BJ 同步完成，共 631 条记录
+2026-08-11 14:21:50,578 - INFO - ✅ 920346.BJ 同步完成，共 631 条记录
+2026-08-11 14:21:50,580 - INFO - ✅ 920363.BJ 同步完成，共 631 条记录
+2026-08-11 14:21:51,058 - INFO - ✅ 920414.BJ 同步完成，共 631 条记录
+2026-08-11 14:21:51,071 - INFO - ✅ 920378.BJ 同步完成，共 631 条记录
+2026-08-11 14:21:51,071 - INFO - ✅ 920374.BJ 同步完成，共 631 条记录
+2026-08-11 14:21:51,591 - INFO - ✅ 920438.BJ 同步完成，共 578 条记录
+2026-08-11 14:21:51,610 - INFO - ✅ 920425.BJ 同步完成，共 631 条记录
+2026-08-11 14:21:51,613 - INFO - ✅ 920418.BJ 同步完成，共 631 条记录
+2026-08-11 14:21:52,084 - INFO - ✅ 920475.BJ 同步完成，共 631 条记录
+2026-08-11 14:21:52,094 - INFO - ✅ 920469.BJ 同步完成，共 631 条记录
+2026-08-11 14:21:52,094 - INFO - ✅ 920454.BJ 同步完成，共 631 条记录
+2026-08-11 14:21:52,635 - INFO - ✅ 920496.BJ 同步完成，共 613 条记录
+2026-08-11 14:21:52,649 - INFO - ✅ 920493.BJ 同步完成，共 631 条记录
+2026-08-11 14:21:52,653 - INFO - ✅ 920491.BJ 同步完成，共 631 条记录
+2026-08-11 14:21:53,149 - INFO - ✅ 920510.BJ 同步完成，共 631 条记录
+2026-08-11 14:21:53,155 - INFO - ✅ 920509.BJ 同步完成，共 631 条记录
+2026-08-11 14:21:53,156 - INFO - ✅ 920508.BJ 同步完成，共 631 条记录
+2026-08-11 14:21:53,674 - INFO - ✅ 920523.BJ 同步完成，共 631 条记录
+2026-08-11 14:21:53,686 - INFO - ✅ 920519.BJ 同步完成，共 631 条记录
+2026-08-11 14:21:53,691 - INFO - ✅ 920522.BJ 同步完成，共 631 条记录
+2026-08-11 14:21:53,846 - WARNING - 请求失败，第1次重试，等待 5 秒: get_stock_daily
+2026-08-11 14:21:54,202 - INFO - ✅ 920541.BJ 同步完成，共 631 条记录
+2026-08-11 14:21:54,213 - INFO - ✅ 920526.BJ 同步完成，共 631 条记录
+2026-08-11 14:21:54,684 - INFO - ✅ 920564.BJ 同步完成，共 631 条记录
+2026-08-11 14:21:54,692 - INFO - ✅ 920556.BJ 同步完成，共 631 条记录
+2026-08-11 14:21:55,166 - INFO - ✅ 920576.BJ 同步完成，共 631 条记录
+2026-08-11 14:21:55,175 - INFO - ✅ 920570.BJ 同步完成，共 631 条记录
+2026-08-11 14:21:55,987 - INFO - ✅ 920579.BJ 同步完成，共 631 条记录
+2026-08-11 14:21:55,995 - INFO - ✅ 920578.BJ 同步完成，共 631 条记录
+2026-08-11 14:21:56,409 - INFO - ✅ 920593.BJ 同步完成，共 631 条记录
+2026-08-11 14:21:56,415 - INFO - ✅ 920580.BJ 同步完成，共 631 条记录
+2026-08-11 14:21:56,898 - INFO - ✅ 920640.BJ 同步完成，共 631 条记录
+2026-08-11 14:21:56,905 - INFO - ✅ 920627.BJ 同步完成，共 631 条记录
+2026-08-11 14:21:57,419 - INFO - ✅ 920642.BJ 同步完成，共 631 条记录
+2026-08-11 14:21:57,427 - INFO - ✅ 920641.BJ 同步完成，共 626 条记录
+2026-08-11 14:21:57,927 - INFO - ✅ 920682.BJ 同步完成，共 631 条记录
+2026-08-11 14:21:57,937 - INFO - ✅ 920665.BJ 同步完成，共 631 条记录
+2026-08-11 14:21:58,422 - INFO - ✅ 920693.BJ 同步完成，共 631 条记录
+2026-08-11 14:21:58,431 - INFO - ✅ 920690.BJ 同步完成，共 628 条记录
+2026-08-11 14:21:58,894 - INFO - ✅ 920719.BJ 同步完成，共 631 条记录
+2026-08-11 14:21:58,904 - INFO - ✅ 920748.BJ 同步完成，共 631 条记录
+2026-08-11 14:21:59,373 - INFO - ✅ 920779.BJ 同步完成，共 631 条记录
+2026-08-11 14:21:59,387 - INFO - ✅ 920751.BJ 同步完成，共 631 条记录
+2026-08-11 14:21:59,390 - INFO - ✅ 920533.BJ 同步完成，共 631 条记录
+2026-08-11 14:21:59,816 - INFO - ✅ 920781.BJ 同步完成，共 631 条记录
+2026-08-11 14:21:59,826 - INFO - ✅ 920806.BJ 同步完成，共 624 条记录
+2026-08-11 14:22:00,078 - INFO - ✅ 920809.BJ 同步完成，共 631 条记录
+2026-08-11 14:22:00,368 - INFO - ✅ 920821.BJ 同步完成，共 631 条记录
+2026-08-11 14:22:00,386 - INFO - ✅ 920810.BJ 同步完成，共 631 条记录
+2026-08-11 14:22:00,456 - WARNING - 请求失败，第1次重试，等待 5 秒: get_stock_daily
+2026-08-11 14:22:00,547 - INFO - ✅ 920839.BJ 同步完成，共 631 条记录
+2026-08-11 14:22:00,811 - INFO - ✅ 920856.BJ 同步完成，共 631 条记录
+2026-08-11 14:22:00,972 - INFO - ✅ 920871.BJ 同步完成，共 631 条记录
+2026-08-11 14:22:01,278 - INFO - ✅ 920876.BJ 同步完成，共 631 条记录
+2026-08-11 14:22:01,386 - INFO - ✅ 920885.BJ 同步完成，共 631 条记录
+2026-08-11 14:22:01,751 - INFO - ✅ 920892.BJ 同步完成，共 631 条记录
+2026-08-11 14:22:01,803 - INFO - ✅ 920896.BJ 同步完成，共 631 条记录
+2026-08-11 14:22:01,903 - WARNING - 请求失败，第1次重试，等待 5 秒: get_stock_daily
+2026-08-11 14:22:02,233 - INFO - ✅ 920906.BJ 同步完成，共 631 条记录
+2026-08-11 14:22:02,677 - INFO - ✅ 920932.BJ 同步完成，共 631 条记录
+2026-08-11 14:22:03,145 - INFO - ✅ 920943.BJ 同步完成，共 631 条记录
+2026-08-11 14:22:03,321 - WARNING - 请求失败，第1次重试，等待 5 秒: get_stock_daily
+2026-08-11 14:22:05,511 - WARNING - 请求失败，第2次重试，等待 10 秒: get_stock_daily
+2026-08-11 14:22:06,953 - WARNING - 请求失败，第2次重试，等待 10 秒: get_stock_daily
+2026-08-11 14:22:08,409 - WARNING - 请求失败，第2次重试，等待 10 秒: get_stock_daily
+2026-08-11 14:22:10,616 - WARNING - 请求失败，第3次重试，等待 20 秒: get_stock_daily
+2026-08-11 14:22:12,018 - WARNING - 请求失败，第3次重试，等待 20 秒: get_stock_daily
+2026-08-11 14:22:13,481 - WARNING - 请求失败，第3次重试，等待 20 秒: get_stock_daily
+2026-08-11 14:22:18,670 - WARNING - 请求失败，第4次重试，等待 40 秒: get_stock_daily
+2026-08-11 14:22:20,063 - WARNING - 请求失败，第4次重试，等待 40 秒: get_stock_daily
+2026-08-11 14:22:21,521 - WARNING - 请求失败，第4次重试，等待 40 秒: get_stock_daily
+2026-08-11 14:22:34,745 - ERROR - ❌ 920857.BJ 同步失败: RetryError[<Future at 0x10d4627d0 state=finished raised ProxyError>]
+Traceback (most recent call last):
+  File "/Users/lwm/dev/QingshuiYanTou/backend/.venv/lib/python3.13/site-packages/urllib3/connectionpool.py", line 788, in urlopen
+    response = self._make_request(
+        conn,
+    ...<10 lines>...
+        **response_kw,
+    )
+  File "/Users/lwm/dev/QingshuiYanTou/backend/.venv/lib/python3.13/site-packages/urllib3/connectionpool.py", line 534, in _make_request
+    response = conn.getresponse()
+  File "/Users/lwm/dev/QingshuiYanTou/backend/.venv/lib/python3.13/site-packages/urllib3/connection.py", line 571, in getresponse
+    httplib_response = super().getresponse()
+  File "/Users/lwm/.local/share/uv/python/cpython-3.13.14-macos-aarch64-none/lib/python3.13/http/client.py", line 1459, in getresponse
+    response.begin()
+    ~~~~~~~~~~~~~~^^
+  File "/Users/lwm/.local/share/uv/python/cpython-3.13.14-macos-aarch64-none/lib/python3.13/http/client.py", line 336, in begin
+    version, status, reason = self._read_status()
+                              ~~~~~~~~~~~~~~~~~^^
+  File "/Users/lwm/.local/share/uv/python/cpython-3.13.14-macos-aarch64-none/lib/python3.13/http/client.py", line 305, in _read_status
+    raise RemoteDisconnected("Remote end closed connection without"
+                             " response")
+http.client.RemoteDisconnected: Remote end closed connection without response
+
+The above exception was the direct cause of the following exception:
+
+urllib3.exceptions.ProxyError: ('Unable to connect to proxy', RemoteDisconnected('Remote end closed connection without response'))
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/Users/lwm/dev/QingshuiYanTou/backend/.venv/lib/python3.13/site-packages/requests/adapters.py", line 667, in send
+    resp = conn.urlopen(
+        method=request.method,
+    ...<9 lines>...
+        chunked=chunked,
+    )
+  File "/Users/lwm/dev/QingshuiYanTou/backend/.venv/lib/python3.13/site-packages/urllib3/connectionpool.py", line 842, in urlopen
+    retries = retries.increment(
+        method, url, error=new_e, _pool=self, _stacktrace=sys.exc_info()[2]
+    )
+  File "/Users/lwm/dev/QingshuiYanTou/backend/.venv/lib/python3.13/site-packages/urllib3/util/retry.py", line 543, in increment
+    raise MaxRetryError(_pool, url, reason) from reason  # type: ignore[arg-type]
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+urllib3.exceptions.MaxRetryError: HTTPSConnectionPool(host='push2his.eastmoney.com', port=443): Max retries exceeded with url: /api/qt/stock/kline/get?fields1=f1%2Cf2%2Cf3%2Cf4%2Cf5%2Cf6&fields2=f51%2Cf52%2Cf53%2Cf54%2Cf55%2Cf56%2Cf57%2Cf58%2Cf59%2Cf60%2Cf61%2Cf116&ut=7eea3edcaed734bea9cbfc24409ed989&klt=101&fqt=0&secid=0.920857&beg=20240101&end=20260811 (Caused by ProxyError('Unable to connect to proxy', RemoteDisconnected('Remote end closed connection without response')))
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/Users/lwm/dev/QingshuiYanTou/backend/.venv/lib/python3.13/site-packages/tenacity/__init__.py", line 478, in __call__
+    result = fn(*args, **kwargs)
+  File "/Users/lwm/dev/QingshuiYanTou/backend/scripts/sync_daily_data.py", line 76, in get_stock_daily
+    df = ak.stock_zh_a_hist(
+        symbol=symbol,
+    ...<3 lines>...
+        adjust="",  # 不复权
+    )
+  File "/Users/lwm/dev/QingshuiYanTou/backend/.venv/lib/python3.13/site-packages/akshare/stock_feature/stock_hist_em.py", line 992, in stock_zh_a_hist
+    r = requests.get(url, params=params, timeout=timeout)
+  File "/Users/lwm/dev/QingshuiYanTou/backend/.venv/lib/python3.13/site-packages/requests/api.py", line 73, in get
+    return request("get", url, params=params, **kwargs)
+  File "/Users/lwm/dev/QingshuiYanTou/backend/.venv/lib/python3.13/site-packages/requests/api.py", line 59, in request
+    return session.request(method=method, url=url, **kwargs)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/lwm/dev/QingshuiYanTou/backend/.venv/lib/python3.13/site-packages/requests/sessions.py", line 589, in request
+    resp = self.send(prep, **send_kwargs)
+  File "/Users/lwm/dev/QingshuiYanTou/backend/.venv/lib/python3.13/site-packages/requests/sessions.py", line 703, in send
+    r = adapter.send(request, **kwargs)
+  File "/Users/lwm/dev/QingshuiYanTou/backend/.venv/lib/python3.13/site-packages/requests/adapters.py", line 694, in send
+    raise ProxyError(e, request=request)
+requests.exceptions.ProxyError: HTTPSConnectionPool(host='push2his.eastmoney.com', port=443): Max retries exceeded with url: /api/qt/stock/kline/get?fields1=f1%2Cf2%2Cf3%2Cf4%2Cf5%2Cf6&fields2=f51%2Cf52%2Cf53%2Cf54%2Cf55%2Cf56%2Cf57%2Cf58%2Cf59%2Cf60%2Cf61%2Cf116&ut=7eea3edcaed734bea9cbfc24409ed989&klt=101&fqt=0&secid=0.920857&beg=20240101&end=20260811 (Caused by ProxyError('Unable to connect to proxy', RemoteDisconnected('Remote end closed connection without response')))
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/Users/lwm/dev/QingshuiYanTou/backend/scripts/sync_daily_data.py", line 141, in sync_single_stock
+    data = await loop.run_in_executor(None, get_stock_daily, ts_code, start_date, end_date)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/lwm/.local/share/uv/python/cpython-3.13.14-macos-aarch64-none/lib/python3.13/concurrent/futures/thread.py", line 59, in run
+    result = self.fn(*self.args, **self.kwargs)
+  File "/Users/lwm/dev/QingshuiYanTou/backend/.venv/lib/python3.13/site-packages/tenacity/__init__.py", line 336, in wrapped_f
+    return copy(f, *args, **kw)
+  File "/Users/lwm/dev/QingshuiYanTou/backend/.venv/lib/python3.13/site-packages/tenacity/__init__.py", line 475, in __call__
+    do = self.iter(retry_state=retry_state)
+  File "/Users/lwm/dev/QingshuiYanTou/backend/.venv/lib/python3.13/site-packages/tenacity/__init__.py", line 376, in iter
+    result = action(retry_state)
+  File "/Users/lwm/dev/QingshuiYanTou/backend/.venv/lib/python3.13/site-packages/tenacity/__init__.py", line 419, in exc_check
+    raise retry_exc from fut.exception()
+tenacity.RetryError: RetryError[<Future at 0x10d4627d0 state=finished raised ProxyError>]
+2026-08-11 14:22:35,238 - INFO - ✅ 920953.BJ 同步完成，共 631 条记录
+2026-08-11 14:22:36,120 - INFO - ✅ 920961.BJ 同步完成，共 626 条记录
+2026-08-11 14:22:36,581 - INFO - ✅ 920971.BJ 同步完成，共 631 条记录
+2026-08-11 14:22:36,591 - INFO - ✅ 920914.BJ 同步完成，共 631 条记录
+2026-08-11 14:22:36,656 - WARNING - 请求失败，第1次重试，等待 5 秒: get_stock_daily
+2026-08-11 14:22:37,034 - INFO - ✅ 920981.BJ 同步完成，共 631 条记录
+2026-08-11 14:22:37,991 - INFO - ✅ 920946.BJ 同步完成，共 631 条记录
+2026-08-11 14:22:42,145 - INFO - ✅ 920978.BJ 同步完成，共 631 条记录
+2026-08-11 14:22:42,145 - INFO - ================================================================================
+2026-08-11 14:22:42,145 - INFO - ✅ 同步任务完成！
+2026-08-11 14:22:42,145 - INFO - 本次同步股票数: 143
+2026-08-11 14:22:42,145 - INFO - 本次新增记录数: 86,475 条
+2026-08-11 14:22:42,145 - INFO - 失败股票数: 0 只
+2026-08-11 14:22:42,872 - INFO - 📊 当前总日线数据量: 1,387,885 条
+2026-08-11 14:22:42,872 - INFO - 📅 数据覆盖范围: 2024-01-02 ~ 2026-08-11
+
+Exit code: 0
+Elapsed: 116.1s
+Wait target not observed: '✅ 003'

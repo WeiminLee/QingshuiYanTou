@@ -11,20 +11,37 @@ logger = logging.getLogger(__name__)
 def format_signal_context(detail: dict | None) -> str:
     if not detail:
         return ""
+    if detail.get("signal_kind") == "catalyst":
+        return _format_catalyst_context(detail)
 
     title = detail.get("title") or detail.get("summary") or ""
     value_score = detail.get("value_score", "")
     confidence = detail.get("confidence", "")
     source_type = detail.get("source_type", "")
     excerpt = detail.get("evidence_excerpt") or ""
-    hits = detail.get("portfolio_hits") or []
+    user_hits = detail.get("user_hits") or {}
+    hits = user_hits.get("portfolio") or detail.get("portfolio_hits") or []
+    preferences = user_hits.get("preferences") or []
+    memory = detail.get("memory") or {}
     hit_text = "、".join(str(item) for item in hits if item)
     propagation_lines = []
     for item in detail.get("propagations") or []:
         path = item.get("relation_path") or ""
         reasoning = item.get("reasoning") or ""
+        metadata = item.get("metadata") or {}
+        signal_path = item.get("signal_path") or {}
+        secondary_type = metadata.get("secondary_type") or ""
+        path_nodes = signal_path.get("nodes") or metadata.get("path_nodes") or []
+        path_node_text = " -> ".join(str(node) for node in path_nodes if node)
         if path or reasoning:
-            propagation_lines.append(f"  传导: {path}\n  理由: {reasoning}".strip())
+            lines = [f"  传导: {path}"]
+            if secondary_type:
+                lines.append(f"  二阶类型: {secondary_type}")
+            if path_node_text:
+                lines.append(f"  KG路径: {path_node_text}")
+            if reasoning:
+                lines.append(f"  理由: {reasoning}")
+            propagation_lines.append("\n".join(lines).strip())
 
     parts = [
         "<signal-context>",
@@ -38,6 +55,52 @@ def format_signal_context(detail: dict | None) -> str:
     parts.extend(propagation_lines)
     if hit_text:
         parts.append(f"  相关持仓: {hit_text}")
+    if memory.get("lifecycle_status"):
+        parts.append(f"  生命周期: {memory.get('lifecycle_status')}, 用户状态: {memory.get('user_status', '')}")
+    if preferences:
+        parts.append(f"  用户偏好: {'、'.join(str(item) for item in preferences if item)}")
+    parts.append("</signal-context>")
+    return "\n".join(parts)
+
+
+def _format_catalyst_context(detail: dict) -> str:
+    title = detail.get("title") or detail.get("summary") or ""
+    catalyst = detail.get("catalyst") or {}
+    user_hits = detail.get("user_hits") or {}
+    hits = user_hits.get("portfolio") or detail.get("portfolio_hits") or []
+    preferences = user_hits.get("preferences") or []
+    subjects = catalyst.get("subjects") or []
+    event_date = detail.get("event_date") or catalyst.get("event_date") or ""
+    lead_days = catalyst.get("lead_days", "")
+    alert_level = catalyst.get("alert_level", "")
+
+    parts = [
+        "<signal-context>",
+        "[未来催化预警]",
+        f"- {title}",
+        f"  signal_id: {detail.get('signal_id', '')}",
+        f"  event_date: {event_date}, lead_days: {lead_days}, alert_level: {alert_level}",
+    ]
+    if subjects:
+        parts.append(f"  影响主题: {'、'.join(str(item) for item in subjects if item)}")
+
+    for item in detail.get("propagations") or []:
+        metadata = item.get("metadata") or {}
+        signal_path = item.get("signal_path") or {}
+        path_nodes = signal_path.get("nodes") or metadata.get("path_nodes") or []
+        path_node_text = " -> ".join(str(node) for node in path_nodes if node)
+        relation_path = item.get("relation_path") or ""
+        if path_node_text:
+            parts.append(f"  KG路径: {path_node_text}")
+        elif relation_path:
+            parts.append(f"  KG路径: {relation_path}")
+        if item.get("reasoning"):
+            parts.append(f"  理由: {item['reasoning']}")
+
+    if hits:
+        parts.append(f"  相关持仓: {'、'.join(str(item) for item in hits if item)}")
+    if preferences:
+        parts.append(f"  用户偏好: {'、'.join(str(item) for item in preferences if item)}")
     parts.append("</signal-context>")
     return "\n".join(parts)
 

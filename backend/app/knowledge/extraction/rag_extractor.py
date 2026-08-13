@@ -29,7 +29,7 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
-from app.core.llm_client import chat
+from app.core.llm_client import chat_async
 from app.knowledge.extraction.chunker import Chunk, chunk_by_token
 from app.knowledge.extraction.rag_prompts import (
     ENTITY_TYPES,
@@ -69,9 +69,20 @@ class Relation(BaseModel):
     metric_sentiment: Optional[Literal["positive", "negative", "neutral"]] = None
 
 
+class Signal(BaseModel):
+    signal_type: str = Field(min_length=1)
+    polarity: str = Field(min_length=1)
+    strength: int = Field(ge=0, le=100)
+    subject_name: str = Field(min_length=1)
+    subject_type: str = Field(min_length=1)
+    summary: str = Field(min_length=1)
+    evidence_excerpt: str = Field(min_length=1)
+
+
 class ExtractionOutput(BaseModel):
     entities: list[Entity] = []
     relations: list[Relation] = []
+    signals: list[Signal] = []
 
 
 # ── 泛称正则 ──────────────────────────────────────────────────────────────
@@ -125,8 +136,8 @@ def _is_noise_entity_name(name: str) -> bool:
     return False
 
 
-def _parse_json_output(raw_text: str) -> tuple[list[dict], list[dict]] | None:
-    """解析 LLM 返回的 JSON 字符串，返回 (entities, relations) 或 None。"""
+def _parse_json_output(raw_text: str) -> tuple[list[dict], list[dict], list[dict]] | None:
+    """解析 LLM 返回的 JSON 字符串，返回 (entities, relations, signals) 或 None。"""
     text = raw_text.strip()
     # 尝试从 markdown 代码块中提取
     if '```json' in text:
@@ -193,7 +204,20 @@ def _parse_json_output(raw_text: str) -> tuple[list[dict], list[dict]] | None:
         e.setdefault("source_ids", [])
         e.setdefault("instance_count", 1)
 
-    return entities_out, relations_out
+    # 提取 signals
+    signals_out = []
+    for s in parsed.signals:
+        signals_out.append({
+            "signal_type": s.signal_type,
+            "polarity": s.polarity,
+            "strength": s.strength,
+            "subject_name": s.subject_name,
+            "subject_type": s.subject_type,
+            "summary": s.summary,
+            "evidence_excerpt": s.evidence_excerpt,
+        })
+
+    return entities_out, relations_out, signals_out
 
 
 # ── 旧解析器（已废弃，保留空桩兼容导入）─────────────────────────────────────
@@ -234,7 +258,7 @@ def _parse_chunk_output(raw_text: str) -> tuple[dict, dict]:
     result = _parse_json_output(raw_text)
     if result is None:
         return {}, {}
-    entities, relations = result
+    entities, relations, _signals = result
     # 转为旧的 (nodes dict, edges dict) 格式（兼容旧调用方）
     nodes: dict = defaultdict(list)
     edges: dict = defaultdict(list)
@@ -246,18 +270,12 @@ def _parse_chunk_output(raw_text: str) -> tuple[dict, dict]:
     return dict(nodes), dict(edges)
 
 
-# ── LLM 调用（同步包装）───────────────────────────────────────────────────────
-
-
-def _call_llm(prompt: str, timeout: int = 300) -> str:
-    """同步调用 LLM，包装为 asyncio 线程调用"""
-    return chat(prompt, temperature=0.1, timeout=timeout)
+# ── LLM 调用（异步，非阻塞）─────────────────────────────────────────────────────
 
 
 async def _call_llm_async(prompt: str, timeout: int = 300) -> str:
-    """异步调用 LLM（通过 to_thread 桥接同步 client）"""
-    loop = asyncio.get_running_loop()
-    return await loop.run_in_executor(None, lambda: _call_llm(prompt, timeout))
+    """异步调用 LLM，使用 AsyncOpenAI 非阻塞 client"""
+    return await chat_async(prompt, temperature=0.1, timeout=timeout)
 
 
 # ── Chunk 预过滤 ───────────────────────────────────────────────────────────────
@@ -325,18 +343,21 @@ async def _extract_single_chunk(
     semaphore: asyncio.Semaphore | None = None,
     source_file: str | None = None,
     source_type: str = "uploaded_doc",
-) -> tuple[dict, dict]:
+) -> tuple[dict, dict, list[dict]]:
     """
     对单个 chunk 执行抽取（单次 JSON 调用 + 泛称重跑）。
 
     - 单次 LLM 调用（无 gleaning）
     - JSON 输出 → Pydantic 校验
     - 泛称检测 → 触发二次调用
+
+    Returns:
+        (nodes, edges, signals) — nodes/edges 为旧格式字典，signals 为信号列表
     """
     section_title = getattr(chunk, "heading", "") or ""
     filtered_content = _prefilter_chunk(chunk.content)
     if not filtered_content.strip():
-        return {}, {}
+        return {}, {}, []
 
     prompt = get_extraction_prompt(source_type, section_title).format(
         input_text=filtered_content,
@@ -358,9 +379,9 @@ async def _extract_single_chunk(
         result = _parse_json_output(raw)
 
     if result is None:
-        return {}, {}
+        return {}, {}, []
 
-    entities, relations = result
+    entities, relations, signals = result
 
     # 泛称检测 → 全量重跑
     if _detect_generic_names(entities):
@@ -369,7 +390,11 @@ async def _extract_single_chunk(
         raw = await _call(retry_prompt)
         result = _parse_json_output(raw)
         if result is not None:
-            entities, relations = result
+            retry_entities, retry_relations, retry_signals = result
+            # 保留第一次的 signals（泛称重试 prompt 不含信号输出格式）
+            entities, relations = retry_entities, retry_relations
+            if not retry_signals and signals:
+                signals = signals
 
     # 注入 source_id
     chunk_key = source_file if source_file else f"chunk:{chunk.chunk_id}"
@@ -387,7 +412,7 @@ async def _extract_single_chunk(
         key = (r["src_id"], r["tgt_id"])
         edges[key].append(r)
 
-    return dict(nodes), dict(edges)
+    return dict(nodes), dict(edges), signals
 
 
 # ── 核心抽取器 ────────────────────────────────────────────────────────────────
@@ -409,7 +434,7 @@ class RAGExtractor:
         self,
         examples: list[str] | None = None,
         max_gleanings: int = 2,  # 默认 2 轮 gleaning 循环提升实体召回（与 RAGFlow 最佳实践同步）
-        max_concurrency: int = 1,
+        max_concurrency: int = 4,
         language: str = "Chinese",
     ):
         self.examples = examples or []
@@ -426,7 +451,7 @@ class RAGExtractor:
         callback: Callable[[str, float], None] | None = None,
         source_file: str | None = None,
         source_type: str = "uploaded_doc",
-    ) -> tuple[list[dict], list[dict]]:
+    ) -> tuple[list[dict], list[dict], list[dict]]:
         """
         对文本执行完整抽取流程。
 
@@ -440,16 +465,17 @@ class RAGExtractor:
             source_type: 数据来源类型，决定使用哪个抽取 prompt（影响置信度映射）
 
         Returns:
-            (merged_entities, merged_relations)
+            (merged_entities, merged_relations, merged_signals)
             - merged_entities: list[dict]，字段：entity_name / entity_type / description / source_ids
             - merged_relations: list[dict]，字段：src_id / tgt_id / description / keywords / weight / source_ids
+            - merged_signals: list[dict]，字段：signal_type / polarity / strength / subject_name / ...
         """
         # Step 1: 分块（优先复用预分块结果）
         if chunks is None:
             chunks = chunk_by_token(text, max_tokens=max_tokens, overlap_tokens=overlap_tokens)
         if not chunks:
             logger.warning("文本为空，跳过抽取")
-            return [], []
+            return [], [], []
 
         callback and callback(f"分块完成，共 {len(chunks)} 个 chunk", 5.0)
 
@@ -464,20 +490,22 @@ class RAGExtractor:
         # 收集结果，过滤异常
         all_nodes: dict = defaultdict(list)
         all_edges: dict = defaultdict(list)
+        all_signals: list[dict] = []
         error_count = 0
         for i, res in enumerate(results):
             if isinstance(res, Exception):
                 logger.warning("Chunk %d 抽取失败: %s", i, res)
                 error_count += 1
                 continue
-            nodes, edges = res
+            nodes, edges, signals = res
             for k, v in nodes.items():
                 all_nodes[k].extend(v)
             for k, v in edges.items():
                 all_edges[k].extend(v)
+            all_signals.extend(signals)
 
         callback and callback(
-            f"抽取完成: {len(all_nodes)} 实体, {len(all_edges)} 关系（失败 {error_count} 块）",
+            f"抽取完成: {len(all_nodes)} 实体, {len(all_edges)} 关系, {len(all_signals)} 信号（失败 {error_count} 块）",
             40.0,
         )
 
@@ -489,7 +517,7 @@ class RAGExtractor:
         merged_relations = await self._merge_relations(all_edges)
         callback and callback(f"关系合并完成: {len(merged_relations)} 关系", 90.0)
 
-        return merged_entities, merged_relations
+        return merged_entities, merged_relations, all_signals
 
     async def _merge_entities(self, all_nodes: dict) -> list[dict]:
         """同名实体跨 chunk 聚合"""
@@ -690,7 +718,7 @@ def extract_sync(
     callback: Callable[[str, float], None] | None = None,
     source_file: str | None = None,
     source_type: str = "uploaded_doc",  # B8 fix: 添加 source_type 参数
-) -> tuple[list[dict], list[dict]]:
+) -> tuple[list[dict], list[dict], list[dict]]:
     """
     同步入口函数（用于 FastAPI 同步路由或脚本调用）。
 
@@ -699,6 +727,9 @@ def extract_sync(
     - 在 async 上下文中使用 ThreadPoolExecutor 避免嵌套 event loop
 
     注意：从 async 上下文调用时，建议使用 extract_async 或 asyncio.to_thread(extract_sync, ...)。
+
+    Returns:
+        (merged_entities, merged_relations, merged_signals)
     """
     extractor = RAGExtractor(
         examples=examples,
@@ -753,8 +784,12 @@ async def extract_async(
     callback: Callable[[str, float], None] | None = None,
     source_file: str | None = None,
     source_type: str = "uploaded_doc",
-) -> tuple[list[dict], list[dict]]:
-    """异步入口函数"""
+) -> tuple[list[dict], list[dict], list[dict]]:
+    """异步入口函数
+
+    Returns:
+        (merged_entities, merged_relations, merged_signals)
+    """
     extractor = RAGExtractor(
         examples=examples,
         max_gleanings=max_gleanings,

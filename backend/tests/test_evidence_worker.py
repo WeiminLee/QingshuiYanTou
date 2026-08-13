@@ -8,6 +8,7 @@ import pytest
 
 from app.knowledge.evidence import (
     JOB_COMBINED,
+    JOB_SIGNAL,
     JOB_VECTOR,
     STATUS_DONE,
     STATUS_FAILED,
@@ -217,5 +218,35 @@ def test_vector_job_success() -> None:
         worker = _worker(service)
         result = await worker.run_once(limit=1, job_type=JOB_VECTOR)
         assert result["success"] == 1
+
+    asyncio.run(main())
+
+
+def test_signal_job_success(monkeypatch) -> None:
+    async def main():
+        service = FakeService()
+        service.jobs = [
+            {
+                "job_id": "J4",
+                "evidence_id": "EV:1",
+                "job_type": JOB_SIGNAL,
+                "status": STATUS_PENDING,
+            }
+        ]
+        calls = []
+
+        async def fake_ingest(evidence):
+            calls.append(evidence["evidence_id"])
+            return {"signals_upserted": 1, "propagations_upserted": 2}
+
+        monkeypatch.setattr("app.knowledge.evidence_worker.ingest_evidence_signals", fake_ingest)
+
+        worker = _worker(service)
+        result = await worker.run_once(limit=1, job_type=JOB_SIGNAL)
+
+        assert result["success"] == 1
+        assert calls == ["EV:1"]
+        assert service.done[-1][1] == {"signals_upserted": 1, "propagations_upserted": 2}
+        assert service.evidence["EV:1"]["status_updates"][-1] == (JOB_SIGNAL, STATUS_DONE)
 
     asyncio.run(main())

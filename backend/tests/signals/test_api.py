@@ -11,6 +11,7 @@ os.environ.setdefault("LLM_API_KEY", "test-key")
 os.environ.setdefault("NEO4J_PASSWORD", "test-password")
 os.environ.setdefault("MASTER_PASSWORD", "test-master-pass-1234")
 
+from app.reasoning.context.schemas import UserSnapshotDTO
 from app.signals.api import router
 
 
@@ -49,6 +50,47 @@ async def test_list_signals_returns_items(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_list_signals_passes_catalyst_filters(monkeypatch):
+    captured = {}
+
+    async def fake_list_signals(*args, **kwargs):
+        captured.update(kwargs)
+        return [
+            {
+                "signal_id": "SIG:cat",
+                "title": "未来5天英伟达GTC可能影响AI算力链",
+                "summary": "未来催化预警",
+                "source_type": "catalyst_event",
+                "published_at": None,
+                "subject_name": "AI算力",
+                "signal_type": "conference",
+                "polarity": "neutral",
+                "value_score": 86,
+                "confidence": 0.72,
+                "portfolio_hits": ["中际旭创"],
+                "signal_kind": "catalyst",
+                "event_date": "2026-07-28",
+                "lead_days": 5,
+                "alert_level": "high",
+                "impact_scope": ["portfolio", "market"],
+            }
+        ], 1
+
+    monkeypatch.setattr("app.signals.api.list_signals", fake_list_signals)
+
+    async with AsyncClient(transport=ASGITransport(app=_test_app()), base_url="http://test") as client:
+        res = await client.get(
+            "/api/v1/signals?signal_kind=catalyst&include_kinds=observed,catalyst&window_days=5"
+        )
+
+    assert res.status_code == 200
+    assert captured["signal_kind"] == "catalyst"
+    assert captured["include_kinds"] == ["observed", "catalyst"]
+    assert captured["window_days"] == 5
+    assert res.json()["items"][0]["signal_kind"] == "catalyst"
+
+
+@pytest.mark.asyncio
 async def test_get_signal_detail_returns_propagations(monkeypatch):
     async def fake_get_signal_detail(*args, **kwargs):
         return {
@@ -78,6 +120,27 @@ async def test_get_signal_detail_returns_propagations(monkeypatch):
                     "impact_horizon": "short",
                     "confidence": 0.7,
                     "reasoning": "高速光模块放量可能提升上游需求",
+                    "signal_path": {
+                        "nodes": ["中际旭创", "800G光模块", "光芯片"],
+                        "edges": [
+                            {
+                                "src": "中际旭创",
+                                "rel_type": "RELATES",
+                                "tgt": "800G光模块",
+                                "weight": 0.9,
+                                "text": "生产 800G 光模块",
+                            },
+                            {
+                                "src": "800G光模块",
+                                "rel_type": "RELATES",
+                                "tgt": "光芯片",
+                                "weight": 0.8,
+                                "text": "上游依赖光芯片",
+                            },
+                        ],
+                        "hops": 2,
+                        "confidence": 0.7,
+                    },
                 }
             ],
         }
@@ -89,3 +152,172 @@ async def test_get_signal_detail_returns_propagations(monkeypatch):
 
     assert res.status_code == 200
     assert res.json()["propagations"][0]["target_name"] == "光芯片"
+    assert res.json()["propagations"][0]["signal_path"]["nodes"] == ["中际旭创", "800G光模块", "光芯片"]
+
+
+@pytest.mark.asyncio
+async def test_get_signal_detail_accepts_context_dto_fields(monkeypatch):
+    async def fake_get_signal_detail(*args, **kwargs):
+        return {
+            "schema_version": "signal.context.v1",
+            "signal_id": "SIG:abc",
+            "title": "800G 光模块规模量产",
+            "summary": "量产确认",
+            "source_type": "announcement",
+            "source_title": "公告标题",
+            "source_url": None,
+            "published_at": datetime(2026, 7, 13, tzinfo=UTC),
+            "subject_name": "光模块",
+            "subject_type": "product",
+            "signal_type": "mass_production",
+            "polarity": "positive",
+            "strength": 88,
+            "confidence": 0.92,
+            "value_score": 92,
+            "evidence_excerpt": "相关产品进入规模量产",
+            "status": "new",
+            "portfolio_hits": ["中际旭创"],
+            "source": {"type": "announcement", "id": "EV:1", "title": "公告标题", "url": None},
+            "primary_signal": {"subject_name": "光模块", "signal_type": "mass_production"},
+            "memory": {
+                "schema_version": "signal.memory.v1",
+                "signal_id": "SIG:abc",
+                "lifecycle_status": "active",
+                "user_status": "new",
+            },
+            "user_hits": {"portfolio": ["中际旭创"], "watchlist": [], "preferences": ["光模块"]},
+            "propagations": [],
+        }
+
+    monkeypatch.setattr("app.signals.api.get_signal_detail", fake_get_signal_detail)
+
+    async with AsyncClient(transport=ASGITransport(app=_test_app()), base_url="http://test") as client:
+        res = await client.get("/api/v1/signals/SIG:abc")
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body["schema_version"] == "signal.context.v1"
+    assert body["user_hits"]["preferences"] == ["光模块"]
+    assert body["memory"]["lifecycle_status"] == "active"
+
+
+@pytest.mark.asyncio
+async def test_get_signal_detail_accepts_catalyst_fields(monkeypatch):
+    async def fake_get_signal_detail(*args, **kwargs):
+        return {
+            "schema_version": "signal.context.v1",
+            "signal_id": "SIG:cat",
+            "title": "未来5天英伟达GTC可能影响AI算力链",
+            "summary": "未来催化预警",
+            "source_type": "catalyst_event",
+            "source_title": "英伟达 GTC 开发者大会",
+            "source_url": None,
+            "published_at": None,
+            "signal_kind": "catalyst",
+            "event_date": "2026-07-28",
+            "subject_name": "AI算力",
+            "subject_type": "concept",
+            "signal_type": "conference",
+            "polarity": "neutral",
+            "strength": 90,
+            "confidence": 0.72,
+            "value_score": 86,
+            "evidence_excerpt": None,
+            "status": "new",
+            "portfolio_hits": ["中际旭创"],
+            "catalyst": {
+                "event_id": "CAT:abc",
+                "event_type": "conference",
+                "lead_days": 5,
+                "alert_level": "high",
+                "subjects": ["AI算力", "光模块"],
+                "impact_scope": ["portfolio", "market"],
+            },
+            "memory": {
+                "schema_version": "signal.memory.v1",
+                "signal_id": "SIG:cat",
+                "lifecycle_status": "upcoming",
+                "user_status": "new",
+            },
+            "user_hits": {"portfolio": ["中际旭创"], "watchlist": [], "preferences": ["光模块"]},
+            "propagations": [],
+        }
+
+    monkeypatch.setattr("app.signals.api.get_signal_detail", fake_get_signal_detail)
+
+    async with AsyncClient(transport=ASGITransport(app=_test_app()), base_url="http://test") as client:
+        res = await client.get("/api/v1/signals/SIG:cat")
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body["signal_kind"] == "catalyst"
+    assert body["catalyst"]["alert_level"] == "high"
+
+
+@pytest.mark.asyncio
+async def test_get_signal_detail_resolves_user_hits_from_user_id(monkeypatch):
+    async def fake_get_signal_detail(*args, **kwargs):
+        return {
+            "schema_version": "signal.context.v1",
+            "signal_id": "SIG:abc",
+            "title": "800G 光模块规模量产",
+            "summary": "量产确认",
+            "source_type": "announcement",
+            "source_title": "公告标题",
+            "source_url": None,
+            "published_at": datetime(2026, 7, 13, tzinfo=UTC),
+            "subject_name": "中际旭创",
+            "subject_type": "company",
+            "signal_type": "mass_production",
+            "polarity": "positive",
+            "strength": 88,
+            "confidence": 0.92,
+            "value_score": 92,
+            "evidence_excerpt": "相关产品进入规模量产",
+            "status": "new",
+            "portfolio_hits": ["旧持仓"],
+            "memory": {
+                "schema_version": "signal.memory.v1",
+                "signal_id": "SIG:abc",
+                "lifecycle_status": "active",
+                "user_status": "new",
+            },
+            "user_hits": {"portfolio": [], "watchlist": [], "preferences": []},
+            "propagations": [
+                {
+                    "target_name": "光芯片",
+                    "target_type": "product",
+                    "relation_path": "中际旭创 -> 光模块 -> 光芯片",
+                    "direction": "beneficiary",
+                    "impact_horizon": "short",
+                    "confidence": 0.8,
+                    "reasoning": "上游需求增强",
+                    "signal_path": {
+                        "nodes": ["中际旭创", "光模块", "光芯片"],
+                        "edges": [],
+                        "hops": 2,
+                        "confidence": 0.8,
+                    },
+                }
+            ],
+        }
+
+    async def fake_snapshot(user_id):
+        assert user_id == "lwm"
+        return UserSnapshotDTO(
+            user_id=user_id,
+            portfolio=[{"name": "中际旭创", "ts_code": "300308.SZ"}],
+            preferences=[{"subject": "光模块", "stance": "关注"}],
+        ), []
+
+    monkeypatch.setattr("app.signals.api.get_signal_detail", fake_get_signal_detail)
+    monkeypatch.setattr("app.reasoning.context.user_snapshot.build_user_snapshot", fake_snapshot)
+
+    async with AsyncClient(transport=ASGITransport(app=_test_app()), base_url="http://test") as client:
+        res = await client.get("/api/v1/signals/SIG:abc?user_id=lwm")
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body["portfolio_hits"] == ["旧持仓"]
+    assert body["user_hits"]["portfolio"] == ["中际旭创"]
+    assert body["user_hits"]["preferences"] == ["光模块"]

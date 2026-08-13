@@ -8,7 +8,6 @@ import logging
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Optional
 
 from langchain_core.messages import BaseMessage
 
@@ -35,17 +34,33 @@ def parse_clarification_result(tool_name: str, result_str: str) -> dict | None:
             "context": questions.get("context"),
         }
     else:
-        text = str(result_str)
+        # 工具结果里的换行可能是字面量 "\n"（反斜杠+n），先规范成真换行再解析。
+        text = str(result_str).replace("\\n", "\n")
         cid = ""
-        for line in text.split("\n"):
+        context = None
+        question_lines: list[str] = []
+        for raw_line in text.split("\n"):
+            line = raw_line.strip()
+            if not line:
+                continue
             if "clarification_id:" in line:
                 cid = line.split("clarification_id:")[-1].strip()
+                continue
+            # 去掉 "**澄清请求** (missing_info)" 这类标题样板
+            if line.startswith("**澄清请求**") or line.startswith("澄清请求"):
+                continue
+            # "**背景：** ..." 归入 context，不塞进 question
+            if line.startswith("**背景") or line.startswith("背景："):
+                context = line.replace("**背景：**", "").replace("**背景:**", "").replace("背景：", "").strip()
+                continue
+            question_lines.append(line)
+        question = " ".join(question_lines).strip() or text[:200]
         return {
             "clarification_id": cid or str(uuid.uuid4())[:8],
-            "question": text[:200],
+            "question": question[:200],
             "type": "ambiguous",
             "options": None,
-            "context": None,
+            "context": context,
         }
 
 
@@ -79,11 +94,11 @@ class HITLStore:
         async with self._lock:
             self._store[task_id] = state
 
-    async def pop(self, task_id: str) -> Optional[PendingClarification]:
+    async def pop(self, task_id: str) -> PendingClarification | None:
         async with self._lock:
             return self._store.pop(task_id, None)
 
-    async def get(self, task_id: str) -> Optional[PendingClarification]:
+    async def get(self, task_id: str) -> PendingClarification | None:
         async with self._lock:
             return self._store.get(task_id)
 

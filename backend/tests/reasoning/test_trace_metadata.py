@@ -63,6 +63,69 @@ def test_build_trace_metadata_groups_tools_and_evidence_refs():
     audit = {item["tool_call_id"]: item for item in trace["tool_audit"]}
     assert audit["call-ann"]["source_layer"] == "disclosure"
     assert audit["call-ann"]["args"] == {"ts_code": "300308.SZ"}
+    assert audit["call-ann"]["contract"]["data_source"] == "announcement"
+    assert audit["call-ann"]["contract"]["success"] is True
+
+
+def test_build_trace_metadata_binds_readiness_context_as_evidence():
+    trace = _build_trace_metadata(
+        tool_calls=[],
+        tool_results=[],
+        background="",
+        graph_context="",
+        freshness_context="\n".join(
+            [
+                "<data_readiness>",
+                "as_of=2026-07-21T09:30:00+08:00",
+                "overall_status=degraded",
+                "sources:",
+                "- kline: stale; latest_data_date=2026-07-17; lag_days=2; threshold=1 trading_day; recommendation=数据已滞后 2 天",
+                "answer_boundary=基于截至最新可用日期的数据，避免强时效判断。",
+                "</data_readiness>",
+            ]
+        ),
+        turns=0,
+        run_id="run-freshness",
+    )
+
+    assert trace["readiness_binding"]["overall_status"] == "degraded"
+    assert trace["readiness_binding"]["stale_sources"] == ["kline"]
+    assert trace["trace_summary"]["readiness_status"] == "degraded"
+    assert trace["trace_summary"]["traceable"] is True
+    assert trace["evidence_refs"][0]["id"] == "DATA_READINESS"
+    assert trace["evidence_refs"][0]["metadata"]["conclusion_policy"] == "degraded"
+
+
+def test_build_trace_metadata_marks_stale_tool_contract_from_readiness():
+    trace = _build_trace_metadata(
+        tool_calls=[{"id": "call-kline", "name": "get_kline", "args": {"ts_code": "300308.SZ"}}],
+        tool_results=[
+            {
+                "id": "call-kline",
+                "name": "get_kline",
+                "result": "查询到 30 条K线数据",
+                "success": True,
+                "turn": 1,
+                "original_len": 3000,
+                "duration_ms": 88,
+            }
+        ],
+        freshness_context="\n".join(
+            [
+                "<data_readiness>",
+                "overall_status=degraded",
+                "sources:",
+                "- kline: stale; latest_data_date=2026-07-17; lag_days=2; threshold=1 trading_day; recommendation=滞后",
+                "</data_readiness>",
+            ]
+        ),
+    )
+
+    contract = trace["tool_audit"][0]["contract"]
+    assert contract["data_source"] == "kline"
+    assert contract["data_status"] == "stale"
+    assert contract["stale"] is True
+    assert trace["evidence_refs"][1]["metadata"]["contract"]["latest_data_date"] == "2026-07-17"
 
 
 def test_analysis_report_to_dict_exposes_trace_fields():
@@ -89,6 +152,7 @@ def test_build_analysis_report_accepts_trace_metadata():
         "evidence_refs": [{"id": "TOOL:kline"}],
         "tool_audit": [{"tool": "get_kline"}],
         "graph_refs": [],
+        "readiness_binding": {"overall_status": "fresh", "conclusion_policy": "normal"},
     }
 
     report = _build_analysis_report(topic="行情分析", raw_analysis="分析内容", turns=1, trace=trace)
@@ -98,6 +162,7 @@ def test_build_analysis_report_accepts_trace_metadata():
     assert data["source_layers"] == [{"key": "market"}]
     assert data["evidence_refs"] == [{"id": "TOOL:kline"}]
     assert data["tool_audit"] == [{"tool": "get_kline"}]
+    assert data["readiness_binding"] == {"overall_status": "fresh", "conclusion_policy": "normal"}
 
 
 def test_analysis_report_markdown_renders_trace_section():

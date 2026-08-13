@@ -11,6 +11,7 @@ import hashlib
 import logging
 import math
 import random
+import re
 import uuid
 from datetime import UTC, date, datetime, timedelta
 from functools import partial
@@ -18,6 +19,7 @@ from pathlib import Path
 from typing import Any
 
 import pytz
+import requests
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
@@ -48,6 +50,14 @@ from app.data_pipeline.report_filter import (
 from app.logging.logger import AsyncAuditLogger, generate_task_id, set_task_id
 
 logger = logging.getLogger(__name__)
+
+# 下载 PDF 的请求头
+HTTP_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                  "AppleWebKit/537.36 (KHTML, like Gecko) "
+                  "Chrome/120.0.0.0 Safari/537.36",
+    "Accept": "application/pdf,*/*",
+}
 
 
 # ── 常量 ───────────────────────────────────────────────
@@ -139,8 +149,12 @@ def _concept_code(concept_name: str) -> str:
 class DataFetcher:
     """数据获取服务"""
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        registry: Any | None = None,
+    ) -> None:
         self.data_source = DataSourceClient()
+        self._registry = registry
         self.storage = FileStorage()
         self.cninfo_client = CninfoClient()
         self.audit_logger = AsyncAuditLogger("data_pipeline")
@@ -674,10 +688,18 @@ class DataFetcher:
             return {"success": 0, "skipped": 0, "fail": 0, "source": "minishare"}
 
         success = skipped = fail = 0
-        # 白名单过滤：scope=tech_mvp 时仅处理白名单股票公告
-        from app.data_pipeline.backfill_config import load_backfill_settings
+        # 白名单过滤：从 candidate_pool 加载活跃股票列表
+        # 缓存池股票代码（以 set 形式缓存，避免每次查询数据库）
+        if not hasattr(self, "_candidate_pool_cache") or not self._candidate_pool_cache:
+            from sqlalchemy import text as sa_text
+            from app.core.database import engine as db_engine
 
-        bf_cfg = load_backfill_settings()
+            async with db_engine.connect() as conn:
+                rows = await conn.execute(
+                    sa_text("SELECT ts_code FROM candidate_pool WHERE is_active = true")
+                )
+                self._candidate_pool_cache = {row[0] for row in rows.fetchall()}
+
         for rec in records:
             title = str(rec.get("title") or "")
             # 公告过滤：只保存命中关键词的公告
@@ -686,7 +708,7 @@ class DataFetcher:
                 skipped += 1
                 continue
             ts_code_val = _normalize_ts_code(str(rec.get("ts_code") or ""))
-            if bf_cfg.scope == "tech_mvp" and ts_code_val not in bf_cfg.ts_codes:
+            if ts_code_val not in self._candidate_pool_cache:
                 skipped += 1
                 continue
             ok = await self._save_minishare_ann(rec, ts_code_val)
@@ -875,10 +897,32 @@ class DataFetcher:
             "source": "minishare",
         }
 
+    @staticmethod
+    def _resolve_minishare_pdf_url(url: str) -> str | None:
+        """从 minishare 的 cninfo 详情页 URL 直接构造 PDF 直链。
+
+        当 FileStorage._resolve_pdf_url 的 API 调用失败时，
+        直接从 URL 参数中提取 announcementId 和 announcementTime 构造 PDF 地址。
+        """
+        if not url or "detail" not in url or "cninfo" not in url:
+            return None
+        try:
+            from urllib.parse import parse_qs, urlparse
+            parsed = urlparse(url)
+            qs = parse_qs(parsed.query)
+            ann_id = qs.get("announcementId", [None])[0]
+            ann_time = qs.get("announcementTime", [None])[0]
+            if ann_id and ann_time:
+                return f"http://static.cninfo.com.cn/finalpage/{ann_time}/{ann_id}.PDF"
+        except Exception:
+            pass
+        return None
+
     async def _save_minishare_ann(
         self,
         rec: dict[str, Any],
         ts_code: str,
+        skip_download: bool = False,
     ) -> bool | None:
         """保存 minishare 公告记录；True=成功，None=已存在，False=失败。
 
@@ -898,15 +942,17 @@ class DataFetcher:
         try:
             # 转换日期格式 YYYYMMDD -> DATE
             date_val = datetime.strptime(ann_date, "%Y%m%d").date() if ann_date else None
+            url = rec.get("url") or ""
 
             async with engine.begin() as conn:
-                await conn.execute(
+                result = await conn.execute(
                     text("""
                         INSERT INTO minishare_announcements
-                            (ann_date, ts_code, name, title, type, ann_types, source_url, source_type)
+                            (ann_date, ts_code, name, title, type, ann_types, source_url, source_type, download_status)
                         VALUES
-                            (:ann_date, :ts_code, :name, :title, :ann_type, :ann_types, :source_url, :source_type)
+                            (:ann_date, :ts_code, :name, :title, :ann_type, :ann_types, :source_url, :source_type, 'pending')
                         ON CONFLICT (ann_date, ts_code, title) DO NOTHING
+                        RETURNING ts_code, ann_date, title
                     """),
                     {
                         "ann_date": date_val,
@@ -915,16 +961,148 @@ class DataFetcher:
                         "title": title,
                         "ann_type": doc_type,
                         "ann_types": doc_type,
-                        "source_url": rec.get("url") or "",
+                        "source_url": url,
                         "source_type": "minishare",
                     },
                 )
+                row = result.fetchone()
+
+            if not row:
+                return None  # 已存在
+
+            # 保存元数据后，立即下载 PDF（除非 skip_download=True）
+            if url and not skip_download:
+                await self._download_minishare_pdf(
+                    url=url,
+                    ts_code=ts_code,
+                    title=title,
+                    ann_date=ann_date,
+                    doc_type=doc_type,
+                )
+
             return True
         except IntegrityError:
             return None
         except Exception as e:
             logger.warning("保存公告失败: %s", e)
             return False
+
+    async def _download_minishare_pdf(
+        self,
+        url: str,
+        ts_code: str,
+        title: str,
+        ann_date: str,
+        doc_type: str,
+    ) -> bool:
+        """下载 minishare 公告 PDF，失败后重试 1 次，更新 file_path 和 download_status。"""
+        if not url:
+            return False
+
+        safe_title = re.sub(r'[\\/:*?"<>|]', "_", title)[:80]
+        filename = f"{ann_date}_{ts_code}_{safe_title}.pdf"
+
+        # 解析 cninfo 详情页 URL → 真实 PDF 直链
+        resolved_url = await asyncio.to_thread(FileStorage._resolve_pdf_url, url)
+        if not resolved_url:
+            # 回退方案：直接从 URL 参数构造 PDF 直链
+            resolved_url = await asyncio.to_thread(self._resolve_minishare_pdf_url, url)
+        if not resolved_url:
+            logger.warning("minishare 公告 PDF URL 无法解析 [%s]: %s", title[:50], url[:80])
+            await self._update_ann_download_status(ts_code, ann_date, title, "failed")
+            return False
+
+        for attempt in range(2):  # 首次 + 重试 1 次
+            try:
+                # 下载 PDF（投递到线程池避免阻塞）
+                response = await asyncio.to_thread(
+                    requests.get, resolved_url, timeout=30, headers=HTTP_HEADERS
+                )
+                response.raise_for_status()
+                content = response.content
+
+                if not content[:5] == b"%PDF-":
+                    logger.warning(
+                        "minishare 公告内容不是 PDF [%s] (attempt %d)", title[:50], attempt + 1
+                    )
+                    continue  # 重试
+
+                file_path = self.storage.save_notice(content, ts_code, filename, ann_date)
+                if not file_path:
+                    continue  # 重试
+
+                # 更新数据库
+                await self._update_ann_file_path(
+                    ts_code, ann_date, title, str(file_path), "downloaded"
+                )
+                return True
+
+            except Exception as e:
+                logger.warning(
+                    "minishare 公告 PDF 下载失败 [%s] (attempt %d): %s",
+                    title[:50], attempt + 1, e,
+                )
+                if attempt == 0:
+                    continue  # 重试 1 次
+                # 第二次也失败，标记 failed
+                await self._update_ann_download_status(ts_code, ann_date, title, "failed")
+                return False
+
+        # 两次都失败
+        await self._update_ann_download_status(ts_code, ann_date, title, "failed")
+        return False
+
+    async def _update_ann_file_path(
+        self,
+        ts_code: str,
+        ann_date: str,
+        title: str,
+        file_path: str,
+        status: str,
+    ) -> None:
+        """更新公告的 file_path 和 download_status。"""
+        from datetime import datetime as dt
+        date_val = dt.strptime(ann_date, "%Y%m%d").date() if ann_date else None
+        async with engine.begin() as conn:
+            await conn.execute(
+                text("""
+                    UPDATE minishare_announcements
+                    SET file_path = :file_path, download_status = :status
+                    WHERE ts_code = :ts_code AND ann_date = :ann_date AND title = :title
+                """),
+                {
+                    "file_path": file_path,
+                    "status": status,
+                    "ts_code": ts_code,
+                    "ann_date": date_val,
+                    "title": title,
+                },
+            )
+
+    async def _update_ann_download_status(
+        self,
+        ts_code: str,
+        ann_date: str,
+        title: str,
+        status: str,
+    ) -> None:
+        """更新公告的 download_status。"""
+        from datetime import datetime as dt
+        date_val = dt.strptime(ann_date, "%Y%m%d").date() if ann_date else None
+        async with engine.begin() as conn:
+            await conn.execute(
+                text("""
+                    UPDATE minishare_announcements
+                    SET download_status = :status
+                    WHERE ts_code = :ts_code AND ann_date = :ann_date AND title = :title
+                """),
+                {
+                    "status": status,
+                    "ts_code": ts_code,
+                    "ann_date": date_val,
+                    "title": title,
+                },
+            )
 
     async def _save_report(
         self,
@@ -1389,8 +1567,12 @@ class DataFetcher:
         run_ctx: Any,
         *,
         is_history: bool = False,
+        skip_stock_scope: bool = False,
     ) -> dict[str, int]:
         """共享的公告列表处理逻辑（fetch_announcements / fetch_announcements_history 共用）。
+
+        Args:
+            skip_stock_scope: True 时跳过白名单股票过滤（监管公告等全市场类型使用）。
 
         Returns:
             {"total", "success", "skipped", "downloaded", "fail"}
@@ -1413,7 +1595,7 @@ class DataFetcher:
             )
             return {"total": 0, "success": 0, "skipped": 0, "downloaded": 0, "fail": 0}
 
-        # ── 白名单过滤 ──
+        # ── 白名单过滤（监管公告等跳过） ──
         from app.data_pipeline.backfill_config import load_backfill_settings
 
         bf_cfg = load_backfill_settings()
@@ -1425,16 +1607,20 @@ class DataFetcher:
             cninfo_id = CninfoClient.get_announcement_id(ann)
             if not cninfo_id:
                 continue
-            ts_code_raw = CninfoClient.get_ts_code(ann)
-            if bf_cfg.scope == "tech_mvp" and ts_code_raw not in bf_cfg.ts_codes:
-                continue
+            if not skip_stock_scope:
+                ts_code_raw = CninfoClient.get_ts_code(ann)
+                if bf_cfg.scope == "tech_mvp" and ts_code_raw not in bf_cfg.ts_codes:
+                    continue
+            # 监管公告可能有多股票 secCode（逗号分隔），无法映射单一 ts_code
+            raw_sec_code = str(ann.get("secCode", "") or "")
+            ts_code = CninfoClient.get_ts_code(ann) if "," not in raw_sec_code else ""
             candidate_ids.append(cninfo_id)
             prepared.append(
                 {
                     "raw": ann,
                     "cninfo_id": cninfo_id,
                     "title": CninfoClient.get_title(ann),
-                    "ts_code": CninfoClient.get_ts_code(ann),
+                    "ts_code": ts_code,
                     "ann_date_str": CninfoClient.get_ann_date(ann) or default_date,
                     "name": str(ann.get("secName", "")),
                     "pdf_url": CninfoClient.get_pdf_url(ann),
@@ -1989,6 +2175,62 @@ class DataFetcher:
         )
         return result
 
+    # ---------- 监管公告 ----------
+
+    async def fetch_regulatory_announcements(
+        self,
+        plate: str = "szse",
+        ann_date: str | None = None,
+    ) -> dict[str, int]:
+        """从巨潮拉取指定 plate 的监管公告，去重后经标准流程入库。
+
+        Args:
+            plate: REGU_PLATES 中的 key，如 "szse"/"sh"/"jsgs"/"zjh"
+            ann_date: 日期 YYYYMMDD，默认昨天
+
+        Returns:
+            {"total", "success", "skipped", "downloaded", "fail"}
+        """
+        task_id = generate_task_id()
+        set_task_id(task_id)
+
+        if ann_date is None:
+            ann_date = (datetime.now() - timedelta(days=1)).strftime("%Y%m%d")
+
+        tracker = IngestionProgressTracker(
+            source="cninfo_regu",
+            task_name="regulatory_announcements",
+            scope=f"regu:{plate}",
+        )
+        run_ctx = await tracker.start_run(
+            metadata={"plate": plate, "ann_date": ann_date},
+        )
+
+        try:
+            announcements = await self.cninfo_client.get_regulatory_announcements(
+                plate=plate,
+                ann_date=ann_date,
+            )
+        except Exception as exc:
+            logger.warning("监管公告 %s %s 获取失败: %s", plate, ann_date, exc)
+            await tracker.finish_run(
+                run_ctx, status=FAILED, total_items=0, processed_items=0,
+                success_count=0, skipped_count=0, downloaded_count=0,
+                fail_count=1, current_watermark=ann_date,
+                checkpoint_watermark=ann_date, next_from_watermark=ann_date,
+                metadata={"plate": plate, "error": str(exc)},
+            )
+            return {"total": 0, "success": 0, "skipped": 0, "downloaded": 0, "fail": 1}
+
+        return await self._process_announcement_list(
+            announcements,
+            default_date=ann_date,
+            scope=f"regu:{plate}",
+            tracker=tracker,
+            run_ctx=run_ctx,
+            skip_stock_scope=True,
+        )
+
     # ---------- 指数 K 线 ----------
 
     async def fetch_index_kline(
@@ -2088,24 +2330,68 @@ class DataFetcher:
         except IntegrityError:
             return None
 
+    async def _save_daily_basic(
+        self,
+        ts_code: str,
+        trade_date: date,
+        rec: dict[str, Any],
+    ) -> bool:
+        """Best-effort 保存 daily_basic 记录。
+
+        仅 upsert 非空字段，不因 basic 失败影响 daily_data 结果。
+        """
+        close = _safe_float(rec.get("close"))
+        turnover_rate = _safe_float(rec.get("turn"))
+
+        # 只处理有实际数据的字段
+        fields: dict[str, Any] = {"ts_code": ts_code, "trade_date": trade_date}
+        has_data = False
+        if close is not None:
+            fields["close"] = close
+            has_data = True
+        if turnover_rate is not None:
+            fields["turnover_rate"] = turnover_rate
+            has_data = True
+
+        if not has_data:
+            return False
+
+        cols = ", ".join(fields.keys())
+        placeholders = ", ".join(f":{k}" for k in fields)
+        updates = ", ".join(f"{k} = EXCLUDED.{k}" for k in fields if k not in ("ts_code", "trade_date"))
+
+        sql = f"""
+        INSERT INTO daily_basic ({cols})
+        VALUES ({placeholders})
+        ON CONFLICT (ts_code, trade_date) DO UPDATE SET {updates}
+        """
+        try:
+            async with engine.begin() as conn:
+                await conn.execute(text(sql), fields)
+            return True
+        except Exception:
+            return False
+
     async def _save_stock_kline(
         self,
         ts_code: str,
         trade_date: str,
         rec: dict[str, Any],
-    ) -> bool | None:
-        """保存个股 K 线（Phase 31 D-A3）。True=新建/更新成功，None=IntegrityError，False=其他失败。
+    ) -> dict[str, Any]:
+        """保存个股 K 线和 best-effort daily_basic（Phase 31 D-A3）。
 
-        FK 约束：daily_data.ts_code → stocks.ts_code，需先确保 stocks 表已同步。
+        Returns:
+            dict: {"daily_saved": bool|None, "basic_success": int, "basic_fail": int}
+            daily_saved=True=新建/更新成功，None=IntegrityError，False=其他失败。
+            basic_success=1 表示 basic 成功写入，0 表示未写入。
         """
         parsed_date = _yyyymmdd_to_date(trade_date)
         if parsed_date is None:
-            return None
+            return {"daily_saved": None, "basic_success": 0, "basic_fail": 0}
 
         close = _safe_float(rec.get("close"))
         preclose = _safe_float(rec.get("preclose"))
         change = (close - preclose) if (close is not None and preclose is not None) else None
-        # baostock tradestatus："1" 正常 / "0" 停牌（白名单转换，T-A-baostock-dirty mitigation）
         is_suspended = str(rec.get("tradestatus", "1")) == "0"
 
         sql = """
@@ -2147,20 +2433,30 @@ class DataFetcher:
                         "is_suspended": is_suspended,
                     },
                 )
-            return True
+            # daily_data 成功，尝试 best-effort daily_basic
+            basic_ok = await self._save_daily_basic(ts_code, parsed_date, rec)
+            return {
+                "daily_saved": True,
+                "basic_success": 1 if basic_ok else 0,
+                "basic_fail": 0 if basic_ok else 1,
+            }
         except IntegrityError:
-            return None
+            return {"daily_saved": None, "basic_success": 0, "basic_fail": 0}
         except Exception as exc:
             logger.warning("保存个股 K 线失败 [%s %s]: %s", ts_code, trade_date, exc)
-            return False
+            return {"daily_saved": False, "basic_success": 0, "basic_fail": 0}
 
     async def fetch_stock_kline(
         self,
         ts_code: str,
         start_date: str | None = None,
         end_date: str | None = None,
-    ) -> dict[str, int]:
-        """单只个股 K 线 orchestration（Phase 31 D-A1）。"""
+    ) -> dict[str, Any]:
+        """单只个股 K 线 orchestration（Phase 31 D-A1）。
+
+        通过 KlineProviderRegistry 获取数据，支持多源 fallback。
+        返回统计包含 source 和 fallback_used 字段。
+        """
         today = datetime.now()
         end = datetime.strptime(end_date, "%Y%m%d") if end_date else today - timedelta(days=1)
         start = (
@@ -2169,38 +2465,81 @@ class DataFetcher:
         start_str = start.strftime("%Y%m%d")
         end_str = end.strftime("%Y%m%d")
 
+        # 懒加载 registry（使用当前 self.data_source，支持测试注入 mock）
+        registry = self._registry
+        if registry is None:
+            from app.data_pipeline.providers import create_default_registry
+
+            registry = create_default_registry(client=self.data_source)
+            self._registry = registry
+
         try:
-            records = await asyncio.to_thread(
+            result = await asyncio.to_thread(
                 partial(
-                    self.data_source.get_stock_kline,
+                    registry.fetch_stock_kline,
                     ts_code=ts_code,
                     start_date=start_str,
                     end_date=end_str,
                     adjustflag="3",
-                    raise_on_error=True,
                 )
             )
         except Exception as exc:
             logger.warning("个股 %s K线抓取失败: %s", ts_code, exc)
-            return {"total": 0, "success": 0, "skipped": 0, "fail": 1}
+            return {
+                "total": 0, "success": 0, "skipped": 0, "fail": 1,
+                "source": "", "fallback_used": False,
+                "basic_success": 0, "basic_fail": 0,
+            }
+
+        records = result.records
         if not records:
-            return {"total": 0, "success": 0, "skipped": 0, "fail": 0}
+            if result.errors:
+                for err in result.errors:
+                    logger.warning(
+                        "个股 %s K线抓取失败: provider=%s error=%s",
+                        ts_code,
+                        err.get("provider", "?"),
+                        err.get("error", "?"),
+                    )
+                return {
+                    "total": 0, "success": 0, "skipped": 0, "fail": 1,
+                    "source": result.source, "fallback_used": result.fallback_used,
+                    "basic_success": 0, "basic_fail": 0,
+                }
+            return {
+                "total": 0, "success": 0, "skipped": 0, "fail": 0,
+                "source": result.source, "fallback_used": result.fallback_used,
+                "basic_success": 0, "basic_fail": 0,
+            }
 
         success = skipped = fail = 0
+        basic_success = basic_fail = 0
         for rec in records:
             trade_date = str(rec.get("date") or "").replace("-", "")
             try:
                 saved = await self._save_stock_kline(ts_code, trade_date, rec)
-                if saved is True:
+                daily_saved = saved.get("daily_saved")
+                if daily_saved is True:
                     success += 1
-                elif saved is None:
+                elif daily_saved is None:
                     skipped += 1
                 else:
                     fail += 1
+                basic_success += saved.get("basic_success", 0)
+                basic_fail += saved.get("basic_fail", 0)
             except Exception as exc:
                 fail += 1
                 logger.debug("保存个股K线失败 [%s %s]: %s", ts_code, trade_date, exc)
-        return {"total": len(records), "success": success, "skipped": skipped, "fail": fail}
+        return {
+            "total": len(records),
+            "success": success,
+            "skipped": skipped,
+            "fail": fail,
+            "source": result.source,
+            "fallback_used": result.fallback_used,
+            "basic_success": basic_success,
+            "basic_fail": basic_fail,
+        }
 
     async def fetch_all_stocks_kline(
         self,
@@ -2351,9 +2690,10 @@ class DataFetcher:
                     trade_date = str(rec.get("date", "")).replace("-", "")
                     try:
                         saved = await self._save_stock_kline(code, trade_date, rec)
-                        if saved is True:
+                        daily_saved = saved.get("daily_saved")
+                        if daily_saved is True:
                             counters["success"] += 1
-                        elif saved is False:
+                        elif daily_saved is False:
                             counters["fail"] += 1
                     except Exception as exc:
                         counters["fail"] += 1

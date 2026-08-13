@@ -74,16 +74,14 @@ export function useTDesignAdapter(messages: Ref<ChatMessageItem[]>) {
   // t-chat data items
   const tdesignItems = computed<TDesignChatItem[]>(() =>
     messages.value.map((msg) => {
-      const ts = msg.timestamp;
-      const datetime = ts
-        ? new Date(ts).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })
-        : "";
+      // 不再显示每条消息的时间戳（open-webui 风：干净、无逐条时间头）
+      const datetime = "";
 
       if (msg.role === "user") {
         return {
           id: msg.id,
           role: "user" as const,
-          name: "你",
+          name: "",
           avatar: "",
           datetime,
           content: msg.content,
