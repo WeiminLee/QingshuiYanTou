@@ -963,6 +963,11 @@ def upsert_evidence_chunk_vector(
             logger.warning("upsert_evidence_chunk_vector 输入无效: evidence_id=%s", evidence_id)
             return False
 
+        # bge-m3 上下文窗口 8192 tokens，截断到 7000 字避免超限
+        MAX_EMBED_CHARS = 7000
+        if len(text) > MAX_EMBED_CHARS:
+            text = text[:MAX_EMBED_CHARS]
+
         client = get_vector_client()
         embedder = get_embedding_model()
         vec = embedder.embed(text)

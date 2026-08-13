@@ -11,6 +11,7 @@ import hashlib
 import logging
 import math
 import random
+import re
 import uuid
 from datetime import UTC, date, datetime, timedelta
 from functools import partial
@@ -18,6 +19,7 @@ from pathlib import Path
 from typing import Any
 
 import pytz
+import requests
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
@@ -48,6 +50,14 @@ from app.data_pipeline.report_filter import (
 from app.logging.logger import AsyncAuditLogger, generate_task_id, set_task_id
 
 logger = logging.getLogger(__name__)
+
+# 下载 PDF 的请求头
+HTTP_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                  "AppleWebKit/537.36 (KHTML, like Gecko) "
+                  "Chrome/120.0.0.0 Safari/537.36",
+    "Accept": "application/pdf,*/*",
+}
 
 
 # ── 常量 ───────────────────────────────────────────────
@@ -678,10 +688,18 @@ class DataFetcher:
             return {"success": 0, "skipped": 0, "fail": 0, "source": "minishare"}
 
         success = skipped = fail = 0
-        # 白名单过滤：scope=tech_mvp 时仅处理白名单股票公告
-        from app.data_pipeline.backfill_config import load_backfill_settings
+        # 白名单过滤：从 candidate_pool 加载活跃股票列表
+        # 缓存池股票代码（以 set 形式缓存，避免每次查询数据库）
+        if not hasattr(self, "_candidate_pool_cache") or not self._candidate_pool_cache:
+            from sqlalchemy import text as sa_text
+            from app.core.database import engine as db_engine
 
-        bf_cfg = load_backfill_settings()
+            async with db_engine.connect() as conn:
+                rows = await conn.execute(
+                    sa_text("SELECT ts_code FROM candidate_pool WHERE is_active = true")
+                )
+                self._candidate_pool_cache = {row[0] for row in rows.fetchall()}
+
         for rec in records:
             title = str(rec.get("title") or "")
             # 公告过滤：只保存命中关键词的公告
@@ -690,7 +708,7 @@ class DataFetcher:
                 skipped += 1
                 continue
             ts_code_val = _normalize_ts_code(str(rec.get("ts_code") or ""))
-            if bf_cfg.scope == "tech_mvp" and ts_code_val not in bf_cfg.ts_codes:
+            if ts_code_val not in self._candidate_pool_cache:
                 skipped += 1
                 continue
             ok = await self._save_minishare_ann(rec, ts_code_val)
@@ -879,10 +897,32 @@ class DataFetcher:
             "source": "minishare",
         }
 
+    @staticmethod
+    def _resolve_minishare_pdf_url(url: str) -> str | None:
+        """从 minishare 的 cninfo 详情页 URL 直接构造 PDF 直链。
+
+        当 FileStorage._resolve_pdf_url 的 API 调用失败时，
+        直接从 URL 参数中提取 announcementId 和 announcementTime 构造 PDF 地址。
+        """
+        if not url or "detail" not in url or "cninfo" not in url:
+            return None
+        try:
+            from urllib.parse import parse_qs, urlparse
+            parsed = urlparse(url)
+            qs = parse_qs(parsed.query)
+            ann_id = qs.get("announcementId", [None])[0]
+            ann_time = qs.get("announcementTime", [None])[0]
+            if ann_id and ann_time:
+                return f"http://static.cninfo.com.cn/finalpage/{ann_time}/{ann_id}.PDF"
+        except Exception:
+            pass
+        return None
+
     async def _save_minishare_ann(
         self,
         rec: dict[str, Any],
         ts_code: str,
+        skip_download: bool = False,
     ) -> bool | None:
         """保存 minishare 公告记录；True=成功，None=已存在，False=失败。
 
@@ -902,15 +942,17 @@ class DataFetcher:
         try:
             # 转换日期格式 YYYYMMDD -> DATE
             date_val = datetime.strptime(ann_date, "%Y%m%d").date() if ann_date else None
+            url = rec.get("url") or ""
 
             async with engine.begin() as conn:
-                await conn.execute(
+                result = await conn.execute(
                     text("""
                         INSERT INTO minishare_announcements
-                            (ann_date, ts_code, name, title, type, ann_types, source_url, source_type)
+                            (ann_date, ts_code, name, title, type, ann_types, source_url, source_type, download_status)
                         VALUES
-                            (:ann_date, :ts_code, :name, :title, :ann_type, :ann_types, :source_url, :source_type)
+                            (:ann_date, :ts_code, :name, :title, :ann_type, :ann_types, :source_url, :source_type, 'pending')
                         ON CONFLICT (ann_date, ts_code, title) DO NOTHING
+                        RETURNING ts_code, ann_date, title
                     """),
                     {
                         "ann_date": date_val,
@@ -919,16 +961,148 @@ class DataFetcher:
                         "title": title,
                         "ann_type": doc_type,
                         "ann_types": doc_type,
-                        "source_url": rec.get("url") or "",
+                        "source_url": url,
                         "source_type": "minishare",
                     },
                 )
+                row = result.fetchone()
+
+            if not row:
+                return None  # 已存在
+
+            # 保存元数据后，立即下载 PDF（除非 skip_download=True）
+            if url and not skip_download:
+                await self._download_minishare_pdf(
+                    url=url,
+                    ts_code=ts_code,
+                    title=title,
+                    ann_date=ann_date,
+                    doc_type=doc_type,
+                )
+
             return True
         except IntegrityError:
             return None
         except Exception as e:
             logger.warning("保存公告失败: %s", e)
             return False
+
+    async def _download_minishare_pdf(
+        self,
+        url: str,
+        ts_code: str,
+        title: str,
+        ann_date: str,
+        doc_type: str,
+    ) -> bool:
+        """下载 minishare 公告 PDF，失败后重试 1 次，更新 file_path 和 download_status。"""
+        if not url:
+            return False
+
+        safe_title = re.sub(r'[\\/:*?"<>|]', "_", title)[:80]
+        filename = f"{ann_date}_{ts_code}_{safe_title}.pdf"
+
+        # 解析 cninfo 详情页 URL → 真实 PDF 直链
+        resolved_url = await asyncio.to_thread(FileStorage._resolve_pdf_url, url)
+        if not resolved_url:
+            # 回退方案：直接从 URL 参数构造 PDF 直链
+            resolved_url = await asyncio.to_thread(self._resolve_minishare_pdf_url, url)
+        if not resolved_url:
+            logger.warning("minishare 公告 PDF URL 无法解析 [%s]: %s", title[:50], url[:80])
+            await self._update_ann_download_status(ts_code, ann_date, title, "failed")
+            return False
+
+        for attempt in range(2):  # 首次 + 重试 1 次
+            try:
+                # 下载 PDF（投递到线程池避免阻塞）
+                response = await asyncio.to_thread(
+                    requests.get, resolved_url, timeout=30, headers=HTTP_HEADERS
+                )
+                response.raise_for_status()
+                content = response.content
+
+                if not content[:5] == b"%PDF-":
+                    logger.warning(
+                        "minishare 公告内容不是 PDF [%s] (attempt %d)", title[:50], attempt + 1
+                    )
+                    continue  # 重试
+
+                file_path = self.storage.save_notice(content, ts_code, filename, ann_date)
+                if not file_path:
+                    continue  # 重试
+
+                # 更新数据库
+                await self._update_ann_file_path(
+                    ts_code, ann_date, title, str(file_path), "downloaded"
+                )
+                return True
+
+            except Exception as e:
+                logger.warning(
+                    "minishare 公告 PDF 下载失败 [%s] (attempt %d): %s",
+                    title[:50], attempt + 1, e,
+                )
+                if attempt == 0:
+                    continue  # 重试 1 次
+                # 第二次也失败，标记 failed
+                await self._update_ann_download_status(ts_code, ann_date, title, "failed")
+                return False
+
+        # 两次都失败
+        await self._update_ann_download_status(ts_code, ann_date, title, "failed")
+        return False
+
+    async def _update_ann_file_path(
+        self,
+        ts_code: str,
+        ann_date: str,
+        title: str,
+        file_path: str,
+        status: str,
+    ) -> None:
+        """更新公告的 file_path 和 download_status。"""
+        from datetime import datetime as dt
+        date_val = dt.strptime(ann_date, "%Y%m%d").date() if ann_date else None
+        async with engine.begin() as conn:
+            await conn.execute(
+                text("""
+                    UPDATE minishare_announcements
+                    SET file_path = :file_path, download_status = :status
+                    WHERE ts_code = :ts_code AND ann_date = :ann_date AND title = :title
+                """),
+                {
+                    "file_path": file_path,
+                    "status": status,
+                    "ts_code": ts_code,
+                    "ann_date": date_val,
+                    "title": title,
+                },
+            )
+
+    async def _update_ann_download_status(
+        self,
+        ts_code: str,
+        ann_date: str,
+        title: str,
+        status: str,
+    ) -> None:
+        """更新公告的 download_status。"""
+        from datetime import datetime as dt
+        date_val = dt.strptime(ann_date, "%Y%m%d").date() if ann_date else None
+        async with engine.begin() as conn:
+            await conn.execute(
+                text("""
+                    UPDATE minishare_announcements
+                    SET download_status = :status
+                    WHERE ts_code = :ts_code AND ann_date = :ann_date AND title = :title
+                """),
+                {
+                    "status": status,
+                    "ts_code": ts_code,
+                    "ann_date": date_val,
+                    "title": title,
+                },
+            )
 
     async def _save_report(
         self,

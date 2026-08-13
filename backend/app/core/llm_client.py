@@ -72,17 +72,22 @@ async def chat_async(
     model: str | None = None,
     temperature: float = 0.1,
     timeout: int = 180,
+    thinking: bool = False,
 ) -> str:
     """Async LLM 调用 — 不阻塞事件循环"""
     from app.config import settings
 
     client = await get_async_llm_client()
-    response = await client.chat.completions.create(
-        model=model or settings.llm_model or DEFAULT_MODEL,
-        messages=[{"role": "user", "content": prompt}],
-        temperature=temperature,
-        timeout=timeout,
-    )
+    kwargs: dict = {
+        "model": model or settings.llm_model or DEFAULT_MODEL,
+        "messages": [{"role": "user", "content": prompt}],
+        "temperature": temperature,
+        "timeout": timeout,
+    }
+    # deepseek 模型支持 thinking 模式
+    if thinking or "deepseek" in (kwargs["model"]).lower():
+        kwargs["extra_body"] = {"thinking": {"type": "enabled"}}
+    response = await client.chat.completions.create(**kwargs)
     return response.choices[0].message.content or ""
 
 
@@ -162,12 +167,16 @@ def chat(
     from app.config import settings
 
     client = get_llm_client()
-    response = client.chat.completions.create(
-        model=model or settings.llm_model or DEFAULT_MODEL,
-        messages=[{"role": "user", "content": prompt}],
-        temperature=temperature,
-        timeout=timeout,
-    )
+    kwargs: dict = {
+        "model": model or settings.llm_model or DEFAULT_MODEL,
+        "messages": [{"role": "user", "content": prompt}],
+        "temperature": temperature,
+        "timeout": timeout,
+    }
+    # deepseek 模型支持 thinking 模式
+    if "deepseek" in (kwargs["model"]).lower():
+        kwargs["extra_body"] = {"thinking": {"type": "enabled"}}
+    response = client.chat.completions.create(**kwargs)
     return response.choices[0].message.content or ""
 
 

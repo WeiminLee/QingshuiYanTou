@@ -164,6 +164,8 @@ async def main(argv: list[str] | None = None):
 
     parser = argparse.ArgumentParser(description="A股日线行情同步 (akshare 新浪)")
     parser.add_argument("--scope", choices=["tech_mvp", "all"], default=None)
+    parser.add_argument("--pool", choices=["candidate", "watchlist", "all"], default=None,
+                        help="数据源: candidate(备选池,默认) | watchlist(自选股) | all(全量)")
     parser.add_argument("--start-date", default=None)
     parser.add_argument("--end-date", default=None)
     parser.add_argument("--dry-run", action="store_true")
@@ -174,6 +176,7 @@ async def main(argv: list[str] | None = None):
         os.environ["BACKFILL_START_DATE"] = args.start_date
     if args.end_date:
         os.environ["BACKFILL_END_DATE"] = args.end_date
+    pool_mode = args.pool or os.environ.get("DATA_POOL", "candidate")
     from app.data_pipeline.backfill_config import reset_settings_cache
 
     reset_settings_cache()
@@ -184,17 +187,30 @@ async def main(argv: list[str] | None = None):
     logger.info("🚀 开始同步A股日线行情数据，起始日期: %s", start_date)
     logger.info("=" * 80)
 
-    # 1. 获取所有股票列表
+    # 1. 获取股票列表（按 pool 模式选择数据源）
     async with async_session() as sess:
-        res = await sess.execute(text("SELECT ts_code, name FROM stocks ORDER BY ts_code"))
+        if pool_mode == "candidate":
+            res = await sess.execute(
+                text("SELECT cp.ts_code, cp.name FROM candidate_pool cp WHERE cp.is_active = TRUE ORDER BY cp.ts_code")
+            )
+            mode_label = "备选池"
+        elif pool_mode == "watchlist":
+            res = await sess.execute(
+                text("SELECT w.ts_code, w.name FROM watchlist w ORDER BY w.ts_code")
+            )
+            mode_label = "自选股"
+        else:
+            res = await sess.execute(text("SELECT ts_code, name FROM stocks ORDER BY ts_code"))
+            mode_label = "全量A股"
         stocks = res.all()
     total_stocks = len(stocks)
     if total_stocks == 0:
-        logger.error("股票列表为空，请先同步股票基础数据")
+        logger.error("股票列表为空（%s），请先填充数据源", mode_label)
         return
+    logger.info("数据源: %s, 共 %d 只股票", mode_label, total_stocks)
 
-    # 2. 按 backfill scope 过滤
-    if cfg.scope == "tech_mvp":
+    # 2. 按 backfill scope 过滤（仅 all 模式生效）
+    if cfg.scope == "tech_mvp" and pool_mode == "all":
         in_scope = [s for s in stocks if s.ts_code in cfg.ts_codes]
         logger.info("backfill scope=tech_mvp, %d/%d 命中白名单", len(in_scope), total_stocks)
         stocks = in_scope

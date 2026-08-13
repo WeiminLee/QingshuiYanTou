@@ -370,6 +370,29 @@ async def _run_news_job() -> None:
         raise
 
 
+async def _run_evidence_worker_job() -> None:
+    """知识层证据提取定时任务（每 30 秒）。
+
+    LLM 已暂停，仅走 rules-only 路径（信号提取 + 规则事实），
+    因此可以大幅提高并发度和批量大小。
+    """
+    from app.knowledge.evidence_worker import EvidenceExtractionWorker
+
+    try:
+        worker = EvidenceExtractionWorker(batch_size=10, max_concurrency=5)
+        result = await worker.run_once(limit=200, job_type="combined")
+        if result.get("claimed", 0) > 0:
+            logger.info("[evidence_worker] combined: %s", result)
+        result = await worker.run_once(limit=200, job_type="vector")
+        if result.get("claimed", 0) > 0:
+            logger.info("[evidence_worker] vector: %s", result)
+        result = await worker.run_once(limit=200, job_type="signal")
+        if result.get("claimed", 0) > 0:
+            logger.info("[evidence_worker] signal: %s", result)
+    except Exception as exc:
+        logger.warning("[evidence_worker] 执行异常: %s", exc)
+
+
 async def _run_pdf_rotation_job() -> None:
     from app.knowledge.pdf_rotator import rotate_old_pdfs
 
@@ -628,6 +651,15 @@ class Scheduler:
             max_instances=1,
             coalesce=True,
         )
+        self._scheduler.add_job(
+            _run_evidence_worker_job,
+            "interval",
+            seconds=30,
+            id="evidence_worker",
+            replace_existing=True,
+            max_instances=1,
+            coalesce=True,
+        )
 
         self._scheduler.start()
         logger.info("定时任务调度器启动")
@@ -655,6 +687,7 @@ class Scheduler:
             (_run_ingestion_worker_job(), "ingestion_worker_startup"),
             (_run_sync_stocks_job(), "sync_stocks_startup"),
             (_run_news_job(), "news_startup"),
+            (_run_evidence_worker_job(), "evidence_worker_startup"),
         ]
         tasks = []
         for coro, name in task_specs:

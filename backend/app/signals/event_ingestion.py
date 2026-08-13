@@ -57,7 +57,7 @@ def _signal_values(candidate: SignalCandidate) -> dict[str, Any]:
         "summary": candidate.summary,
         "evidence_excerpt": candidate.evidence_excerpt,
         "status": "new",
-        "metadata": candidate.metadata,
+        "metadata_": candidate.metadata,
     }
 
 
@@ -78,7 +78,7 @@ def _propagation_values(signal_id: str, propagation: PropagationCandidate) -> di
         "confidence": Decimal(str(round(propagation.confidence, 3))),
         "reasoning": propagation.reasoning,
         "evidence_refs": propagation.evidence_refs,
-        "metadata": propagation.metadata,
+        "metadata_": propagation.metadata,
     }
 
 
@@ -142,7 +142,7 @@ async def backfill_event_signals(session: AsyncSession, *, limit: int = 200) -> 
                     "value_score": values["value_score"],
                     "summary": values["summary"],
                     "evidence_excerpt": values["evidence_excerpt"],
-                    "metadata": values["metadata"],
+                    "metadata": values["metadata_"],
                 },
             )
             await session.execute(stmt)
@@ -155,7 +155,7 @@ async def backfill_event_signals(session: AsyncSession, *, limit: int = 200) -> 
                     "confidence": values["confidence"],
                     "reasoning": values["reasoning"],
                     "evidence_refs": values["evidence_refs"],
-                    "metadata": values["metadata"],
+                    "metadata": values["metadata_"],
                 },
             )
             await session.execute(stmt)

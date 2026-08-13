@@ -81,7 +81,7 @@ class NewsService:
 
                 pg_stmt = text("""
                     INSERT INTO events (event_id, title, summary, source, url, publish_at, metadata)
-                    VALUES (:event_id, :title, :summary, :source, :url, :publish_at, :metadata::jsonb)
+                    VALUES (:event_id, :title, :summary, :source, :url, :publish_at, CAST(:metadata AS jsonb))
                     ON CONFLICT (event_id) DO NOTHING
                 """)
                 result = await conn.execute(
@@ -167,7 +167,7 @@ class NewsService:
 
                 pg_stmt = text("""
                     INSERT INTO events (event_id, title, summary, source, url, publish_at, metadata)
-                    VALUES (:event_id, :title, :summary, :source, :url, :publish_at, :metadata::jsonb)
+                    VALUES (:event_id, :title, :summary, :source, :url, :publish_at, CAST(:metadata AS jsonb))
                     ON CONFLICT (event_id) DO NOTHING
                 """)
                 result = await conn.execute(

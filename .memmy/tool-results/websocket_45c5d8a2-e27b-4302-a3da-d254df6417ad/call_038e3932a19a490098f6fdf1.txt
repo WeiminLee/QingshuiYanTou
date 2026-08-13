@@ -1,0 +1,719 @@
+backend/app/data_pipeline/minishare_client.py:6
+  4| 数据源：
+  5| - 研报: pro.research_report(trade_date=) / pro.research_report(ts_code=, start_date=, end_date=)
+> 6| - 公告: pro.anns_d(ann_date=) / pro.anns_d(ts_code=, start_date=, end_date=)
+  7| """
+  8| 
+  9| from __future__ import annotations
+  10| 
+  11| import logging
+  12| from typing import Any
+  13| 
+  14| import pandas as pd
+  15| 
+  16| try:
+  17|     import minishare as ms
+  18| except ImportError:  # minishare 为可选备选数据源，未安装时降级为不可用
+  19|     ms = None
+  20| 
+  21| from app.config import settings
+
+backend/app/data_pipeline/minishare_client.py:95
+  93|             self._research_api = ms.pro_api(research_token)
+  94| 
+> 95|         self._anns_api = None  # 延迟初始化
+  96| 
+  97|     @property
+  98|     def research_available(self) -> bool:
+  99|         return self._research_api is not None
+  100| 
+  101|     @property
+  102|     def anns_available(self) -> bool:
+  103|         return ms is not None and bool(settings.minishare_anns_token)
+  104| 
+  105|     def _ensure_anns_api(self) -> Any:
+  106|         """延迟初始化 anns API"""
+  107|         anns_token = settings.minishare_anns_token
+  108|         if not anns_token:
+  109|             logger.warning("MINISHARE_ANNS_TOKEN 未配置，公告数据源不可用")
+  110|             self._anns_api = None
+
+backend/app/data_pipeline/minishare_client.py:102
+  100| 
+  101|     @property
+> 102|     def anns_available(self) -> bool:
+  103|         return ms is not None and bool(settings.minishare_anns_token)
+  104| 
+  105|     def _ensure_anns_api(self) -> Any:
+  106|         """延迟初始化 anns API"""
+  107|         anns_token = settings.minishare_anns_token
+  108|         if not anns_token:
+  109|             logger.warning("MINISHARE_ANNS_TOKEN 未配置，公告数据源不可用")
+  110|             self._anns_api = None
+  111|             return None
+  112|         if ms is None:
+  113|             logger.warning("minishare 包未安装，公告数据源不可用")
+  114|             self._anns_api = None
+  115|             return None
+  116|         if self._anns_api is None:
+  117|             self._anns_api = ms.pro_api(anns_token)
+
+backend/app/data_pipeline/minishare_client.py:103
+  101|     @property
+  102|     def anns_available(self) -> bool:
+> 103|         return ms is not None and bool(settings.minishare_anns_token)
+  104| 
+  105|     def _ensure_anns_api(self) -> Any:
+  106|         """延迟初始化 anns API"""
+  107|         anns_token = settings.minishare_anns_token
+  108|         if not anns_token:
+  109|             logger.warning("MINISHARE_ANNS_TOKEN 未配置，公告数据源不可用")
+  110|             self._anns_api = None
+  111|             return None
+  112|         if ms is None:
+  113|             logger.warning("minishare 包未安装，公告数据源不可用")
+  114|             self._anns_api = None
+  115|             return None
+  116|         if self._anns_api is None:
+  117|             self._anns_api = ms.pro_api(anns_token)
+  118|         return self._anns_api
+
+backend/app/data_pipeline/minishare_client.py:105
+  103|         return ms is not None and bool(settings.minishare_anns_token)
+  104| 
+> 105|     def _ensure_anns_api(self) -> Any:
+  106|         """延迟初始化 anns API"""
+  107|         anns_token = settings.minishare_anns_token
+  108|         if not anns_token:
+  109|             logger.warning("MINISHARE_ANNS_TOKEN 未配置，公告数据源不可用")
+  110|             self._anns_api = None
+  111|             return None
+  112|         if ms is None:
+  113|             logger.warning("minishare 包未安装，公告数据源不可用")
+  114|             self._anns_api = None
+  115|             return None
+  116|         if self._anns_api is None:
+  117|             self._anns_api = ms.pro_api(anns_token)
+  118|         return self._anns_api
+  119| 
+  120|     def get_reports(
+
+backend/app/data_pipeline/minishare_client.py:106
+  104| 
+  105|     def _ensure_anns_api(self) -> Any:
+> 106|         """延迟初始化 anns API"""
+  107|         anns_token = settings.minishare_anns_token
+  108|         if not anns_token:
+  109|             logger.warning("MINISHARE_ANNS_TOKEN 未配置，公告数据源不可用")
+  110|             self._anns_api = None
+  111|             return None
+  112|         if ms is None:
+  113|             logger.warning("minishare 包未安装，公告数据源不可用")
+  114|             self._anns_api = None
+  115|             return None
+  116|         if self._anns_api is None:
+  117|             self._anns_api = ms.pro_api(anns_token)
+  118|         return self._anns_api
+  119| 
+  120|     def get_reports(
+  121|         self,
+
+backend/app/data_pipeline/minishare_client.py:107
+  105|     def _ensure_anns_api(self) -> Any:
+  106|         """延迟初始化 anns API"""
+> 107|         anns_token = settings.minishare_anns_token
+  108|         if not anns_token:
+  109|             logger.warning("MINISHARE_ANNS_TOKEN 未配置，公告数据源不可用")
+  110|             self._anns_api = None
+  111|             return None
+  112|         if ms is None:
+  113|             logger.warning("minishare 包未安装，公告数据源不可用")
+  114|             self._anns_api = None
+  115|             return None
+  116|         if self._anns_api is None:
+  117|             self._anns_api = ms.pro_api(anns_token)
+  118|         return self._anns_api
+  119| 
+  120|     def get_reports(
+  121|         self,
+  122|         trade_date: str | None = None,
+
+backend/app/data_pipeline/minishare_client.py:108
+  106|         """延迟初始化 anns API"""
+  107|         anns_token = settings.minishare_anns_token
+> 108|         if not anns_token:
+  109|             logger.warning("MINISHARE_ANNS_TOKEN 未配置，公告数据源不可用")
+  110|             self._anns_api = None
+  111|             return None
+  112|         if ms is None:
+  113|             logger.warning("minishare 包未安装，公告数据源不可用")
+  114|             self._anns_api = None
+  115|             return None
+  116|         if self._anns_api is None:
+  117|             self._anns_api = ms.pro_api(anns_token)
+  118|         return self._anns_api
+  119| 
+  120|     def get_reports(
+  121|         self,
+  122|         trade_date: str | None = None,
+  123|         ts_code: str | None = None,
+
+backend/app/data_pipeline/minishare_client.py:109
+  107|         anns_token = settings.minishare_anns_token
+  108|         if not anns_token:
+> 109|             logger.warning("MINISHARE_ANNS_TOKEN 未配置，公告数据源不可用")
+  110|             self._anns_api = None
+  111|             return None
+  112|         if ms is None:
+  113|             logger.warning("minishare 包未安装，公告数据源不可用")
+  114|             self._anns_api = None
+  115|             return None
+  116|         if self._anns_api is None:
+  117|             self._anns_api = ms.pro_api(anns_token)
+  118|         return self._anns_api
+  119| 
+  120|     def get_reports(
+  121|         self,
+  122|         trade_date: str | None = None,
+  123|         ts_code: str | None = None,
+  124|         start_date: str | None = None,
+
+backend/app/data_pipeline/minishare_client.py:110
+  108|         if not anns_token:
+  109|             logger.warning("MINISHARE_ANNS_TOKEN 未配置，公告数据源不可用")
+> 110|             self._anns_api = None
+  111|             return None
+  112|         if ms is None:
+  113|             logger.warning("minishare 包未安装，公告数据源不可用")
+  114|             self._anns_api = None
+  115|             return None
+  116|         if self._anns_api is None:
+  117|             self._anns_api = ms.pro_api(anns_token)
+  118|         return self._anns_api
+  119| 
+  120|     def get_reports(
+  121|         self,
+  122|         trade_date: str | None = None,
+  123|         ts_code: str | None = None,
+  124|         start_date: str | None = None,
+  125|         end_date: str | None = None,
+
+backend/app/data_pipeline/minishare_client.py:113
+  111|             return None
+  112|         if ms is None:
+> 113|             logger.warning("minishare 包未安装，公告数据源不可用")
+  114|             self._anns_api = None
+  115|             return None
+  116|         if self._anns_api is None:
+  117|             self._anns_api = ms.pro_api(anns_token)
+  118|         return self._anns_api
+  119| 
+  120|     def get_reports(
+  121|         self,
+  122|         trade_date: str | None = None,
+  123|         ts_code: str | None = None,
+  124|         start_date: str | None = None,
+  125|         end_date: str | None = None,
+  126|         limit: int = 5000,
+  127|     ) -> list[dict[str, Any]]:
+  128|         """获取券商研报数据（minishare）。
+
+backend/app/data_pipeline/minishare_client.py:114
+  112|         if ms is None:
+  113|             logger.warning("minishare 包未安装，公告数据源不可用")
+> 114|             self._anns_api = None
+  115|             return None
+  116|         if self._anns_api is None:
+  117|             self._anns_api = ms.pro_api(anns_token)
+  118|         return self._anns_api
+  119| 
+  120|     def get_reports(
+  121|         self,
+  122|         trade_date: str | None = None,
+  123|         ts_code: str | None = None,
+  124|         start_date: str | None = None,
+  125|         end_date: str | None = None,
+  126|         limit: int = 5000,
+  127|     ) -> list[dict[str, Any]]:
+  128|         """获取券商研报数据（minishare）。
+  129| 
+
+backend/app/data_pipeline/minishare_client.py:116
+  114|             self._anns_api = None
+  115|             return None
+> 116|         if self._anns_api is None:
+  117|             self._anns_api = ms.pro_api(anns_token)
+  118|         return self._anns_api
+  119| 
+  120|     def get_reports(
+  121|         self,
+  122|         trade_date: str | None = None,
+  123|         ts_code: str | None = None,
+  124|         start_date: str | None = None,
+  125|         end_date: str | None = None,
+  126|         limit: int = 5000,
+  127|     ) -> list[dict[str, Any]]:
+  128|         """获取券商研报数据（minishare）。
+  129| 
+  130|         Args:
+  131|             trade_date: 按研报日期 YYYYMMDD，如 '20260516'
+
+backend/app/data_pipeline/minishare_client.py:117
+  115|             return None
+  116|         if self._anns_api is None:
+> 117|             self._anns_api = ms.pro_api(anns_token)
+  118|         return self._anns_api
+  119| 
+  120|     def get_reports(
+  121|         self,
+  122|         trade_date: str | None = None,
+  123|         ts_code: str | None = None,
+  124|         start_date: str | None = None,
+  125|         end_date: str | None = None,
+  126|         limit: int = 5000,
+  127|     ) -> list[dict[str, Any]]:
+  128|         """获取券商研报数据（minishare）。
+  129| 
+  130|         Args:
+  131|             trade_date: 按研报日期 YYYYMMDD，如 '20260516'
+  132|             ts_code: 按股票代码，如 '600519.SH'
+
+backend/app/data_pipeline/minishare_client.py:118
+  116|         if self._anns_api is None:
+  117|             self._anns_api = ms.pro_api(anns_token)
+> 118|         return self._anns_api
+  119| 
+  120|     def get_reports(
+  121|         self,
+  122|         trade_date: str | None = None,
+  123|         ts_code: str | None = None,
+  124|         start_date: str | None = None,
+  125|         end_date: str | None = None,
+  126|         limit: int = 5000,
+  127|     ) -> list[dict[str, Any]]:
+  128|         """获取券商研报数据（minishare）。
+  129| 
+  130|         Args:
+  131|             trade_date: 按研报日期 YYYYMMDD，如 '20260516'
+  132|             ts_code: 按股票代码，如 '600519.SH'
+  133|             start_date: 按股票代码时的起始日期 YYYYMMDD
+
+backend/app/data_pipeline/minishare_client.py:288
+  286|             current += timedelta(days=1)
+  287| 
+> 288|     # ── 公告（anns_d）──────────────────────────────────────
+  289| 
+  290|     def get_announcements(
+  291|         self,
+  292|         ann_date: str | None = None,
+  293|         ts_code: str | None = None,
+  294|         start_date: str | None = None,
+  295|         end_date: str | None = None,
+  296|         limit: int = 5000,
+  297|     ) -> list[dict[str, Any]]:
+  298|         """获取公告数据（minishare anns_d）。
+  299| 
+  300|         Args:
+  301|             ann_date: 按公告日期 YYYYMMDD（与 ts_code 二选一）
+  302|             ts_code: 按股票代码（配合 start_date/end_date）
+  303|             start_date: 起始日期 YYYYMMDD
+
+backend/app/data_pipeline/minishare_client.py:290
+  288|     # ── 公告（anns_d）──────────────────────────────────────
+  289| 
+> 290|     def get_announcements(
+  291|         self,
+  292|         ann_date: str | None = None,
+  293|         ts_code: str | None = None,
+  294|         start_date: str | None = None,
+  295|         end_date: str | None = None,
+  296|         limit: int = 5000,
+  297|     ) -> list[dict[str, Any]]:
+  298|         """获取公告数据（minishare anns_d）。
+  299| 
+  300|         Args:
+  301|             ann_date: 按公告日期 YYYYMMDD（与 ts_code 二选一）
+  302|             ts_code: 按股票代码（配合 start_date/end_date）
+  303|             start_date: 起始日期 YYYYMMDD
+  304|             end_date: 结束日期 YYYYMMDD
+  305|             limit: 最大返回条数
+
+backend/app/data_pipeline/minishare_client.py:298
+  296|         limit: int = 5000,
+  297|     ) -> list[dict[str, Any]]:
+> 298|         """获取公告数据（minishare anns_d）。
+  299| 
+  300|         Args:
+  301|             ann_date: 按公告日期 YYYYMMDD（与 ts_code 二选一）
+  302|             ts_code: 按股票代码（配合 start_date/end_date）
+  303|             start_date: 起始日期 YYYYMMDD
+  304|             end_date: 结束日期 YYYYMMDD
+  305|             limit: 最大返回条数
+  306|         """
+  307|         api = self._ensure_anns_api()
+  308|         if api is None:
+  309|             logger.warning("公告数据源未配置 token")
+  310|             return []
+  311| 
+  312|         try:
+  313|             if ann_date:
+
+backend/app/data_pipeline/minishare_client.py:301
+  299| 
+  300|         Args:
+> 301|             ann_date: 按公告日期 YYYYMMDD（与 ts_code 二选一）
+  302|             ts_code: 按股票代码（配合 start_date/end_date）
+  303|             start_date: 起始日期 YYYYMMDD
+  304|             end_date: 结束日期 YYYYMMDD
+  305|             limit: 最大返回条数
+  306|         """
+  307|         api = self._ensure_anns_api()
+  308|         if api is None:
+  309|             logger.warning("公告数据源未配置 token")
+  310|             return []
+  311| 
+  312|         try:
+  313|             if ann_date:
+  314|                 df = api.anns_d(ann_date=ann_date, limit=limit, offset=0)
+  315|             elif ts_code:
+  316|                 df = api.anns_d(ts_code=ts_code, start_date=start_date, end_date=end_date, limit=limit, offset=0)
+
+backend/app/data_pipeline/minishare_client.py:307
+  305|             limit: 最大返回条数
+  306|         """
+> 307|         api = self._ensure_anns_api()
+  308|         if api is None:
+  309|             logger.warning("公告数据源未配置 token")
+  310|             return []
+  311| 
+  312|         try:
+  313|             if ann_date:
+  314|                 df = api.anns_d(ann_date=ann_date, limit=limit, offset=0)
+  315|             elif ts_code:
+  316|                 df = api.anns_d(ts_code=ts_code, start_date=start_date, end_date=end_date, limit=limit, offset=0)
+  317|             else:
+  318|                 logger.warning("get_announcements 需要 ann_date 或 ts_code 参数")
+  319|                 return []
+  320| 
+  321|             if df is None or len(df) == 0:
+  322|                 logger.info("minishare 公告数据为空")
+
+backend/app/data_pipeline/minishare_client.py:309
+  307|         api = self._ensure_anns_api()
+  308|         if api is None:
+> 309|             logger.warning("公告数据源未配置 token")
+  310|             return []
+  311| 
+  312|         try:
+  313|             if ann_date:
+  314|                 df = api.anns_d(ann_date=ann_date, limit=limit, offset=0)
+  315|             elif ts_code:
+  316|                 df = api.anns_d(ts_code=ts_code, start_date=start_date, end_date=end_date, limit=limit, offset=0)
+  317|             else:
+  318|                 logger.warning("get_announcements 需要 ann_date 或 ts_code 参数")
+  319|                 return []
+  320| 
+  321|             if df is None or len(df) == 0:
+  322|                 logger.info("minishare 公告数据为空")
+  323|                 return []
+  324| 
+
+backend/app/data_pipeline/minishare_client.py:314
+  312|         try:
+  313|             if ann_date:
+> 314|                 df = api.anns_d(ann_date=ann_date, limit=limit, offset=0)
+  315|             elif ts_code:
+  316|                 df = api.anns_d(ts_code=ts_code, start_date=start_date, end_date=end_date, limit=limit, offset=0)
+  317|             else:
+  318|                 logger.warning("get_announcements 需要 ann_date 或 ts_code 参数")
+  319|                 return []
+  320| 
+  321|             if df is None or len(df) == 0:
+  322|                 logger.info("minishare 公告数据为空")
+  323|                 return []
+  324| 
+  325|             records = []
+  326|             for _, row in df.iterrows():
+  327|                 ann_date_val = _safe_str(row.get("ann_date"))
+  328|                 if not ann_date_val:
+  329|                     continue
+
+backend/app/data_pipeline/minishare_client.py:316
+  314|                 df = api.anns_d(ann_date=ann_date, limit=limit, offset=0)
+  315|             elif ts_code:
+> 316|                 df = api.anns_d(ts_code=ts_code, start_date=start_date, end_date=end_date, limit=limit, offset=0)
+  317|             else:
+  318|                 logger.warning("get_announcements 需要 ann_date 或 ts_code 参数")
+  319|                 return []
+  320| 
+  321|             if df is None or len(df) == 0:
+  322|                 logger.info("minishare 公告数据为空")
+  323|                 return []
+  324| 
+  325|             records = []
+  326|             for _, row in df.iterrows():
+  327|                 ann_date_val = _safe_str(row.get("ann_date"))
+  328|                 if not ann_date_val:
+  329|                     continue
+  330|                 ts_code_val = _normalize_ts_code(str(row.get("ts_code") or ""))
+  331|                 records.append(
+
+backend/app/data_pipeline/minishare_client.py:318
+  316|                 df = api.anns_d(ts_code=ts_code, start_date=start_date, end_date=end_date, limit=limit, offset=0)
+  317|             else:
+> 318|                 logger.warning("get_announcements 需要 ann_date 或 ts_code 参数")
+  319|                 return []
+  320| 
+  321|             if df is None or len(df) == 0:
+  322|                 logger.info("minishare 公告数据为空")
+  323|                 return []
+  324| 
+  325|             records = []
+  326|             for _, row in df.iterrows():
+  327|                 ann_date_val = _safe_str(row.get("ann_date"))
+  328|                 if not ann_date_val:
+  329|                     continue
+  330|                 ts_code_val = _normalize_ts_code(str(row.get("ts_code") or ""))
+  331|                 records.append(
+  332|                     {
+  333|                         "ann_date": ann_date_val,
+
+backend/app/data_pipeline/minishare_client.py:322
+  320| 
+  321|             if df is None or len(df) == 0:
+> 322|                 logger.info("minishare 公告数据为空")
+  323|                 return []
+  324| 
+  325|             records = []
+  326|             for _, row in df.iterrows():
+  327|                 ann_date_val = _safe_str(row.get("ann_date"))
+  328|                 if not ann_date_val:
+  329|                     continue
+  330|                 ts_code_val = _normalize_ts_code(str(row.get("ts_code") or ""))
+  331|                 records.append(
+  332|                     {
+  333|                         "ann_date": ann_date_val,
+  334|                         "ts_code": ts_code_val,
+  335|                         "name": _safe_str(row.get("name")),
+  336|                         "title": _safe_str(row.get("title")),
+  337|                         "url": _safe_str(row.get("url")),
+
+backend/app/data_pipeline/minishare_client.py:341
+  339|                 )
+  340| 
+> 341|             logger.info(f"minishare 获取公告数据: {len(records)} 条")
+  342|             return records[:limit]
+  343|         except Exception as e:
+  344|             logger.error(f"minishare 获取公告数据失败: {e}")
+  345|             return []
+  346| 
+  347|     def iter_ann_by_date_range(
+  348|         self,
+  349|         start_date: str,
+  350|         end_date: str,
+  351|     ):
+  352|         """按日期范围遍历公告数据（生成器）。
+  353| 
+  354|         Args:
+  355|             start_date: 起始日期 YYYYMMDD
+  356|             end_date: 结束日期 YYYYMMDD
+
+backend/app/data_pipeline/minishare_client.py:344
+  342|             return records[:limit]
+  343|         except Exception as e:
+> 344|             logger.error(f"minishare 获取公告数据失败: {e}")
+  345|             return []
+  346| 
+  347|     def iter_ann_by_date_range(
+  348|         self,
+  349|         start_date: str,
+  350|         end_date: str,
+  351|     ):
+  352|         """按日期范围遍历公告数据（生成器）。
+  353| 
+  354|         Args:
+  355|             start_date: 起始日期 YYYYMMDD
+  356|             end_date: 结束日期 YYYYMMDD
+  357| 
+  358|         Yields:
+  359|             tuple(date_str, list[dict]): 每天的公告记录列表
+
+backend/app/data_pipeline/minishare_client.py:352
+  350|         end_date: str,
+  351|     ):
+> 352|         """按日期范围遍历公告数据（生成器）。
+  353| 
+  354|         Args:
+  355|             start_date: 起始日期 YYYYMMDD
+  356|             end_date: 结束日期 YYYYMMDD
+  357| 
+  358|         Yields:
+  359|             tuple(date_str, list[dict]): 每天的公告记录列表
+  360|         """
+  361|         api = self._ensure_anns_api()
+  362|         if api is None:
+  363|             return
+  364| 
+  365|         from datetime import datetime, timedelta
+  366| 
+  367|         current = datetime.strptime(start_date, "%Y%m%d")
+
+backend/app/data_pipeline/minishare_client.py:359
+  357| 
+  358|         Yields:
+> 359|             tuple(date_str, list[dict]): 每天的公告记录列表
+  360|         """
+  361|         api = self._ensure_anns_api()
+  362|         if api is None:
+  363|             return
+  364| 
+  365|         from datetime import datetime, timedelta
+  366| 
+  367|         current = datetime.strptime(start_date, "%Y%m%d")
+  368|         end = datetime.strptime(end_date, "%Y%m%d")
+  369|         while current <= end:
+  370|             date_str = current.strftime("%Y%m%d")
+  371|             try:
+  372|                 df = api.anns_d(ann_date=date_str, limit=5000, offset=0)
+  373|                 if df is not None and len(df) > 0:
+  374|                     records = []
+
+backend/app/data_pipeline/minishare_client.py:361
+  359|             tuple(date_str, list[dict]): 每天的公告记录列表
+  360|         """
+> 361|         api = self._ensure_anns_api()
+  362|         if api is None:
+  363|             return
+  364| 
+  365|         from datetime import datetime, timedelta
+  366| 
+  367|         current = datetime.strptime(start_date, "%Y%m%d")
+  368|         end = datetime.strptime(end_date, "%Y%m%d")
+  369|         while current <= end:
+  370|             date_str = current.strftime("%Y%m%d")
+  371|             try:
+  372|                 df = api.anns_d(ann_date=date_str, limit=5000, offset=0)
+  373|                 if df is not None and len(df) > 0:
+  374|                     records = []
+  375|                     for _, row in df.iterrows():
+  376|                         ann_date_val = _safe_str(row.get("ann_date"))
+
+backend/app/data_pipeline/minishare_client.py:372
+  370|             date_str = current.strftime("%Y%m%d")
+  371|             try:
+> 372|                 df = api.anns_d(ann_date=date_str, limit=5000, offset=0)
+  373|                 if df is not None and len(df) > 0:
+  374|                     records = []
+  375|                     for _, row in df.iterrows():
+  376|                         ann_date_val = _safe_str(row.get("ann_date"))
+  377|                         if not ann_date_val:
+  378|                             continue
+  379|                         ts_code_val = _normalize_ts_code(str(row.get("ts_code") or ""))
+  380|                         records.append(
+  381|                             {
+  382|                                 "ann_date": ann_date_val,
+  383|                                 "ts_code": ts_code_val,
+  384|                                 "name": _safe_str(row.get("name")),
+  385|                                 "title": _safe_str(row.get("title")),
+  386|                                 "url": _safe_str(row.get("url")),
+  387|                             }
+
+backend/app/data_pipeline/minishare_client.py:393
+  391|                     yield date_str, []
+  392|             except Exception as e:
+> 393|                 logger.warning(f"minishare 公告 {date_str} 失败: {e}")
+  394|                 yield date_str, []
+  395|             current += timedelta(days=1)
+  396| 
+  397|     async def iter_ann_by_date_range_async(
+  398|         self,
+  399|         start_date: str,
+  400|         end_date: str,
+  401|     ):
+  402|         """async 版本的 iter_ann_by_date_range。
+  403| 
+  404|         每个日期的 API 调用通过 asyncio.to_thread 放到线程池执行，
+  405|         避免阻塞 FastAPI 事件循环。
+  406|         """
+  407|         import asyncio
+  408|         from datetime import datetime, timedelta
+
+backend/app/data_pipeline/minishare_client.py:410
+  408|         from datetime import datetime, timedelta
+  409| 
+> 410|         api = self._ensure_anns_api()
+  411|         if api is None:
+  412|             return
+  413| 
+  414|         current = datetime.strptime(start_date, "%Y%m%d")
+  415|         end = datetime.strptime(end_date, "%Y%m%d")
+  416|         ann_limiter = get_minishare_async_limiter("anns_d")
+  417|         while current <= end:
+  418|             date_str = current.strftime("%Y%m%d")
+  419|             await ann_limiter.wait_and_acquire()
+  420|             try:
+  421|                 df = await asyncio.to_thread(api.anns_d, ann_date=date_str, limit=5000, offset=0)
+  422|             except Exception as e:
+  423|                 logger.warning(f"minishare 公告 {date_str} 失败: {e}")
+  424|                 df = None
+  425|             if df is not None and len(df) > 0:
+
+backend/app/data_pipeline/minishare_client.py:416
+  414|         current = datetime.strptime(start_date, "%Y%m%d")
+  415|         end = datetime.strptime(end_date, "%Y%m%d")
+> 416|         ann_limiter = get_minishare_async_limiter("anns_d")
+  417|         while current <= end:
+  418|             date_str = current.strftime("%Y%m%d")
+  419|             await ann_limiter.wait_and_acquire()
+  420|             try:
+  421|                 df = await asyncio.to_thread(api.anns_d, ann_date=date_str, limit=5000, offset=0)
+  422|             except Exception as e:
+  423|                 logger.warning(f"minishare 公告 {date_str} 失败: {e}")
+  424|                 df = None
+  425|             if df is not None and len(df) > 0:
+  426|                 records = []
+  427|                 for _, row in df.iterrows():
+  428|                     ann_date_val = _safe_str(row.get("ann_date"))
+  429|                     if not ann_date_val:
+  430|                         continue
+  431|                     ts_code_val = _normalize_ts_code(str(row.get("ts_code") or ""))
+
+backend/app/data_pipeline/minishare_client.py:421
+  419|             await ann_limiter.wait_and_acquire()
+  420|             try:
+> 421|                 df = await asyncio.to_thread(api.anns_d, ann_date=date_str, limit=5000, offset=0)
+  422|             except Exception as e:
+  423|                 logger.warning(f"minishare 公告 {date_str} 失败: {e}")
+  424|                 df = None
+  425|             if df is not None and len(df) > 0:
+  426|                 records = []
+  427|                 for _, row in df.iterrows():
+  428|                     ann_date_val = _safe_str(row.get("ann_date"))
+  429|                     if not ann_date_val:
+  430|                         continue
+  431|                     ts_code_val = _normalize_ts_code(str(row.get("ts_code") or ""))
+  432|                     records.append(
+  433|                         {
+  434|                             "ann_date": ann_date_val,
+  435|                             "ts_code": ts_code_val,
+  436|                             "name": _safe_str(row.get("name")),
+
+backend/app/data_pipeline/minishare_client.py:423
+  421|                 df = await asyncio.to_thread(api.anns_d, ann_date=date_str, limit=5000, offset=0)
+  422|             except Exception as e:
+> 423|                 logger.warning(f"minishare 公告 {date_str} 失败: {e}")
+  424|                 df = None
+  425|             if df is not None and len(df) > 0:
+  426|                 records = []
+  427|                 for _, row in df.iterrows():
+  428|                     ann_date_val = _safe_str(row.get("ann_date"))
+  429|                     if not ann_date_val:
+  430|                         continue
+  431|                     ts_code_val = _normalize_ts_code(str(row.get("ts_code") or ""))
+  432|                     records.append(
+  433|                         {
+  434|                             "ann_date": ann_date_val,
+  435|                             "ts_code": ts_code_val,
+  436|                             "name": _safe_str(row.get("name")),
+  437|                             "title": _safe_str(row.get("title")),
+  438|                             "url": _safe_str(row.get("url")),

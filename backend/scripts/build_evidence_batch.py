@@ -27,10 +27,8 @@ from sqlalchemy import text
 
 from app.core.database import engine
 from app.core.mongodb import get_mongo_db
-from app.knowledge.evidence_builders_simple import (
-    build_announcement_evidence,
-    build_irm_evidence,
-)
+from app.knowledge.evidence_builders import build_irm_evidence_batch
+from app.knowledge.evidence_builders_simple import build_announcement_evidence
 from app.knowledge.evidence_service import EvidenceService
 
 logging.basicConfig(
@@ -117,8 +115,8 @@ async def build_announcement_evidence_batch(limit: int | None = None):
     return total
 
 
-async def build_irm_evidence_batch(limit: int | None = None):
-    """批量构建 IRM Evidence（使用批量 MongoDB 写入）"""
+async def build_irm_evidence_batch_fn(limit: int | None = None):
+    """批量构建 IRM Evidence（按 ts_code+ann_date 聚合）"""
     service = EvidenceService()
     total = 0
     start_id = 0
@@ -131,8 +129,7 @@ async def build_irm_evidence_batch(limit: int | None = None):
             if not rows:
                 break
 
-            # 收集所有 evidence inputs
-            all_inputs = []
+            records = []
             for row in rows:
                 record = {
                     "id": row[0],
@@ -143,22 +140,22 @@ async def build_irm_evidence_batch(limit: int | None = None):
                     "announcement_type": row[5],
                     "content": row[8],
                 }
-                evidence_input = build_irm_evidence(record)
-                all_inputs.append(evidence_input)
+                records.append(record)
 
-            # 批量写入 MongoDB
-            for i in range(0, len(all_inputs), MONGO_BATCH_SIZE):
-                batch = all_inputs[i : i + MONGO_BATCH_SIZE]
+            evidence_list = build_irm_evidence_batch(records)
+
+            for i in range(0, len(evidence_list), MONGO_BATCH_SIZE):
+                batch = evidence_list[i : i + MONGO_BATCH_SIZE]
                 await service.bulk_upsert_evidence(batch)
 
             total += len(rows)
             start_id = rows[-1][0]
-            logger.info(f"已处理 IRM {total} 条 (last_id={start_id})")
+            logger.info(f"已处理 IRM {total} 条记录 -> {len(evidence_list)} 条 evidence (last_id={start_id})")
 
             if limit and total >= limit:
                 break
 
-    logger.info(f"IRM Evidence 构建完成: {total} 条")
+    logger.info(f"IRM Evidence 构建完成: {total} 条记录")
     return total
 
 
@@ -211,7 +208,7 @@ async def main():
         await build_announcement_evidence_batch(limit=args.limit)
 
     if args.type in ["irm", "all"]:
-        await build_irm_evidence_batch(limit=args.limit)
+        await build_irm_evidence_batch_fn(limit=args.limit)
 
     logger.info("开始 enqueue extraction jobs...")
     await enqueue_all_jobs()

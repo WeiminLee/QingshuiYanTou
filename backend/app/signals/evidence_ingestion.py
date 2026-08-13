@@ -127,7 +127,7 @@ async def _upsert_signal_records(
                 "value_score": values["value_score"],
                 "summary": values["summary"],
                 "evidence_excerpt": values["evidence_excerpt"],
-                "metadata": values["metadata"],
+                "metadata": values["metadata_"],
             },
         )
         await session.execute(stmt)
@@ -140,7 +140,7 @@ async def _upsert_signal_records(
                 "confidence": values["confidence"],
                 "reasoning": values["reasoning"],
                 "evidence_refs": values["evidence_refs"],
-                "metadata": values["metadata"],
+                "metadata": values["metadata_"],
             },
         )
         await session.execute(stmt)

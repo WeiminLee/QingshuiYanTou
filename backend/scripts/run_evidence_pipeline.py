@@ -88,10 +88,8 @@ async def step_build(limit: int | None = None) -> None:
     from sqlalchemy import text
 
     from app.core.database import engine
-    from app.knowledge.evidence_builders_simple import (
-        build_announcement_evidence,
-        build_irm_evidence,
-    )
+    from app.knowledge.evidence_builders import build_irm_evidence_batch
+    from app.knowledge.evidence_builders_simple import build_announcement_evidence
 
     service = EvidenceService()
     BATCH_SIZE = 100
@@ -125,6 +123,7 @@ async def step_build(limit: int | None = None) -> None:
 
             # 收集所有 evidence inputs
             all_inputs = []
+            irm_records: list[dict] = []
             for row in rows:
                 record = {
                     "id": row[0],
@@ -141,14 +140,18 @@ async def step_build(limit: int | None = None) -> None:
 
                 ann_type = record.get("announcement_type", "")
                 if ann_type.startswith("irm:"):
-                    evidence_list = [build_irm_evidence(record)]
+                    irm_records.append(record)
                     total_irm += 1
                 else:
                     evidence_list = build_announcement_evidence(record)
+                    all_inputs.extend(evidence_list)
                     total_announcement += 1
 
-                all_inputs.extend(evidence_list)
-                total_inputs += len(evidence_list)
+            # IRM 按 (ts_code, ann_date) 聚合后批量构建
+            if irm_records:
+                irm_evidence = build_irm_evidence_batch(irm_records)
+                all_inputs.extend(irm_evidence)
+                total_inputs += len(irm_evidence)
 
             # 批量写入 MongoDB
             for i in range(0, len(all_inputs), MONGO_BATCH_SIZE):

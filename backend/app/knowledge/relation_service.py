@@ -900,27 +900,29 @@ def upsert_relates(
 
         merged["updated_at"] = now
 
-        run_write(
-            """MATCH (a)-[r:RELATES]->(b)
-               WHERE a.entity_id = $from_entity
-                 AND b.entity_id = $to_entity
-                 AND r.valid_from = $valid_from
-               SET r += $props
-            """,
-            {
-                "from_entity": from_entity,
-                "to_entity": to_entity,
-                "valid_from": valid_from_str,
-                "props": merged,
-            },
-        )
+        # 使用 MERGE 原子更新，替代 MATCH+SET 消除竞态
+        with write_transaction() as tx:
+            tx.run(
+                """MATCH (a {entity_id: $from_entity})
+                   MATCH (b {entity_id: $to_entity})
+                   MERGE (a)-[r:RELATES {valid_from: $valid_from}]->(b)
+                   ON MATCH SET r += $props
+                   ON CREATE SET r += $props
+                """,
+                {
+                    "from_entity": from_entity,
+                    "to_entity": to_entity,
+                    "valid_from": valid_from_str,
+                    "props": merged,
+                },
+            )
         logger.debug("RELATES 更新: %s → %s (weight=%.1f)", from_entity, to_entity, weight)
         merged["from_entity"] = from_entity
         merged["to_entity"] = to_entity
         return merged, False
 
     # 创建新关系：先关闭同 pair 的旧有效关系
-    # BUG-9/10/11 修复：使用事务保证原子性
+    # 使用 MERGE 替代 MATCH+CREATE 防止竞态（并发安全）
     yesterday = (valid_from - timedelta(days=1)).isoformat()
     props = {
         "text": text,
@@ -942,7 +944,7 @@ def upsert_relates(
         "updated_at": now,
     }
 
-    # 使用事务合并关闭旧关系和创建新关系（原子操作）
+    # 使用事务一次性完成：关闭旧关系 + MERGE 新关系（原子操作）
     with write_transaction() as tx:
         tx.run(
             """MATCH (a)-[r:RELATES]->(b)
@@ -961,9 +963,11 @@ def upsert_relates(
         tx.run(
             """MATCH (a {entity_id: $from_entity})
                MATCH (b {entity_id: $to_entity})
-               CREATE (a)-[r:RELATES $props]->(b)
+               MERGE (a)-[r:RELATES {valid_from: $valid_from}]->(b)
+               ON CREATE SET r += $props
+               ON MATCH SET r += $props
             """,
-            {"from_entity": from_entity, "to_entity": to_entity, "props": props},
+            {"from_entity": from_entity, "to_entity": to_entity, "valid_from": valid_from_str, "props": props},
         )
     logger.debug("RELATES 新增: %s → %s (weight=%.1f, text=%.20s)", from_entity, to_entity, weight, text)
     props["from_entity"] = from_entity

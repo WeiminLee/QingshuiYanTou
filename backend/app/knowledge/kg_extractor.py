@@ -479,7 +479,7 @@ def extract_text(
 
     try:
         # B8 fix: 传递 source_type 参数
-        merged_entities, merged_relations = rag_extract_sync(
+        merged_entities, merged_relations, _signals = rag_extract_sync(
             text, chunks=chunks, source_file=source_file, source_type=source_type
         )
     except Exception as e:
@@ -880,7 +880,7 @@ async def extract_text_async(
     #   overlap_tokens=0：抽取无需 overlap，实体去重由合并阶段处理
     progress_callback and progress_callback(f"分块完成，共 {len(chunks)} 个 chunk", 5.0)
     try:
-        merged_entities, merged_relations = await rag_extract_async(
+        merged_entities, merged_relations, _signals = await rag_extract_async(
             text,
             chunks=chunks,  # 预分块，与向量写入使用同一批 chunks
             max_tokens=1024,  # 2026-04-14 重构：512 → 1024，提升实体召回率
@@ -1235,21 +1235,33 @@ async def extract_evidence_async(
     source_type = str(evidence.get("source_type") or "unknown")
     subject_hint = evidence.get("subject_hint") or {}
     ts_code = str(subject_hint.get("ts_code") or "UNKNOWN")
-    chunk = type(
-        "EvidenceChunk",
-        (),
-        {"content": text, "chunk_id": 0, "heading": str(evidence.get("source_name") or "Evidence")},
-    )()
-    result = await rag_extract_async(
+
+    # 长文本保护：超过 50 万字则截断，避免产生过多 LLM 调用
+    MAX_CHARS = 500_000
+    if len(text) > MAX_CHARS:
+        logger.warning("文本过长 (%d 字符), 截断至 %d 字符", len(text), MAX_CHARS)
+        text = text[:MAX_CHARS]
+
+    # 让 RAGExtractor 自行分块（不传 chunks 参数），避免 22 万字当一整个 chunk 送 LLM
+    merged_entities, merged_relations, signals = await rag_extract_async(
         text,
-        chunks=[chunk],
+        chunks=None,
         max_tokens=1024,
         overlap_tokens=0,
         callback=progress_callback,
         source_file=source_name,
         source_type=source_type,
     )
-    merged_entities, merged_relations = result
+    # 持久化 LLM 抽取的信号到 PostgreSQL
+    try:
+        from app.core.database import async_session as _async_session
+        from app.signals.llm_ingestion import persist_llm_signals as _persist_llm_signals
+
+        async with _async_session() as _session:
+            await _persist_llm_signals(_session, evidence, signals)
+            await _session.commit()
+    except Exception as _sig_ex:
+        logger.warning("信号持久化失败 [%s]: %s", source_name, _sig_ex)
     lookup = _build_name_to_id_map(merged_entities, ts_code, disambiguation_context=text[:500])
     today = date.today()
     conf, tier = _source_confidence(source_type)
@@ -1390,6 +1402,7 @@ async def extract_evidence_async(
         "relations_raw": merged_relations,
         "entities": entity_ids,
         "relations": written_rels,
+        "signals": signals,
     }
 
 

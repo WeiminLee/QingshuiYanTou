@@ -38,7 +38,7 @@ class Settings(BaseSettings):
     # Database
     database_url: str = ""
     mongodb_url: str = ""
-    redis_url: str = "redis://localhost:6379/0"
+    # redis_url 已移除 — 摘要缓存改为纯 PostgreSQL
 
     # Tushare
     tushare_token: str = ""
@@ -65,9 +65,9 @@ class Settings(BaseSettings):
     #         placeholder（开发占位，返回伪向量）
     embedding_backend: str = "openai"
 
-    # OpenAI 兼容 Embedding 服务（qwen3-embedding:4b）
-    embedding_base_url: str = "http://100.65.0.118:8000/v1"
-    embedding_model_name: str = "qwen3-embedding:4b"
+    # OpenAI 兼容 Embedding 服务（bge-m3 via MemTensor relay）
+    embedding_base_url: str = "https://apigw.memtensor.cn/model/embedding/v1"
+    embedding_model_name: str = "bge-m3"
     embedding_api_key: str = ""
 
     # 本地 BGE-M3 Embedding 服务（http://0.0.0.0:8000/api/v1/embed，旧备用）
@@ -77,8 +77,8 @@ class Settings(BaseSettings):
     hunyuan_api_key: str = ""
     hunyuan_model: str = "hunyuan-embedding"
     hunyuan_embedding_url: str = "https://api.hunyuan.cloud.tencent.com/v1/embeddings"
-    # qwen3-embedding:4b 向量维度（所有后端共用）
-    embedding_dimension: int = 2560
+    # bge-m3 向量维度
+    embedding_dimension: int = 1024
 
     # 向量数据库（Qdrant）
     qdrant_url: str = "http://localhost:6333"
@@ -134,7 +134,7 @@ class Settings(BaseSettings):
     data_assets_root: Path = Path("/home/10241671/DataSets/Stocks")
 
     # minishare 外部数据存储路径（PDF/文件，与项目 storage 分离）
-    minishare_data_root: Path = Path("/run/media/lwm/0E27099B0E27099B/qingshui_data")
+    minishare_data_root: Path = Path("/Users/lwm/data/qingshui_data")
 
     class Config:
         env_file = ".env"

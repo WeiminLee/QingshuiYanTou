@@ -27,7 +27,8 @@ from sqlalchemy import text
 
 from app.core.database import engine
 from app.core.mongodb import get_mongo_db
-from app.knowledge.evidence_builders_simple import build_announcement_evidence, build_irm_evidence
+from app.knowledge.evidence_builders import build_irm_evidence_batch
+from app.knowledge.evidence_builders_simple import build_announcement_evidence
 from app.knowledge.evidence_service import EvidenceService
 
 logging.basicConfig(
@@ -38,7 +39,7 @@ logger = logging.getLogger(__name__)
 
 
 async def build_irm_batch(batch_size: int = 5000, limit: int | None = None):
-    """批量构建 IRM Evidence"""
+    """批量构建 IRM Evidence（按 ts_code+ann_date 聚合）"""
     service = EvidenceService()
     total = 0
 
@@ -54,7 +55,7 @@ async def build_irm_batch(batch_size: int = 5000, limit: int | None = None):
         """)
         result = await conn.stream(query)
 
-        batch = []
+        records_batch: list[dict] = []
         start_time = time.time()
 
         async for row in result:
@@ -67,28 +68,31 @@ async def build_irm_batch(batch_size: int = 5000, limit: int | None = None):
                 "announcement_type": row[5],
                 "type": row[6],
             }
-            evidence = build_irm_evidence(record)
-            batch.append(evidence)
+            records_batch.append(record)
 
-            if len(batch) >= batch_size:
-                await service.bulk_upsert_evidence(batch)
-                total += len(batch)
-                batch = []
+            if len(records_batch) >= batch_size:
+                evidence_list = build_irm_evidence_batch(records_batch)
+                await service.bulk_upsert_evidence(evidence_list)
+                total += len(records_batch)
+                records_batch = []
 
                 elapsed = time.time() - start_time
                 rate = total / elapsed if elapsed > 0 else 0
-                logger.info(f"已构建 {total} 条 (速度: {rate:.0f}/s)")
+                logger.info(f"已构建 {total} 条记录 -> {len(evidence_list)} 条 evidence (速度: {rate:.0f}/s)")
 
                 if limit and total >= limit:
                     break
 
         # 处理剩余
-        if batch:
-            await service.bulk_upsert_evidence(batch)
-            total += len(batch)
+        if records_batch:
+            evidence_list = build_irm_evidence_batch(records_batch)
+            await service.bulk_upsert_evidence(evidence_list)
+            total += len(records_batch)
 
     elapsed = time.time() - start_time
-    logger.info(f"IRM Evidence 构建完成: {total} 条, 耗时 {elapsed:.1f}s, 速度: {total / elapsed:.0f}/s")
+    logger.info(
+        f"IRM Evidence 构建完成: {total} 条记录, 耗时 {elapsed:.1f}s, 速度: {total / elapsed:.0f}/s"
+    )
     return total
 
 

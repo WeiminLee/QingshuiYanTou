@@ -12,7 +12,7 @@ from typing import Any
 from app.core.metadata import CURRENT_KG_PARSER_VERSION, CURRENT_KG_SCHEMA_VERSION
 from app.core.mongodb import get_mongo_db
 from app.knowledge.entity_service import generate_entity_id, upsert_entity
-from app.knowledge.evidence_builders import build_irm_evidence
+from app.knowledge.evidence_builders import build_irm_evidence_batch
 from app.knowledge.evidence_service import EvidenceService
 from app.knowledge.extraction.rag_extractor import extract_async as rag_extract_async
 from app.knowledge.relation_service import upsert_relates
@@ -257,37 +257,29 @@ async def create_irm_evidence_jobs(
     records: list[dict[str, Any]],
     progress_callback: ProgressCallback | None = None,
 ) -> dict[str, int]:
-    """Create Evidence-first jobs for IRM records without LLM extraction."""
+    """Create Evidence-first jobs for IRM records (按 ts_code+ann_date 聚合后构建)."""
     service = EvidenceService()
     totals = {"records": len(records), "evidence": 0, "jobs": 0, "fail": 0, "skipped": 0}
-    for rec in records:
-        item_id = str(rec.get("cninfo_id") or rec.get("ts_code") or "")[:100]
-        title = str(rec.get("question") or rec.get("title") or "")[:200]
-        try:
-            evidence_input = build_irm_evidence(rec)
-            saved = await service.upsert_evidence(evidence_input, chunk_index=0)
-            jobs = await service.enqueue_default_jobs(saved["evidence_id"])
-            totals["evidence"] += 1
-            totals["jobs"] += len(jobs)
-            await _emit(
-                progress_callback,
-                "irm_evidence_created",
-                "互动易 Evidence 已创建",
-                item_id=item_id or None,
-                item_title=title,
-                metadata={"evidence_id": saved["evidence_id"], "jobs": len(jobs)},
-            )
-        except Exception as exc:  # noqa: BLE001
-            totals["fail"] += 1
-            logger.warning("IRM Evidence creation failed [%s]: %s", item_id, exc)
-            await _emit(
-                progress_callback,
-                "irm_evidence_failed",
-                "互动易 Evidence 创建失败",
-                item_id=item_id or None,
-                item_title=title,
-                error=str(exc),
-            )
+    # 批量构建（聚合+去重）
+    all_inputs = build_irm_evidence_batch(records)
+    totals["evidence"] = len(all_inputs)
+    written = await service.bulk_upsert_evidence(all_inputs)
+    totals["evidence"] = written
+    # 批量收集 evidence_ids 然后入队
+    evidence_ids = []
+    for inp in all_inputs:
+        from app.knowledge.evidence import stable_evidence_id
+        eid = stable_evidence_id(inp.source_type, inp.source_id, 0, inp.text_excerpt)
+        evidence_ids.append(eid)
+    evidence_ids = list(set(evidence_ids))
+    enqueued = await service.bulk_enqueue_jobs(evidence_ids)
+    totals["jobs"] = enqueued
+    await _emit(
+        progress_callback,
+        "irm_evidence_created",
+        "互动易 Evidence 批量创建完成",
+        metadata={"evidence": written, "jobs": enqueued, "fail": totals["fail"]},
+    )
     return totals
 
 

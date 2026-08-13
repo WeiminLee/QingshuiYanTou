@@ -50,6 +50,16 @@ TITLE_CLASSIFICATION: dict[str, tuple[str, str]] = {
     "投资者调研": ("research_survey", DOC_TYPE_SAVE),
     "接待机构调研": ("research_survey", DOC_TYPE_SAVE),
     "路演活动": ("research_survey", DOC_TYPE_SAVE),
+    # ── 中标/订单/合同公告 ───────────────────────────────
+    "中标签约": ("contract", DOC_TYPE_SAVE),
+    "合同签订": ("contract", DOC_TYPE_SAVE),
+    "合同签署": ("contract", DOC_TYPE_SAVE),
+    "重大合同": ("contract", DOC_TYPE_SAVE),
+    "中标": ("contract", DOC_TYPE_SAVE),
+    "合同公告": ("contract", DOC_TYPE_SAVE),
+    "中选": ("contract", DOC_TYPE_SAVE),
+    "重大订单": ("contract", DOC_TYPE_SAVE),
+    "签约": ("contract", DOC_TYPE_SAVE),
     # ── 投资类 ────────────────────────────────────────────
     "重大资产重组": ("ma_activity", DOC_TYPE_SAVE),
     "对外投资": ("investment", DOC_TYPE_SAVE),
@@ -69,8 +79,8 @@ def classify_title(title: str) -> tuple[str, str]:
     Returns:
         元组 ``(doc_type, action)``：
         - ``doc_type``: 业务分类标签（``annual_report``, ``half_report``,
-          ``quarter_report``, ``research_survey``, ``ma_activity``,
-          ``investment``, ``other``, ``unknown``）
+          ``quarter_report``, ``research_survey``, ``contract``,
+          ``ma_activity``, ``investment``, ``other``, ``unknown``）
         - ``action``: ``DOC_TYPE_SAVE`` / ``DOC_TYPE_SKIP`` / ``DOC_TYPE_INDEX``
     """
     if not title:

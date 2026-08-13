@@ -42,8 +42,11 @@ class EvidenceService:
         self._db = db or get_mongo_db()
         self._evidence = self._db[EVIDENCE_COLLECTION]
         self._jobs = self._db[EXTRACTION_JOBS_COLLECTION]
+        self._indexes_ensured = False
 
     async def ensure_indexes(self) -> None:
+        if self._indexes_ensured:
+            return
         await self._evidence.create_index("evidence_id", unique=True)
         await self._evidence.create_index("checksum")
         await self._evidence.create_index("source_type")
@@ -55,6 +58,7 @@ class EvidenceService:
         await self._jobs.create_index("status")
         await self._jobs.create_index("job_type")
         await self._jobs.create_index("updated_at")
+        self._indexes_ensured = True
 
     async def upsert_evidence(self, input: EvidenceInput, chunk_index: int = 0) -> dict[str, Any]:
         await self.ensure_indexes()
@@ -146,7 +150,6 @@ class EvidenceService:
         return [
             await self.enqueue_job(evidence_id, JOB_COMBINED),
             await self.enqueue_job(evidence_id, JOB_VECTOR),
-            await self.enqueue_job(evidence_id, JOB_SIGNAL),
         ]
 
     # ── 批量写入 ────────────────────────────────────────────────
@@ -189,7 +192,6 @@ class EvidenceService:
                 "extraction_status": {
                     JOB_COMBINED: STATUS_PENDING,
                     JOB_VECTOR: STATUS_PENDING,
-                    JOB_SIGNAL: STATUS_PENDING,
                     "last_extracted_at": None,
                     "extractor_version": EXTRACTOR_VERSION,
                 },
@@ -214,7 +216,7 @@ class EvidenceService:
         now = _utc_now()
         operations = []
         for evidence_id in evidence_ids:
-            for job_type in [JOB_COMBINED, JOB_VECTOR, JOB_SIGNAL]:
+            for job_type in [JOB_COMBINED, JOB_VECTOR]:
                 job_id = stable_job_id(evidence_id, job_type, EXTRACTOR_VERSION)
                 doc = {
                     "job_id": job_id,
