@@ -338,15 +338,14 @@ async def sync_stock(
         row = r.fetchone()
         min_d, max_d = row[0], row[1]
 
-    # 3. 确定实际需要获取的日期范围
-    #    已有数据起始日期 → 目标结束日期（不重复拉取已有部分）
-    if min_d is not None:
-        # 从已有数据的下一天开始
-        actual_start = datetime.strptime(str(min_d), "%Y-%m-%d").date() + timedelta(days=1)
-        actual_start_str = actual_start.strftime("%Y-%m-%d")  # YYYY-MM-DD
+    # 3. 确定实际需要获取的日期范围：从目标 start_date 和已有最新日期下一天中较晚者开始。
+    requested_start = datetime.strptime(start_date_str, "%Y%m%d").date()
+    if max_d is not None:
+        latest_next = datetime.strptime(str(max_d), "%Y-%m-%d").date() + timedelta(days=1)
+        actual_start = max(requested_start, latest_next)
     else:
-        actual_start_str = f"{start_date_str[:4]}-{start_date_str[4:6]}-{start_date_str[6:8]}"
-
+        actual_start = requested_start
+    actual_start_str = actual_start.strftime("%Y-%m-%d")
     actual_end_str = f"{end_date_str[:4]}-{end_date_str[4:6]}-{end_date_str[6:8]}"  # YYYY-MM-DD
 
     # 如果起始日期 > 结束日期，说明已有数据已覆盖目标范围

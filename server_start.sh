@@ -18,7 +18,7 @@
 #   PIP_INDEX_URL=https://mirrors.cloud.tencent.com/pypi/simple
 #   PIP_TRUSTED_HOST=mirrors.cloud.tencent.com
 #   DATA_JOB_WORKER_SCALE=1
-#   EVIDENCE_WORKER_ENABLED=1
+#   EVIDENCE_WORKER_ENABLED=0
 #   EVIDENCE_JOB_TYPES="combined vector"
 #   EVIDENCE_MAX_CONCURRENCY=1
 #   EVIDENCE_LIMIT_PER_LOOP=5
@@ -37,7 +37,7 @@ PIP_INDEX_URL="${PIP_INDEX_URL:-https://mirrors.cloud.tencent.com/pypi/simple}"
 PIP_TRUSTED_HOST="${PIP_TRUSTED_HOST:-mirrors.cloud.tencent.com}"
 export PIP_INDEX_URL PIP_TRUSTED_HOST
 
-EVIDENCE_WORKER_ENABLED="${EVIDENCE_WORKER_ENABLED:-1}"
+EVIDENCE_WORKER_ENABLED="${EVIDENCE_WORKER_ENABLED:-0}"
 EVIDENCE_JOB_TYPES="${EVIDENCE_JOB_TYPES:-combined vector}"
 EVIDENCE_MAX_CONCURRENCY="${EVIDENCE_MAX_CONCURRENCY:-1}"
 EVIDENCE_LIMIT_PER_LOOP="${EVIDENCE_LIMIT_PER_LOOP:-5}"
@@ -80,7 +80,8 @@ Useful env overrides:
   PIP_INDEX_URL=https://mirrors.cloud.tencent.com/pypi/simple
   PIP_TRUSTED_HOST=mirrors.cloud.tencent.com
   DATA_JOB_WORKER_SCALE=1
-  EVIDENCE_WORKER_ENABLED=1
+  EVIDENCE_WORKER_ENABLED=0
+  EVIDENCE_WORKER_ENABLED=1 ./server_start.sh start  # manually enable evidence workers
   EVIDENCE_JOB_TYPES="combined vector"
   EVIDENCE_MAX_CONCURRENCY=1
   EVIDENCE_LIMIT_PER_LOOP=5

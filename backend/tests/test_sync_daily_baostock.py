@@ -218,6 +218,56 @@ class TestBatchInsertDailyBasic:
         assert callable(_batch_insert)
 
 
+class TestSyncStockDateRange:
+    """sync_stock() should only request missing incremental dates."""
+
+    def test_uses_latest_existing_trade_date_as_incremental_start(self, monkeypatch):
+        """Existing history through 2026-08-13 should request only 2026-08-14."""
+        import asyncio
+        from unittest.mock import AsyncMock
+
+        import scripts.sync_daily_baostock as mod
+
+        captured: dict[str, str] = {}
+
+        class FakeResult:
+            def fetchone(self):
+                return (date(2026, 4, 22), date(2026, 8, 13))
+
+        class FakeConn:
+            async def execute(self, *args, **kwargs):
+                return FakeResult()
+
+        class FakeConnect:
+            async def __aenter__(self):
+                return FakeConn()
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return None
+
+        class FakeEngine:
+            def connect(self):
+                return FakeConnect()
+
+        def fake_fetch(bs_code: str, start_date: str, end_date: str):
+            captured["bs_code"] = bs_code
+            captured["start_date"] = start_date
+            captured["end_date"] = end_date
+            return [
+                ["2026-08-14", "sh.600000", "10", "11", "9", "10.5", "10", "100", "1000", "1", "5", "1", "0"],
+            ]
+
+        monkeypatch.setattr(mod, "engine", FakeEngine())
+        monkeypatch.setattr(mod, "_fetch_baostock_raw", fake_fetch)
+        monkeypatch.setattr(mod, "_batch_insert", AsyncMock(return_value=1))
+
+        result = asyncio.run(mod.sync_stock("600000.SH", "20260814", "20260814"))
+
+        assert result["status"] == "ok"
+        assert captured["start_date"] == "2026-08-14"
+        assert captured["end_date"] == "2026-08-14"
+
+
 class TestSaveStockKlineResult:
     """_save_stock_kline() distinguishes daily vs basic success."""
 
