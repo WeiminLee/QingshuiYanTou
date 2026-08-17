@@ -18,6 +18,7 @@
 #   PIP_INDEX_URL=https://mirrors.cloud.tencent.com/pypi/simple
 #   PIP_TRUSTED_HOST=mirrors.cloud.tencent.com
 #   DATA_JOB_WORKER_SCALE=1
+#   ENSURE_CLOUD_SCHEMA=1
 #   EVIDENCE_WORKER_ENABLED=0
 #   EVIDENCE_JOB_TYPES="combined vector"
 #   EVIDENCE_MAX_CONCURRENCY=1
@@ -33,6 +34,7 @@ API_BASE="${API_BASE:-http://127.0.0.1:8080}"
 
 START_FRONTEND="${START_FRONTEND:-0}"
 DATA_JOB_WORKER_SCALE="${DATA_JOB_WORKER_SCALE:-1}"
+ENSURE_CLOUD_SCHEMA="${ENSURE_CLOUD_SCHEMA:-1}"
 PIP_INDEX_URL="${PIP_INDEX_URL:-https://mirrors.cloud.tencent.com/pypi/simple}"
 PIP_TRUSTED_HOST="${PIP_TRUSTED_HOST:-mirrors.cloud.tencent.com}"
 export PIP_INDEX_URL PIP_TRUSTED_HOST
@@ -80,6 +82,7 @@ Useful env overrides:
   PIP_INDEX_URL=https://mirrors.cloud.tencent.com/pypi/simple
   PIP_TRUSTED_HOST=mirrors.cloud.tencent.com
   DATA_JOB_WORKER_SCALE=1
+  ENSURE_CLOUD_SCHEMA=1
   EVIDENCE_WORKER_ENABLED=0
   EVIDENCE_WORKER_ENABLED=1 ./server_start.sh start  # manually enable evidence workers
   EVIDENCE_JOB_TYPES="combined vector"
@@ -181,6 +184,19 @@ wait_for_backend() {
   return 1
 }
 
+ensure_cloud_schema() {
+  if [ "$ENSURE_CLOUD_SCHEMA" != "1" ]; then
+    info "Cloud schema repair disabled (ENSURE_CLOUD_SCHEMA=$ENSURE_CLOUD_SCHEMA)"
+    return 0
+  fi
+
+  info "Ensuring cloud database schema..."
+  compose run --rm --no-deps backend python scripts/ensure_cloud_schema.py || {
+    warn "Cloud schema repair failed; continuing startup"
+    return 1
+  }
+}
+
 evidence_container_name() {
   local job_type="$1"
   printf '%s_evidence_%s_worker' "$PROJECT_NAME" "$job_type"
@@ -240,6 +256,7 @@ start_stack() {
 
   wait_for_container_health postgres 90 || true
   wait_for_container_health mongo 90 || true
+  ensure_cloud_schema || true
   wait_for_backend 120 || true
 
   start_evidence_workers
