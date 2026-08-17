@@ -10,6 +10,28 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 
+def test_news_service_imports_without_tinyshare(monkeypatch):
+    """NewsService module import should not require optional tinyshare package."""
+    import builtins
+    import importlib
+    import sys
+
+    module_name = "app.data_pipeline.services.news_service"
+    original_import = builtins.__import__
+
+    def fake_import(name, globals=None, locals=None, fromlist=(), level=0):
+        if name == "tinyshare":
+            raise ModuleNotFoundError("No module named 'tinyshare'")
+        return original_import(name, globals, locals, fromlist, level)
+
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+    sys.modules.pop(module_name, None)
+
+    module = importlib.import_module(module_name)
+
+    assert module.get_news_service() is not None
+
+
 class TestNewsServiceFallback:
     """NewsService Tushare → CLS fallback."""
 

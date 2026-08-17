@@ -20,7 +20,6 @@ tiktoken==0.8.0
 # Data Processing
 pandas==2.2.3
 numpy==2.2.1
-tinyshare
 akshare>=1.18.60
 baostock==0.9.1
 

@@ -6,8 +6,6 @@ import logging
 from datetime import UTC, datetime
 from typing import Any
 
-import tinyshare as ts
-
 from app.config import settings
 from app.core.database import engine
 
@@ -19,6 +17,8 @@ _TUSHARE_PRO: Any = None
 def _get_ts_pro():
     global _TUSHARE_PRO
     if _TUSHARE_PRO is None:
+        import tinyshare as ts
+
         ts.set_token(settings.tushare_token)
         _TUSHARE_PRO = ts.pro_api()
     return _TUSHARE_PRO
@@ -111,17 +111,17 @@ class NewsService:
         end_date: str | None = None,
         limit: int = 200,
     ) -> dict[str, int]:
-        pro = _get_ts_pro()
-        src = settings.tushare_http_url.rstrip("/")
-        tushare_ok = False
         df = None
         try:
+            pro = _get_ts_pro()
+            src = settings.tushare_http_url.rstrip("/")
             df = pro.news(
                 src=src,
                 start_date=start_date,
                 end_date=end_date,
             )
-            tushare_ok = True
+        except ModuleNotFoundError:
+            logger.warning("tinyshare is not installed; using CLS news fallback")
         except Exception:
             try:
                 df = pro.major_news(
@@ -129,7 +129,6 @@ class NewsService:
                     start_date=start_date,
                     end_date=end_date,
                 )
-                tushare_ok = True
             except Exception:
                 pass
 
