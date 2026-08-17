@@ -42,7 +42,7 @@ services:
       - qingshui-net
 
   mongo:
-    image: swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/mongo:4.4
+    image: mongo:7
     container_name: qingshui_mongo
     ports:
       - "27018:27017"
@@ -75,6 +75,9 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
+      args:
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-}
+        PIP_TRUSTED_HOST: ${PIP_TRUSTED_HOST:-}
     container_name: qingshui_backend
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000
     # 所有可变变量通过 ${VAR:-default} 映射，由 --env-file backend/.env 注入；
@@ -121,6 +124,9 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
+      args:
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-}
+        PIP_TRUSTED_HOST: ${PIP_TRUSTED_HOST:-}
     container_name: qingshui_scheduler
     command: python -m app.data_pipeline.scheduler
     environment:
@@ -160,10 +166,13 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
+      args:
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-}
+        PIP_TRUSTED_HOST: ${PIP_TRUSTED_HOST:-}
     # job-worker 使用 replicas: 2，不设固定 container_name（Docker 自动分配唯一名）
     deploy:
       replicas: 2
-    command: python -m app.data_pipeline.job_worker
+    command: python scripts/ingestion_worker.py --interval 5 --limit 20 --timeout 300
     environment:
       # LLM
       - LLM_API_KEY=${LLM_API_KEY:-your_llm_api_key_here}
@@ -181,6 +190,10 @@ services:
       # 数据库
       - DATABASE_URL=postgresql+asyncpg://qingshui:qingshui123@postgres:5432/qingshui
       - MONGODB_URL=mongodb://mongo:27017/qingshui
+      - NEO4J_URL=bolt://neo4j:7687
+      - NEO4J_USER=neo4j
+      - NEO4J_PASSWORD=qingshui123
+      - QDRANT_URL=http://qdrant:6333
       # 账号
       - MASTER_PASSWORD=${MASTER_PASSWORD:-dev-docker-password}
       - ACCOUNT_TOKEN_SECRET_SALT=${ACCOUNT_TOKEN_SECRET_SALT:-dev-docker-salt}

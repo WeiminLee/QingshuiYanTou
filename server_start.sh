@@ -15,6 +15,8 @@
 # Useful env overrides:
 #   ENV_FILE=backend/.env
 #   START_FRONTEND=0
+#   PIP_INDEX_URL=https://mirrors.cloud.tencent.com/pypi/simple
+#   PIP_TRUSTED_HOST=mirrors.cloud.tencent.com
 #   DATA_JOB_WORKER_SCALE=1
 #   EVIDENCE_WORKER_ENABLED=1
 #   EVIDENCE_JOB_TYPES="combined vector"
@@ -31,6 +33,9 @@ API_BASE="${API_BASE:-http://127.0.0.1:8080}"
 
 START_FRONTEND="${START_FRONTEND:-0}"
 DATA_JOB_WORKER_SCALE="${DATA_JOB_WORKER_SCALE:-1}"
+PIP_INDEX_URL="${PIP_INDEX_URL:-https://mirrors.cloud.tencent.com/pypi/simple}"
+PIP_TRUSTED_HOST="${PIP_TRUSTED_HOST:-mirrors.cloud.tencent.com}"
+export PIP_INDEX_URL PIP_TRUSTED_HOST
 
 EVIDENCE_WORKER_ENABLED="${EVIDENCE_WORKER_ENABLED:-1}"
 EVIDENCE_JOB_TYPES="${EVIDENCE_JOB_TYPES:-combined vector}"
@@ -72,6 +77,8 @@ Usage:
 Useful env overrides:
   ENV_FILE=backend/.env
   START_FRONTEND=0
+  PIP_INDEX_URL=https://mirrors.cloud.tencent.com/pypi/simple
+  PIP_TRUSTED_HOST=mirrors.cloud.tencent.com
   DATA_JOB_WORKER_SCALE=1
   EVIDENCE_WORKER_ENABLED=1
   EVIDENCE_JOB_TYPES="combined vector"
