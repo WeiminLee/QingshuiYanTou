@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from collections.abc import Awaitable, Callable
 from datetime import datetime, time
 
@@ -65,6 +66,12 @@ MAX_ATTEMPTS = 3  # Phase 31 E 修复：总执行次数（= 1 原始 + 2 次重�
 RETRY_BASE_DELAY = 30  # 秒
 INGESTION_WORKER_DRAIN_LIMIT = 5
 INGESTION_WORKER_TIMEOUT_SECONDS = 300
+ENABLE_EVIDENCE_SCHEDULER_ENV = "ENABLE_EVIDENCE_SCHEDULER"
+
+
+def _evidence_scheduler_enabled() -> bool:
+    value = os.getenv(ENABLE_EVIDENCE_SCHEDULER_ENV, "false").strip().lower()
+    return value in {"1", "true", "yes", "on"}
 
 
 async def _run_with_retry(
@@ -651,15 +658,21 @@ class Scheduler:
             max_instances=1,
             coalesce=True,
         )
-        self._scheduler.add_job(
-            _run_evidence_worker_job,
-            "interval",
-            seconds=30,
-            id="evidence_worker",
-            replace_existing=True,
-            max_instances=1,
-            coalesce=True,
-        )
+        if _evidence_scheduler_enabled():
+            self._scheduler.add_job(
+                _run_evidence_worker_job,
+                "interval",
+                seconds=30,
+                id="evidence_worker",
+                replace_existing=True,
+                max_instances=1,
+                coalesce=True,
+            )
+        else:
+            logger.info(
+                "[evidence_worker] scheduler disabled (%s=false)",
+                ENABLE_EVIDENCE_SCHEDULER_ENV,
+            )
 
         self._scheduler.start()
         logger.info("定时任务调度器启动")
@@ -687,8 +700,9 @@ class Scheduler:
             (_run_ingestion_worker_job(), "ingestion_worker_startup"),
             (_run_sync_stocks_job(), "sync_stocks_startup"),
             (_run_news_job(), "news_startup"),
-            (_run_evidence_worker_job(), "evidence_worker_startup"),
         ]
+        if _evidence_scheduler_enabled():
+            task_specs.append((_run_evidence_worker_job(), "evidence_worker_startup"))
         tasks = []
         for coro, name in task_specs:
             task = loop.create_task(coro, name=name)

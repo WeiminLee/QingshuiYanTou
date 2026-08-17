@@ -207,6 +207,7 @@ def test_fire_all_once_uses_running_loop(monkeypatch):
     from app.data_pipeline import scheduler as sched
 
     created = []
+    created_names = []
     created_count = None
 
     async def fake_job():
@@ -229,6 +230,7 @@ def test_fire_all_once_uses_running_loop(monkeypatch):
         def tracking_create_task(coro, *, name=None, context=None):
             task = original_create_task(coro, name=name, context=context)
             created.append(task)
+            created_names.append(name)
             return task
 
         monkeypatch.setattr(loop, "create_task", tracking_create_task)
@@ -247,6 +249,32 @@ def test_fire_all_once_uses_running_loop(monkeypatch):
 
     # _fire_all_once 启动补漏任务数：report/concept/kline/irm/cninfo/ingestion/sync_stocks/news = 8
     assert created_count == 8
+    assert "evidence_worker_startup" not in created_names
+
+
+def test_scheduler_skips_evidence_worker_when_disabled(monkeypatch):
+    from app.data_pipeline import scheduler as scheduler_mod
+
+    jobs = []
+
+    class FakeScheduler:
+        def __init__(self, *, timezone):
+            self.timezone = timezone
+            self.running = False
+
+        def add_job(self, _func, _trigger, **kwargs):
+            jobs.append(kwargs)
+
+        def start(self):
+            self.running = True
+
+    monkeypatch.setenv("ENABLE_EVIDENCE_SCHEDULER", "false")
+    monkeypatch.setattr(scheduler_mod, "AsyncIOScheduler", FakeScheduler)
+
+    scheduler_mod.Scheduler(run_now=False).start()
+
+    ids = [job["id"] for job in jobs]
+    assert "evidence_worker" not in ids
 
 
 def test_ingestion_worker_job_drains_once(monkeypatch):
