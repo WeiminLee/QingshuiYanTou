@@ -35,9 +35,11 @@ def test_enqueue_recent_cninfo_jobs_defaults_to_7_days() -> None:
     assert call_args[-1].kwargs["payload"] == {"date": "20260523"}
 
 
-def test_enqueue_irm_company_jobs_uses_stock_list() -> None:
+def test_enqueue_irm_company_jobs_uses_stock_list(monkeypatch) -> None:
     from app.data_pipeline.job_producers import enqueue_irm_company_jobs
     from app.data_pipeline.job_queue import JOB_IRM_COMPANY
+
+    monkeypatch.setenv("BACKFILL_SCOPE", "all")
 
     queue = MagicMock()
     queue.enqueue_job = AsyncMock()
@@ -64,8 +66,10 @@ def test_enqueue_irm_company_jobs_uses_stock_list() -> None:
     assert [call.kwargs["force_requeue"] for call in call_args] == [True, True]
 
 
-def test_enqueue_irm_company_jobs_skips_index_like_codes() -> None:
+def test_enqueue_irm_company_jobs_skips_index_like_codes(monkeypatch) -> None:
     from app.data_pipeline.job_producers import enqueue_irm_company_jobs
+
+    monkeypatch.setenv("BACKFILL_SCOPE", "all")
 
     queue = MagicMock()
     queue.enqueue_job = AsyncMock()
@@ -84,3 +88,25 @@ def test_enqueue_irm_company_jobs_skips_index_like_codes() -> None:
         "600000.SH",
         "000001.SZ",
     ]
+
+
+def test_enqueue_irm_company_jobs_missing_tech_mvp_whitelist_fails_closed(monkeypatch, tmp_path) -> None:
+    import pytest
+
+    from app.data_pipeline.backfill_config import reset_settings_cache
+    from app.data_pipeline.job_producers import enqueue_irm_company_jobs
+
+    monkeypatch.setenv("BACKFILL_SCOPE", "tech_mvp")
+    monkeypatch.setenv("BACKFILL_WHITELIST_FILE", str(tmp_path / "missing-tech-list.txt"))
+    reset_settings_cache()
+
+    queue = MagicMock()
+    queue.enqueue_job = AsyncMock()
+    data_source = MagicMock()
+    data_source.get_stocks_basic.return_value = [{"ts_code": "600000.SH"}]
+
+    with pytest.raises(RuntimeError, match="BACKFILL_SCOPE=tech_mvp"):
+        asyncio.run(enqueue_irm_company_jobs(queue=queue, data_source=data_source))
+
+    queue.enqueue_job.assert_not_awaited()
+    reset_settings_cache()

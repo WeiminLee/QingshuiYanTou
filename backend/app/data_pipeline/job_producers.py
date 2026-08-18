@@ -77,9 +77,10 @@ async def enqueue_irm_company_jobs(
     stocks = await asyncio.to_thread(data_source.get_stocks_basic, "L")
 
     # 白名单过滤：scope=tech_mvp 时仅入队白名单股票
-    from app.data_pipeline.backfill_config import load_backfill_settings
+    from app.data_pipeline.backfill_config import load_backfill_settings, require_non_empty_scope
 
     bf_cfg = load_backfill_settings()
+    require_non_empty_scope(bf_cfg)
     if bf_cfg.scope == "tech_mvp" and bf_cfg.ts_codes:
         before = len(stocks)
         stocks = [s for s in stocks if str(s.get("ts_code", "")) in bf_cfg.ts_codes]
