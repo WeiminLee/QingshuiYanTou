@@ -42,5 +42,5 @@ async def execute_ingestion_job(
 def _result_from_fetcher_result(result: dict[str, Any]) -> JobExecutionResult:
     fail = int(result.get("fail", 0) or 0)
     status = JOB_SUCCESS if fail == 0 else JOB_FAILED
-    error = None if fail == 0 else f"fetcher returned fail={fail}"
+    error = None if fail == 0 else str(result.get("last_error") or f"fetcher returned fail={fail}")
     return JobExecutionResult(status=status, summary=result, error=error)

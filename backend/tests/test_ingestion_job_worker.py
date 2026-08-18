@@ -114,6 +114,41 @@ def test_handler_maps_all_failed_fetcher_result_to_failed() -> None:
     assert result.error == "fetcher returned fail=1"
 
 
+def test_handler_preserves_fetcher_last_error() -> None:
+    from app.data_pipeline.job_handlers import execute_ingestion_job
+    from app.data_pipeline.job_queue import (
+        JOB_IRM_COMPANY,
+        IngestionJobRecord,
+    )
+
+    fetcher = SimpleNamespace(
+        fetch_irm=AsyncMock(
+            return_value={
+                "total": 1,
+                "success": 0,
+                "fail": 1,
+                "skipped": 0,
+                "last_error": "irm provider returned non-json response",
+            }
+        )
+    )
+    job = IngestionJobRecord(
+        id=13,
+        job_type=JOB_IRM_COMPANY,
+        job_key="600009.SH",
+        status="running",
+        payload={"ts_code": "600009.SH"},
+        priority=50,
+        attempt_count=0,
+        max_attempts=5,
+    )
+
+    result = asyncio.run(execute_ingestion_job(job, fetcher=fetcher))
+
+    assert result.status == "failed"
+    assert result.error == "irm provider returned non-json response"
+
+
 def test_handler_runs_irm_company_job() -> None:
     from app.data_pipeline.job_handlers import execute_ingestion_job
     from app.data_pipeline.job_queue import JOB_IRM_COMPANY, IngestionJobRecord

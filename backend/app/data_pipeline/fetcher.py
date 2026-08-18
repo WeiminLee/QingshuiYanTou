@@ -692,6 +692,7 @@ class DataFetcher:
         # 缓存池股票代码（以 set 形式缓存，避免每次查询数据库）
         if not hasattr(self, "_candidate_pool_cache") or not self._candidate_pool_cache:
             from sqlalchemy import text as sa_text
+
             from app.core.database import engine as db_engine
 
             async with db_engine.connect() as conn:
@@ -1224,6 +1225,7 @@ class DataFetcher:
             "duplicates": 0,
             "invalid": 0,
             "fetched_records": 0,
+            "last_error": "",
         }
 
         async def worker(code: str) -> None:
@@ -1237,6 +1239,7 @@ class DataFetcher:
                     async with counter_lock:
                         counters["processed"] += 1
                         counters["fail"] += 1
+                        counters["last_error"] = str(exc)
                         snapshot = dict(counters)
                     await tracker.update_run(
                         run_ctx,
@@ -1342,6 +1345,8 @@ class DataFetcher:
             "invalid": counters["invalid"],
             "fetched_records": counters["fetched_records"],
         }
+        if counters["last_error"]:
+            result["last_error"] = counters["last_error"]
         if extract_to_kg and ts_codes:
             try:
                 from app.data_pipeline.irm_pipeline import process_irm_batch

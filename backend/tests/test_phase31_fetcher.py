@@ -204,6 +204,7 @@ class TestAkshareThrottleApplied:
         assert result["total"] == 1
         assert result["fail"] == 1
         assert result["success"] == 0
+        assert result["last_error"] == "irm api bad response"
 
     def test_data_source_get_irm_raises_on_fetch_error(self, monkeypatch):
         import pytest
@@ -426,7 +427,6 @@ class TestFetchStockKlineWithRegistry:
         import asyncio
         from unittest.mock import AsyncMock, MagicMock
 
-        import app.data_pipeline.fetcher as fetcher_mod
         from app.data_pipeline.fetcher import DataFetcher
         from app.data_pipeline.providers import KlineProviderResult
 
@@ -491,7 +491,7 @@ class TestFetchStockKlineWithRegistry:
     def test_fetch_stock_kline_all_providers_fail(self):
         """When all providers fail, result shows fail>0 and source empty."""
         import asyncio
-        from unittest.mock import MagicMock, AsyncMock
+        from unittest.mock import MagicMock
 
         from app.data_pipeline.fetcher import DataFetcher
         from app.data_pipeline.providers import KlineProviderResult
