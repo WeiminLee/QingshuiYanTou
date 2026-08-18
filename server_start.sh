@@ -8,6 +8,7 @@
 #   ./server_start.sh start
 #   ./server_start.sh stop
 #   ./server_start.sh restart
+#   ./server_start.sh build
 #   ./server_start.sh status
 #   ./server_start.sh logs backend
 #   ./server_start.sh health
@@ -71,6 +72,7 @@ Usage:
   ./server_start.sh start
   ./server_start.sh stop
   ./server_start.sh restart
+  ./server_start.sh build
   ./server_start.sh status
   ./server_start.sh logs backend
   ./server_start.sh logs evidence
@@ -264,6 +266,16 @@ start_stack() {
   info "Startup command finished. Use './server_start.sh status' to inspect containers."
 }
 
+build_images() {
+  preflight
+
+  info "Building backend images..."
+  info "PIP_INDEX_URL: ${PIP_INDEX_URL:-default}"
+  info "PIP_TRUSTED_HOST: ${PIP_TRUSTED_HOST:-default}"
+
+  compose build backend scheduler job-worker
+}
+
 stop_stack() {
   preflight
   info "Stopping evidence workers..."
@@ -327,6 +339,9 @@ case "$cmd" in
   restart)
     stop_stack
     start_stack
+    ;;
+  build)
+    build_images
     ;;
   status)
     status_stack
