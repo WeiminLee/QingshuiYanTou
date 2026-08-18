@@ -152,47 +152,108 @@ async def record_task_result(
     skipped: int = 0,
     fail: int = 0,
     error_message: str = "",
+    run_id: int | None = None,
 ) -> None:
     """记录任务结果"""
     now = datetime.now()
 
-    # 获取上次的连续失败次数
-    async with engine.connect() as conn:
-        result = await conn.execute(
-            text("SELECT consecutive_failures FROM sync_task_status WHERE task_name = :name ORDER BY id DESC LIMIT 1"),
-            {"name": task_name},
-        )
-        prev_fail = 0
-        row = result.fetchone()
-        if row:
-            prev_fail = row[0] or 0
-
-    # 计算新的连续失败次数
-    consecutive_failures = (prev_fail + 1) if status == TaskStatus.FAILED else 0
-
-    sql = """
-    INSERT INTO sync_task_status (task_name, status, started_at, completed_at,
-                                  total_items, success_count, skipped_count, fail_count,
-                                  error_message, consecutive_failures)
-    VALUES (:task_name, :status, :started_at, :completed_at,
-            :total, :success, :skipped, :fail, :error, :consecutive_failures)
-    """
     async with engine.begin() as conn:
-        await conn.execute(
-            text(sql),
-            {
-                "task_name": task_name,
-                "status": status.value,
-                "started_at": now,
-                "completed_at": now,
-                "total": total,
-                "success": success,
-                "skipped": skipped,
-                "fail": fail,
-                "error": error_message,
-                "consecutive_failures": consecutive_failures,
-            },
-        )
+        # 兼容旧调用方：未显式传 run_id 时，优先闭环最近一条 running 记录。
+        if run_id is None:
+            result = await conn.execute(
+                text(
+                    """
+                    SELECT id
+                    FROM sync_task_status
+                    WHERE task_name = :name AND status = 'running'
+                    ORDER BY id DESC
+                    LIMIT 1
+                    """
+                ),
+                {"name": task_name},
+            )
+            row = result.fetchone()
+            run_id = row[0] if row else None
+
+        started_at = now
+        prev_fail = 0
+        if run_id is not None:
+            result = await conn.execute(
+                text(
+                    """
+                    SELECT started_at, consecutive_failures
+                    FROM sync_task_status
+                    WHERE id = :run_id AND task_name = :name
+                    """
+                ),
+                {"run_id": run_id, "name": task_name},
+            )
+            row = result.fetchone()
+            if row:
+                started_at = row[0] or now
+                prev_fail = row[1] or 0
+            else:
+                run_id = None
+
+        # 计算新的连续失败次数
+        consecutive_failures = (prev_fail + 1) if status == TaskStatus.FAILED else 0
+
+        if run_id is not None:
+            await conn.execute(
+                text(
+                    """
+                    UPDATE sync_task_status
+                    SET status = :status,
+                        completed_at = :completed_at,
+                        total_items = :total,
+                        success_count = :success,
+                        skipped_count = :skipped,
+                        fail_count = :fail,
+                        error_message = :error,
+                        consecutive_failures = :consecutive_failures,
+                        updated_at = :updated_at
+                    WHERE id = :run_id AND task_name = :task_name
+                    """
+                ),
+                {
+                    "run_id": run_id,
+                    "task_name": task_name,
+                    "status": status.value,
+                    "completed_at": now,
+                    "total": total,
+                    "success": success,
+                    "skipped": skipped,
+                    "fail": fail,
+                    "error": error_message,
+                    "consecutive_failures": consecutive_failures,
+                    "updated_at": now,
+                },
+            )
+        else:
+            # 旧调用方没有对应 running 记录时仍保留可用性，但只会产生一条完整结果记录。
+            await conn.execute(
+                text(
+                    """
+                    INSERT INTO sync_task_status (task_name, status, started_at, completed_at,
+                                                   total_items, success_count, skipped_count, fail_count,
+                                                   error_message, consecutive_failures)
+                    VALUES (:task_name, :status, :started_at, :completed_at,
+                            :total, :success, :skipped, :fail, :error, :consecutive_failures)
+                    """
+                ),
+                {
+                    "task_name": task_name,
+                    "status": status.value,
+                    "started_at": started_at,
+                    "completed_at": now,
+                    "total": total,
+                    "success": success,
+                    "skipped": skipped,
+                    "fail": fail,
+                    "error": error_message,
+                    "consecutive_failures": consecutive_failures,
+                },
+            )
 
     # 检查是否需要告警
     await check_and_send_alerts(task_name, status, total, success, fail, consecutive_failures)
@@ -373,7 +434,7 @@ def monitor_task(task_name: str):
             await init_alert_log_table()
 
             logger.info(f"[{task_name}] 任务开始")
-            await record_task_start(task_name)
+            run_id = await record_task_start(task_name)
 
             try:
                 result = await func(*args, **kwargs)
@@ -395,13 +456,13 @@ def monitor_task(task_name: str):
                     total = success = skipped = fail = 0
                     status = TaskStatus.SUCCESS
 
-                await record_task_result(task_name, status, total, success, skipped, fail)
+                await record_task_result(task_name, status, total, success, skipped, fail, run_id=run_id)
                 logger.info(f"[{task_name}] 任务完成: {status.value}, 成功 {success}, 失败 {fail}")
 
                 return result
 
             except Exception as e:
-                await record_task_result(task_name, TaskStatus.FAILED, error_message=str(e))
+                await record_task_result(task_name, TaskStatus.FAILED, error_message=str(e), run_id=run_id)
                 logger.error(f"[{task_name}] 任务失败: {e}")
                 raise
 

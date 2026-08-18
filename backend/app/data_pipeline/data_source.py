@@ -19,6 +19,65 @@ import app.data_pipeline.ipv4_patch  # noqa: F401 — side-effect import
 logger = logging.getLogger(__name__)
 
 
+class IrmProviderError(ValueError):
+    """互动易供应商返回不可解析响应时的可观测、可重试错误。"""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        category: str,
+        retryable: bool,
+        status_code: int | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.category = category
+        self.retryable = retryable
+        self.status_code = status_code
+
+
+def _classify_irm_exception(exc: Exception) -> IrmProviderError | None:
+    """将第三方库吞掉响应细节后的异常恢复为可处理的 provider 错误。"""
+    response = getattr(exc, "response", None)
+    status_code = getattr(response, "status_code", None)
+    message = str(exc)
+    lowered = message.lower()
+    is_json_error = (
+        isinstance(exc, ValueError)
+        and (
+            "expecting value" in lowered
+            or "json" in lowered
+            or "non-json" in lowered
+            or "<html" in lowered
+            or "html" in lowered
+        )
+    )
+    if is_json_error:
+        return IrmProviderError(
+            f"互动易返回非 JSON 响应: {message}",
+            category="non_json_response",
+            retryable=True,
+            status_code=status_code,
+        )
+
+    if status_code in {403, 408, 425, 429} or (status_code is not None and status_code >= 500):
+        return IrmProviderError(
+            f"互动易 HTTP {status_code}: {message}",
+            category="http_retryable",
+            retryable=True,
+            status_code=status_code,
+        )
+
+    if isinstance(exc, (TimeoutError, ConnectionError)):
+        return IrmProviderError(
+            f"互动易网络错误: {message}",
+            category="network",
+            retryable=True,
+            status_code=status_code,
+        )
+    return None
+
+
 def _is_null(val) -> bool:
     """判断值是否为空（None / pandas NaN / 字符串 nan/nat/none/null）"""
     if val is None:
@@ -202,6 +261,18 @@ class DataSourceClient:
             fetch_func = getattr(ak, cfg["fetch"])
             df = fetch_func(symbol=numeric)
         except Exception as e:
+            classified = _classify_irm_exception(e)
+            if classified is not None:
+                logger.warning(
+                    "%s 互动易 %s provider 错误 category=%s retryable=%s status=%s: %s",
+                    exchange,
+                    ts_code,
+                    classified.category,
+                    classified.retryable,
+                    classified.status_code,
+                    e,
+                )
+                raise classified from e
             logger.warning(f"{exchange} 互动易 {ts_code} 失败: {e}")
             raise
 

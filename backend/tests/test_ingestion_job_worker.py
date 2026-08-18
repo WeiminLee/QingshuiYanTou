@@ -146,7 +146,7 @@ def test_handler_runs_irm_company_job() -> None:
 
     fetcher.fetch_irm.assert_awaited_once_with(
         ts_codes=["600000.SH"],
-        extract_to_kg=False,
+        extract_to_kg=True,
     )
     assert result.status == "success"
     assert result.summary["fetched_records"] == 3

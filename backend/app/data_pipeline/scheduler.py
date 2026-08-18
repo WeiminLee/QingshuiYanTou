@@ -13,12 +13,14 @@ import asyncio
 import logging
 import os
 from collections.abc import Awaitable, Callable
-from datetime import datetime, time
+from datetime import date, datetime, time, timedelta
 
 import pytz
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
+from sqlalchemy import text
 
+from app.core.database import engine
 from app.data_pipeline.job_producers import enqueue_irm_company_jobs, enqueue_recent_cninfo_jobs
 from app.data_pipeline.job_worker import IngestionJobWorker
 
@@ -43,6 +45,27 @@ def _is_trading_hours() -> bool:
         return False
     t = now.time()
     return any(start <= t <= end for start, end in TRADING_HOURS)
+
+
+def _last_expected_trade_date(now: datetime | None = None) -> date:
+    """返回按周末规则计算的最近一个已结束交易日。"""
+    current = now or datetime.now(TRADING_TZ)
+    candidate = current.date() - timedelta(days=1)
+    while candidate.weekday() >= 5:
+        candidate -= timedelta(days=1)
+    return candidate
+
+
+async def _kline_catchup_needed() -> bool:
+    """判断数据库是否落后于最近一个工作日，供服务启动补漏使用。"""
+    async with engine.connect() as conn:
+        result = await conn.execute(text("SELECT MAX(trade_date) FROM daily_data"))
+        latest = result.scalar()
+    if latest is None:
+        return True
+    if isinstance(latest, str):
+        latest = date.fromisoformat(latest)
+    return latest < _last_expected_trade_date()
 
 
 REPORT_FETCH_HOUR = 3
@@ -72,6 +95,10 @@ ENABLE_EVIDENCE_SCHEDULER_ENV = "ENABLE_EVIDENCE_SCHEDULER"
 def _evidence_scheduler_enabled() -> bool:
     value = os.getenv(ENABLE_EVIDENCE_SCHEDULER_ENV, "false").strip().lower()
     return value in {"1", "true", "yes", "on"}
+
+
+def _run_id_kwarg(run_id: object) -> dict[str, int]:
+    return {"run_id": run_id} if isinstance(run_id, int) else {}
 
 
 async def _run_with_retry(
@@ -121,7 +148,7 @@ async def _run_report_job() -> None:
     )
 
     await init_monitor()
-    await record_task_start("reports")
+    run_id = await record_task_start("reports")
     await notify_task_start("研报同步")
 
     try:
@@ -133,6 +160,7 @@ async def _run_report_job() -> None:
             success=result.get("success", 0),
             skipped=result.get("skipped", 0),
             fail=result.get("fail", 0),
+            **_run_id_kwarg(run_id),
         )
         await notify_task_success(
             "研报同步",
@@ -141,7 +169,7 @@ async def _run_report_job() -> None:
             result.get("fail", 0),
         )
     except Exception as e:
-        await record_task_result("reports", TaskStatus.FAILED, error_message=str(e))
+        await record_task_result("reports", TaskStatus.FAILED, error_message=str(e), **_run_id_kwarg(run_id))
         await notify_task_failed("研报同步", str(e))
         raise
 
@@ -164,7 +192,7 @@ async def _run_concept_job() -> None:
     )
 
     await init_monitor()
-    await record_task_start("concept")
+    run_id = await record_task_start("concept")
     await notify_task_start("概念热度同步")
 
     try:
@@ -175,6 +203,7 @@ async def _run_concept_job() -> None:
             total=result.get("success", 0) + result.get("fail", 0),
             success=result.get("success", 0),
             fail=result.get("fail", 0),
+            **_run_id_kwarg(run_id),
         )
         await notify_task_success(
             "概念热度同步",
@@ -183,7 +212,7 @@ async def _run_concept_job() -> None:
             result.get("fail", 0),
         )
     except Exception as e:
-        await record_task_result("concept", TaskStatus.FAILED, error_message=str(e))
+        await record_task_result("concept", TaskStatus.FAILED, error_message=str(e), **_run_id_kwarg(run_id))
         await notify_task_failed("概念热度同步", str(e))
         raise
 
@@ -203,7 +232,7 @@ async def _run_irm_job() -> None:
     )
 
     await init_monitor()
-    await record_task_start("irm")
+    run_id = await record_task_start("irm")
     await notify_task_start("互动易同步")
 
     try:
@@ -216,6 +245,7 @@ async def _run_irm_job() -> None:
             success=result.get("success", 0),
             skipped=result.get("skipped", 0),
             fail=result.get("fail", 0),
+            **_run_id_kwarg(run_id),
         )
         await notify_task_success(
             "互动易同步",
@@ -224,7 +254,7 @@ async def _run_irm_job() -> None:
             result.get("fail", 0),
         )
     except Exception as e:
-        await record_task_result("irm", TaskStatus.FAILED, error_message=str(e))
+        await record_task_result("irm", TaskStatus.FAILED, error_message=str(e), **_run_id_kwarg(run_id))
         await notify_task_failed("互动易同步", str(e))
         raise
 
@@ -249,7 +279,7 @@ async def _run_cninfo_job() -> None:
     )
 
     await init_monitor()
-    await record_task_start("cninfo")
+    run_id = await record_task_start("cninfo")
     await notify_task_start("巨潮公告同步")
 
     try:
@@ -262,6 +292,7 @@ async def _run_cninfo_job() -> None:
             success=result.get("success", 0),
             skipped=result.get("skipped", 0),
             fail=result.get("fail", 0),
+            **_run_id_kwarg(run_id),
         )
         # notify_task_success 第三个位置参数语义是"成功数"，第四个是"失败数"。
         # 这里把 PDF 下载条数作为附加观测：通过 notify 仍传 success/fail；
@@ -281,7 +312,7 @@ async def _run_cninfo_job() -> None:
             result.get("fail", 0),
         )
     except Exception as e:
-        await record_task_result("cninfo", TaskStatus.FAILED, error_message=str(e))
+        await record_task_result("cninfo", TaskStatus.FAILED, error_message=str(e), **_run_id_kwarg(run_id))
         await notify_task_failed("巨潮公告同步", str(e))
         raise
 
@@ -295,7 +326,7 @@ async def _run_cninfo_enqueue_job() -> None:
     )
 
     await init_monitor()
-    await record_task_start("cninfo_enqueue")
+    run_id = await record_task_start("cninfo_enqueue")
     try:
         result = await enqueue_recent_cninfo_jobs(days=7)
         enqueued = result.get("enqueued", 0)
@@ -305,9 +336,10 @@ async def _run_cninfo_enqueue_job() -> None:
             total=enqueued,
             success=enqueued,
             fail=0,
+            **_run_id_kwarg(run_id),
         )
     except Exception as exc:
-        await record_task_result("cninfo_enqueue", TaskStatus.FAILED, error_message=str(exc))
+        await record_task_result("cninfo_enqueue", TaskStatus.FAILED, error_message=str(exc), **_run_id_kwarg(run_id))
         raise
 
 
@@ -320,7 +352,7 @@ async def _run_irm_enqueue_job() -> None:
     )
 
     await init_monitor()
-    await record_task_start("irm_enqueue")
+    run_id = await record_task_start("irm_enqueue")
     try:
         result = await enqueue_irm_company_jobs()
         enqueued = result.get("enqueued", 0)
@@ -330,9 +362,10 @@ async def _run_irm_enqueue_job() -> None:
             total=enqueued,
             success=enqueued,
             fail=0,
+            **_run_id_kwarg(run_id),
         )
     except Exception as exc:
-        await record_task_result("irm_enqueue", TaskStatus.FAILED, error_message=str(exc))
+        await record_task_result("irm_enqueue", TaskStatus.FAILED, error_message=str(exc), **_run_id_kwarg(run_id))
         raise
 
 
@@ -354,7 +387,7 @@ async def _run_news_job() -> None:
     from app.data_pipeline.services.news_service import get_news_service
 
     await init_monitor()
-    await record_task_start("news_sync")
+    run_id = await record_task_start("news_sync")
     service = get_news_service()
     try:
         result = await service.fetch_and_save()
@@ -365,6 +398,7 @@ async def _run_news_job() -> None:
             success=result.get("inserted", 0),
             skipped=result.get("skipped", 0),
             fail=0,
+            **_run_id_kwarg(run_id),
         )
         logger.info(
             "[news_sync] 同步结果: fetched=%d inserted=%d skipped=%d",
@@ -373,7 +407,7 @@ async def _run_news_job() -> None:
             result.get("skipped", 0),
         )
     except Exception as exc:
-        await record_task_result("news_sync", TaskStatus.FAILED, error_message=str(exc))
+        await record_task_result("news_sync", TaskStatus.FAILED, error_message=str(exc), **_run_id_kwarg(run_id))
         raise
 
 
@@ -444,7 +478,7 @@ async def _run_batch_reindex_job() -> None:
     from app.knowledge.vector_ops import reindex_missing_vectors
 
     await init_monitor()
-    await record_task_start("batch_reindex")
+    run_id = await record_task_start("batch_reindex")
     await notify_task_start("向量索引批量重刷")
 
     try:
@@ -455,6 +489,7 @@ async def _run_batch_reindex_job() -> None:
             total=count,
             success=count,
             fail=0,
+            **_run_id_kwarg(run_id),
         )
         await notify_task_success(
             "向量索引批量重刷",
@@ -464,7 +499,7 @@ async def _run_batch_reindex_job() -> None:
         )
         logger.info("[BatchReindex] Completed: %d records reindexed", count)
     except Exception as e:
-        await record_task_result("batch_reindex", TaskStatus.FAILED, error_message=str(e))
+        await record_task_result("batch_reindex", TaskStatus.FAILED, error_message=str(e), **_run_id_kwarg(run_id))
         await notify_task_failed("向量索引批量重刷", str(e))
         raise
 
@@ -500,7 +535,7 @@ async def _run_kline_job() -> None:
     from scripts.sync_daily_baostock import sync_daily
 
     await init_monitor()
-    await record_task_start("kline")
+    run_id = await record_task_start("kline")
     await notify_task_start("K线同步")
 
     # 从配置读取 scope（默认 tech_mvp）
@@ -516,6 +551,7 @@ async def _run_kline_job() -> None:
             total=result.get("total", 0),
             success=result.get("ok", 0),
             fail=result.get("fail", 0),
+            **_run_id_kwarg(run_id),
         )
         await notify_task_success(
             "K线同步",
@@ -524,9 +560,18 @@ async def _run_kline_job() -> None:
             result.get("fail", 0),
         )
     except Exception as e:
-        await record_task_result("kline", TaskStatus.FAILED, error_message=str(e))
+        await record_task_result("kline", TaskStatus.FAILED, error_message=str(e), **_run_id_kwarg(run_id))
         await notify_task_failed("K线同步", str(e))
         raise
+
+
+async def _run_kline_catchup_job() -> None:
+    """服务启动时仅在数据库落后时触发一次 K 线补漏。"""
+    if not await _kline_catchup_needed():
+        logger.info("[kline] 启动检查：数据库已追平最近交易日")
+        return
+    logger.info("[kline] 启动检查发现缺口，开始执行增量补跑")
+    await _run_kline_job()
 
 
 async def _run_sync_stocks_job() -> None:
@@ -544,7 +589,7 @@ async def _run_sync_stocks_job() -> None:
     )
 
     await init_monitor()
-    await record_task_start("stocks")
+    run_id = await record_task_start("stocks")
     await notify_task_start("股票列表同步")
 
     try:
@@ -555,6 +600,7 @@ async def _run_sync_stocks_job() -> None:
             total=result.get("total", 0),
             success=result.get("success", 0),
             fail=result.get("fail", 0),
+            **_run_id_kwarg(run_id),
         )
         await notify_task_success(
             "股票列表同步",
@@ -563,7 +609,7 @@ async def _run_sync_stocks_job() -> None:
             result.get("fail", 0),
         )
     except Exception as e:
-        await record_task_result("stocks", TaskStatus.FAILED, error_message=str(e))
+        await record_task_result("stocks", TaskStatus.FAILED, error_message=str(e), **_run_id_kwarg(run_id))
         await notify_task_failed("股票列表同步", str(e))
         raise
 
@@ -679,6 +725,14 @@ class Scheduler:
 
         if self.run_now:
             self._fire_all_once()
+        else:
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                logger.debug("[kline] 当前无运行中的事件循环，跳过启动补漏检查")
+            else:
+                task = loop.create_task(_run_kline_catchup_job(), name="kline_catchup_startup")
+                task.add_done_callback(_task_done_callback)
 
     def _fire_all_once(self) -> None:
         """启动时各任务立即跑一次（不阻塞调度器主循环）。
