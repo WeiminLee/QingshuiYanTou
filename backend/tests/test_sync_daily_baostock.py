@@ -6,7 +6,6 @@ Task 2: 修复 K 线原始字段、复权和入库统计
 from __future__ import annotations
 
 from datetime import date
-from typing import Any
 
 import pytest
 
@@ -268,6 +267,51 @@ class TestSyncStockDateRange:
         assert captured["end_date"] == "2026-08-14"
 
 
+class TestSyncDailyScopeSafety:
+    """sync_daily() must not silently expand a missing tech_mvp whitelist to all stocks."""
+
+    def test_tech_mvp_missing_whitelist_fails_closed(self, monkeypatch, tmp_path):
+        import asyncio
+
+        import scripts.sync_daily_baostock as mod
+
+        class FakeResult:
+            def fetchall(self):
+                return [("600000.SH",), ("000001.SZ",)]
+
+            def fetchone(self):
+                return (None, None)
+
+        class FakeConn:
+            async def execute(self, *args, **kwargs):
+                return FakeResult()
+
+        class FakeConnect:
+            async def __aenter__(self):
+                return FakeConn()
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return None
+
+        class FakeEngine:
+            def connect(self):
+                return FakeConnect()
+
+        def fail_if_fetch_called(*args, **kwargs):
+            raise AssertionError("missing tech_mvp whitelist must not query baostock")
+
+        monkeypatch.setenv("BACKFILL_SCOPE", "tech_mvp")
+        monkeypatch.setenv("BACKFILL_WHITELIST_FILE", str(tmp_path / "missing-tech-list.txt"))
+        monkeypatch.setattr(mod, "engine", FakeEngine())
+        monkeypatch.setattr(mod, "_fetch_baostock_raw", fail_if_fetch_called)
+        mod.reset_settings_cache()
+
+        with pytest.raises(RuntimeError, match="BACKFILL_SCOPE=tech_mvp"):
+            asyncio.run(mod.sync_daily())
+
+        mod.reset_settings_cache()
+
+
 class TestSaveStockKlineResult:
     """_save_stock_kline() distinguishes daily vs basic success."""
 
@@ -280,7 +324,6 @@ class TestSaveStockKlineResult:
         """When daily data saves but basic data is empty, result shows basic_success=0."""
         from unittest.mock import AsyncMock, MagicMock, patch
 
-        import app.data_pipeline.fetcher as fetcher_mod
         from app.data_pipeline.fetcher import DataFetcher
 
         fetcher = DataFetcher()

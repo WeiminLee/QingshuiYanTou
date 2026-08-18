@@ -34,7 +34,7 @@ import baostock as bs
 from sqlalchemy import text
 
 from app.core.database import engine
-from app.data_pipeline.backfill_config import load_backfill_settings, reset_settings_cache
+from app.data_pipeline.backfill_config import load_backfill_settings, require_non_empty_scope, reset_settings_cache
 
 logging.basicConfig(
     level=logging.INFO,
@@ -401,6 +401,7 @@ async def sync_daily(
         os.environ["BACKFILL_SCOPE"] = scope
     reset_settings_cache()
     cfg = load_backfill_settings()
+    require_non_empty_scope(cfg)
 
     # 覆盖配置中的日期范围
     actual_start = f"{sd[:4]}-{sd[4:6]}-{sd[6:8]}"
@@ -469,6 +470,7 @@ async def main(
         os.environ["BACKFILL_SCOPE"] = scope
     reset_settings_cache()
     cfg = load_backfill_settings()
+    require_non_empty_scope(cfg)
 
     start_time = time.time()
     start_date_str = cfg.start_date  # YYYYMMDD

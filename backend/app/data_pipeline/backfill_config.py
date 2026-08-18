@@ -78,7 +78,7 @@ class BackfillSettings:
 
 def _read_whitelist(path: Path) -> frozenset[str]:
     if not path.exists():
-        logger.warning("回补白名单文件不存在: %s（自动降级为空集合）", path)
+        logger.warning("回补白名单文件不存在: %s（返回空集合）", path)
         return frozenset()
     codes = set()
     for raw in path.read_text(encoding="utf-8").splitlines():
@@ -154,3 +154,13 @@ def filter_scope(items, key=lambda x: x):
 def reset_settings_cache() -> None:
     """测试或脚本中修改环境变量后重新加载配置。"""
     load_backfill_settings.cache_clear()
+
+
+def require_non_empty_scope(settings: BackfillSettings) -> None:
+    """确保 tech_mvp 范围不会在白名单缺失时静默扩展为全市场。"""
+    if settings.scope == "tech_mvp" and not settings.ts_codes:
+        raise RuntimeError(
+            "BACKFILL_SCOPE=tech_mvp but whitelist is empty or missing: "
+            f"{settings.whitelist_file}. Set BACKFILL_SCOPE=all to run full-market sync explicitly, "
+            "or provide BACKFILL_WHITELIST_FILE."
+        )

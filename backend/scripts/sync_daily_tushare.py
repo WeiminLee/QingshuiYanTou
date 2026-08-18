@@ -35,7 +35,7 @@ import tinyshare as ts
 from sqlalchemy import text
 
 from app.core.database import engine
-from app.data_pipeline.backfill_config import load_backfill_settings, reset_settings_cache
+from app.data_pipeline.backfill_config import load_backfill_settings, require_non_empty_scope, reset_settings_cache
 
 # ── Tinyshare 初始化 ─────────────────────────────────
 # tinyshare 授权码从环境变量读取（默认使用 .env 中配置）
@@ -316,6 +316,7 @@ async def main(
         os.environ["BACKFILL_SCOPE"] = scope
     reset_settings_cache()
     cfg = load_backfill_settings()
+    require_non_empty_scope(cfg)
 
     start_time = time.time()
     start_date_str = cfg.start_date  # YYYY-MM-DD → YYYYMMDD

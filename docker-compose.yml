@@ -105,6 +105,11 @@ services:
       - NEO4J_PASSWORD=qingshui123
       - QDRANT_URL=http://qdrant:6333
       - ENABLE_EVIDENCE_SCHEDULER=${ENABLE_EVIDENCE_SCHEDULER:-false}
+      # Kline/backfill scope
+      - BACKFILL_START_DATE=${BACKFILL_START_DATE:-20240101}
+      - BACKFILL_END_DATE=${BACKFILL_END_DATE:-}
+      - BACKFILL_SCOPE=${BACKFILL_SCOPE:-tech_mvp}
+      - BACKFILL_WHITELIST_FILE=${BACKFILL_WHITELIST_FILE:-}
       # 账号
       - MASTER_PASSWORD=${MASTER_PASSWORD:-dev-docker-password}
       - ACCOUNT_TOKEN_SECRET_SALT=${ACCOUNT_TOKEN_SECRET_SALT:-dev-docker-salt}
@@ -151,6 +156,11 @@ services:
       - NEO4J_USER=neo4j
       - NEO4J_PASSWORD=qingshui123
       - QDRANT_URL=http://qdrant:6333
+      # Kline/backfill scope
+      - BACKFILL_START_DATE=${BACKFILL_START_DATE:-20240101}
+      - BACKFILL_END_DATE=${BACKFILL_END_DATE:-}
+      - BACKFILL_SCOPE=${BACKFILL_SCOPE:-tech_mvp}
+      - BACKFILL_WHITELIST_FILE=${BACKFILL_WHITELIST_FILE:-}
       # 账号
       - MASTER_PASSWORD=${MASTER_PASSWORD:-dev-docker-password}
       - ACCOUNT_TOKEN_SECRET_SALT=${ACCOUNT_TOKEN_SECRET_SALT:-dev-docker-salt}
@@ -195,6 +205,11 @@ services:
       - NEO4J_USER=neo4j
       - NEO4J_PASSWORD=qingshui123
       - QDRANT_URL=http://qdrant:6333
+      # Kline/backfill scope
+      - BACKFILL_START_DATE=${BACKFILL_START_DATE:-20240101}
+      - BACKFILL_END_DATE=${BACKFILL_END_DATE:-}
+      - BACKFILL_SCOPE=${BACKFILL_SCOPE:-tech_mvp}
+      - BACKFILL_WHITELIST_FILE=${BACKFILL_WHITELIST_FILE:-}
       # 账号
       - MASTER_PASSWORD=${MASTER_PASSWORD:-dev-docker-password}
       - ACCOUNT_TOKEN_SECRET_SALT=${ACCOUNT_TOKEN_SECRET_SALT:-dev-docker-salt}
