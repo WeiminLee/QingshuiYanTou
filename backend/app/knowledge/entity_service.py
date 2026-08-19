@@ -80,9 +80,7 @@ def generate_entity_id(
     应归入 Company/Product 节点的 properties 属性中。
     """
     if entity_type == "Company":
-        if ts_code:
-            return f"C:{ts_code}"
-        # 非上市公司用名称哈希
+        # Company 以名称作为唯一标识（ts_code/别名/缩写均为属性）
         return f"CO:{_short_hash(name, length=12)}"
     if entity_type == "Product":
         return f"P:{_short_hash(name)}"

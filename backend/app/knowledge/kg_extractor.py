@@ -11,8 +11,9 @@ KG 抽取引擎 — V2 Schema（2026-04-14）
   4. 信号持久化至 Company 节点属性（persist_signals_to_company_props）
 
 entity_id 统一规则：
-  Company（上市） : C:{ts_code}           例：C:600519.SH
-  Company（非上市）: CO:{md5[:12]}         例：CO:ABC123DEF456
+  Company（名称标识） : CO:{md5(name)[:12]}  例：CO:ABC123DEF456
+  Product             : P:{md5(name)[:16]}    例：P:ABC123DEF4567890
+  Metric              : M:{ts_code}:{name}:{period}  例：M:600519.SH:营收:2024A
   Product         : P:{md5[:16]}           例：P:ABCD1234EFGH5678
   Industry（THS）  : I:{ths_code}            例：I:885806.TI（THS格式）
   Industry（抽取）  : IND:{md5[:12]}         例：IND:ABC123DEF456
@@ -31,6 +32,7 @@ import hashlib
 import logging
 import math
 import re
+from datetime import UTC, date, datetime
 from collections.abc import Callable
 from datetime import date
 from pathlib import Path
@@ -589,24 +591,16 @@ def extract_text(
 
         try:
             if e_type == "Company":
-                if entity_id.startswith("C:"):
-                    _, is_new = upsert_company(
-                        ts_code=entity_id[2:],
-                        name=name,
-                        source_type=source_type,
-                        source_name=source_name,
-                        properties=props,
-                    )
-                else:
-                    _, is_new = upsert_entity(
-                        entity_id=entity_id,
-                        entity_type="Company",
-                        name=name,
-                        properties=props,
-                        source_type=source_type,
-                        source_name=source_name,
-                        confidence=conf,
-                    )
+                _, is_new = upsert_entity(
+                    entity_id=entity_id,
+                    entity_type="Company",
+                    name=name,
+                    properties=props,
+                    source_type=source_type,
+                    source_name=source_name,
+                    confidence=conf,
+                    ts_code=ts_code if ts_code != "UNKNOWN" else None,
+                )
             else:
                 _, is_new = upsert_entity(
                     entity_id=entity_id,
@@ -1000,24 +994,16 @@ async def extract_text_async(
                 continue
 
             if e_type == "Company":
-                if entity_id.startswith("C:"):
-                    _, is_new = upsert_company(
-                        ts_code=entity_id[2:],
-                        name=name,
-                        source_type=source_type,
-                        source_name=source_name,
-                        properties=props,
-                    )
-                else:
-                    _, is_new = upsert_entity(
-                        entity_id=entity_id,
-                        entity_type="Company",
-                        name=name,
-                        properties=props,
-                        source_type=source_type,
-                        source_name=source_name,
-                        confidence=conf,
-                    )
+                _, is_new = upsert_entity(
+                    entity_id=entity_id,
+                    entity_type="Company",
+                    name=name,
+                    properties=props,
+                    source_type=source_type,
+                    source_name=source_name,
+                    confidence=conf,
+                    ts_code=ts_code if ts_code != "UNKNOWN" else None,
+                )
             else:
                 _, is_new = upsert_entity(
                     entity_id=entity_id,
@@ -1235,6 +1221,29 @@ async def extract_evidence_async(
     source_type = str(evidence.get("source_type") or "unknown")
     subject_hint = evidence.get("subject_hint") or {}
     ts_code = str(subject_hint.get("ts_code") or "UNKNOWN")
+    evidence_id = evidence.get("evidence_id", "")
+
+    # ── 抽取检查点：已抽取过的 evidence 跳过 LLM 调用，复用缓存结果 ──
+    from app.core.metadata import CURRENT_KG_SCHEMA_VERSION, CURRENT_KG_PARSER_VERSION
+    extraction_status = evidence.get("extraction_status") or {}
+    if extraction_status.get("combined") == "done" and extraction_status.get("schema_version") == CURRENT_KG_SCHEMA_VERSION:
+        cached = evidence.get("extraction_result") or {}
+        if cached.get("entities") and cached.get("relations"):
+            logger.debug("evidence %s 已抽取，复用缓存", evidence_id)
+            return {
+                "entities_created": 0,
+                "entities_updated": len(cached.get("entities", [])),
+                "relations_created": 0,
+                "relations_updated": len(cached.get("relations", [])),
+                "chunks_processed": 1,
+                "evidence_id": evidence_id,
+                "entities_raw": cached.get("entities_raw", []),
+                "relations_raw": cached.get("relations_raw", []),
+                "entities": cached.get("entities", []),
+                "relations": cached.get("relations", []),
+                "signals": cached.get("signals", []),
+                "from_cache": True,
+            }
 
     # IRM 证据文本中通常只有"公司""贵公司"等泛称，不包含具体公司名。
     # 从数据库查询公司名称并注入到文本开头，确保 LLM 能识别具体公司。
@@ -1310,24 +1319,16 @@ async def extract_evidence_async(
         entity_id = lookup.get(name) or lookup.get(name.lower()) or _entity_id_from_name(name, e_type)
         try:
             if e_type == "Company":
-                if entity_id.startswith("C:"):
-                    _, is_new = upsert_company(
-                        ts_code=entity_id[2:],
-                        name=name,
-                        source_type=source_type,
-                        source_name=source_name,
-                        properties=props,
-                    )
-                else:
-                    _, is_new = upsert_entity(
-                        entity_id=entity_id,
-                        entity_type="Company",
-                        name=name,
-                        properties=props,
-                        source_type=source_type,
-                        source_name=source_name,
-                        confidence=conf,
-                    )
+                _, is_new = upsert_entity(
+                    entity_id=entity_id,
+                    entity_type="Company",
+                    name=name,
+                    properties=props,
+                    source_type=source_type,
+                    source_name=source_name,
+                    confidence=conf,
+                    ts_code=ts_code if ts_code != "UNKNOWN" else None,
+                )
             else:
                 _, is_new = upsert_entity(
                     entity_id=entity_id,
@@ -1403,7 +1404,7 @@ async def extract_evidence_async(
         except Exception as ex:
             logger.warning("关系入库失败 [%s → %s]: %s", src_eid, tgt_eid, ex)
 
-    return {
+    result = {
         "entities_created": entities_created,
         "entities_updated": entities_updated,
         "relations_created": relations_created,
@@ -1416,6 +1417,26 @@ async def extract_evidence_async(
         "relations": written_rels,
         "signals": signals,
     }
+
+    # ── 保存抽取结果到 evidence 文档，避免重复抽取 ──
+    try:
+        from app.core.mongodb import get_mongo_db
+        from app.core.metadata import CURRENT_KG_SCHEMA_VERSION, CURRENT_KG_PARSER_VERSION
+        db = get_mongo_db()
+        await db["kg_evidence"].update_one(
+            {"evidence_id": evidence_id},
+            {"$set": {
+                "extraction_status.combined": "done",
+                "extraction_status.schema_version": CURRENT_KG_SCHEMA_VERSION,
+                "extraction_status.parser_version": CURRENT_KG_PARSER_VERSION,
+                "extraction_status.last_extracted_at": datetime.now(UTC),
+                "extraction_result": result,
+            }},
+        )
+    except Exception as _save_ex:
+        logger.debug("evidence 抽取结果保存失败 [%s]: %s", evidence_id, _save_ex)
+
+    return result
 
 
 async def extract_document_async(
