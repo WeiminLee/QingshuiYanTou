@@ -62,11 +62,11 @@ class Relation(BaseModel):
     confidence: float = 1.0
     stmt_type: Optional[Literal["Fact", "Claim", "Estimate"]] = None
     source: str = ""
-    metric_value: Optional[float] = None
+    metric_value: Optional[float | str] = None
     metric_unit: Optional[str] = None
     metric_period: Optional[str] = None
-    metric_period_type: Optional[Literal["actual", "forecast", "quarterly", "half-year"]] = None
-    metric_sentiment: Optional[Literal["positive", "negative", "neutral"]] = None
+    metric_period_type: Optional[str] = None
+    metric_sentiment: Optional[str] = None
 
 
 class Signal(BaseModel):
@@ -273,9 +273,9 @@ def _parse_chunk_output(raw_text: str) -> tuple[dict, dict]:
 # ── LLM 调用（异步，非阻塞）─────────────────────────────────────────────────────
 
 
-async def _call_llm_async(prompt: str, timeout: int = 300) -> str:
+async def _call_llm_async(prompt: str, timeout: int = 180, max_tokens: int | None = None) -> str:
     """异步调用 LLM，使用 AsyncOpenAI 非阻塞 client"""
-    return await chat_async(prompt, temperature=0.1, timeout=timeout)
+    return await chat_async(prompt, temperature=0.1, timeout=timeout, max_tokens=max_tokens)
 
 
 # ── Chunk 预过滤 ───────────────────────────────────────────────────────────────
@@ -373,12 +373,23 @@ async def _extract_single_chunk(
     raw = await _call(prompt)
     result = _parse_json_output(raw)
 
-    # 首轮失败 → 重试一次
+    # 首轮失败 → 重试一次（相同 prompt）
     if result is None:
+        logger.warning("Chunk %d 首轮 JSON 解析失败，重试（相同 prompt）", chunk.chunk_id)
         raw = await _call(prompt)
         result = _parse_json_output(raw)
 
+    # 仍失败 → 用简化 prompt 再试一次（去掉 section_title 等可能干扰的上下文）
     if result is None:
+        logger.warning("Chunk %d 二轮仍失败，尝试简化 prompt", chunk.chunk_id)
+        fallback_prompt = get_extraction_prompt(source_type, "").format(
+            input_text=filtered_content[:2000],
+        )
+        raw = await _call(fallback_prompt)
+        result = _parse_json_output(raw)
+
+    if result is None:
+        logger.warning("Chunk %d 三轮全部失败，跳过该 chunk", chunk.chunk_id)
         return {}, {}, []
 
     entities, relations, signals = result
@@ -734,7 +745,7 @@ def extract_sync(
     extractor = RAGExtractor(
         examples=examples,
         max_gleanings=max_gleanings,
-        max_concurrency=4,
+        max_concurrency=2,
     )
 
     # 检测是否在 async 上下文中
@@ -784,8 +795,12 @@ async def extract_async(
     callback: Callable[[str, float], None] | None = None,
     source_file: str | None = None,
     source_type: str = "uploaded_doc",
+    max_concurrency: int = 2,
 ) -> tuple[list[dict], list[dict], list[dict]]:
     """异步入口函数
+
+    Args:
+        max_concurrency: chunk 级并发度（默认 2，避免 LLM 限流）
 
     Returns:
         (merged_entities, merged_relations, merged_signals)
@@ -793,7 +808,7 @@ async def extract_async(
     extractor = RAGExtractor(
         examples=examples,
         max_gleanings=max_gleanings,
-        max_concurrency=4,
+        max_concurrency=max_concurrency,
     )
     return await extractor.extract(
         text,

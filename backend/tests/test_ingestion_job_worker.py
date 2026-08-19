@@ -331,6 +331,7 @@ def test_worker_marks_failure_on_exception(monkeypatch) -> None:
         "cninfo 599",
         2,
         5,
+        error_category=None,
     )
     queue.mark_success.assert_not_awaited()
     queue.mark_partial.assert_not_awaited()
@@ -371,6 +372,7 @@ def test_worker_retries_partial_fetcher_result(monkeypatch) -> None:
         "fetcher returned fail=31",
         1,
         5,
+        error_category=None,
     )
     queue.mark_partial.assert_not_awaited()
 
@@ -549,6 +551,7 @@ def test_worker_counts_lost_lock_when_failure_mark_loses_lock(monkeypatch) -> No
         "cninfo 599",
         2,
         5,
+        error_category=None,
     )
     queue.mark_success.assert_not_awaited()
     queue.mark_partial.assert_not_awaited()
@@ -599,6 +602,7 @@ def test_worker_records_timeout_error_message(monkeypatch) -> None:
         "job timed out after 0.01s",
         1,
         5,
+        error_category=None,
     )
     queue.mark_success.assert_not_awaited()
     queue.mark_partial.assert_not_awaited()

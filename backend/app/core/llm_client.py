@@ -25,6 +25,7 @@ def get_llm_client() -> OpenAI:
         _client = OpenAI(
             api_key=settings.llm_api_key,
             base_url=settings.llm_base_url,
+            max_retries=1,
             http_client=httpx.Client(
                 timeout=httpx.Timeout(60.0, connect=10.0),
                 trust_env=False,
@@ -45,6 +46,7 @@ async def get_async_llm_client():
         _async_client = AsyncOpenAI(
             api_key=settings.llm_api_key,
             base_url=settings.llm_base_url,
+            max_retries=1,
             http_client=httpx.AsyncClient(
                 timeout=httpx.Timeout(60.0, connect=10.0),
                 trust_env=False,
@@ -73,6 +75,7 @@ async def chat_async(
     temperature: float = 0.1,
     timeout: int = 180,
     thinking: bool = False,
+    max_tokens: int | None = None,
 ) -> str:
     """Async LLM 调用 — 不阻塞事件循环"""
     from app.config import settings
@@ -84,11 +87,14 @@ async def chat_async(
         "temperature": temperature,
         "timeout": timeout,
     }
-    # deepseek 模型支持 thinking 模式
-    if thinking or "deepseek" in (kwargs["model"]).lower():
-        kwargs["extra_body"] = {"thinking": {"type": "enabled"}}
+    if max_tokens is not None:
+        kwargs["max_tokens"] = max_tokens
+    # deepseek 推理模型默认开启 thinking，不显式关闭会消耗大量 token 且输出空 content
+    if "deepseek" in (kwargs["model"]).lower():
+        kwargs["extra_body"] = {"thinking": {"type": "disabled"}}
     response = await client.chat.completions.create(**kwargs)
-    return response.choices[0].message.content or ""
+    content = response.choices[0].message.content or ""
+    return _strip_thinking_tags(content)
 
 
 async def chat_async_stream_with_tools(
@@ -163,6 +169,7 @@ def chat(
     model: str | None = None,
     temperature: float = 0.1,
     timeout: int = 180,
+    max_tokens: int | None = None,
 ) -> str:
     from app.config import settings
 
@@ -173,9 +180,11 @@ def chat(
         "temperature": temperature,
         "timeout": timeout,
     }
-    # deepseek 模型支持 thinking 模式
+    if max_tokens is not None:
+        kwargs["max_tokens"] = max_tokens
+    # deepseek 推理模型默认开启 thinking，显式关闭
     if "deepseek" in (kwargs["model"]).lower():
-        kwargs["extra_body"] = {"thinking": {"type": "enabled"}}
+        kwargs["extra_body"] = {"thinking": {"type": "disabled"}}
     response = client.chat.completions.create(**kwargs)
     return response.choices[0].message.content or ""
 

@@ -74,24 +74,26 @@ class IngestionJobQueue:
                 priority = LEAST(ingestion_jobs.priority, EXCLUDED.priority),
                 max_attempts = GREATEST(ingestion_jobs.max_attempts, EXCLUDED.max_attempts),
                 next_run_at = CASE
-                    WHEN :force_requeue AND ingestion_jobs.status <> 'running'
+                    WHEN :force_requeue AND ingestion_jobs.status = 'success'
                         THEN EXCLUDED.next_run_at
                     WHEN ingestion_jobs.status IN ('success', 'running')
                         THEN ingestion_jobs.next_run_at
+                    WHEN ingestion_jobs.status = 'dead'
+                        THEN EXCLUDED.next_run_at
                     ELSE LEAST(ingestion_jobs.next_run_at, EXCLUDED.next_run_at)
                 END,
                 status = CASE
-                    WHEN :force_requeue AND ingestion_jobs.status <> 'running' THEN 'pending'
+                    WHEN :force_requeue AND ingestion_jobs.status = 'success' THEN 'pending'
                     WHEN ingestion_jobs.status = 'dead' THEN 'pending'
                     ELSE ingestion_jobs.status
                 END,
                 attempt_count = CASE
-                    WHEN :force_requeue AND ingestion_jobs.status <> 'running' THEN 0
+                    WHEN :force_requeue AND ingestion_jobs.status = 'success' THEN 0
                     WHEN ingestion_jobs.status = 'dead' THEN 0
                     ELSE ingestion_jobs.attempt_count
                 END,
                 last_error = CASE
-                    WHEN :force_requeue AND ingestion_jobs.status <> 'running' THEN NULL
+                    WHEN :force_requeue AND ingestion_jobs.status = 'success' THEN NULL
                     WHEN ingestion_jobs.status = 'dead' THEN NULL
                     ELSE ingestion_jobs.last_error
                 END,
@@ -211,10 +213,42 @@ class IngestionJobQueue:
         error: str,
         attempt_count: int,
         max_attempts: int,
+        error_category: str | None = None,
     ) -> bool:
+        """标记 job 失败并计算下次重试时间。
+
+        Args:
+            error_category: 可选，用于差异化退避策略：
+                - ``exchange_blocked``: 服务端封堵，延后到次日（~1440 min）
+                - ``parse_error``: 解析兼容问题，直接 dead（重试无意义）
+                - ``non_json_response``: 非 JSON 响应，长退避（~120 min）
+                - ``http_retryable``: 临时 HTTP 错误，标准退避
+                - ``None``: 默认指数退避 min(60, 2^(n-1))
+        """
         next_attempt = attempt_count + 1
-        status = JOB_DEAD if next_attempt >= max_attempts else JOB_FAILED
-        delay_minutes = min(60, 2 ** max(0, next_attempt - 1))
+
+        # ── 按错误类别差异化退避 ──
+        if error_category == "exchange_blocked":
+            # 服务端封堵（如 SH 403）：延后到次日，给服务端冷却时间
+            status = JOB_FAILED  # 不直接 dead，允许次日重试
+            delay_minutes = 1440  # 24 小时
+        elif error_category == "parse_error":
+            # 解析字段缺失：重试无意义，直接 dead
+            status = JOB_DEAD
+            delay_minutes = 0  # 不再调度
+        elif error_category == "non_json_response":
+            # 非 JSON 响应（可能反爬）：长退避
+            status = JOB_DEAD if next_attempt >= max_attempts else JOB_FAILED
+            delay_minutes = 120  # 2 小时
+        elif error_category == "http_retryable":
+            # 临时 HTTP 错误：标准退避但上限更高
+            status = JOB_DEAD if next_attempt >= max_attempts else JOB_FAILED
+            delay_minutes = min(120, 5 * (2 ** max(0, next_attempt - 1)))
+        else:
+            # 默认指数退避
+            status = JOB_DEAD if next_attempt >= max_attempts else JOB_FAILED
+            delay_minutes = min(60, 2 ** max(0, next_attempt - 1))
+
         sql = text(
             """
             UPDATE ingestion_jobs

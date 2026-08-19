@@ -95,10 +95,11 @@ def _validate_signal(signal: dict[str, Any]) -> str | None:
     if subject_type not in _VALID_SUBJECT_TYPES:
         return f"无效主体类型: {subject_type}"
 
-    # 5. 主体类型必须与信号类型匹配
+    # 5. 主体类型与信号类型匹配（宽松校验：不匹配时仅警告，不拒绝）
+    # 因为 LLM 可能将 capacity 归类为 company 而非 sector，实际语义仍有效
     expected_type = _SIGNAL_SUBJECT_MAP.get(signal_type)
     if expected_type and subject_type != expected_type:
-        return f"主体类型不匹配: {signal_type}→{subject_type}, 期望 {expected_type}"
+        logger.debug("LLM 信号主体类型不匹配: %s→%s, 期望 %s，保留", signal_type, subject_type, expected_type)
 
     # 6. 强度过低，放弃
     try:
@@ -107,21 +108,21 @@ def _validate_signal(signal: dict[str, Any]) -> str | None:
         strength_val = 0
     if strength_val < 20:
         return f"信号强度过低: {strength_val}"
-    # risk 信号强度要求更高（避免免责声明误报）
-    if signal_type == "risk" and strength_val < 30:
+    # risk 信号强度阈值略高（避免免责声明误报），但不过于严格
+    if signal_type == "risk" and strength_val < 20:
         return f"risk 信号强度过低: {strength_val}"
 
     # 7. 如果是 risk 信号，检查是否只是免责声明话术
     if signal_type == "risk" and _is_disclaimer_only(excerpt):
         return f"risk 信号仅含免责声明: {excerpt[:40]}"
 
-    # 8. excerpt 必须包含至少一个触发词
+    # 8. excerpt 必须包含至少一个触发词或数字（宽松校验）
     if signal_type in _SIGNAL_TRIGGER_WORDS:
         triggers = _SIGNAL_TRIGGER_WORDS[signal_type]
         if not any(kw in excerpt for kw in triggers):
-            # 宽松校验：如果 excerpt 包含数字或百分号也通过（如"营收120亿元"）
             if not re.search(r'[\d.%]', excerpt):
-                return f"excerpt 不含触发词: {excerpt[:40]}"
+                logger.debug("LLM 信号 excerpt 不含触发词: %s — %s", signal_type, excerpt[:40])
+                # 不拒绝，只记日志。LLM 可能用不同措辞表达同一信号
 
     # 9. excerpt 必须有实际内容（中文字符数 >= 4）
     chinese_chars = len(re.findall(r'[一-鿿]', excerpt))

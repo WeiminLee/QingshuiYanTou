@@ -36,12 +36,28 @@ class IrmProviderError(ValueError):
         self.status_code = status_code
 
 
-def _classify_irm_exception(exc: Exception) -> IrmProviderError | None:
-    """将第三方库吞掉响应细节后的异常恢复为可处理的 provider 错误。"""
+def _classify_irm_exception(exc: Exception, exchange: str = "UNK") -> IrmProviderError | None:
+    """将第三方库吞掉响应细节后的异常恢复为可处理的 provider 错误。
+
+    Args:
+        exc: 原始异常
+        exchange: 交易所代码 (SH/SZ)，用于上下文日志
+    """
     response = getattr(exc, "response", None)
     status_code = getattr(response, "status_code", None)
     message = str(exc)
     lowered = message.lower()
+
+    # ── KeyError：akshare 解析兼容问题（字段缺失/列名不匹配）──
+    if isinstance(exc, KeyError):
+        return IrmProviderError(
+            f"[IRM:parse_error] {exchange} 互动易解析字段缺失: {message}",
+            category="parse_error",
+            retryable=False,
+            status_code=status_code,
+        )
+
+    # ── 非 JSON 响应（通常是 HTML 错误页或反爬页面）──
     is_json_error = (
         isinstance(exc, ValueError)
         and (
@@ -54,15 +70,25 @@ def _classify_irm_exception(exc: Exception) -> IrmProviderError | None:
     )
     if is_json_error:
         return IrmProviderError(
-            f"互动易返回非 JSON 响应: {message}",
+            f"[IRM:non_json] {exchange} 互动易返回非 JSON 响应: {message}",
             category="non_json_response",
             retryable=True,
             status_code=status_code,
         )
 
-    if status_code in {403, 408, 425, 429} or (status_code is not None and status_code >= 500):
+    # ── 403：服务端封堵，不可重试（重试只会加剧封堵）──
+    if status_code == 403:
         return IrmProviderError(
-            f"互动易 HTTP {status_code}: {message}",
+            f"[IRM:exchange_blocked] {exchange} 互动易 HTTP 403 (服务端封堵): {message}",
+            category="exchange_blocked",
+            retryable=False,
+            status_code=403,
+        )
+
+    # ── 其他 HTTP 可重试状态码 ──
+    if status_code in {408, 425, 429} or (status_code is not None and status_code >= 500):
+        return IrmProviderError(
+            f"[IRM:http_retryable] {exchange} 互动易 HTTP {status_code}: {message}",
             category="http_retryable",
             retryable=True,
             status_code=status_code,
@@ -70,7 +96,7 @@ def _classify_irm_exception(exc: Exception) -> IrmProviderError | None:
 
     if isinstance(exc, (TimeoutError, ConnectionError)):
         return IrmProviderError(
-            f"互动易网络错误: {message}",
+            f"[IRM:network] {exchange} 互动易网络错误: {message}",
             category="network",
             retryable=True,
             status_code=status_code,
@@ -261,7 +287,7 @@ class DataSourceClient:
             fetch_func = getattr(ak, cfg["fetch"])
             df = fetch_func(symbol=numeric)
         except Exception as e:
-            classified = _classify_irm_exception(e)
+            classified = _classify_irm_exception(e, exchange=exchange)
             if classified is not None:
                 logger.warning(
                     "%s 互动易 %s provider 错误 category=%s retryable=%s status=%s: %s",
@@ -280,20 +306,39 @@ class DataSourceClient:
             return []
 
         records: list[dict[str, Any]] = []
+        parse_errors = 0
         for _, row in df.iterrows():
-            answer = _safe_str(row.get(cfg["answer"]))
-            if not answer:
-                continue
-            records.append(
-                {
-                    "stock_code": _safe_str(row.get("股票代码")),
-                    "stock_name": _safe_str(row.get("公司简称")),
-                    "question": _safe_str(row.get(cfg["question"])),
-                    "answer": answer,
-                    "question_time": _safe_str_full(row.get(cfg["question_time"])),
-                    "answer_time": _safe_str_full(row.get(cfg["answer_time"])),
-                    "exchange": exchange,
-                }
+            try:
+                answer = _safe_str(row.get(cfg["answer"]))
+                if not answer:
+                    continue
+                records.append(
+                    {
+                        "stock_code": _safe_str(row.get("股票代码")),
+                        "stock_name": _safe_str(row.get("公司简称")),
+                        "question": _safe_str(row.get(cfg["question"])),
+                        "answer": answer,
+                        "question_time": _safe_str_full(row.get(cfg["question_time"])),
+                        "answer_time": _safe_str_full(row.get(cfg["answer_time"])),
+                        "exchange": exchange,
+                    }
+                )
+            except KeyError as ke:
+                # akshare 解析兼容问题：个别股票的返回字段名/列名可能与预期不符
+                parse_errors += 1
+                logger.debug(
+                    "%s 互动易 %s 单条记录解析字段缺失 %s（跳过该条）",
+                    exchange,
+                    ts_code,
+                    ke,
+                )
+
+        if parse_errors > 0:
+            logger.warning(
+                "%s 互动易 %s 解析跳过 %d 条记录（字段缺失/列名不匹配）",
+                exchange,
+                ts_code,
+                parse_errors,
             )
         return records
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 import socket
 import uuid
 
@@ -13,6 +14,16 @@ from app.data_pipeline.job_queue import (
     IngestionJobQueue,
     IngestionJobRecord,
 )
+
+# ── 错误类别前缀解析 ──
+# IrmProviderError 的消息格式为 "[IRM:<category>] <exchange> ..."
+_IRM_ERROR_CATEGORY_RE = re.compile(r"\[IRM:(\w+)\]")
+
+
+def _extract_error_category(error: str) -> str | None:
+    """从错误消息中提取 IrmProviderError 的类别标签。"""
+    m = _IRM_ERROR_CATEGORY_RE.search(error)
+    return m.group(1) if m else None
 
 
 class IngestionJobWorker:
@@ -86,11 +97,13 @@ class IngestionJobWorker:
         error: str,
         counters: dict[str, int],
     ) -> None:
+        error_category = _extract_error_category(error)
         marked = await self.queue.mark_failure(
             job.id,
             self.worker_id,
             error,
             job.attempt_count,
             job.max_attempts,
+            error_category=error_category,
         )
         counters["failed" if marked else "lost_lock"] += 1

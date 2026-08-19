@@ -1236,26 +1236,38 @@ async def extract_evidence_async(
     subject_hint = evidence.get("subject_hint") or {}
     ts_code = str(subject_hint.get("ts_code") or "UNKNOWN")
 
+    # IRM 证据文本中通常只有"公司""贵公司"等泛称，不包含具体公司名。
+    # 从数据库查询公司名称并注入到文本开头，确保 LLM 能识别具体公司。
+    company_name = await _lookup_company_name(ts_code, source_name)
+    if company_name and company_name != ts_code and company_name not in text:
+        text = f"【公司信息】公司名称：{company_name}（股票代码：{ts_code}）\n\n{text}"
+
     # 长文本保护：超过 50 万字则截断，避免产生过多 LLM 调用
     MAX_CHARS = 500_000
     if len(text) > MAX_CHARS:
         logger.warning("文本过长 (%d 字符), 截断至 %d 字符", len(text), MAX_CHARS)
         text = text[:MAX_CHARS]
 
-    # 让 RAGExtractor 自行分块（不传 chunks 参数），避免 22 万字当一整个 chunk 送 LLM
+    # 不切分 chunk，整个 evidence 作为一次 LLM 调用
+    from app.knowledge.extraction.chunker import Chunk
     merged_entities, merged_relations, signals = await rag_extract_async(
         text,
-        chunks=None,
-        max_tokens=1024,
-        overlap_tokens=0,
-        callback=progress_callback,
+        chunks=[Chunk(content=text, token_count=0, chunk_id=0, heading="")],
         source_file=source_name,
         source_type=source_type,
     )
-    # 持久化 LLM 抽取的信号到 PostgreSQL
+    # 持久化 LLM 抽取的信号到 PostgreSQL（去重后）
     try:
         from app.core.database import async_session as _async_session
         from app.signals.llm_ingestion import persist_llm_signals as _persist_llm_signals
+
+        # 按 summary 去重，保留强度最高的
+        deduped: dict[str, dict] = {}
+        for s in signals:
+            key = s.get("summary", "")
+            if key not in deduped or s.get("strength", 0) > deduped[key].get("strength", 0):
+                deduped[key] = s
+        signals = list(deduped.values())
 
         async with _async_session() as _session:
             await _persist_llm_signals(_session, evidence, signals)

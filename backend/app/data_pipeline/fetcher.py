@@ -32,7 +32,7 @@ from app.data_pipeline.announcement_filter import (
     classify_title as classify_ann_title,
 )
 from app.data_pipeline.cninfo_client import CninfoClient
-from app.data_pipeline.data_source import DataSourceClient
+from app.data_pipeline.data_source import DataSourceClient, IrmProviderError
 from app.data_pipeline.file_storage import FileStorage
 from app.data_pipeline.minishare_client import DataSourceClientMinishare
 from app.data_pipeline.progress import (
@@ -1228,12 +1228,67 @@ class DataFetcher:
             "last_error": "",
         }
 
+        # ── 交易所级熔断：同批次内一旦某交易所被 403 封堵，跳过该交易所剩余股票 ──
+        blocked_exchanges: set[str] = set()
+
         async def worker(code: str) -> None:
             async with semaphore:
+                # 熔断检查：跳过已封堵交易所的股票
+                numeric = "".join(filter(str.isdigit, code))
+                exchange = "SH" if numeric.startswith("6") else "SZ"
+                if exchange in blocked_exchanges:
+                    async with counter_lock:
+                        counters["processed"] += 1
+                        counters["fail"] += 1
+                        counters["last_error"] = (
+                            f"[IRM:exchange_blocked] {exchange} 互动易已熔断（本批次不再重试），跳过 {code}"
+                        )
+                    await self._save_irm_checkpoint(code, success=False)
+                    return
+
                 try:
                     # Phase 31 D-D2: akshare 限速（在 semaphore 内，避免 ack 后再等）
                     await asyncio.to_thread(get_akshare_limiter().wait_and_acquire)
                     records = await asyncio.to_thread(self.data_source.get_irm, code)
+                except IrmProviderError as exc:
+                    logger.debug("互动易 %s 抓取异常: %s", code, exc)
+                    if exc.category == "exchange_blocked":
+                        blocked_exchanges.add(exchange)
+                        logger.warning(
+                            "互动易 %s 交易所熔断触发: %s 已封堵，本批次跳过剩余 %s 股票",
+                            exchange,
+                            exchange,
+                            exchange,
+                        )
+                    async with counter_lock:
+                        counters["processed"] += 1
+                        counters["fail"] += 1
+                        counters["last_error"] = str(exc)
+                        snapshot = dict(counters)
+                    await tracker.update_run(
+                        run_ctx,
+                        total_items=total,
+                        processed_items=snapshot["processed"],
+                        success_count=snapshot["success"],
+                        skipped_count=snapshot["skipped"] + snapshot["duplicates"] + snapshot["invalid"],
+                        fail_count=snapshot["fail"],
+                        last_item_id=code,
+                        last_error=str(exc),
+                    )
+                    await tracker.event(
+                        run_ctx,
+                        stage="company_error",
+                        message="互动易公司抓取失败",
+                        total_items=total,
+                        processed_items=snapshot["processed"],
+                        success_count=snapshot["success"],
+                        skipped_count=snapshot["skipped"] + snapshot["duplicates"] + snapshot["invalid"],
+                        fail_count=snapshot["fail"],
+                        item_id=code,
+                        error=str(exc),
+                    )
+                    await self._save_irm_checkpoint(code, success=False)
+                    return
                 except Exception as exc:
                     logger.debug("互动易 %s 抓取异常: %s", code, exc)
                     async with counter_lock:

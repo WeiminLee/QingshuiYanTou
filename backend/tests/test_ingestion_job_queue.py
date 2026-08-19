@@ -270,6 +270,9 @@ def test_enqueue_job_can_force_requeue_completed_jobs(monkeypatch) -> None:
     sql = str(connection.calls[0][0])
     params = connection.calls[0][1]
     assert params["force_requeue"] is True
-    assert "WHEN :force_requeue AND ingestion_jobs.status <> 'running' THEN 'pending'" in sql
-    assert "WHEN :force_requeue AND ingestion_jobs.status <> 'running' THEN 0" in sql
+    # force_requeue 只重置 success（刷新数据），不动 failed（保留延迟）
+    assert "WHEN :force_requeue AND ingestion_jobs.status = 'success' THEN 'pending'" in sql
+    assert "WHEN :force_requeue AND ingestion_jobs.status = 'success' THEN 0" in sql
+    assert "WHEN :force_requeue AND ingestion_jobs.status = 'success' THEN NULL" in sql
+    # locked_at/locked_by 清锁逻辑不变（仍对所有非 running 状态生效）
     assert "WHEN :force_requeue AND ingestion_jobs.status <> 'running' THEN NULL" in sql
