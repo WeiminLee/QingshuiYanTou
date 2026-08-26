@@ -532,7 +532,7 @@ async def _run_kline_job() -> None:
         record_task_result,
         record_task_start,
     )
-    from scripts.sync_daily_baostock import sync_daily
+    from scripts.sync_daily_tushare import sync_daily
 
     await init_monitor()
     run_id = await record_task_start("kline")

@@ -29,7 +29,7 @@ async def execute_ingestion_job(
     if job.job_type == JOB_CNINFO_ANNOUNCEMENT_DATE:
         date_key = str(job.payload["date"])
         active_fetcher = fetcher or DataFetcher()
-        result = await active_fetcher.fetch_announcements(ann_date=date_key)
+        result = await active_fetcher.fetch_minishare_announcements(ann_date=date_key)
         return _result_from_fetcher_result(result)
     if job.job_type == JOB_IRM_COMPANY:
         ts_code = str(job.payload["ts_code"])

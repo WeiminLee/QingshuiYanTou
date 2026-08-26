@@ -339,7 +339,7 @@ def test_kline_job_passes_scope_from_settings(monkeypatch):
         return {"ok": 1, "skip": 0, "fail": 0, "saved": 1, "total": 1}
 
     monkeypatch.setattr(
-        "scripts.sync_daily_baostock.sync_daily",
+        "scripts.sync_daily_tushare.sync_daily",
         fake_sync_daily,
         raising=False,
     )

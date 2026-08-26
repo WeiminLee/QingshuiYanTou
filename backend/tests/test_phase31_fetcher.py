@@ -154,30 +154,27 @@ class TestAkshareThrottleApplied:
         assert mock_limiter.wait_and_acquire.called, "fetch_reports 必须在调用 akshare 前 await wait_and_acquire"
 
     @pytest.mark.integration
-    @pytest.mark.asyncio
-    async def test_fetch_irm_worker_calls_akshare_limiter(self):
-        from unittest.mock import AsyncMock, MagicMock, patch
+    def test_fetch_irm_worker_uses_minishare_only(self):
+        import asyncio
+        from unittest.mock import AsyncMock, MagicMock
 
         from app.data_pipeline.fetcher import DataFetcher
 
         fetcher = DataFetcher()
-        mock_limiter = MagicMock()
-        mock_limiter.wait_and_acquire = MagicMock()
         fetcher.data_source = MagicMock()
-        fetcher.data_source.get_stocks_basic = MagicMock(return_value=[])
-        fetcher.data_source.get_irm = MagicMock(return_value=[])
+        fetcher.data_source.get_irm.side_effect = AssertionError("IRM must not use akshare")
+        fetcher.minishare_client = MagicMock()
+        fetcher.minishare_client.irm_available = True
+        fetcher.minishare_client.get_irm.return_value = []
 
         # Phase 31 I: patch _filter_irm_pending to avoid mongo mock complexity
         fetcher._filter_irm_pending = AsyncMock(return_value=["600000.SH"])
         fetcher._ensure_irm_checkpoint_index = AsyncMock()
 
-        with patch(
-            "app.data_pipeline.fetcher.get_akshare_limiter",
-            return_value=mock_limiter,
-        ):
-            # 手动传一只代码，绕过 get_stocks_basic
-            await fetcher.fetch_irm(ts_codes=["600000.SH"])
-        assert mock_limiter.wait_and_acquire.called
+        asyncio.run(fetcher.fetch_irm(ts_codes=["600000.SH"]))
+
+        fetcher.minishare_client.get_irm.assert_called_once()
+        assert not fetcher.data_source.get_irm.called
 
     @pytest.mark.integration
     def test_fetch_irm_counts_data_source_exception_as_failure(self):
@@ -187,38 +184,35 @@ class TestAkshareThrottleApplied:
         from app.data_pipeline.fetcher import DataFetcher
 
         fetcher = DataFetcher()
-        fetcher.data_source = MagicMock()
-        fetcher.data_source.get_irm = MagicMock(side_effect=RuntimeError("irm api bad response"))
+        fetcher.minishare_client = MagicMock()
+        fetcher.minishare_client.irm_available = True
+        fetcher.minishare_client.get_irm = MagicMock(side_effect=RuntimeError("irm api bad response"))
         fetcher._filter_irm_pending = AsyncMock(return_value=["600000.SH"])
         fetcher._ensure_irm_checkpoint_index = AsyncMock()
         fetcher._save_irm_checkpoint = AsyncMock()
-        mock_limiter = MagicMock()
-        mock_limiter.wait_and_acquire = MagicMock()
-
-        with patch(
-            "app.data_pipeline.fetcher.get_akshare_limiter",
-            return_value=mock_limiter,
-        ):
-            result = asyncio.run(fetcher.fetch_irm(ts_codes=["600000.SH"]))
+        result = asyncio.run(fetcher.fetch_irm(ts_codes=["600000.SH"]))
 
         assert result["total"] == 1
         assert result["fail"] == 1
         assert result["success"] == 0
         assert result["last_error"] == "irm api bad response"
 
-    def test_data_source_get_irm_raises_on_fetch_error(self, monkeypatch):
-        import pytest
+    def test_fetch_irm_without_minishare_is_explicit_failure(self):
+        import asyncio
+        from unittest.mock import AsyncMock, MagicMock
 
-        import app.data_pipeline.data_source as data_source_mod
-        from app.data_pipeline.data_source import DataSourceClient
+        from app.data_pipeline.fetcher import DataFetcher
 
-        def bad_fetch(symbol):
-            raise ValueError("bad json")
+        fetcher = DataFetcher()
+        fetcher.minishare_client = MagicMock()
+        fetcher.minishare_client.irm_available = False
+        fetcher._filter_irm_pending = AsyncMock(return_value=["600000.SH"])
+        fetcher._ensure_irm_checkpoint_index = AsyncMock()
 
-        monkeypatch.setattr(data_source_mod.ak, "stock_sns_sseinfo", bad_fetch)
+        result = asyncio.run(fetcher.fetch_irm(ts_codes=["600000.SH"]))
 
-        with pytest.raises(ValueError, match="bad json"):
-            DataSourceClient().get_irm("600000.SH")
+        assert result["fail"] == 1
+        assert "MINISHARE_IRM_TOKEN" in result["last_error"]
 
     @pytest.mark.asyncio
     async def test_fetch_concept_calls_akshare_limiter(self):

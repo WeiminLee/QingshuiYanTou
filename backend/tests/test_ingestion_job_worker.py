@@ -13,7 +13,7 @@ def test_handler_runs_cninfo_date_job() -> None:
     )
 
     fetcher = SimpleNamespace(
-        fetch_announcements=AsyncMock(
+        fetch_minishare_announcements=AsyncMock(
             return_value={
                 "total": 1831,
                 "success": 1831,
@@ -36,7 +36,7 @@ def test_handler_runs_cninfo_date_job() -> None:
 
     result = asyncio.run(execute_ingestion_job(job, fetcher=fetcher))
 
-    fetcher.fetch_announcements.assert_awaited_once_with(ann_date="20260523")
+    fetcher.fetch_minishare_announcements.assert_awaited_once_with(ann_date="20260523")
     assert result.status == "success"
     assert result.summary["success"] == 1831
 
@@ -49,7 +49,7 @@ def test_handler_runs_cninfo_date_job_partial() -> None:
     )
 
     fetcher = SimpleNamespace(
-        fetch_announcements=AsyncMock(
+        fetch_minishare_announcements=AsyncMock(
             return_value={
                 "total": 1831,
                 "success": 1800,

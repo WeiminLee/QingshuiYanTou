@@ -3,6 +3,7 @@ DataSourceClientMinishare — minishare 备选数据源
 
 数据源：
 - 研报: pro.research_report(trade_date=) / pro.research_report(ts_code=, start_date=, end_date=)
+- 互动易: pro.irm_qa_sh(ts_code=, start_date=, end_date=) / pro.irm_qa_sz(...)
 - 公告: pro.anns_d(ann_date=) / pro.anns_d(ts_code=, start_date=, end_date=)
 """
 
@@ -82,6 +83,7 @@ class DataSourceClientMinishare:
 
     def __init__(self) -> None:
         research_token = settings.minishare_research_token
+        irm_token = settings.minishare_irm_token
 
         if not research_token:
             logger.warning("MINISHARE_RESEARCH_TOKEN 未配置，研报数据源不可用")
@@ -92,11 +94,24 @@ class DataSourceClientMinishare:
         else:
             self._research_api = ms.pro_api(research_token)
 
+        if not irm_token:
+            logger.warning("MINISHARE_IRM_TOKEN 未配置，互动易数据源不可用")
+            self._irm_api = None
+        elif ms is None:
+            logger.warning("minishare 包未安装，互动易数据源不可用")
+            self._irm_api = None
+        else:
+            self._irm_api = ms.pro_api(irm_token)
+
         self._anns_api = None  # 延迟初始化
 
     @property
     def research_available(self) -> bool:
         return self._research_api is not None
+
+    @property
+    def irm_available(self) -> bool:
+        return self._irm_api is not None
 
     @property
     def anns_available(self) -> bool:
@@ -116,6 +131,47 @@ class DataSourceClientMinishare:
         if self._anns_api is None:
             self._anns_api = ms.pro_api(anns_token)
         return self._anns_api
+
+    def get_irm(
+        self,
+        ts_code: str,
+        start_date: str,
+        end_date: str,
+    ) -> list[dict[str, Any]]:
+        """按公司和日期范围获取 Minishare 董秘问答。"""
+        if not self.irm_available:
+            raise RuntimeError("MINISHARE_IRM_TOKEN 未配置或 minishare 包未安装")
+
+        exchange = "SH" if ts_code.upper().endswith(".SH") else "SZ"
+        api_name = "irm_qa_sh" if exchange == "SH" else "irm_qa_sz"
+        df = getattr(self._irm_api, api_name)(
+            ts_code=ts_code,
+            start_date=start_date,
+            end_date=end_date,
+        )
+        if df is None or df.empty:
+            return []
+
+        records: list[dict[str, Any]] = []
+        for _, row in df.iterrows():
+            question = _safe_str(row.get("q") or row.get("question"))
+            answer = _safe_str(row.get("a") or row.get("answer"))
+            if not question or not answer:
+                continue
+            trade_date = _safe_str(row.get("trade_date"))
+            records.append(
+                {
+                    "stock_code": _normalize_ts_code(_safe_str(row.get("ts_code")) or ts_code),
+                    "stock_name": _safe_str(row.get("name")),
+                    "question": question,
+                    "answer": answer,
+                    "question_time": trade_date,
+                    "answer_time": trade_date,
+                    "trade_date": trade_date,
+                    "exchange": exchange,
+                }
+            )
+        return records
 
     def get_reports(
         self,

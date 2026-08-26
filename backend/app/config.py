@@ -91,7 +91,7 @@ class Settings(BaseSettings):
     debug: bool = False  # 生产环境应为 False，避免敏感日志泄露
     api_key: str = ""  # API 访问密钥，必填
     cors_origins: str = "http://localhost:3000,http://localhost:8080"  # CORS 允许的 origins，逗号分隔
-    enable_api_scheduler: bool = True  # 多 worker 部署时应关闭，改用独立 scheduler 进程
+    enable_api_scheduler: bool = False  # 默认使用独立 scheduler，避免 API 与独立进程重复消费
 
     # Sub-Project 1: 用户与持仓基础
     master_password: str = Field(default="", description="主密码（启动校验长度>=8）")

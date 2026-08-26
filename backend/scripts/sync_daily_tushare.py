@@ -31,7 +31,10 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pandas as pd
-import tinyshare as ts
+try:
+    import tinyshare as ts
+except ImportError:  # 启动 API/scheduler 时不应因可选 SDK 缺失而崩溃
+    ts = None
 from sqlalchemy import text
 
 from app.core.database import engine
@@ -39,12 +42,22 @@ from app.data_pipeline.backfill_config import load_backfill_settings, require_no
 
 # ── Tinyshare 初始化 ─────────────────────────────────
 # tinyshare 授权码从环境变量读取（默认使用 .env 中配置）
-_TEAJOIN_TOKEN = os.environ.get("TUSHARE_TOKEN", "")
-if not _TEAJOIN_TOKEN:
-    raise RuntimeError("TUSHARE_TOKEN 未配置，请在 backend/.env 中填写 tinyshare 授权码")
+_TUSHARE_API = None
 
-ts.set_token(_TEAJOIN_TOKEN)
-_TUSHARE_API = ts.pro_api()
+
+def _get_tinyshare_api():
+    """延迟创建 Tinyshare client，缺配置时显式失败而不是回退数据源。"""
+    global _TUSHARE_API
+    if _TUSHARE_API is not None:
+        return _TUSHARE_API
+    if ts is None:
+        raise RuntimeError("tinyshare 包未安装")
+    token = os.environ.get("TUSHARE_TOKEN", "")
+    if not token:
+        raise RuntimeError("TUSHARE_TOKEN 未配置，请填写 tinyshare 授权码")
+    ts.set_token(token)
+    _TUSHARE_API = ts.pro_api()
+    return _TUSHARE_API
 
 logging.basicConfig(
     level=logging.INFO,
@@ -102,7 +115,7 @@ def _fetch_tushare(ts_code: str, start_date: str, end_date: str) -> list[dict]:
     try:
         # tushare pro.daily 返回字段: ts_code, trade_date, open, high, low,
         #                           close, pre_close, change, pct_chg, vol, amount
-        df = _TUSHARE_API.daily(
+        df = _get_tinyshare_api().daily(
             ts_code=ts_code,
             start_date=start_date,
             end_date=end_date,
@@ -417,6 +430,11 @@ async def main(
             print(f"  失败股票:     {len(failed)} 只 (见 {fail_file})")
 
     return stats
+
+
+async def sync_daily(*, scope: str | None = None) -> dict[str, Any]:
+    """Scheduler entrypoint for Tinyshare daily K-line synchronization."""
+    return await main(scope=scope)
 
 
 if __name__ == "__main__":

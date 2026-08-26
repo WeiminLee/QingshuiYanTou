@@ -1,59 +1,56 @@
-"""
-验证 minishare IRM 代码已全部移除。
-"""
+"""Minishare IRM provider contract tests."""
 
-import inspect
+from types import SimpleNamespace
 
-
-class TestMinishareClientNoIrm:
-    def test_minishare_client_no_irm_methods(self):
-        """DataSourceClientMinishare 不再有 get_irm / iter_irm_by_date_range / iter_irm_by_date_range_async"""
-        from app.data_pipeline.minishare_client import DataSourceClientMinishare
-
-        assert not hasattr(DataSourceClientMinishare, "get_irm"), "get_irm 应已被移除"
-        assert not hasattr(DataSourceClientMinishare, "iter_irm_by_date_range"), "iter_irm_by_date_range 应已被移除"
-        assert not hasattr(DataSourceClientMinishare, "iter_irm_by_date_range_async"), (
-            "iter_irm_by_date_range_async 应已被移除"
-        )
-
-    def test_minishare_client_no_irm_property(self):
-        """DataSourceClientMinishare 不再有 irm_available 属性"""
-        from app.data_pipeline.minishare_client import DataSourceClientMinishare
-
-        assert not hasattr(DataSourceClientMinishare, "irm_available"), "irm_available 应已被移除"
-
-    def test_minishare_client_init_no_irm_api(self):
-        """DataSourceClientMinishare.__init__ 不再初始化 _irm_api"""
-        from app.data_pipeline.minishare_client import DataSourceClientMinishare
-
-        source = inspect.getsource(DataSourceClientMinishare.__init__)
-        # 不应包含 irm_token 或 _irm_api 的引用
-        assert "irm_token" not in source, "__init__ 不应引用 irm_token"
-        assert "_irm_api" not in source, "__init__ 不应引用 _irm_api"
+import pandas as pd
 
 
-class TestFetcherNoMinishareIrm:
-    def test_fetcher_no_minishare_irm_methods(self):
-        """DataFetcher 不再有 fetch_minishare_irm / fetch_minishare_irm_history"""
-        from app.data_pipeline.fetcher import DataFetcher
+def test_minishare_irm_routes_sh_by_company(monkeypatch):
+    from app.data_pipeline import minishare_client as module
 
-        assert not hasattr(DataFetcher, "fetch_minishare_irm"), "fetch_minishare_irm 应已被移除"
-        assert not hasattr(DataFetcher, "fetch_minishare_irm_history"), "fetch_minishare_irm_history 应已被移除"
+    calls = []
 
-    def test_fetcher_no_minishare_client_irm_usage(self):
-        """fetcher 源码不再引用 minishare_client 的 IRM 相关属性和方法"""
-        import app.data_pipeline.fetcher as fetcher_mod
+    class Api:
+        def irm_qa_sh(self, **kwargs):
+            calls.append(kwargs)
+            return pd.DataFrame(
+                [{"ts_code": "600000.SH", "name": "浦发银行", "q": "问题", "a": "回答", "trade_date": "20260825"}]
+            )
 
-        source = inspect.getsource(fetcher_mod)
+    monkeypatch.setattr(module.settings, "minishare_irm_token", "token")
+    monkeypatch.setattr(module, "ms", SimpleNamespace(pro_api=lambda _token: Api()))
 
-        # 不应再引用 minishare IRM 的方法（akshare 的 get_irm 不是 minishare 的）
-        forbidden = [
-            "irm_available",
-            "iter_irm_by_date_range",
-            "iter_irm_by_date_range_async",
-            "fetch_minishare_irm",
-            "minishare_client.get_irm",
-            "minishare_client.irm_available",
-        ]
-        for attr in forbidden:
-            assert attr not in source, f"fetcher.py 不应引用 {attr}"
+    client = module.DataSourceClientMinishare()
+    records = client.get_irm("600000.SH", start_date="20260819", end_date="20260826")
+
+    assert calls == [{"ts_code": "600000.SH", "start_date": "20260819", "end_date": "20260826"}]
+    assert records == [
+        {
+            "stock_code": "600000.SH",
+            "stock_name": "浦发银行",
+            "question": "问题",
+            "answer": "回答",
+            "question_time": "20260825",
+            "answer_time": "20260825",
+            "trade_date": "20260825",
+            "exchange": "SH",
+        }
+    ]
+
+
+def test_minishare_irm_routes_sz_by_company(monkeypatch):
+    from app.data_pipeline import minishare_client as module
+
+    calls = []
+
+    class Api:
+        def irm_qa_sz(self, **kwargs):
+            calls.append(kwargs)
+            return pd.DataFrame()
+
+    monkeypatch.setattr(module.settings, "minishare_irm_token", "token")
+    monkeypatch.setattr(module, "ms", SimpleNamespace(pro_api=lambda _token: Api()))
+
+    client = module.DataSourceClientMinishare()
+    assert client.get_irm("000001.SZ", start_date="20260819", end_date="20260826") == []
+    assert calls == [{"ts_code": "000001.SZ", "start_date": "20260819", "end_date": "20260826"}]
