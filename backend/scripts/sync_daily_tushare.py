@@ -67,16 +67,18 @@ logger = logging.getLogger(__name__)
 
 # 配置
 BATCH_SIZE = 500  # 批量 INSERT 行数
-CONCURRENCY = 5  # 并发协程数（5 × 0.12s ≈ 42次/秒 ≈ 2500/分钟，但仍需限流）
+CONCURRENCY = 5  # 数据库处理可并发；Tinyshare 请求起始时间由全局限流器串行控制
 PROGRESS_FILE = Path(__file__).parent / ".daily_tushare_progress"
 
 # 不支持的交易所后缀
 UNSUPPORTED_EXCHANGES = {"BJ", "NQ"}  # 北交所、新三板
 
-# teajoin 每分钟最多 500 次调用
-# 5 并发 × 0.12s 间隔 = 41.7 次/秒 × 60s = 2500 次/分钟（会超限）
-# 改为更保守的策略：每次请求后等待 0.15 秒
-_RATE_LIMIT = asyncio.Semaphore(CONCURRENCY)
+# 授权服务标称每分钟最多 500 次。按 0.25 秒间隔控制为最多 240 次/分钟，
+# 给调度器的其他 Tinyshare 调用留出余量，并避免并发 worker 在同一时刻突发请求。
+TINYSHARE_REQUEST_INTERVAL = float(os.environ.get("TINYSHARE_REQUEST_INTERVAL", "0.25"))
+TINYSHARE_MAX_RETRIES = 3
+_request_lock = asyncio.Lock()
+_next_request_at = 0.0
 
 
 def _is_supported(ts_code: str) -> bool:
@@ -110,8 +112,8 @@ def mark_fail(ts_code: str):
 # ── 数据获取 ──────────────────────────────────────────────
 
 
-def _fetch_tushare(ts_code: str, start_date: str, end_date: str) -> list[dict]:
-    """从 teajoin tushare 获取日线数据。每次调用使用共享 API 实例。"""
+def _fetch_tinyshare(ts_code: str, start_date: str, end_date: str) -> list[dict]:
+    """从 Tinyshare 获取日线数据；异常交给上层重试并计为失败。"""
     try:
         # tushare pro.daily 返回字段: ts_code, trade_date, open, high, low,
         #                           close, pre_close, change, pct_chg, vol, amount
@@ -140,9 +142,34 @@ def _fetch_tushare(ts_code: str, start_date: str, end_date: str) -> list[dict]:
                 }
             )
         return rows
-    except Exception as e:
-        logger.warning(f"tushare fetch error for {ts_code}: {e}")
-        return []
+    except Exception:
+        raise
+
+
+async def _wait_for_tinyshare_slot() -> None:
+    """全局串行分配请求起始时刻，避免并发突发触发 429。"""
+    global _next_request_at
+    async with _request_lock:
+        now = asyncio.get_running_loop().time()
+        delay = max(0.0, _next_request_at - now)
+        if delay:
+            await asyncio.sleep(delay)
+        _next_request_at = max(now, _next_request_at) + TINYSHARE_REQUEST_INTERVAL
+
+
+async def _fetch_tinyshare_with_retry(ts_code: str, start_date: str, end_date: str) -> list[dict]:
+    """Tinyshare 请求；429 使用退避重试，最终失败时不得伪装成无数据。"""
+    for attempt in range(1, TINYSHARE_MAX_RETRIES + 1):
+        await _wait_for_tinyshare_slot()
+        try:
+            return await asyncio.to_thread(_fetch_tinyshare, ts_code, start_date, end_date)
+        except Exception as exc:
+            if "429" not in str(exc) or attempt == TINYSHARE_MAX_RETRIES:
+                raise
+            delay = 2 ** attempt
+            logger.warning("Tinyshare 429 for %s, %ss 后重试 (%s/%s)", ts_code, delay, attempt, TINYSHARE_MAX_RETRIES)
+            await asyncio.sleep(delay)
+    raise RuntimeError("Tinyshare retry loop exhausted")
 
 
 # ── 数据入库 ──────────────────────────────────────────────
@@ -272,7 +299,7 @@ async def sync_stock(
 
     # 4. 获取数据（在线程池中调用 tushare，避免阻塞事件循环）
     try:
-        rows = await asyncio.to_thread(_fetch_tushare, ts_code, actual_start_str, actual_end_str)
+        rows = await _fetch_tinyshare_with_retry(ts_code, actual_start_str, actual_end_str)
     except Exception as e:
         return {"status": "fail", "saved": 0, "msg": str(e)}
 
@@ -404,8 +431,6 @@ async def main(
                         f"  [{idx}/{total}] {ts_code}: {result['status']} "
                         f"({result['saved']} saved) | ok={stats['ok']} skip={stats['skip']} fail={stats['fail']} | {format_duration(elapsed)}"
                     )
-            # 每次请求后短暂等待，避免触发 teajoin 频率限制（500次/分钟）
-            await asyncio.sleep(0.15)
 
     tasks = [worker(s, i, len(todo)) for i, s in enumerate(todo)]
     await asyncio.gather(*tasks)
