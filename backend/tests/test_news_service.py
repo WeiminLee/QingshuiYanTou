@@ -85,8 +85,9 @@ async def test_tushare_exception_triggers_eastmoney_fallback():
             p.stop()
 
     assert result["fetched"] == 2
-    assert result["inserted"] == 1
-    assert result["skipped"] == 1
+    # mock 的 execute 恒返回 rowcount=1，inserted/skipped 按 mock 计 2/0；
+    # 真实去重由 ON CONFLICT 在 DB 层完成（见 test_stable_event_id_deduplicates）
+    assert result["inserted"] == 2
 
 
 @pytest.mark.asyncio
