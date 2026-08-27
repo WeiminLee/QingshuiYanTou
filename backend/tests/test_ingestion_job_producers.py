@@ -43,14 +43,9 @@ def test_enqueue_irm_company_jobs_uses_stock_list(monkeypatch) -> None:
 
     queue = MagicMock()
     queue.enqueue_job = AsyncMock()
-    data_source = MagicMock()
-    data_source.get_stocks_basic.return_value = [
-        {"ts_code": "600000.SH"},
-        {"ts_code": "000001.SZ"},
-        {"ts_code": ""},
-    ]
+    stock_codes = ["600000.SH", "000001.SZ", ""]
 
-    result = asyncio.run(enqueue_irm_company_jobs(queue=queue, data_source=data_source))
+    result = asyncio.run(enqueue_irm_company_jobs(queue=queue, stock_codes=stock_codes))
 
     assert result == {"enqueued": 2}
     assert queue.enqueue_job.await_count == 2
@@ -73,15 +68,9 @@ def test_enqueue_irm_company_jobs_skips_index_like_codes(monkeypatch) -> None:
 
     queue = MagicMock()
     queue.enqueue_job = AsyncMock()
-    data_source = MagicMock()
-    data_source.get_stocks_basic.return_value = [
-        {"ts_code": "000001.SH"},
-        {"ts_code": "399001.SZ"},
-        {"ts_code": "600000.SH"},
-        {"ts_code": "000001.SZ"},
-    ]
+    stock_codes = ["000001.SH", "399001.SZ", "600000.SH", "000001.SZ"]
 
-    result = asyncio.run(enqueue_irm_company_jobs(queue=queue, data_source=data_source))
+    result = asyncio.run(enqueue_irm_company_jobs(queue=queue, stock_codes=stock_codes))
 
     assert result == {"enqueued": 2}
     assert [call.kwargs["job_key"] for call in queue.enqueue_job.await_args_list] == [
@@ -102,11 +91,10 @@ def test_enqueue_irm_company_jobs_missing_tech_mvp_whitelist_fails_closed(monkey
 
     queue = MagicMock()
     queue.enqueue_job = AsyncMock()
-    data_source = MagicMock()
-    data_source.get_stocks_basic.return_value = [{"ts_code": "600000.SH"}]
+    stock_codes = ["600000.SH"]
 
     with pytest.raises(RuntimeError, match="BACKFILL_SCOPE=tech_mvp"):
-        asyncio.run(enqueue_irm_company_jobs(queue=queue, data_source=data_source))
+        asyncio.run(enqueue_irm_company_jobs(queue=queue, stock_codes=stock_codes))
 
     queue.enqueue_job.assert_not_awaited()
     reset_settings_cache()

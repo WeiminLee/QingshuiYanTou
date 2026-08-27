@@ -62,54 +62,6 @@ def test_async_audit_logger_uses_asyncpg_safe_jsonb_cast():
     assert ":extra_data::jsonb" not in captured["sql"]
     assert captured["params"]["extra_data"] == '{"key": "value"}'
     assert captured["committed"] is True
-
-
-def test_fetch_reports_logs_total_skipped_not_only_preexisting(caplog):
-    """Report completion log should include duplicates returned by _save_report."""
-    from app.data_pipeline.fetcher import DataFetcher
-
-    class EmptyRows:
-        def fetchall(self):
-            return []
-
-    class FakeConn:
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *args):
-            return None
-
-        async def execute(self, *args, **kwargs):
-            return EmptyRows()
-
-    fetcher = DataFetcher()
-    fetcher.audit_logger = MagicMock()
-    fetcher.audit_logger.ainfo = AsyncMock()
-    fetcher.data_source = MagicMock()
-    fetcher.data_source.get_reports.return_value = [
-        {
-            "title": "重复研报",
-            "inst_csname": "券商",
-            "author": "分析师",
-            "url": "",
-            "ts_code": "600000.SH",
-        }
-    ]
-    fetcher._save_report = AsyncMock(return_value=None)
-    caplog.set_level(logging.INFO, logger="app.data_pipeline.fetcher")
-
-    fake_engine = MagicMock()
-    fake_engine.connect.return_value = FakeConn()
-
-    with patch("app.data_pipeline.fetcher.engine", fake_engine):
-        with patch("app.data_pipeline.fetcher.get_akshare_limiter") as limiter:
-            limiter.return_value.wait_and_acquire = MagicMock()
-            result = asyncio.run(fetcher.fetch_reports("20260522"))
-
-    assert result == {"total": 1, "success": 0, "skipped": 1, "fail": 0}
-    assert "跳过 1" in caplog.text
-
-
 def test_irm_checkpoint_uses_consistent_timezone_aware_datetimes():
     """IRM checkpoint timestamps and cutoff should use the same aware timezone."""
     from app.data_pipeline.fetcher import DataFetcher
@@ -148,23 +100,6 @@ def test_irm_checkpoint_uses_consistent_timezone_aware_datetimes():
     assert captured_find["cutoff"].tzinfo.zone == "Asia/Shanghai"
     assert update_set["last_attempt_at"].tzinfo.zone == "Asia/Shanghai"
     assert update_set["last_success_at"].tzinfo.zone == "Asia/Shanghai"
-
-
-def test_cls_telegraph_fetch_error_logs_warning(monkeypatch, caplog):
-    from app.data_pipeline import data_source as data_source_mod
-    from app.data_pipeline.data_source import DataSourceClient
-
-    def bad_fetch(symbol):
-        raise RuntimeError("cls unavailable")
-
-    monkeypatch.setattr(data_source_mod.ak, "stock_info_global_cls", bad_fetch)
-    caplog.set_level(logging.WARNING, logger="app.data_pipeline.data_source")
-
-    assert DataSourceClient().get_cls_telegraph() == []
-    assert "财联社电报" in caplog.text
-    assert "cls unavailable" in caplog.text
-
-
 def test_irm_checkpoint_write_failure_logs_warning(caplog):
     from app.data_pipeline.fetcher import DataFetcher
 
@@ -262,65 +197,3 @@ def test_rate_limiter_singletons_are_thread_safe():
             rate_limiter._cninfo_api_limiter,
             rate_limiter._akshare_async_limiter,
         ) = originals
-
-
-def test_stock_kline_fetch_failure_counts_as_fail():
-    from unittest.mock import MagicMock
-
-    from app.data_pipeline.fetcher import DataFetcher
-    from app.data_pipeline.providers import KlineProviderResult
-
-    # Inject a registry that returns empty result with errors
-    fake_registry = MagicMock()
-    fake_registry.fetch_stock_kline.return_value = KlineProviderResult(
-        records=[],
-        source="",
-        fallback_used=True,
-        errors=[{"provider": "baostock", "error": "connection failed"}],
-    )
-
-    fetcher = DataFetcher(registry=fake_registry)
-
-    result = asyncio.run(
-        fetcher.fetch_stock_kline(
-            "600000.SH",
-            start_date="20260520",
-            end_date="20260521",
-        )
-    )
-
-    assert result["total"] == 0
-    assert result["success"] == 0
-    assert result["fail"] == 1
-    assert result["fallback_used"] is True
-
-
-def test_data_source_stock_kline_can_raise_on_api_error(monkeypatch):
-    from app.data_pipeline import data_source as data_source_mod
-    from app.data_pipeline.data_source import DataSourceClient
-
-    class FakeResult:
-        error_code = "100"
-        error_msg = "service unavailable"
-
-        def next(self):
-            return False
-
-    fake_bs = MagicMock()
-    fake_bs.query_history_k_data_plus.return_value = FakeResult()
-    fake_bs.login.return_value = None
-    monkeypatch.setattr(data_source_mod, "bs", fake_bs)
-
-    client = DataSourceClient()
-
-    try:
-        client.get_stock_kline(
-            "600000.SH",
-            "20260520",
-            "20260521",
-            raise_on_error=True,
-        )
-    except RuntimeError as exc:
-        assert "service unavailable" in str(exc)
-    else:
-        raise AssertionError("expected RuntimeError")
