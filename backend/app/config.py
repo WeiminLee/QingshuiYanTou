@@ -52,6 +52,7 @@ class Settings(BaseSettings):
     llm_api_key: str = ""  # 必须从 LLM_API_KEY 环境变量读取
     llm_base_url: str = "http://localhost:4000/v1"
     llm_model: str = "MiniMax-M2.7-highspeed"
+    llm_extraction_model: str = "deepseek-v4-flash"  # 抽取专用快模型（批量知识构建，避免慢模型 504）
 
     # Neo4j（图数据库）
     neo4j_url: str = "bolt://localhost:7687"

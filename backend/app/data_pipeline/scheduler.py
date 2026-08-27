@@ -47,6 +47,12 @@ def _is_trading_hours() -> bool:
     return any(start <= t <= end for start, end in TRADING_HOURS)
 
 
+def _is_extraction_window() -> bool:
+    """判断当前是否在抽取夜间窗口（23:00 ~ 次日 08:00），避开 pjlab 白天负载高峰。"""
+    t = datetime.now(TRADING_TZ).time()
+    return t >= time(23, 0) or t < time(8, 0)
+
+
 def _last_expected_trade_date(now: datetime | None = None) -> date:
     """返回按周末规则计算的最近一个已结束交易日。"""
     current = now or datetime.now(TRADING_TZ)
@@ -413,15 +419,17 @@ async def _run_news_job() -> None:
 
 
 async def _run_evidence_worker_job() -> None:
-    """知识层证据提取定时任务（每 30 秒）。
+    """知识层证据提取定时任务（每 30 秒，仅夜间 23:00~08:00 窗口内执行）。
 
-    LLM 已暂停，仅走 rules-only 路径（信号提取 + 规则事实），
-    因此可以大幅提高并发度和批量大小。
+    抽取用快模型（llm_extraction_model），在 pjlab 低负载时段运行，
+    避免白天高负载下的 504 超时。
     """
+    if not _is_extraction_window():
+        return
     from app.knowledge.evidence_worker import EvidenceExtractionWorker
 
     try:
-        worker = EvidenceExtractionWorker(batch_size=10, max_concurrency=5)
+        worker = EvidenceExtractionWorker(batch_size=10, max_concurrency=3)
         result = await worker.run_once(limit=200, job_type="combined")
         if result.get("claimed", 0) > 0:
             logger.info("[evidence_worker] combined: %s", result)

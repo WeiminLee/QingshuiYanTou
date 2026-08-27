@@ -275,10 +275,18 @@ def _parse_chunk_output(raw_text: str) -> tuple[dict, dict]:
 
 async def _call_llm_async(prompt: str, timeout: int = 180, max_tokens: int | None = None) -> str:
     """异步调用 LLM，对 504/5xx/超时做指数退避重试（pjlab 网关偶发超时）。"""
+    from app.config import settings
+
     last_exc: Exception | None = None
     for attempt in range(3):
         try:
-            return await chat_async(prompt, temperature=0.1, timeout=timeout, max_tokens=max_tokens)
+            return await chat_async(
+                prompt,
+                model=settings.llm_extraction_model,
+                temperature=0.1,
+                timeout=timeout,
+                max_tokens=max_tokens,
+            )
         except Exception as e:
             last_exc = e
             msg = str(e)
