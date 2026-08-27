@@ -274,8 +274,21 @@ def _parse_chunk_output(raw_text: str) -> tuple[dict, dict]:
 
 
 async def _call_llm_async(prompt: str, timeout: int = 180, max_tokens: int | None = None) -> str:
-    """异步调用 LLM，使用 AsyncOpenAI 非阻塞 client"""
-    return await chat_async(prompt, temperature=0.1, timeout=timeout, max_tokens=max_tokens)
+    """异步调用 LLM，对 504/5xx/超时做指数退避重试（pjlab 网关偶发超时）。"""
+    last_exc: Exception | None = None
+    for attempt in range(3):
+        try:
+            return await chat_async(prompt, temperature=0.1, timeout=timeout, max_tokens=max_tokens)
+        except Exception as e:
+            last_exc = e
+            msg = str(e)
+            retryable = any(k in msg.lower() for k in ("504", "502", "503", "gateway time-out", "timed out", "timeout"))
+            if not retryable or attempt == 2:
+                raise
+            delay = 2 ** attempt * 2.0  # 2s, 4s
+            logger.warning("LLM 抽取调用失败，%.0fs 后重试 (%d/3): %s", delay, attempt + 1, msg[:120])
+            await asyncio.sleep(delay)
+    raise last_exc  # type: ignore[misc]
 
 
 # ── Chunk 预过滤 ───────────────────────────────────────────────────────────────

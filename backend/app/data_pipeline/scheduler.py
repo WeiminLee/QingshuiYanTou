@@ -152,7 +152,8 @@ async def _run_report_job() -> None:
     await notify_task_start("研报同步")
 
     try:
-        result = await DataFetcher().fetch_reports()
+        # 使用 minishare 接口（无研报授权码时优雅跳过）
+        result = await DataFetcher().fetch_minishare_reports()
         await record_task_result(
             "reports",
             TaskStatus.SUCCESS if result.get("fail", 0) == 0 else TaskStatus.PARTIAL,
@@ -519,7 +520,7 @@ def add_batch_reindex_job(scheduler: AsyncIOScheduler) -> None:
 
 
 async def _run_kline_job() -> None:
-    """K 线日终任务：收盘后同步白名单股票的日线数据（baostock + 配置白名单）。"""
+    """K 线日终任务：收盘后同步白名单股票的日线数据（tinyshare + 配置白名单）。"""
     from app.data_pipeline.backfill_config import load_backfill_settings, reset_settings_cache
     from app.data_pipeline.dingtalk import (
         notify_task_failed,
@@ -580,7 +581,7 @@ async def _run_sync_stocks_job() -> None:
         notify_task_start,
         notify_task_success,
     )
-    from app.data_pipeline.fetcher import async_sync_stocks
+    from scripts.sync_stock_basic import sync_stock_basic
     from app.data_pipeline.monitor import (
         TaskStatus,
         init_monitor,
@@ -593,7 +594,7 @@ async def _run_sync_stocks_job() -> None:
     await notify_task_start("股票列表同步")
 
     try:
-        result = await async_sync_stocks()
+        result = await sync_stock_basic()
         await record_task_result(
             "stocks",
             TaskStatus.SUCCESS if result.get("fail", 0) == 0 else TaskStatus.PARTIAL,

@@ -7,8 +7,9 @@ import logging
 from datetime import datetime, timedelta
 
 import pytz
+from sqlalchemy import text
 
-from app.data_pipeline.data_source import DataSourceClient
+from app.core.database import engine
 from app.data_pipeline.job_queue import (
     JOB_CNINFO_ANNOUNCEMENT_DATE,
     JOB_IRM_COMPANY,
@@ -66,15 +67,21 @@ async def enqueue_recent_cninfo_jobs(
     return {"enqueued": count}
 
 
+async def _list_stock_ts_codes() -> list[str]:
+    """从 stocks 表读取全量 A 股 ts_code（由 tinyshare sync_stock_basic 写入）。"""
+    async with engine.connect() as conn:
+        result = await conn.execute(text("SELECT ts_code FROM stocks ORDER BY ts_code"))
+        return [row[0] for row in result.fetchall()]
+
+
 async def enqueue_irm_company_jobs(
     queue: IngestionJobQueue | None = None,
-    data_source: DataSourceClient | None = None,
+    stock_codes: list[str] | None = None,
     refresh_all: bool = True,
 ) -> dict[str, int]:
     queue = queue or IngestionJobQueue()
-    data_source = data_source or DataSourceClient()
-
-    stocks = await asyncio.to_thread(data_source.get_stocks_basic, "L")
+    # 股票列表从 stocks 表读取（tinyshare 写入），不再依赖 baostock get_stocks_basic
+    codes = list(stock_codes) if stock_codes is not None else await _list_stock_ts_codes()
 
     # 白名单过滤：scope=tech_mvp 时仅入队白名单股票
     from app.data_pipeline.backfill_config import load_backfill_settings, require_non_empty_scope
@@ -82,17 +89,17 @@ async def enqueue_irm_company_jobs(
     bf_cfg = load_backfill_settings()
     require_non_empty_scope(bf_cfg)
     if bf_cfg.scope == "tech_mvp" and bf_cfg.ts_codes:
-        before = len(stocks)
-        stocks = [s for s in stocks if str(s.get("ts_code", "")) in bf_cfg.ts_codes]
+        before = len(codes)
+        codes = [c for c in codes if str(c) in bf_cfg.ts_codes]
         logger.info(
             "enqueue_irm_company_jobs: backfill scope=tech_mvp, %d/%d 命中白名单",
-            len(stocks),
+            len(codes),
             before,
         )
 
     count = 0
-    for stock in stocks:
-        ts_code = str(stock.get("ts_code") or "").strip()
+    for raw_code in codes:
+        ts_code = str(raw_code or "").strip()
         if not _is_company_ts_code(ts_code):
             continue
         await queue.enqueue_job(

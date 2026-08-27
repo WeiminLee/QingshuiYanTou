@@ -2,9 +2,9 @@
 DataSyncAPI - 数据同步 API
 
 触发数据采集任务：
-1. K线数据（baostock）
-2. 公告数据（巨潮 cninfo）
-3. 互动易数据（akshare IRM）
+1. K线数据（tinyshare）
+2. 公告数据（minishare）
+3. 互动易数据（minishare）
 
 所有任务均为异步触发，返回任务ID供后续查询。
 """
@@ -34,220 +34,6 @@ class SyncResponse(BaseModel):
     details: dict[str, Any] | None = Field(default=None, description="详细结果")
 
 
-# ── K线同步 ──────────────────────────────────────────
-
-
-@router.post("/kline/stocks", response_model=SyncResponse)
-async def sync_all_stocks_kline(
-    start_date: str | None = Query(default=None, description="开始日期 YYYYMMDD，如 20260601"),
-    end_date: str | None = Query(default=None, description="结束日期 YYYYMMDD，如 20260615"),
-    background_tasks: BackgroundTasks = None,
-) -> SyncResponse:
-    """
-    同步全市场个股K线数据（baostock）
-
-    - 自动检测每只股票的最新数据日期，仅抓取增量
-    - 并发采集（8并发），带速率保护
-    - 默认回填30天数据
-    """
-    task_id = str(uuid.uuid4())[:8]
-    logger.info(f"[{task_id}] K线同步任务开始")
-
-    try:
-        fetcher = DataFetcher()
-        result = await fetcher.fetch_all_stocks_kline(
-            start_date=start_date,
-            end_date=end_date,
-        )
-        return SyncResponse(
-            task_id=task_id,
-            status="completed",
-            message=f"K线同步完成: 入库{result.get('success', 0)}条，跳过{result.get('skipped', 0)}条",
-            details=result,
-        )
-    except Exception as e:
-        logger.error(f"[{task_id}] K线同步失败: {e}")
-        return SyncResponse(
-            task_id=task_id,
-            status="failed",
-            message=f"K线同步失败: {str(e)}",
-            details={"error": str(e)},
-        )
-
-
-@router.post("/kline/stock/{ts_code}", response_model=SyncResponse)
-async def sync_single_stock_kline(
-    ts_code: str,
-    start_date: str | None = Query(default=None, description="开始日期 YYYYMMDD"),
-    end_date: str | None = Query(default=None, description="结束日期 YYYYMMDD"),
-) -> SyncResponse:
-    """
-    同步单只股票K线数据（baostock）
-
-    Args:
-        ts_code: 股票代码，如 000001.SZ / 600000.SH
-    """
-    task_id = str(uuid.uuid4())[:8]
-    logger.info(f"[{task_id}] 单股K线同步: {ts_code}")
-
-    try:
-        fetcher = DataFetcher()
-        result = await fetcher.fetch_stock_kline(
-            ts_code=ts_code,
-            start_date=start_date,
-            end_date=end_date,
-        )
-        return SyncResponse(
-            task_id=task_id,
-            status="completed",
-            message=f"{ts_code} K线同步完成",
-            details=result,
-        )
-    except Exception as e:
-        logger.error(f"[{task_id}] {ts_code} K线同步失败: {e}")
-        return SyncResponse(
-            task_id=task_id,
-            status="failed",
-            message=f"K线同步失败: {str(e)}",
-        )
-
-
-@router.post("/kline/indices", response_model=SyncResponse)
-async def sync_index_kline(
-    index_codes: list[str] | None = Query(
-        default=None,
-        description="指数代码列表，如 ['sh.000001','sz.399001']",
-    ),
-    start_date: str | None = Query(default=None, description="开始日期 YYYYMMDD"),
-    end_date: str | None = Query(default=None, description="结束日期 YYYYMMDD"),
-) -> SyncResponse:
-    """
-    同步指数K线数据（baostock）
-
-    默认同步4个主要指数：上证指数、深证成指、创业板指、沪深300
-    """
-    task_id = str(uuid.uuid4())[:8]
-
-    default_indices = ["sh.000001", "sz.399001", "sz.399006", "sh.000300"]
-    indices = index_codes or default_indices
-
-    logger.info(f"[{task_id}] 指数K线同步: {indices}")
-
-    try:
-        fetcher = DataFetcher()
-        today = datetime.now()
-        yesterday = (today - timedelta(days=1)).strftime("%Y%m%d")
-        today_str = today.strftime("%Y%m%d")
-
-        total_success = 0
-        total_skipped = 0
-        total_fail = 0
-
-        for code in indices:
-            result = await fetcher.fetch_index_kline(
-                index_code=code,
-                start_date=start_date or yesterday,
-                end_date=end_date or today_str,
-            )
-            total_success += result.get("success", 0)
-            total_skipped += result.get("skipped", 0)
-            total_fail += result.get("fail", 0)
-
-        return SyncResponse(
-            task_id=task_id,
-            status="completed",
-            message=f"指数K线同步完成: 入库{total_success}条",
-            details={
-                "success": total_success,
-                "skipped": total_skipped,
-                "fail": total_fail,
-                "indices": indices,
-            },
-        )
-    except Exception as e:
-        logger.error(f"[{task_id}] 指数K线同步失败: {e}")
-        return SyncResponse(
-            task_id=task_id,
-            status="failed",
-            message=f"指数K线同步失败: {str(e)}",
-        )
-
-
-# ── 公告同步 ──────────────────────────────────────────
-
-
-@router.post("/announcements", response_model=SyncResponse)
-async def sync_announcements(
-    ann_date: str | None = Query(default=None, description="日期 YYYYMMDD，默认为昨天"),
-    ts_code: str | None = Query(default=None, description="股票代码，为空则查全市场"),
-) -> SyncResponse:
-    """
-    同步巨潮资讯公告数据（cninfo）
-
-    - 获取指定日期的公告列表
-    - 自动下载关键词命中的PDF文件
-    - 按 cninfo_id 去重
-    """
-    task_id = str(uuid.uuid4())[:8]
-    logger.info(f"[{task_id}] 公告同步: date={ann_date}, ts_code={ts_code}")
-
-    try:
-        fetcher = DataFetcher()
-        result = await fetcher.fetch_announcements(ann_date=ann_date)
-        return SyncResponse(
-            task_id=task_id,
-            status="completed",
-            message=f"公告同步完成: 新增{result.get('success', 0)}条，下载PDF{result.get('downloaded', 0)}条",
-            details=result,
-        )
-    except Exception as e:
-        logger.error(f"[{task_id}] 公告同步失败: {e}")
-        return SyncResponse(
-            task_id=task_id,
-            status="failed",
-            message=f"公告同步失败: {str(e)}",
-        )
-
-
-@router.post("/announcements/history", response_model=SyncResponse)
-async def sync_announcements_history(
-    start_date: str = Query(..., description="开始日期 YYYYMMDD"),
-    end_date: str = Query(..., description="结束日期 YYYYMMDD"),
-    ts_code: str | None = Query(default=None, description="股票代码，为空则查全市场"),
-) -> SyncResponse:
-    """
-    批量同步历史公告（巨潮 cninfo）
-
-    Args:
-        start_date: 起始日期 YYYYMMDD
-        end_date: 结束日期 YYYYMMDD
-        ts_code: 股票代码，为空则查全市场
-    """
-    task_id = str(uuid.uuid4())[:8]
-    logger.info(f"[{task_id}] 历史公告同步: {start_date}~{end_date}, ts_code={ts_code}")
-
-    try:
-        fetcher = DataFetcher()
-        result = await fetcher.fetch_announcements_history(
-            start_date=start_date,
-            end_date=end_date,
-            ts_code=ts_code,
-        )
-        return SyncResponse(
-            task_id=task_id,
-            status="completed",
-            message=f"历史公告同步完成: 新增{result.get('success', 0)}条",
-            details=result,
-        )
-    except Exception as e:
-        logger.error(f"[{task_id}] 历史公告同步失败: {e}")
-        return SyncResponse(
-            task_id=task_id,
-            status="failed",
-            message=f"历史公告同步失败: {str(e)}",
-        )
-
-
 # ── 互动易同步 ──────────────────────────────────────────
 
 
@@ -260,7 +46,7 @@ async def sync_irm(
     extract_to_kg: bool = Query(default=False, description="是否同步抽取知识图谱"),
 ) -> SyncResponse:
     """
-    同步互动易Q&A数据（akshare）
+    同步互动易Q&A数据（minishare）
 
     - 深交所 + 上交所互动易
     - 支持指定股票或全市场
@@ -296,7 +82,7 @@ async def sync_single_irm(
     extract_to_kg: bool = Query(default=False),
 ) -> SyncResponse:
     """
-    同步单只股票互动易数据
+    同步单只股票互动易数据（minishare）
 
     Args:
         ts_code: 股票代码，如 000001.SZ
@@ -329,42 +115,43 @@ async def sync_single_irm(
 
 
 @router.post("/all", response_model=SyncResponse)
-async def sync_all_data(
-    kline_days: int = Query(default=30, ge=1, le=365, description="K线回填天数"),
-) -> SyncResponse:
+async def sync_all_data() -> SyncResponse:
     """
-    执行全量数据同步（K线 + 公告 + 互动易）
+    执行全量数据同步（K线 + 公告 + 互动易），全部走 minishare / tinyshare。
 
     注意：这是一个重量级操作，可能需要较长时间
     建议拆分成单独任务分批执行
     """
     task_id = str(uuid.uuid4())[:8]
-    logger.info(f"[{task_id}] 全量数据同步开始 (K线{kline_days}天)")
+    logger.info(f"[{task_id}] 全量数据同步开始")
 
     results = {}
 
-    # 1. K线同步
+    # 1. K线同步（tinyshare，按 backfill scope）
     try:
-        fetcher = DataFetcher()
-        kline_result = await fetcher.fetch_all_stocks_kline()
+        from scripts.sync_daily_tushare import sync_daily
+
+        kline_result = await sync_daily()
         results["kline"] = kline_result
-        logger.info(f"[{task_id}] K线完成: {kline_result.get('success', 0)}条")
+        logger.info(f"[{task_id}] K线完成: ok={kline_result.get('ok', 0)}")
     except Exception as e:
         results["kline"] = {"error": str(e)}
         logger.error(f"[{task_id}] K线失败: {e}")
 
-    # 2. 公告同步（昨天）
+    # 2. 公告同步（minishare，昨天）
     try:
         yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y%m%d")
-        ann_result = await fetcher.fetch_announcements(ann_date=yesterday)
+        fetcher = DataFetcher()
+        ann_result = await fetcher.fetch_minishare_announcements(ann_date=yesterday)
         results["announcements"] = ann_result
         logger.info(f"[{task_id}] 公告完成: {ann_result.get('success', 0)}条")
     except Exception as e:
         results["announcements"] = {"error": str(e)}
         logger.error(f"[{task_id}] 公告失败: {e}")
 
-    # 3. 互动易同步（全市场，带KG抽取）
+    # 3. 互动易同步（minishare，全市场，带KG抽取）
     try:
+        fetcher = DataFetcher()
         irm_result = await fetcher.fetch_irm_with_kg()
         results["irm"] = irm_result
         logger.info(f"[{task_id}] 互动易完成: {irm_result.get('success', 0)}条")
@@ -391,10 +178,10 @@ async def sync_minishare_reports(
     end_date: str | None = Query(default=None, description="结束日期 YYYYMMDD（配合 ts_code 使用）"),
 ) -> SyncResponse:
     """
-    从 minishare 获取券商研报（备选通道）
+    从 minishare 获取券商研报
 
     - 按日期全市场或按股票代码 + 日期范围
-    - 与 akshare 研报共用 research_report_meta 表
+    - 与研报共用 research_report_meta 表
     """
     task_id = str(uuid.uuid4())[:8]
     logger.info(f"[{task_id}] minishare 研报同步: trade_date={trade_date}, ts_code={ts_code}")
@@ -428,10 +215,10 @@ async def sync_minishare_irm(
     trade_date: str | None = Query(default=None, description="日期 YYYYMMDD，默认为昨天"),
 ) -> SyncResponse:
     """
-    从 minishare 获取互动易 Q&A（备选通道）
+    从 minishare 获取互动易 Q&A
 
     - 深交所 + 上交所
-    - 与 akshare 互动易共用 announcements 表
+    - 与互动易共用 announcements 表
     """
     task_id = str(uuid.uuid4())[:8]
     logger.info(f"[{task_id}] minishare 互动易同步: trade_date={trade_date}")
@@ -470,7 +257,7 @@ async def sync_minishare_reports_history(
 
     - 从 start_date 到 end_date 逐日遍历
     - 使用 IngestionProgressTracker checkpoint，重复运行不会从头开始
-    - PDF 存到外部存储（/home/lwm/qingshui_data/reports/）
+    - PDF 存到外部存储
     - 任务异步执行，立即返回 run_id，用 GET /minishare/tasks/{run_id} 查询进度
     """
     task_id = str(uuid.uuid4())  # 完整 UUID 传给 fetcher
@@ -565,7 +352,7 @@ async def sync_minishare_announcements(
     end_date: str | None = Query(default=None, description="结束日期 YYYYMMDD（配合 ts_code 使用）"),
 ) -> SyncResponse:
     """
-    从 minishare 获取公告数据（备选通道）
+    从 minishare 获取公告数据
 
     - 按公告日全市场或按股票代码 + 日期范围
     - 存入 minishare_announcements 表

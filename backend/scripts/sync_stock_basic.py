@@ -161,6 +161,19 @@ async def main(*, limit: int | None = None, dry_run: bool = False) -> int:
     return written
 
 
+async def sync_stock_basic() -> dict[str, int]:
+    """Scheduler entrypoint：tinyshare stock_basic → stocks 表。
+
+    返回与 scheduler 期望一致的汇总 dict（total/success/fail）。
+    """
+    try:
+        written = await main()
+    except Exception as exc:  # noqa: BLE001 — 调度器需捕获并上报，而非抛出
+        logger.exception("tinyshare stock_basic 同步失败: %s", exc)
+        return {"total": 0, "success": 0, "fail": 1}
+    return {"total": written, "success": written, "fail": 0}
+
+
 if __name__ == "__main__":
     import asyncio
 

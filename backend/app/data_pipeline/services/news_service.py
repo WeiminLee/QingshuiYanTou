@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import logging
@@ -121,49 +122,76 @@ class NewsService:
                 end_date=end_date,
             )
         except ModuleNotFoundError:
-            logger.warning("tinyshare is not installed; using CLS news fallback")
+            logger.warning("tinyshare is not installed; news sync disabled")
         except Exception:
-            try:
-                df = pro.major_news(
-                    src=src,
-                    start_date=start_date,
-                    end_date=end_date,
-                )
-            except Exception:
-                pass
+            df = None  # 无 news 权限时降级，改走 HTTP 快讯源
 
         if df is not None and not df.empty:
             return await self._save_events_from_df(df, limit)
 
-        # Tushare 失败或空结果 → CLS 兜底
-        from app.data_pipeline.data_source import DataSourceClient
+        # 兜底：东方财富 7x24 快讯（纯 HTTP + 30s 超时，不依赖 akshare / news 接口权限）
+        records = await asyncio.to_thread(self._fetch_eastmoney_flash, limit)
+        return await self._save_flash_records(records, limit)
 
-        cls_records = DataSourceClient().get_cls_telegraph()
-        if not cls_records:
-            return {"fetched": 0, "inserted": 0, "skipped": 0}
+    def _fetch_eastmoney_flash(self, limit: int) -> list[dict[str, str]]:
+        """从东方财富 7x24 快讯接口拉取财经快讯（无鉴权，30s 超时保护）。"""
+        import requests
 
+        url = "https://np-listapi.eastmoney.com/comm/web/getFastNewsList"
+        params = {
+            "client": "web",
+            "biz": "web_724",
+            "fastColumn": "102",
+            "sortEnd": "",
+            "pageSize": str(min(limit, 200)),
+            "req_trace": "1",
+        }
+        headers = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"}
+        try:
+            resp = requests.get(url, params=params, headers=headers, timeout=30)
+            resp.raise_for_status()
+            data = resp.json()
+        except Exception as e:
+            logger.warning("东方财富快讯拉取失败: %s", e)
+            return []
+
+        items = (data.get("data") or {}).get("fastNewsList") or []
+        records: list[dict[str, str]] = []
+        for it in items:
+            title = str(it.get("title") or "").strip()
+            if not title:
+                continue
+            records.append(
+                {
+                    "title": title,
+                    "summary": str(it.get("summary") or ""),
+                    "url": f"https://www.eastmoney.com/a/{it.get('code', '')}.html",
+                    "publish_at": str(it.get("showTime") or ""),
+                }
+            )
+        return records
+
+    async def _save_flash_records(
+        self,
+        records: list[dict[str, str]],
+        limit: int,
+    ) -> dict[str, int]:
+        """将 HTTP 快讯记录写入 events 表（按 title 去重）。"""
         concept_names = await self._load_concept_names()
-        inserted = 0
-        skipped = 0
+        inserted = skipped = 0
+
+        from sqlalchemy import text
 
         async with engine.connect() as conn:
-            for rec in cls_records[:limit]:
-                title = str(rec.get("title") or "")
-                if not title.strip():
+            for rec in records[:limit]:
+                title = rec.get("title") or ""
+                if not title:
                     skipped += 1
                     continue
-
                 eid = stable_event_id(title)
                 tags = auto_tag(title, concept_names)
                 metadata = {"tags": tags} if tags else {}
-
-                content = str(rec.get("content") or "")
-                pub_date = str(rec.get("pub_date") or "")
-                pub_time = str(rec.get("pub_time") or "")
-                pub_datetime_str = f"{pub_date} {pub_time}".strip() if pub_date and pub_time else pub_date
-
-                from sqlalchemy import text
-
+                publish_at = _parse_datetime(rec.get("publish_at") or "")
                 pg_stmt = text("""
                     INSERT INTO events (event_id, title, summary, source, url, publish_at, metadata)
                     VALUES (:event_id, :title, :summary, :source, :url, :publish_at, CAST(:metadata AS jsonb))
@@ -174,10 +202,10 @@ class NewsService:
                     {
                         "event_id": eid,
                         "title": title,
-                        "summary": content,
-                        "source": "cls",
-                        "url": "",
-                        "publish_at": _parse_datetime(pub_datetime_str),
+                        "summary": rec.get("summary") or "",
+                        "source": "eastmoney_flash",
+                        "url": rec.get("url") or "",
+                        "publish_at": publish_at,
                         "metadata": json.dumps(metadata, ensure_ascii=False),
                     },
                 )
@@ -185,10 +213,8 @@ class NewsService:
                     inserted += 1
                 else:
                     skipped += 1
-
             await conn.commit()
-
-        return {"fetched": len(cls_records), "inserted": inserted, "skipped": skipped}
+        return {"fetched": len(records), "inserted": inserted, "skipped": skipped}
 
 
 def _parse_datetime(val: Any) -> datetime:
