@@ -207,8 +207,8 @@ async def sync_stock(
         if ann_date is None:
             continue
 
-        # 生成唯一 ID（与每日抓取 _save_irm_record 同公式，避免重复）
-        cninfo_id = _generate_cninfo_id(ts_code, exchange, trade_date_val, question)
+        # 生成唯一 ID（用解析后的 ann_date，与每日抓取 _save_irm_record 对齐，避免 trade_date 格式抖动导致重复）
+        cninfo_id = _generate_cninfo_id(ts_code, exchange, ann_date, question)
 
         source_name = "上证e互动" if exchange == "SH" else "深证互动易"
 

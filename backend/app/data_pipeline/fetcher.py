@@ -1348,12 +1348,7 @@ class DataFetcher:
         question_time = str(rec.get("question_time") or "").strip()
         exchange = str(rec.get("exchange") or "").strip().upper() or "UNK"
 
-        # ann_id 叠加 question hash 防 (ts_code, question_time) 同秒多问题的冲突
-        q_hash = hashlib.md5(question.encode("utf-8", errors="replace")).hexdigest()[:10]
-        ann_id = _stable_id("irm", exchange, ts_code, question_time or "-", q_hash)
-
         # 解析中文日期格式: "2026年05月08日 09:00" -> date
-        # P1 修复：使用北京时间，避免凌晨抓取时日期错位
         import re
         from datetime import date as date_type
 
@@ -1373,6 +1368,10 @@ class DataFetcher:
             trade_date_str = str(rec.get("trade_date") or "").strip()
             if len(trade_date_str) == 8 and trade_date_str.isdigit():
                 ann_date_obj = date_type(int(trade_date_str[:4]), int(trade_date_str[4:6]), int(trade_date_str[6:8]))
+
+        # ann_id 叠加 question hash + 解析后日期（用 date 而非原始 question_time，避免 trade_date 格式抖动导致重复）
+        q_hash = hashlib.md5(question.encode("utf-8", errors="replace")).hexdigest()[:10]
+        ann_id = _stable_id("irm", exchange, ts_code, str(ann_date_obj), q_hash)
 
         sql = """
         INSERT INTO announcements (
