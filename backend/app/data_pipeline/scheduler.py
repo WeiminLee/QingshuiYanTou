@@ -473,10 +473,21 @@ async def _run_announcement_ingestion_job() -> None:
             enqueued = await service.bulk_enqueue_jobs(evidence_ids)
             evidence_created += written
             jobs_queued += enqueued
-        # 标记已 build evidence（记录哪些 PDF 已处理，供去重 + 后续删 PDF 判断）
+        # 标记已 build evidence（记录哪些 PDF 已处理）+ 删除 PDF（文本已进 mongo evidence，PDF 冗余）
+        from pathlib import Path as _Path
+        for rec in records:
+            fp = rec.get("file_path")
+            if fp:
+                try:
+                    _Path(str(fp)).unlink(missing_ok=True)
+                except Exception:
+                    pass
         async with engine.begin() as conn:
             await conn.execute(
-                text("UPDATE minishare_announcements SET evidence_at = now() WHERE id = ANY(:ids)"),
+                text(
+                    "UPDATE minishare_announcements SET evidence_at = now(), download_status = 'purged', file_path = NULL "
+                    "WHERE id = ANY(:ids)"
+                ),
                 {"ids": record_ids},
             )
         processed += len(records)
