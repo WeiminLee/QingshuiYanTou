@@ -131,9 +131,9 @@ async def _batch_insert(records: list[dict]) -> tuple[int, int]:
 
 
 async def load_candidate_pool_codes() -> list[str]:
-    """从 candidate_pool 表加载候选股票代码。"""
+    """从 candidate_pool 表加载候选股票代码（仅活跃 target pool）。"""
     async with engine.connect() as conn:
-        rows = await conn.execute(text("SELECT ts_code FROM candidate_pool ORDER BY ts_code"))
+        rows = await conn.execute(text("SELECT ts_code FROM candidate_pool WHERE is_active = true ORDER BY ts_code"))
         return [row[0] for row in rows.fetchall()]
 
 
