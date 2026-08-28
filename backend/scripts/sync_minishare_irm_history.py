@@ -254,6 +254,7 @@ async def main(
     end_date_str: str | None = None,
     batch_size: int = BATCH_SIZE,
     dry_run: bool = False,
+    force: bool = False,
 ) -> dict[str, Any]:
     """主函数"""
     start_time = time.time()
@@ -274,8 +275,8 @@ async def main(
     sz_codes = [c for c in pool_codes if c.endswith(".SZ")]
     sh_codes = [c for c in pool_codes if c.endswith(".SH")]
 
-    # 已处理的股票（跳过，避免重复 API 调用）
-    processed = await get_processed_stocks()
+    # 已处理的股票（跳过，避免重复 API 调用；--force 时强制全量重跑 2 年窗口，靠 ON CONFLICT 去重）
+    processed = set() if force else await get_processed_stocks()
     unprocessed = [c for c in pool_codes if c not in processed and (c.endswith(".SZ") or c.endswith(".SH"))]
     already_done = len(pool_codes) - len(unprocessed) - len([c for c in pool_codes if not (c.endswith(".SZ") or c.endswith(".SH"))])
 
@@ -369,6 +370,7 @@ if __name__ == "__main__":
     parser.add_argument("--end-date", help="结束日期 YYYYMMDD (默认: 今天)")
     parser.add_argument("--batch-size", type=int, default=BATCH_SIZE)
     parser.add_argument("--dry-run", action="store_true", help="试运行")
+    parser.add_argument("--force", action="store_true", help="强制全量重跑（忽略已处理标记，靠去重跳过重复）")
     args = parser.parse_args()
 
     asyncio.run(
@@ -377,5 +379,6 @@ if __name__ == "__main__":
             end_date_str=args.end_date,
             batch_size=args.batch_size,
             dry_run=args.dry_run,
+            force=args.force,
         )
     )
