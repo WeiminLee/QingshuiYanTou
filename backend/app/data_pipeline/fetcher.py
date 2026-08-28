@@ -1079,9 +1079,9 @@ class DataFetcher:
         bf_cfg = load_backfill_settings()
         requested_scope = "all_market" if ts_codes is None else ",".join(ts_codes[:5])
         if ts_codes is None:
-            # 股票列表从 stocks 表读取（tinyshare 写入），不再依赖 baostock get_stocks_basic
+            # 股票列表从 candidate_pool 读取（target pool：半导体/光模块/AI算力主题池）
             async with engine.connect() as conn:
-                _r = await conn.execute(text("SELECT ts_code FROM stocks ORDER BY ts_code"))
+                _r = await conn.execute(text("SELECT ts_code FROM candidate_pool WHERE is_active = true ORDER BY ts_code"))
                 ts_codes = [row[0] for row in _r.fetchall()]
             if bf_cfg.scope == "tech_mvp" and bf_cfg.ts_codes:
                 before = len(ts_codes)

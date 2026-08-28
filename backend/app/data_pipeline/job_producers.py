@@ -68,9 +68,9 @@ async def enqueue_recent_cninfo_jobs(
 
 
 async def _list_stock_ts_codes() -> list[str]:
-    """从 stocks 表读取全量 A 股 ts_code（由 tinyshare sync_stock_basic 写入）。"""
+    """从 candidate_pool 读取活跃 target pool 股票（半导体/光模块/AI算力等主题池）。"""
     async with engine.connect() as conn:
-        result = await conn.execute(text("SELECT ts_code FROM stocks ORDER BY ts_code"))
+        result = await conn.execute(text("SELECT ts_code FROM candidate_pool WHERE is_active = true ORDER BY ts_code"))
         return [row[0] for row in result.fetchall()]
 
 
