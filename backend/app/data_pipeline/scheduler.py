@@ -48,8 +48,15 @@ def _is_trading_hours() -> bool:
 
 
 def _is_extraction_window() -> bool:
-    """判断当前是否在抽取夜间窗口（23:00 ~ 次日 08:00），避开 pjlab 白天负载高峰。"""
-    t = datetime.now(TRADING_TZ).time()
+    """判断当前是否在抽取窗口。
+
+    - 工作日：仅夜间 23:00 ~ 次日 08:00（避开 pjlab 白天高负载）
+    - 周末（周六/周日）：全天可抽取
+    """
+    now = datetime.now(TRADING_TZ)
+    if now.weekday() >= 5:  # 周六(5) / 周日(6)
+        return True
+    t = now.time()
     return t >= time(23, 0) or t < time(8, 0)
 
 
