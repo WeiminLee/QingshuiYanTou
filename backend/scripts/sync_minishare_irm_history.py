@@ -69,11 +69,11 @@ def _parse_trade_date(trade_date) -> datetime.date | None:
         return None
 
 
-def _generate_cninfo_id(ts_code: str, trade_date, question: str) -> str:
-    """生成唯一 cninfo_id。"""
-    q_part = question[:24] if question else "unknown"
-    hash_part = hashlib.md5(q_part.encode()).hexdigest()[:24]
-    return f"irm_ms_{ts_code}_{trade_date}_{hash_part}"
+def _generate_cninfo_id(ts_code: str, exchange: str, question_time, question: str) -> str:
+    """生成唯一 cninfo_id（与 fetcher._save_irm_record 的 _stable_id 公式一致，保证去重）。"""
+    q_hash = hashlib.md5(question.encode("utf-8", errors="replace")).hexdigest()[:10]
+    raw = "".join([str(exchange), str(ts_code), str(question_time or "-"), str(q_hash)]).encode("utf-8", errors="replace")
+    return f"irm_{hashlib.sha1(raw).hexdigest()[:16]}"
 
 
 def _get_exchange(ts_code: str) -> str:
@@ -207,8 +207,8 @@ async def sync_stock(
         if ann_date is None:
             continue
 
-        # 生成唯一 ID
-        cninfo_id = _generate_cninfo_id(ts_code, trade_date_val, question)
+        # 生成唯一 ID（与每日抓取 _save_irm_record 同公式，避免重复）
+        cninfo_id = _generate_cninfo_id(ts_code, exchange, trade_date_val, question)
 
         source_name = "上证e互动" if exchange == "SH" else "深证互动易"
 
@@ -221,7 +221,7 @@ async def sync_stock(
                 "type": answer,
                 "cninfo_id": cninfo_id,
                 "announcement_type": f"irm:{exchange}",
-                "source_type": "minishare",
+                "source_type": "irm",
                 "source_name": source_name,
                 "confidence_tier": "Tier2",
             }
