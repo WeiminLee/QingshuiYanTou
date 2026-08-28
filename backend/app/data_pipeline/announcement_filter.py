@@ -86,6 +86,10 @@ def classify_title(title: str) -> tuple[str, str]:
     if not title:
         return ("unknown", DOC_TYPE_SKIP)
 
+    # 摘要类（如"半年度报告摘要"）是完整报告的浓缩子集，跳过下载以免冗余
+    if "摘要" in title:
+        return ("other", DOC_TYPE_SKIP)
+
     for keyword, (doc_type, action) in TITLE_CLASSIFICATION.items():
         if keyword in title:
             return (doc_type, action)
