@@ -443,6 +443,45 @@ async def _run_evidence_worker_job() -> None:
         logger.warning("[evidence_worker] 执行异常: %s", exc)
 
 
+async def _run_announcement_ingestion_job() -> None:
+    """公告 PDF → evidence 切分 + 入队（幂等，抽取窗口前夜跑）。"""
+    from app.knowledge.evidence import stable_evidence_id
+    from app.knowledge.evidence_service import EvidenceService
+    from scripts.ingest_announcements_to_kg import build_announcement_evidence, get_announcements
+
+    service = EvidenceService()
+    batch = 200
+    offset = 0
+    processed = evidence_created = jobs_queued = 0
+    while True:
+        records = await get_announcements(limit=batch, offset=offset)
+        if not records:
+            break
+        offset += len(records)
+        all_inputs = []
+        for rec in records:
+            try:
+                all_inputs.extend(build_announcement_evidence(rec))
+            except Exception as exc:
+                logger.warning("公告 evidence 构建失败 [%s]: %s", str(rec.get("title", ""))[:40], exc)
+        if all_inputs:
+            written = await service.bulk_upsert_evidence(all_inputs)
+            evidence_ids = list({
+                stable_evidence_id(i.source_type, i.source_id, 0, i.text_excerpt)
+                for i in all_inputs
+            })
+            enqueued = await service.bulk_enqueue_jobs(evidence_ids)
+            evidence_created += written
+            jobs_queued += enqueued
+        processed += len(records)
+        if processed % 1000 == 0:
+            logger.info("[announcement_ingestion] 进度 %d", processed)
+    logger.info(
+        "[announcement_ingestion] 完成: 处理 %d 条公告, evidence %d, jobs %d",
+        processed, evidence_created, jobs_queued,
+    )
+
+
 async def _run_pdf_rotation_job() -> None:
     from app.knowledge.pdf_rotator import rotate_old_pdfs
 
@@ -689,6 +728,14 @@ class Scheduler:
             max_instances=1,
             coalesce=True,
         )
+        self._scheduler.add_job(
+            _run_announcement_ingestion_job,
+            CronTrigger(hour=23, minute=30, timezone=TIMEZONE),
+            id="announcement_ingestion_daily",
+            replace_existing=True,
+            max_instances=1,
+            coalesce=True,
+        )
         add_pdf_rotation_job(self._scheduler)
         # batch_reindex 未注册：reindex_missing_vectors 尚未实现（缺 kg_extraction_index.vector_indexed
         # 字段），且现网向量在抽取时已内联写入（evidence_worker / kg_extractor），无"缺失向量待补"场景。
@@ -763,6 +810,7 @@ class Scheduler:
             (_run_ingestion_worker_job(), "ingestion_worker_startup"),
             (_run_sync_stocks_job(), "sync_stocks_startup"),
             (_run_news_job(), "news_startup"),
+            (_run_announcement_ingestion_job(), "announcement_ingestion_startup"),
         ]
         if _evidence_scheduler_enabled():
             task_specs.append((_run_evidence_worker_job(), "evidence_worker_startup"))
