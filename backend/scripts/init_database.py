@@ -392,6 +392,11 @@ MIGRATIONS = [
     ALTER TABLE minishare_announcements
     ADD COLUMN IF NOT EXISTS download_status VARCHAR(20) DEFAULT 'pending';
     """,
+    # 021 - minishare 公告 evidence 已构建时间（记录哪些 PDF 已处理，供去重/删 PDF 判断）
+    """
+    ALTER TABLE minishare_announcements
+    ADD COLUMN IF NOT EXISTS evidence_at TIMESTAMP;
+    """,
     # 021 - 主营业务构成明细
     """
     CREATE TABLE IF NOT EXISTS main_business_revenue (

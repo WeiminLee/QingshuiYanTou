@@ -451,13 +451,13 @@ async def _run_announcement_ingestion_job() -> None:
 
     service = EvidenceService()
     batch = 200
-    offset = 0
     processed = evidence_created = jobs_queued = 0
     while True:
-        records = await get_announcements(limit=batch, offset=offset)
+        # 始终 offset=0：靠 evidence_at IS NULL 过滤已处理，避免 offset 分页与就地标记冲突
+        records = await get_announcements(limit=batch, offset=0)
         if not records:
             break
-        offset += len(records)
+        record_ids = [r["id"] for r in records]
         all_inputs = []
         for rec in records:
             try:
@@ -473,6 +473,12 @@ async def _run_announcement_ingestion_job() -> None:
             enqueued = await service.bulk_enqueue_jobs(evidence_ids)
             evidence_created += written
             jobs_queued += enqueued
+        # 标记已 build evidence（记录哪些 PDF 已处理，供去重 + 后续删 PDF 判断）
+        async with engine.begin() as conn:
+            await conn.execute(
+                text("UPDATE minishare_announcements SET evidence_at = now() WHERE id = ANY(:ids)"),
+                {"ids": record_ids},
+            )
         processed += len(records)
         if processed % 1000 == 0:
             logger.info("[announcement_ingestion] 进度 %d", processed)

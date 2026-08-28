@@ -50,8 +50,8 @@ async def get_announcements(
     limit: int | None = None,
     offset: int = 0,
 ) -> list[dict]:
-    """从 minishare_announcements 表读取有 PDF 的公告记录。"""
-    conditions = ["file_path IS NOT NULL"]
+    """从 minishare_announcements 表读取「有 PDF 且尚未 build evidence」的公告记录。"""
+    conditions = ["file_path IS NOT NULL", "evidence_at IS NULL"]
     params: dict[str, int | str] = {}
     if ts_code:
         conditions.append("ts_code = :ts_code")

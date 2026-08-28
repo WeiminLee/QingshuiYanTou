@@ -328,50 +328,47 @@ def build_announcement_evidence(
     if not keep_chapters:
         return []
 
-    # 每一章独立为一条 evidence（不合并），避免年报全文 22 万字塞进一条
-    evidence_list: list[EvidenceInput] = []
+    # 所有 keep 章节合并为一条 evidence（全文上下文完整；抽取侧会按 max_tokens 内部分块）
+    merged_parts = []
     for ch in keep_chapters:
         heading = ch.get("heading", "")
         body = ch.get("body", "")
-        chapter_text = f"## {heading}\n\n{body}" if heading else body
-        evidence_list.append(
-            EvidenceInput(
-                source_type="announcement",
-                source_name=f"公告:{ts_code}" if ts_code else "公告",
-                source_id=f"{source_id}#ch{ch['index']}",
-                text_excerpt=chapter_text,
-                subject_hint={
-                    "ts_code": ts_code,
-                    "name": company_name,
-                    "ann_type": ann_type,
-                    "title": title,
-                    "chapter": heading,
-                },
-                publish_date=ann_date,
-                observed_at=_utc_now(),
-                source_ref={
-                    "source_table": "announcements",
-                    "ann_id": ann_id,
-                    "ann_date": ann_date,
-                    "local_pdf": local_pdf if has_local_pdf else None,
-                    "pdf_url": pdf_url,
-                    "is_aggregated": False,
-                    "chapter_index": ch["index"],
-                    "chapter_heading": heading,
-                    "total_chapters": len(chapters),
-                },
-                confidence=default_source_confidence("announcement"),
-                metadata={
-                    "title": title,
-                    "has_pdf": has_local_pdf,
-                    "is_aggregated": False,
-                    "chapter": heading,
-                    "chapter_index": ch["index"],
-                    "total_chapters": len(chapters),
-                },
-            )
-        )
+        merged_parts.append(f"## {heading}\n\n{body}" if heading else body)
+    merged_text = "\n\n".join(merged_parts)
 
-    return evidence_list
+    return [
+        EvidenceInput(
+            source_type="announcement",
+            source_name=f"公告:{ts_code}" if ts_code else "公告",
+            source_id=source_id,
+            text_excerpt=merged_text,
+            subject_hint={
+                "ts_code": ts_code,
+                "name": company_name,
+                "ann_type": ann_type,
+                "title": title,
+            },
+            publish_date=ann_date,
+            observed_at=_utc_now(),
+            source_ref={
+                "source_table": "minishare_announcements",
+                "ann_id": ann_id,
+                "ann_date": ann_date,
+                "local_pdf": local_pdf if has_local_pdf else None,
+                "pdf_url": pdf_url,
+                "is_aggregated": True,
+                "merged_chapters": [ch["heading"] for ch in keep_chapters],
+                "total_chapters": len(chapters),
+            },
+            confidence=default_source_confidence("announcement"),
+            metadata={
+                "title": title,
+                "has_pdf": has_local_pdf,
+                "is_aggregated": True,
+                "chapter_count": len(keep_chapters),
+                "total_chapters": len(chapters),
+            },
+        )
+    ]
 
 
