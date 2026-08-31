@@ -76,8 +76,13 @@ async def chat_async(
     timeout: int = 180,
     thinking: bool = False,
     max_tokens: int | None = None,
+    stream: bool = False,
 ) -> str:
-    """Async LLM 调用 — 不阻塞事件循环"""
+    """Async LLM 调用 — 不阻塞事件循环
+
+    stream=True：用流式请求累计 delta 返回。网关（pjlab nginx）60s 超时只掐
+    「无数据返回」的请求，流式下 token 持续到达即可超过该限制，适合长文本抽取。
+    """
     from app.config import settings
 
     client = await get_async_llm_client()
@@ -92,6 +97,17 @@ async def chat_async(
     # 推理模型默认开启 thinking，不显式关闭会输出思考文字污染 JSON（deepseek / minimax 均需关闭）
     if "deepseek" in (kwargs["model"]).lower() or "minimax" in (kwargs["model"]).lower():
         kwargs["extra_body"] = {"thinking": {"type": "disabled"}}
+    if stream:
+        kwargs["stream"] = True
+        chunks: list[str] = []
+        stream_resp = await client.chat.completions.create(**kwargs)
+        async for chunk in stream_resp:
+            if chunk.choices:
+                delta = chunk.choices[0].delta.content
+                if delta:
+                    chunks.append(delta)
+        content = "".join(chunks)
+        return _strip_thinking_tags(content)
     response = await client.chat.completions.create(**kwargs)
     content = response.choices[0].message.content or ""
     return _strip_thinking_tags(content)

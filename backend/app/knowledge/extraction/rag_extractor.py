@@ -286,6 +286,7 @@ async def _call_llm_async(prompt: str, timeout: int = 180, max_tokens: int | Non
                 temperature=0.1,
                 timeout=timeout,
                 max_tokens=max_tokens,
+                stream=True,  # 流式绕过网关 60s 无数据超时（长文本抽取必超）
             )
         except Exception as e:
             last_exc = e
