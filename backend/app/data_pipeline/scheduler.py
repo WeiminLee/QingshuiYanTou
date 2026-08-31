@@ -426,17 +426,21 @@ async def _run_news_job() -> None:
 
 
 async def _run_evidence_worker_job() -> None:
-    """知识层证据提取定时任务（每 30 秒，仅夜间 23:00~08:00 窗口内执行）。
+    """知识层证据提取定时任务（每 30 秒，全天 24h 运行）。
 
-    抽取用快模型（llm_extraction_model），在 pjlab 低负载时段运行，
-    避免白天高负载下的 504 超时。
+    并发按时段分级，尽量避免 pjlab 白天高负载的 504：
+    - 抽取窗口（工作日 22:00~08:00 / 周末全天）：EVIDENCE_CONCURRENCY（默认 8）
+      pjlab 流控 60RPM/5000万TPM 余量巨大，夜间单条 ~30s 时 8 并发仅占 ~16 RPM
+    - 白天（非窗口）：EVIDENCE_CONCURRENCY_DAY（默认 2），pjlab 白天单条 45~120s，
+      低并发 + _call_llm_async 三次退避重试把 504 概率压到最低
     """
-    if not _is_extraction_window():
-        return
     from app.knowledge.evidence_worker import EvidenceExtractionWorker
 
     try:
-        concurrency = int(os.getenv("EVIDENCE_CONCURRENCY", "3"))
+        if _is_extraction_window():
+            concurrency = int(os.getenv("EVIDENCE_CONCURRENCY", "8"))
+        else:
+            concurrency = int(os.getenv("EVIDENCE_CONCURRENCY_DAY", "2"))
         worker = EvidenceExtractionWorker(batch_size=10, max_concurrency=concurrency)
         result = await worker.run_once(limit=200, job_type="combined")
         if result.get("claimed", 0) > 0:
