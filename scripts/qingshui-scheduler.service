@@ -18,7 +18,7 @@ StandardError=journal
 SyslogIdentifier=qingshui-scheduler
 
 # Resource limits
-MemoryMax=2G
+MemoryMax=3G
 CPUQuota=200%
 
 [Install]

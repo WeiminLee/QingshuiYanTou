@@ -142,43 +142,44 @@ def extract_pdf_sections(
         logger.error("PDF 打开失败 [%s]: %s", pdf_path, e)
         return sections
 
-    total_pages = min(len(doc), max_pages)
+    try:
+        total_pages = min(len(doc), max_pages)
 
-    for page_idx in range(total_pages):
-        page = doc[page_idx]
-        page_num = page_idx + 1
+        for page_idx in range(total_pages):
+            try:
+                page = doc[page_idx]
+                page_num = page_idx + 1
+                page_text = page.get_text("text")
+            except Exception as e:
+                logger.debug("PDF 文本提取失败 [%s p%d]: %s", pdf_path, page_idx + 1, e)
+                continue
 
-        try:
-            page_text = page.get_text("text")
-        except Exception as e:
-            logger.debug("PDF 文本提取失败 [%s p%d]: %s", pdf_path, page_num, e)
-            continue
+            if not page_text.strip():
+                continue
 
-        if not page_text.strip():
-            continue
+            # 按行分割，过滤页眉页脚
+            lines = page_text.split("\n")
+            filtered_lines: list[str] = []
+            for line in lines:
+                if not _is_header_footer_line(line):
+                    filtered_lines.append(line)
 
-        # 按行分割，过滤页眉页脚
-        lines = page_text.split("\n")
-        filtered_lines: list[str] = []
-        for line in lines:
-            if not _is_header_footer_line(line):
-                filtered_lines.append(line)
+            page_clean = "\n".join(filtered_lines).strip()
+            if not page_clean:
+                continue
 
-        page_clean = "\n".join(filtered_lines).strip()
-        if not page_clean:
-            continue
+            page_clean = _clean_text(page_clean)
 
-        page_clean = _clean_text(page_clean)
-
-        sections.append(
-            PdfSection(
-                text=page_clean,
-                pos=f"p{page_num}",
-                page_num=page_num,
+            sections.append(
+                PdfSection(
+                    text=page_clean,
+                    pos=f"p{page_num}",
+                    page_num=page_num,
+                )
             )
-        )
+    finally:
+        doc.close()
 
-    doc.close()
     return sections
 
 

@@ -1257,11 +1257,11 @@ async def extract_evidence_async(
         logger.warning("文本过长 (%d 字符), 截断至 %d 字符", len(text), MAX_CHARS)
         text = text[:MAX_CHARS]
 
-    # 交给 rag_extractor 内部按 max_tokens 分块，避免把整条 evidence 文本
-    # 作为一次超大 LLM 调用而触发 pjlab 网关 504 超时（IRM 证据可能很长）
+    # 整条 evidence 作为一次 LLM 调用，但用「大块」分块（8000 token/块）避免单次文本过长；
+    # 常规公告≈1 块（等于整条），超长公告（年报等）自动切成少数几块，兼顾上下文完整与 JSON 不被截断
     merged_entities, merged_relations, signals = await rag_extract_async(
         text,
-        max_tokens=1024,
+        max_tokens=8000,
         source_file=source_name,
         source_type=source_type,
     )

@@ -394,10 +394,14 @@ async def _extract_single_chunk(
     raw = await _call(prompt)
     result = _parse_json_output(raw)
 
-    # 首轮失败 → 重试一次（相同 prompt）
+    # 首轮 JSON 解析失败 → 带 JSON 约束重试（强化输出格式，而非简单重复相同 prompt）
     if result is None:
-        logger.warning("Chunk %d 首轮 JSON 解析失败，重试（相同 prompt）", chunk.chunk_id)
-        raw = await _call(prompt)
+        logger.warning("Chunk %d 首轮 JSON 解析失败，带 JSON 约束重试", chunk.chunk_id)
+        json_constraint = (
+            "\n\n【JSON 输出约束】必须只输出一个完整、合法的 JSON 对象（可被 json.loads 直接解析）："
+            "不要 Markdown 代码块、不要注释、不要任何多余文字，所有大括号/方括号务必闭合完整。"
+        )
+        raw = await _call(prompt + json_constraint)
         result = _parse_json_output(raw)
 
     # 仍失败 → 用简化 prompt 再试一次（去掉 section_title 等可能干扰的上下文）

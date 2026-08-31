@@ -436,7 +436,8 @@ async def _run_evidence_worker_job() -> None:
     from app.knowledge.evidence_worker import EvidenceExtractionWorker
 
     try:
-        worker = EvidenceExtractionWorker(batch_size=10, max_concurrency=3)
+        concurrency = int(os.getenv("EVIDENCE_CONCURRENCY", "3"))
+        worker = EvidenceExtractionWorker(batch_size=10, max_concurrency=concurrency)
         result = await worker.run_once(limit=200, job_type="combined")
         if result.get("claimed", 0) > 0:
             logger.info("[evidence_worker] combined: %s", result)
@@ -468,7 +469,14 @@ async def _run_announcement_ingestion_job() -> None:
         all_inputs = []
         for rec in records:
             try:
-                all_inputs.extend(build_announcement_evidence(rec))
+                # 线程 + 超时：坏 PDF 可能让 pymupdf 卡死，60s 超时跳过，避免阻塞整个切割
+                result = await asyncio.wait_for(
+                    asyncio.to_thread(build_announcement_evidence, rec),
+                    timeout=60,
+                )
+                all_inputs.extend(result)
+            except asyncio.TimeoutError:
+                logger.warning("公告 evidence 构建超时(60s)跳过 [%s]", str(rec.get("title", ""))[:40])
             except Exception as exc:
                 logger.warning("公告 evidence 构建失败 [%s]: %s", str(rec.get("title", ""))[:40], exc)
         if all_inputs:

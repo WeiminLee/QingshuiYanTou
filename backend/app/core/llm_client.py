@@ -89,8 +89,8 @@ async def chat_async(
     }
     if max_tokens is not None:
         kwargs["max_tokens"] = max_tokens
-    # deepseek 推理模型默认开启 thinking，不显式关闭会消耗大量 token 且输出空 content
-    if "deepseek" in (kwargs["model"]).lower():
+    # 推理模型默认开启 thinking，不显式关闭会输出思考文字污染 JSON（deepseek / minimax 均需关闭）
+    if "deepseek" in (kwargs["model"]).lower() or "minimax" in (kwargs["model"]).lower():
         kwargs["extra_body"] = {"thinking": {"type": "disabled"}}
     response = await client.chat.completions.create(**kwargs)
     content = response.choices[0].message.content or ""
@@ -182,8 +182,8 @@ def chat(
     }
     if max_tokens is not None:
         kwargs["max_tokens"] = max_tokens
-    # deepseek 推理模型默认开启 thinking，显式关闭
-    if "deepseek" in (kwargs["model"]).lower():
+    # 推理模型默认开启 thinking，显式关闭（deepseek / minimax 均需关闭）
+    if "deepseek" in (kwargs["model"]).lower() or "minimax" in (kwargs["model"]).lower():
         kwargs["extra_body"] = {"thinking": {"type": "disabled"}}
     response = client.chat.completions.create(**kwargs)
     return response.choices[0].message.content or ""
