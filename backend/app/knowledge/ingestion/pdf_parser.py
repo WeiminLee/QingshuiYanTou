@@ -18,6 +18,11 @@ from dataclasses import dataclass
 
 import pymupdf
 
+try:
+    import pymupdf4llm
+except ImportError:  # optional enhancement; PyMuPDF remains the fallback
+    pymupdf4llm = None
+
 logger = logging.getLogger(__name__)
 
 
@@ -177,9 +182,50 @@ def extract_pdf_sections(
                     page_num=page_num,
                 )
             )
+
+            # Table extraction is deliberately lazy: only invoke pdfplumber on
+            # pages whose text looks tabular, keeping the fast PyMuPDF path for
+            # ordinary prose.  Failures fall back to the already captured text.
+            if extract_tables and _looks_like_table(page_text):
+                sections.extend(_extract_table_sections(pdf_path, page_num))
     finally:
         doc.close()
 
+    return sections
+
+
+def _looks_like_table(text: str) -> bool:
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    if len(lines) < 3:
+        return False
+    numeric = sum(1 for line in lines if len(re.findall(r"[\d%,]", line)) >= 3)
+    return numeric >= 2 or sum("  " in line for line in lines) >= 2
+
+
+def _extract_table_sections(pdf_path: str, page_num: int) -> list[PdfSection]:
+    try:
+        import pdfplumber
+
+        with pdfplumber.open(pdf_path) as pdf:
+            page = pdf.pages[page_num - 1]
+            tables = page.extract_tables() or []
+    except Exception as exc:
+        logger.debug("table extraction skipped [%s p%d]: %s", pdf_path, page_num, exc)
+        return []
+
+    sections: list[PdfSection] = []
+    for table in tables:
+        rows = [[str(cell or "").replace("\n", " ").strip() for cell in row] for row in table]
+        rows = [row for row in rows if any(row)]
+        if len(rows) < 2:
+            continue
+        width = max(len(row) for row in rows)
+        rows = [row + [""] * (width - len(row)) for row in rows]
+        header, body = rows[0], rows[1:]
+        markdown = "| " + " | ".join(header) + " |\n"
+        markdown += "| " + " | ".join(["---"] * width) + " |\n"
+        markdown += "\n".join("| " + " | ".join(row) + " |" for row in body)
+        sections.append(PdfSection(markdown, pos=f"p{page_num}", is_table=True, table_str=markdown, page_num=page_num))
     return sections
 
 
@@ -217,3 +263,17 @@ def extract_text_from_pdf(
         parts.append(sec.text)
 
     return "\n\n".join(parts)
+
+
+def extract_structured_text_from_pdf(pdf_path: str, max_pages: int = 1000) -> str:
+    """Extract Markdown-like headings/paragraphs when pymupdf4llm is available."""
+    if pymupdf4llm is None:
+        return extract_text_from_pdf(pdf_path, max_pages=max_pages)
+    try:
+        doc = pymupdf.open(pdf_path)
+        pages = list(range(min(len(doc), max_pages)))
+        doc.close()
+        return pymupdf4llm.to_markdown(pdf_path, pages=pages)
+    except Exception as exc:
+        logger.warning("structured PDF extraction failed [%s]: %s", pdf_path, exc)
+        return extract_text_from_pdf(pdf_path, max_pages=max_pages)
