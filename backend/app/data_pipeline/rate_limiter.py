@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 RateLimiter - API 限速器
 

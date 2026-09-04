@@ -93,6 +93,10 @@ class Settings(BaseSettings):
     api_key: str = ""  # API 访问密钥，必填
     cors_origins: str = "http://localhost:3000,http://localhost:8080"  # CORS 允许的 origins，逗号分隔
     enable_api_scheduler: bool = False  # 默认使用独立 scheduler，避免 API 与独立进程重复消费
+    knowledge_api_url: str = ""  # 本机 Agent 访问云端 Knowledge API 的入口
+    knowledge_api_key: str = ""  # 本机 Agent 访问云端 Knowledge API 的密钥
+    agent_database_fallback: bool = False  # 本机 Agent 是否允许直连数据库作为显式 fallback
+    pdf_storage_root: Path = Path("/Users/lwm/data/qingshui_pdfs")  # 本机 PDF 缓存/Worker 目录
 
     # Sub-Project 1: 用户与持仓基础
     master_password: str = Field(default="", description="主密码（启动校验长度>=8）")

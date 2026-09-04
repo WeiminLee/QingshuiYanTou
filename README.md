@@ -415,3 +415,13 @@ pnpm test
 - 面向 Agent 的 ResearchContext 工具层。
 - StructuredFact 的更多行业状态维度和验证集。
 - 抽取版本升级后的批量重抽和质量评估。
+# 远程 PDF / Evidence Worker
+
+远程 Worker 的部署与回滚说明见 [`docs/运维/云端知识底座Phase1.md`](docs/运维/云端知识底座Phase1.md)。云端启动前先执行：
+
+```bash
+ssh lwm-desktop-server 'cd ~/qingshui-worker/backend && python -m scripts.worker_preflight'
+ssh lwm-desktop-server 'cd ~/qingshui-worker/backend && python -m scripts.knowledge_health'
+```
+
+Worker 使用 `docker-compose.cloud.yml` 覆盖配置，默认并发为 1；不要将 MongoDB、PostgreSQL、Qdrant 端口暴露到公网。

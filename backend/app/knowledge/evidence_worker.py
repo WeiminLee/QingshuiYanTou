@@ -26,7 +26,14 @@ class EvidenceExtractionWorker:
         batch_size: int = 5,
         max_concurrency: int = 5,
     ):
-        self.service = service or EvidenceService()
+        if service is None:
+            import os
+            if os.getenv("KNOWLEDGE_API_URL") and os.getenv("KNOWLEDGE_API_KEY"):
+                from app.knowledge.remote_evidence_service import RemoteEvidenceService
+                service = RemoteEvidenceService(os.environ["KNOWLEDGE_API_URL"], os.environ["KNOWLEDGE_API_KEY"])
+            else:
+                service = EvidenceService()
+        self.service = service
         self.worker_id = worker_id or f"worker-{socket.gethostname()}-{int(time.time())}"
         self.batch_size = batch_size
         self.max_concurrency = max_concurrency
@@ -97,6 +104,7 @@ class EvidenceExtractionWorker:
             await self.service.mark_job_failed(job_id, "Evidence not found")
             return {"status": "failed", "error": "Evidence not found"}
 
+        heartbeat_task = asyncio.create_task(self._heartbeat(job_id))
         try:
             if job_type == JOB_COMBINED:
                 if evidence.get("source_type") == "irm":
@@ -107,8 +115,19 @@ class EvidenceExtractionWorker:
                             job_id, f"IRM classified as '{category}'; no KG extraction"
                         )
                         return {"status": "skipped", "reason": category}
-                # LLM 提取实体/关系 → Neo4j 持久化（信号由 LLM 一并抽取）
-                result = await extract_evidence_async(evidence)
+                # Remote workers write KG through the cloud API; local fallback keeps legacy path.
+                import os
+                if os.getenv("KNOWLEDGE_API_URL") and os.getenv("KNOWLEDGE_API_KEY"):
+                    import httpx
+                    async with httpx.AsyncClient(timeout=180) as client:
+                        resp = await client.post(
+                            os.environ["KNOWLEDGE_API_URL"].rstrip("/") + "/api/v1/knowledge/kg/extract/text",
+                            headers={"X-API-Key": os.environ["KNOWLEDGE_API_KEY"]},
+                            json={"text": evidence.get("text_excerpt", ""), "ts_code": (evidence.get("subject_hint") or {}).get("ts_code") or "UNKNOWN", "source_name": evidence.get("source_name", "evidence"), "source_type": evidence.get("source_type", "announcement"), "article_ref": evidence_id},
+                        )
+                        resp.raise_for_status(); result = resp.json()
+                else:
+                    result = await extract_evidence_async(evidence)
                 await self.service.mark_job_done(job_id, result)
                 return {"status": "done", **result}
             if job_type == JOB_VECTOR:
@@ -128,3 +147,18 @@ class EvidenceExtractionWorker:
         except Exception as exc:  # noqa: BLE001
             await self.service.mark_job_failed(job_id, str(exc))
             return {"status": "failed", "error": str(exc)}
+        finally:
+            heartbeat_task.cancel()
+            await asyncio.gather(heartbeat_task, return_exceptions=True)
+
+    async def _heartbeat(self, job_id: str) -> None:
+        """Keep a long-running claim alive; silently stop on service errors."""
+        while True:
+            await asyncio.sleep(60)
+            try:
+                owned = await self.service.heartbeat_job(job_id, self.worker_id)
+                if not owned:
+                    logger.warning("Evidence job lock ownership lost [%s]", job_id)
+                    return
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Evidence job heartbeat failed [%s]: %s", job_id, exc)

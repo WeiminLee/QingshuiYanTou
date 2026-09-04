@@ -1,0 +1,40 @@
+services:
+  backend:
+    environment:
+      AGENT_DATABASE_FALLBACK: ${AGENT_DATABASE_FALLBACK:-false}
+      KNOWLEDGE_API_URL: ${KNOWLEDGE_API_URL:-http://10.20.0.1:8080}
+      KNOWLEDGE_API_KEY: ${KNOWLEDGE_API_KEY:-}
+      PDF_STORAGE_ROOT: ${PDF_STORAGE_ROOT:-/Users/lwm/data/qingshui_pdfs}
+
+  pdf-download-worker:
+    profiles:
+      - local-agent
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    command: python -m scripts.pdf_download_worker
+    environment:
+      PDF_STORAGE_ROOT: ${PDF_STORAGE_ROOT:-/Users/lwm/data/qingshui_pdfs}
+      WORKER_ROLE: pdf-download
+    volumes:
+      - ${PDF_STORAGE_ROOT:-/Users/lwm/data/qingshui_pdfs}:/data/qingshui-pdfs:rw
+    restart: unless-stopped
+    networks:
+      - qingshui-net
+
+  evidence-worker:
+    profiles:
+      - local-agent
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    command: python -m scripts.knowledge_worker --role evidence-extraction
+    environment:
+      AGENT_DATABASE_FALLBACK: ${AGENT_DATABASE_FALLBACK:-false}
+      PDF_STORAGE_ROOT: ${PDF_STORAGE_ROOT:-/Users/lwm/data/qingshui_pdfs}
+      WORKER_ROLE: evidence-extraction
+    volumes:
+      - ${PDF_STORAGE_ROOT:-/Users/lwm/data/qingshui_pdfs}:/data/qingshui-pdfs:ro
+    restart: unless-stopped
+    networks:
+      - qingshui-net

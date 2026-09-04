@@ -13,6 +13,7 @@ from app.data_pipeline.job_queue import (
     JOB_SUCCESS,
     IngestionJobRecord,
 )
+from app.data_pipeline.pdf_download_contract import PdfDownloadJobPayload
 
 
 @dataclass(frozen=True)
@@ -37,6 +38,12 @@ async def execute_ingestion_job(
         result = await active_fetcher.fetch_irm(ts_codes=[ts_code], extract_to_kg=True)
         return _result_from_fetcher_result(result)
     raise ValueError(f"unsupported ingestion job_type: {job.job_type}")
+
+
+def parse_pdf_download_job_payload(payload: dict[str, Any]) -> PdfDownloadJobPayload:
+    """Validate the durable PDF download job contract."""
+
+    return PdfDownloadJobPayload.from_payload(payload)
 
 
 def _result_from_fetcher_result(result: dict[str, Any]) -> JobExecutionResult:

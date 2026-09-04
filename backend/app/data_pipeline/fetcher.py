@@ -31,6 +31,8 @@ from app.data_pipeline.announcement_filter import (
 from app.data_pipeline.announcement_filter import (
     classify_title as classify_ann_title,
 )
+from app.data_pipeline.job_queue import JOB_PDF_DOWNLOAD, IngestionJobQueue
+from app.data_pipeline.pdf_download_contract import PdfDownloadJobPayload
 from app.data_pipeline.file_storage import FileStorage
 from app.data_pipeline.minishare_client import DataSourceClientMinishare
 from app.data_pipeline.progress import (
@@ -150,6 +152,7 @@ class DataFetcher:
     ) -> None:
         self._registry = registry
         self.storage = FileStorage()
+        self.job_queue = IngestionJobQueue()
         self.audit_logger = AsyncAuditLogger("data_pipeline")
         self.minishare_client = DataSourceClientMinishare()
 
@@ -424,22 +427,22 @@ class DataFetcher:
                     day_skipped += 1
                     continue
 
-                # 下载 PDF 到外部存储
-                file_path = None
-                if download_pdf and c["url"]:
+                # 云端只落元数据：入队下载任务，由桌面端执行实际下载
+                if download_pdf and c["url"] and c["ann_id"]:
+                    published_date = _yyyymmdd_to_date(date_str) or date.today()
                     safe_title = c["title"][:50].replace("/", "_").replace(" ", "")
                     if not safe_title.lower().endswith(".pdf"):
                         safe_title += ".pdf"
                     filename = f"{c['ann_id']}_{safe_title}"
-                    file_path = await asyncio.to_thread(
-                        self.storage.download_report_external,
-                        url=c["url"],
-                        ts_code=c["ts_code"],
-                        inst_csname=c["inst_csname"],
-                        trade_date=date_str,
+                    queued = await self._enqueue_pdf_download(
+                        source_url=c["url"],
+                        source_type="minishare_reports",
+                        source_id=c["ann_id"],
+                        stock_code=c["ts_code"] or "",
+                        publish_date=published_date,
                         filename=filename,
                     )
-                    if file_path is not None:
+                    if queued:
                         day_downloaded += 1
 
                 saved = await self._save_report(
@@ -597,7 +600,7 @@ class DataFetcher:
             if ts_code_val not in self._candidate_pool_cache:
                 skipped += 1
                 continue
-            ok = await self._save_minishare_ann(rec, ts_code_val)
+            ok = await self._save_minishare_ann(rec, ts_code_val, enqueue_download=True)
             if ok is True:
                 success += 1
             elif ok is None:
@@ -712,7 +715,7 @@ class DataFetcher:
                 if bf_cfg.scope == "tech_mvp" and ts_code_val not in bf_cfg.ts_codes:
                     day_skipped += 1
                     continue
-                ok = await self._save_minishare_ann(rec, ts_code_val)
+                ok = await self._save_minishare_ann(rec, ts_code_val, enqueue_download=True)
                 if ok is True:
                     day_success += 1
                 elif ok is None:
@@ -809,6 +812,7 @@ class DataFetcher:
         rec: dict[str, Any],
         ts_code: str,
         skip_download: bool = False,
+        enqueue_download: bool = False,
     ) -> bool | None:
         """保存 minishare 公告记录；True=成功，None=已存在，False=失败。
 
@@ -856,14 +860,18 @@ class DataFetcher:
             if not row:
                 return None  # 已存在
 
-            # 保存元数据后，立即下载 PDF（除非 skip_download=True）
-            if url and not skip_download:
-                await self._download_minishare_pdf(
-                    url=url,
-                    ts_code=ts_code,
-                    title=title,
-                    ann_date=ann_date,
-                    doc_type=doc_type,
+            # 保存元数据后，入队下载任务（除非 skip_download=True）
+            if url and enqueue_download and not skip_download:
+                safe_title = re.sub(r'[\\\\/:*?\"<>| ]', '_', title)[:60]
+                source_id = f"{ann_date}_{ts_code}_{safe_title}"
+                published_date = datetime.strptime(ann_date, "%Y%m%d").date()
+                await self._enqueue_pdf_download(
+                    source_url=url,
+                    source_type="minishare_announcements",
+                    source_id=source_id,
+                    stock_code=ts_code,
+                    publish_date=published_date,
+                    filename=f"{published_date.isoformat()}_{ts_code}_{source_id}.pdf",
                 )
 
             return True
@@ -871,6 +879,41 @@ class DataFetcher:
             return None
         except Exception as e:
             logger.warning("保存公告失败: %s", e)
+            return False
+
+    async def _enqueue_pdf_download(
+        self,
+        source_url: str,
+        source_type: str,
+        source_id: str,
+        stock_code: str,
+        publish_date: date,
+        filename: str,
+    ) -> bool:
+        """Cloud boundary: persist PDF job instead of downloading.
+
+        Raises:
+            Exception: 传播给上层，由上层决定是否重试。
+        """
+        payload = PdfDownloadJobPayload(
+            source_url=source_url,
+            source_type=source_type,
+            source_id=source_id,
+            stock_code=stock_code,
+            publish_date=publish_date,
+            filename=filename,
+        )
+        try:
+            await self.job_queue.enqueue_job(
+                JOB_PDF_DOWNLOAD,
+                payload.job_key,
+                payload.to_payload(),
+                priority=25,
+                max_attempts=8,
+            )
+            return True
+        except Exception as exc:
+            logger.warning("入队 PDF 下载任务失败 [%s]: %s", source_id, exc)
             return False
 
     async def _download_minishare_pdf(

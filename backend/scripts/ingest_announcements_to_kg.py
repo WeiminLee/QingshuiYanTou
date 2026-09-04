@@ -157,7 +157,8 @@ async def main():
             evidence_ids = []
             for inp in all_inputs:
                 from app.knowledge.evidence import stable_evidence_id
-                eid = stable_evidence_id(inp.source_type, inp.source_id, 0, inp.text_excerpt)
+                chunk_index = int(inp.source_ref.get("chapter_index", 0))
+                eid = stable_evidence_id(inp.source_type, inp.source_id, chunk_index, inp.text_excerpt)
                 evidence_ids.append(eid)
             # 去重
             evidence_ids = list(set(evidence_ids))

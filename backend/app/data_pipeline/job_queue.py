@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from sqlalchemy import text
@@ -20,6 +20,7 @@ JOB_DEAD = "dead"
 
 JOB_CNINFO_ANNOUNCEMENT_DATE = "cninfo_announcement_date"
 JOB_IRM_COMPANY = "irm_company"
+JOB_PDF_DOWNLOAD = "pdf_download"
 
 
 @dataclass(frozen=True)
@@ -123,14 +124,25 @@ class IngestionJobQueue:
         async with engine.begin() as connection:
             await connection.execute(sql, params)
 
-    async def claim_jobs(self, worker_id: str, limit: int = 20) -> list[IngestionJobRecord]:
+    async def claim_jobs(
+        self,
+        worker_id: str,
+        limit: int = 20,
+        job_types: list[str] | tuple[str, ...] | None = None,
+    ) -> list[IngestionJobRecord]:
+        job_type_clause = ""
+        params: dict[str, Any] = {"worker_id": worker_id, "limit": limit}
+        if job_types:
+            job_type_clause = "AND job_type = ANY(CAST(:job_types AS text[]))"
+            params["job_types"] = list(job_types)
         sql = text(
-            """
+            f"""
             WITH picked AS (
                 SELECT id
                 FROM ingestion_jobs
                 WHERE status IN ('pending', 'failed')
                   AND next_run_at <= NOW()
+                  {job_type_clause}
                 ORDER BY priority ASC, next_run_at ASC, id ASC
                 FOR UPDATE SKIP LOCKED
                 LIMIT :limit
@@ -156,10 +168,7 @@ class IngestionJobQueue:
             """
         )
         async with engine.begin() as connection:
-            result = await connection.execute(
-                sql,
-                {"worker_id": worker_id, "limit": limit},
-            )
+            result = await connection.execute(sql, params)
             rows = result.mappings().all()
 
         return [
@@ -316,7 +325,7 @@ class IngestionJobQueue:
         return bool(result.rowcount and result.rowcount > 0)
 
     async def requeue_stale_running(self, older_than_minutes: int = 60) -> int:
-        cutoff = datetime.now(UTC) - timedelta(minutes=older_than_minutes)
+        cutoff = datetime.now(timezone.utc) - timedelta(minutes=older_than_minutes)
         sql = text(
             """
             UPDATE ingestion_jobs

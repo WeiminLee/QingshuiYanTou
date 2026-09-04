@@ -5,6 +5,8 @@
 Base 统一从 app.core.database 导入，确保 alembic 与运行时使用同一个 Base 实例。
 """
 
+from __future__ import annotations
+
 from datetime import date, datetime
 from typing import Any
 
@@ -30,6 +32,7 @@ from sqlalchemy.sql import func
 
 from app.core.database import Base  # 统一 Base，与 alembic 共享
 from app.core.metadata import CURRENT_PARSER_VERSION
+from app.data_pipeline.pdf_download_contract import PdfDownloadJobPayload
 
 # ── 1. 行情层 ────────────────────────────────────────────────────────────────
 

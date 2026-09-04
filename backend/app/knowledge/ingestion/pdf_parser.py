@@ -266,7 +266,10 @@ def extract_text_from_pdf(
 
 
 def extract_structured_text_from_pdf(pdf_path: str, max_pages: int = 1000) -> str:
-    """Extract Markdown-like headings/paragraphs when pymupdf4llm is available."""
+    """Extract text quickly by default; opt into pymupdf4llm via env flag."""
+    import os
+    if os.getenv("PDF_ENABLE_PYMUPDF4LLM", "0").lower() not in {"1", "true", "yes"}:
+        return extract_text_from_pdf(pdf_path, max_pages=max_pages)
     if pymupdf4llm is None:
         return extract_text_from_pdf(pdf_path, max_pages=max_pages)
     try:

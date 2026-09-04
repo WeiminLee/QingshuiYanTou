@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 FileStorage - 文件存储模块
 
@@ -10,8 +12,6 @@ import logging
 import re
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
-
-import requests
 
 from app.data_pipeline.rate_limiter import get_cninfo_pdf_async_limiter, get_cninfo_pdf_limiter
 
@@ -91,7 +91,9 @@ class FileStorage:
         from app.config import settings
 
         # 外部存储根路径（与项目代码分离）
-        self._data_root = Path(settings.minishare_data_root)
+        # Desktop PDF workers use the explicit PDF_STORAGE_ROOT boundary;
+        # retain the legacy minishare root as fallback for cloud callers.
+        self._data_root = Path(getattr(settings, "pdf_storage_root", None) or settings.minishare_data_root)
 
         # 研报存储（外部路径）
         self.reports_dir = reports_dir or (self._data_root / "reports")
@@ -251,6 +253,8 @@ class FileStorage:
             announce_id = qs.get("announcementId", [None])[0]
             if announce_id:
                 try:
+                    import requests
+
                     resp = requests.post(
                         "http://www.cninfo.com.cn/new/announcement/bulletin_detail",
                         params={"announceId": announce_id, "flag": "true"},
@@ -280,6 +284,8 @@ class FileStorage:
             return None
         try:
             get_cninfo_pdf_limiter().wait_and_acquire()
+            import requests
+
             response = requests.get(resolved_url, timeout=30, headers=HTTP_HEADERS)
             response.raise_for_status()
 
@@ -324,6 +330,8 @@ class FileStorage:
             return None
         try:
             await get_cninfo_pdf_async_limiter().wait_and_acquire()
+            import requests
+
             response = await asyncio.to_thread(requests.get, resolved_url, timeout=30, headers=HTTP_HEADERS)
             response.raise_for_status()
             content = response.content
@@ -374,6 +382,8 @@ class FileStorage:
                 logger.debug(f"研报不下载，只建索引: {filename}")
                 return None
             get_cninfo_pdf_limiter().wait_and_acquire()
+            import requests
+
             response = requests.get(url, timeout=30, headers=HTTP_HEADERS)
             response.raise_for_status()
 
@@ -450,6 +460,8 @@ class FileStorage:
                 logger.debug(f"研报已存在，跳过下载: {file_path}")
                 return file_path
             get_cninfo_pdf_limiter().wait_and_acquire()
+            import requests
+
             response = requests.get(url, timeout=30, headers=HTTP_HEADERS)
             response.raise_for_status()
 

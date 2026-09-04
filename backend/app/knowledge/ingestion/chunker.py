@@ -380,16 +380,24 @@ def _split_oversized_chapter(chapter: Chapter, max_tokens: int) -> list[Chunk]:
 
                 sent_tokens = count_tokens(full_sentence)
                 if sent_tokens > max_tokens:
-                    # 超长句子保留原样
+                    # 超长句子也必须严格遵守上限；优先按 token 窗口切分。
                     if full_sentence.strip():
-                        chunks.append(
-                            Chunk(
-                                text=full_sentence.strip(),
-                                heading=chapter.heading,
-                                tokens=sent_tokens,
-                                source="split",
-                            )
-                        )
+                        try:
+                            enc = _get_encoder()
+                            ids = enc.encode(full_sentence)
+                            for start in range(0, len(ids), max_tokens):
+                                piece = enc.decode(ids[start : start + max_tokens]).strip()
+                                if piece:
+                                    chunks.append(Chunk(text=piece, heading=chapter.heading,
+                                                        tokens=count_tokens(piece), source="split"))
+                        except NameError:
+                            # 无 tiktoken 时按字符近似切分，仍避免产生失控大块。
+                            chars = max(1, int(len(full_sentence) * max_tokens / sent_tokens))
+                            for start in range(0, len(full_sentence), chars):
+                                piece = full_sentence[start : start + chars].strip()
+                                if piece:
+                                    chunks.append(Chunk(text=piece, heading=chapter.heading,
+                                                        tokens=count_tokens(piece), source="split"))
                 else:
                     current_para += full_sentence
                     current_tokens += sent_tokens
@@ -536,7 +544,24 @@ def chunk_text(text: str, max_tokens: int = MAX_CHUNK_TOKENS) -> list[Chunk]:
             sub_chunks = _split_oversized_chapter(chapter, max_tokens)
             result_chunks.extend(sub_chunks)
 
-    return result_chunks
+    # 最终安全阀：标题或 token 估算差异不得导致块超限。
+    bounded: list[Chunk] = []
+    for chunk in result_chunks:
+        if chunk.tokens <= max_tokens:
+            bounded.append(chunk)
+            continue
+        try:
+            enc = _get_encoder()
+            ids = enc.encode(chunk.text)
+            for start in range(0, len(ids), max_tokens):
+                piece = enc.decode(ids[start:start + max_tokens]).strip()
+                if piece:
+                    bounded.append(Chunk(text=piece, heading=chunk.heading,
+                                         tokens=count_tokens(piece), source="split"))
+        except NameError:
+            bounded.extend(_split_oversized_chapter(Chapter(chunk.heading, chunk.text), max_tokens))
+
+    return bounded
 
 
 def filter_invalid_chunks(chunks: list[Chunk]) -> list[Chunk]:

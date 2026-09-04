@@ -1,0 +1,14 @@
+services:
+  backend:
+    environment:
+      ENABLE_API_SCHEDULER: "false"
+      ENABLE_EVIDENCE_SCHEDULER: "false"
+
+  scheduler:
+    deploy:
+      replicas: 1
+
+  job-worker:
+    deploy:
+      replicas: 1
+    command: python scripts/ingestion_worker.py --interval 30 --limit 5 --timeout 900

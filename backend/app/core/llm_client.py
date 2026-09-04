@@ -101,7 +101,13 @@ async def chat_async(
         kwargs["stream"] = True
         chunks: list[str] = []
         stream_resp = await client.chat.completions.create(**kwargs)
+        # 总超时兜底：minimax thinking 泄漏会持续吐 token 导致流式永不结束，
+        # httpx 的 read timeout 只掐「无数据」，掐不住「一直有 thinking 数据」。
+        import time as _stream_time
+        _stream_start = _stream_time.monotonic()
         async for chunk in stream_resp:
+            if _stream_time.monotonic() - _stream_start > timeout:
+                raise TimeoutError(f"LLM stream total timeout {timeout}s")
             if chunk.choices:
                 delta = chunk.choices[0].delta.content
                 if delta:

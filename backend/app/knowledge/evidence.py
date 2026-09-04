@@ -47,6 +47,8 @@ STATUS_RUNNING = "running"
 STATUS_DONE = "done"
 STATUS_FAILED = "failed"
 STATUS_SKIPPED = "skipped"
+STATUS_BLOCKED = "blocked"
+STATUS_DEAD = "dead"
 JOB_STATUSES = frozenset(
     {
         STATUS_PENDING,
@@ -54,11 +56,13 @@ JOB_STATUSES = frozenset(
         STATUS_DONE,
         STATUS_FAILED,
         STATUS_SKIPPED,
+        STATUS_BLOCKED,
+        STATUS_DEAD,
     }
 )
 
 
-@dataclass(slots=True)
+@dataclass
 class EvidenceInput:
     """Input schema for mechanical Evidence creation."""
 

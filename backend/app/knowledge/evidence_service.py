@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from pymongo import ReturnDocument, UpdateOne
@@ -29,6 +29,8 @@ from app.knowledge.evidence import (
 )
 
 logger = logging.getLogger(__name__)
+
+UTC = timezone.utc
 
 
 def _utc_now() -> datetime:
@@ -352,6 +354,14 @@ class EvidenceService:
                 STATUS_SKIPPED,
                 doc.get("extractor_version") or EXTRACTOR_VERSION,
             )
+
+    async def heartbeat_job(self, job_id: str, worker_id: str) -> bool:
+        """Refresh a worker lock only while this worker still owns the job."""
+        result = await self._jobs.update_one(
+            {"job_id": job_id, "status": STATUS_RUNNING, "locked_by": worker_id},
+            {"$set": {"locked_at": _utc_now(), "updated_at": _utc_now()}},
+        )
+        return bool(getattr(result, "modified_count", 0))
 
     async def bulk_update_irm_classification(
         self, evidence_ids_to_class: dict[str, str]

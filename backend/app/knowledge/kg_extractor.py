@@ -1257,11 +1257,12 @@ async def extract_evidence_async(
         logger.warning("文本过长 (%d 字符), 截断至 %d 字符", len(text), MAX_CHARS)
         text = text[:MAX_CHARS]
 
-    # 整条 evidence 作为一次 LLM 调用，但用「大块」分块（8000 token/块）避免单次文本过长；
-    # 常规公告≈1 块（等于整条），超长公告（年报等）自动切成少数几块，兼顾上下文完整与 JSON 不被截断
+    # 整条 evidence 作为一次 LLM 调用，但用「大块」分块（3000 token/块）避免单次文本过长；
+    # 注意：minimax-m2.7 thinking 泄漏会复述全文（输出≈输入长度），chunk 过大时 thinking 占满输出、JSON 永远出不来；
+    # 3000 token ≈ 4500 字，thinking 复述后仍有空间输出 JSON。常规公告≈1 块，超长公告切成多块。
     merged_entities, merged_relations, signals = await rag_extract_async(
         text,
-        max_tokens=8000,
+        max_tokens=3000,
         source_file=source_name,
         source_type=source_type,
     )

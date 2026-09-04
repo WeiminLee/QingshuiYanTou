@@ -8,14 +8,17 @@ from __future__ import annotations
 
 import os
 import re
-from datetime import UTC, date, datetime
+from datetime import date, datetime, timezone
 from typing import Any, Literal
 
 from app.knowledge.evidence import EvidenceInput, default_source_confidence
 from app.knowledge.ingestion.chunker import SmartChunker
-from app.knowledge.ingestion.pdf_parser import extract_text_from_pdf
+from app.knowledge.ingestion.pdf_parser import extract_structured_text_from_pdf
+from app.ops.pdf_metadata import build_pdf_metadata
 
 logger = __import__("logging").getLogger(__name__)
+
+UTC = timezone.utc
 
 # ── 公告章节过滤规则 ──────────────────────────────────────────────
 
@@ -209,7 +212,7 @@ def _split_pdf_chapters(file_path: str) -> list[dict] | None:
     try:
         # 使用 SmartChunker 进行智能分块
         chunker = SmartChunker(max_tokens=4096)
-        text = extract_text_from_pdf(file_path)
+        text = extract_structured_text_from_pdf(file_path)
         if not text.strip():
             return None
 
@@ -271,6 +274,10 @@ def build_announcement_evidence(
     raw_path = record.get("file_path")
     local_pdf = _map_file_path(raw_path)
     has_local_pdf = _file_exists(local_pdf)
+    pdf_metadata = build_pdf_metadata(local_pdf, pdf_url=pdf_url) if local_pdf else {
+        "pdf_storage": "desktop", "pdf_path": None, "pdf_sha256": None,
+        "pdf_url": pdf_url or None, "available": False,
+    }
 
     # 解析章节
     chapters: list[dict] = []
@@ -301,6 +308,7 @@ def build_announcement_evidence(
                     "pdf_url": pdf_url,
                     "is_aggregated": False,
                     "chapter_index": 0,
+                    **pdf_metadata,
                 },
                 confidence=default_source_confidence("announcement"),
                 metadata={"title": title, "has_pdf": has_local_pdf, "is_aggregated": False},
@@ -328,20 +336,17 @@ def build_announcement_evidence(
     if not keep_chapters:
         return []
 
-    # 所有 keep 章节合并为一条 evidence（全文上下文完整；抽取侧会按 max_tokens 内部分块）
-    merged_parts = []
-    for ch in keep_chapters:
+    # 每个保留 chunk 独立生成 Evidence，避免整份公告合并后触发 LLM 超时。
+    result: list[EvidenceInput] = []
+    for chunk_index, ch in enumerate(keep_chapters):
         heading = ch.get("heading", "")
         body = ch.get("body", "")
-        merged_parts.append(f"## {heading}\n\n{body}" if heading else body)
-    merged_text = "\n\n".join(merged_parts)
-
-    return [
-        EvidenceInput(
+        text_excerpt = f"## {heading}\n\n{body}" if heading else body
+        result.append(EvidenceInput(
             source_type="announcement",
             source_name=f"公告:{ts_code}" if ts_code else "公告",
             source_id=source_id,
-            text_excerpt=merged_text,
+            text_excerpt=text_excerpt,
             subject_hint={
                 "ts_code": ts_code,
                 "name": company_name,
@@ -356,19 +361,19 @@ def build_announcement_evidence(
                 "ann_date": ann_date,
                 "local_pdf": local_pdf if has_local_pdf else None,
                 "pdf_url": pdf_url,
-                "is_aggregated": True,
-                "merged_chapters": [ch["heading"] for ch in keep_chapters],
+                "is_aggregated": False,
+                "chapter_index": chunk_index,
+                "chapter_heading": heading,
                 "total_chapters": len(chapters),
+                **pdf_metadata,
             },
             confidence=default_source_confidence("announcement"),
             metadata={
                 "title": title,
                 "has_pdf": has_local_pdf,
-                "is_aggregated": True,
-                "chapter_count": len(keep_chapters),
+                "is_aggregated": False,
+                "chapter_count": 1,
                 "total_chapters": len(chapters),
             },
-        )
-    ]
-
-
+        ))
+    return result

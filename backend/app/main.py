@@ -22,6 +22,7 @@ from app.knowledge.api import (
 )
 from app.knowledge.api.feedback import router as feedback_router
 from app.knowledge.api.knowledge_package import router as knowledge_package_router
+from app.knowledge.api.worker_jobs import router as worker_jobs_router, evidence_router
 from app.readiness.api import router as readiness_router
 from app.reasoning.api import agent_router, stats_router
 from app.reasoning.subagents.polling import router as subagent_router
@@ -198,6 +199,8 @@ app.include_router(
     tags=["知识构建"],
     dependencies=[Depends(verify_api_key_optional)],
 )
+app.include_router(worker_jobs_router)
+app.include_router(evidence_router)
 app.include_router(
     information_router,
     prefix="/api/v1/information",
