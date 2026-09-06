@@ -237,6 +237,107 @@ async def async_upsert_chunk_vector(
             return False
 
 
+# ── Batch Async Upsert (消除逐条 embedding + 逐条 upsert 的 N+1 往返) ─────
+
+_BATCH_EMBED_CHUNK_SIZE = 50  # 每次 aembed / upsert 的最大条数，防单点失败扩大化
+
+
+async def async_upsert_entities_batch(items: list[dict]) -> int:
+    """批量写入实体向量：一次 aembed 多文本 + 一次 Qdrant 批量 upsert。
+
+    items: [{"entity_id","entity_name","description","entity_type","ts_code"}, ...]
+    返回成功写入条数；异常仅记日志不抛出（向量尽力而为，不阻断抽取主流程）。
+    """
+    if not items:
+        return 0
+    embedder = get_embedding_model()
+    if not hasattr(embedder, "aembed"):  # Placeholder 等无异步批量能力时跳过
+        return 0
+    client = get_vector_client()
+    written = 0
+    for i in range(0, len(items), _BATCH_EMBED_CHUNK_SIZE):
+        chunk = items[i : i + _BATCH_EMBED_CHUNK_SIZE]
+        texts = [f"{it.get('entity_name', '')} {it.get('description', '')}" for it in chunk]
+        try:
+            vecs = await embedder.aembed(texts)
+        except Exception as e:
+            logger.warning("实体向量批量 embedding 失败 (n=%d): %s", len(chunk), e)
+            continue
+        if len(vecs) != len(chunk):
+            logger.warning("实体向量批量 embedding 数量不符 (n=%d, got=%d)", len(chunk), len(vecs))
+            continue
+        records = [
+            VectorRecord(
+                id=str(uuid.uuid5(uuid.NAMESPACE_DNS, str(it.get("entity_id")))),
+                vector=vecs[j],
+                payload={
+                    "entity_id": it.get("entity_id"),
+                    "entity_name": it.get("entity_name"),
+                    "description": it.get("description"),
+                    "entity_type": it.get("entity_type", ""),
+                    "ts_code": it.get("ts_code", ""),
+                },
+            )
+            for j, it in enumerate(chunk)
+        ]
+        try:
+            client.upsert(COLLECTION_ENTITIES, records)
+            written += len(records)
+        except Exception as e:
+            logger.warning("实体向量批量 upsert 失败 (n=%d): %s", len(chunk), e)
+    return written
+
+
+async def async_upsert_relations_batch(items: list[dict]) -> int:
+    """批量写入关系向量：一次 aembed 多文本 + 一次 Qdrant 批量 upsert。
+
+    items: [{"relation_key","from_name","to_name","description","from_entity","to_entity","ts_code"}, ...]
+    返回成功写入条数；异常仅记日志不抛出。
+    """
+    if not items:
+        return 0
+    embedder = get_embedding_model()
+    if not hasattr(embedder, "aembed"):
+        return 0
+    client = get_vector_client()
+    written = 0
+    for i in range(0, len(items), _BATCH_EMBED_CHUNK_SIZE):
+        chunk = items[i : i + _BATCH_EMBED_CHUNK_SIZE]
+        texts = [
+            f"{it.get('from_name', '')} 与 {it.get('to_name', '')}：{it.get('description', '')}"
+            for it in chunk
+        ]
+        try:
+            vecs = await embedder.aembed(texts)
+        except Exception as e:
+            logger.warning("关系向量批量 embedding 失败 (n=%d): %s", len(chunk), e)
+            continue
+        if len(vecs) != len(chunk):
+            logger.warning("关系向量批量 embedding 数量不符 (n=%d, got=%d)", len(chunk), len(vecs))
+            continue
+        records = [
+            VectorRecord(
+                id=str(uuid.uuid5(uuid.NAMESPACE_DNS, str(it.get("relation_key")))),
+                vector=vecs[j],
+                payload={
+                    "from_entity": it.get("from_entity", ""),
+                    "to_entity": it.get("to_entity", ""),
+                    "from_name": it.get("from_name", ""),
+                    "to_name": it.get("to_name", ""),
+                    "description": it.get("description", ""),
+                    "ts_code": it.get("ts_code", ""),
+                },
+            )
+            for j, it in enumerate(chunk)
+        ]
+        try:
+            client.upsert(COLLECTION_RELATIONS, records)
+            written += len(records)
+        except Exception as e:
+            logger.warning("关系向量批量 upsert 失败 (n=%d): %s", len(chunk), e)
+    return written
+
+
 # ── Batch Reindex (for nightly job) ─────────────────────────────────────
 
 

@@ -41,41 +41,48 @@ class EvidenceExtractionWorker:
     async def run_once(self, limit: int | None = None, job_type: str = "combined") -> dict[str, int]:
         if limit is not None and limit <= 0:
             return {"claimed": 0, "success": 0, "failed": 0, "skipped": 0, "job_type": job_type}
-        claimed = success = failed = skipped = 0
-        while True:
-            if limit is not None and claimed >= limit:
-                break
-            batch_limit = self.batch_size
-            if limit is not None:
-                batch_limit = min(batch_limit, max(0, limit - claimed))
-            if batch_limit <= 0:
-                break
-            jobs = []
-            for _ in range(batch_limit):
+
+        claimed = 0
+        success = 0
+        failed = 0
+        skipped = 0
+        counter_lock = asyncio.Lock()
+
+        def _bump(status: str) -> None:
+            nonlocal success, failed, skipped
+            if status == "done":
+                success += 1
+            elif status == "skipped":
+                skipped += 1
+            else:
+                failed += 1
+
+        async def _worker_slot() -> None:
+            """滑动窗口 slot：领一个、跑一个、立刻领下一个，不再等整批。"""
+            nonlocal claimed
+            while True:
+                async with counter_lock:
+                    if limit is not None and claimed >= limit:
+                        return
+                    claimed += 1  # 预留额度，保证不超过 limit
                 job = await self.service.claim_next_job(job_type=job_type, worker_id=self.worker_id)
                 if not job:
-                    break
-                jobs.append(job)
-            if not jobs:
-                break
-            sem = asyncio.Semaphore(self.max_concurrency)
-
-            async def _run(job: dict[str, Any]) -> dict[str, Any]:
-                async with sem:
-                    return await self.process_job(job)
-
-            results = await asyncio.gather(*[_run(job) for job in jobs], return_exceptions=True)
-            for job, res in zip(jobs, results):
-                claimed += 1
+                    async with counter_lock:
+                        claimed -= 1  # 无 job 可领，退还额度
+                    return
+                try:
+                    res = await self.process_job(job)
+                except Exception as exc:  # noqa: BLE001  # process_job 已自捕获，此处兜底
+                    res = exc
                 if isinstance(res, Exception):
-                    failed += 1
                     logger.warning("Evidence job failed unexpectedly [%s]: %s", job.get("job_id"), res)
-                elif res.get("status") == "done":
-                    success += 1
-                elif res.get("status") == "skipped":
-                    skipped += 1
+                    status = "failed"
                 else:
-                    failed += 1
+                    status = str(res.get("status", "failed"))
+                async with counter_lock:
+                    _bump(status)
+
+        await asyncio.gather(*[_worker_slot() for _ in range(self.max_concurrency)])
         return {
             "claimed": claimed,
             "success": success,

@@ -90,6 +90,10 @@ from app.knowledge.vector_client import (
     upsert_entity_vector,
     upsert_relation_vector,
 )
+from app.knowledge.vector_ops import (
+    async_upsert_entities_batch,
+    async_upsert_relations_batch,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -1289,6 +1293,7 @@ async def extract_evidence_async(
     conf, tier = _source_confidence(source_type)
     entities_created = entities_updated = 0
     entity_ids: list[str] = []
+    pending_entity_vecs: list[dict[str, Any]] = []
     for e in merged_entities:
         name = str(e.get("entity_name") or "").strip()
         e_type = str(e.get("entity_type") or "Company")
@@ -1346,21 +1351,24 @@ async def extract_evidence_async(
             else:
                 entities_updated += 1
             entity_ids.append(entity_id)
-            try:
-                upsert_entity_vector(
-                    entity_id=entity_id,
-                    entity_name=name,
-                    description=description,
-                    entity_type=e_type,
-                    ts_code=ts_code,
-                )
-            except Exception as vec_ex:
-                logger.debug("实体向量写入失败 [%s]: %s", entity_id, vec_ex)
+            pending_entity_vecs.append(
+                {
+                    "entity_id": entity_id,
+                    "entity_name": name,
+                    "description": description,
+                    "entity_type": e_type,
+                    "ts_code": ts_code,
+                }
+            )
         except Exception as ex:
             logger.warning("实体入库失败 [%s %s]: %s", e_type, name, ex)
 
+    if pending_entity_vecs:
+        await async_upsert_entities_batch(pending_entity_vecs)
+
     relations_created = relations_updated = 0
     written_rels: list[dict[str, Any]] = []
+    pending_rel_vecs: list[dict[str, Any]] = []
     for r in merged_relations:
         src_name = str(r.get("src_id") or "").strip()
         tgt_name = str(r.get("tgt_id") or "").strip()
@@ -1390,20 +1398,22 @@ async def extract_evidence_async(
             else:
                 relations_updated += 1
             written_rels.append({"from": src_eid, "to": tgt_eid, "relation": rel_desc})
-            try:
-                upsert_relation_vector(
-                    relation_key=f"{src_eid}|{tgt_eid}|{rel_desc[:40]}",
-                    from_name=src_name,
-                    to_name=tgt_name,
-                    description=rel_desc,
-                    from_entity=src_eid,
-                    to_entity=tgt_eid,
-                    ts_code=ts_code,
-                )
-            except Exception as e:
-                logger.warning("关系向量写入失败 [%s → %s]: %s", src_eid, tgt_eid, e)
+            pending_rel_vecs.append(
+                {
+                    "relation_key": f"{src_eid}|{tgt_eid}|{rel_desc[:40]}",
+                    "from_name": src_name,
+                    "to_name": tgt_name,
+                    "description": rel_desc,
+                    "from_entity": src_eid,
+                    "to_entity": tgt_eid,
+                    "ts_code": ts_code,
+                }
+            )
         except Exception as ex:
             logger.warning("关系入库失败 [%s → %s]: %s", src_eid, tgt_eid, ex)
+
+    if pending_rel_vecs:
+        await async_upsert_relations_batch(pending_rel_vecs)
 
     result = {
         "entities_created": entities_created,
