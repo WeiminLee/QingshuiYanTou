@@ -273,7 +273,7 @@ def _parse_chunk_output(raw_text: str) -> tuple[dict, dict]:
 # ── LLM 调用（异步，非阻塞）─────────────────────────────────────────────────────
 
 
-_RE_RETRY_AFTER = re.compile(r"retry[-_ ]?after\s*[=:]?\s*(\d+)", re.IGNORECASE)
+_RE_RETRY_AFTER = re.compile(r"retry[-_ ]?after\s*[\"']?\s*[=:]?\s*(\d+)", re.IGNORECASE)
 
 
 def _extract_retry_after(msg: str) -> float | None:

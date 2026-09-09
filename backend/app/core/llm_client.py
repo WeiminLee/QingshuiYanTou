@@ -448,6 +448,7 @@ async def fetch_available_models_async(force: bool = False) -> list[str]:
     """拉取网关可用模型 id 列表。失败时返回空表（调用方应回退到主模型，维持原状）。"""
     from app.config import settings
 
+    global _available_cache, _available_ts
     if (
         not force
         and _available_cache is not None
@@ -518,8 +519,8 @@ async def get_extraction_model(force_refresh: bool = False) -> str:
     """
     from app.config import settings
 
+    global _effective_model, _effective_set_at
     primary = settings.llm_extraction_model
-
     # 无替换在册，或替换已过期 → 主模型可用即用主模型
     if _effective_model is None or (
         _time.monotonic() - _effective_set_at > settings.llm_extraction_model_ttl
@@ -553,6 +554,7 @@ async def mark_extraction_model_unavailable(model: str) -> Optional[str]:
 
     返回的替换模型已缓存为进程级"当前生效模型"，供后续 chunk 复用。
     """
+    global _effective_model, _effective_set_at
     _unavailable_models.add(model)
     avail = await fetch_available_models_async(force=True)
     chosen = _pick_available_model(avail)
