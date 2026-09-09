@@ -54,6 +54,16 @@ class Settings(BaseSettings):
     llm_model: str = "MiniMax-M2.7-highspeed"
     llm_extraction_model: str = "deepseek-v4-flash"  # 抽取专用快模型（批量知识构建，避免慢模型 504）
 
+    # 抽取模型可用性自动回退（模型不存在/无权/网关不可用时，重新拉取可用模型并切换）
+    # fallback_order：回退时按逗号分隔的"名称子串"依次尝试匹配可用模型；"*"=任选（兜底）
+    #   例 "flash,minimax,*"：优先任一含 flash 的模型 → 其次任一含 minimax 的 → 再无则任选。
+    #   匹配不分大小写；主模型 llm_extraction_model 若可用则始终优先于回退。
+    llm_extraction_fallback_order: str = "flash,minimax,*"
+    # 切换后的模型生效期（秒）；超过后重新探测，若主模型已恢复可用则切回。
+    llm_extraction_model_ttl: int = 300
+    # 可用模型列表缓存秒数（仅 403 model_not_available 时才会触发拉取）
+    llm_model_list_cache_ttl: int = 300
+
     # Neo4j（图数据库）
     neo4j_url: str = "bolt://localhost:7687"
     neo4j_user: str = "neo4j"

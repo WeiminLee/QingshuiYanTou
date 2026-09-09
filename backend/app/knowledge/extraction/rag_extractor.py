@@ -273,29 +273,83 @@ def _parse_chunk_output(raw_text: str) -> tuple[dict, dict]:
 # ── LLM 调用（异步，非阻塞）─────────────────────────────────────────────────────
 
 
+_RE_RETRY_AFTER = re.compile(r"retry[-_ ]?after\s*[=:]?\s*(\d+)", re.IGNORECASE)
+
+
+def _extract_retry_after(msg: str) -> float | None:
+    """从网关错误文本里解析 retry-after 秒数（pjlab 429 返回 retry-after: 5）。"""
+    m = _RE_RETRY_AFTER.search(msg)
+    if m:
+        return float(m.group(1))
+    return None
+
+
 async def _call_llm_async(prompt: str, timeout: int = 180, max_tokens: int | None = None) -> str:
-    """异步调用 LLM，对 504/5xx/超时做指数退避重试（pjlab 网关偶发超时）。"""
-    from app.config import settings
+    """异步调用 LLM，对 403 model_not_available / 429 限流 / 5xx / 超时做韧性重试。
+
+    - 403 model_not_available：判定当前模型不可用 → 自动拉取网关可用模型列表并切换
+      （偏好主模型 → flash → minimax → 任选）后重试；无可用回退才放弃。
+    - 429 限流：尊重网关 retry-after（pjlab 给 5s）退避重试，不再一击即弃。
+    - 504/502/503/超时：指数退避（pjlab 网关偶发超时，流式已绕过 60s 无数据限制）。
+    """
+    from app.core.llm_client import (
+        chat_async,
+        get_extraction_model,
+        mark_extraction_model_unavailable,
+    )
 
     last_exc: Exception | None = None
-    for attempt in range(3):
+    MAX_ATTEMPTS = 5
+    for attempt in range(MAX_ATTEMPTS):
+        model = await get_extraction_model()
         try:
             return await chat_async(
                 prompt,
-                model=settings.llm_extraction_model,
+                model=model,
                 temperature=0.1,
                 timeout=timeout,
                 max_tokens=max_tokens,
                 stream=True,  # 流式绕过网关 60s 无数据超时（长文本抽取必超）
             )
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             last_exc = e
             msg = str(e)
-            retryable = any(k in msg.lower() for k in ("504", "502", "503", "gateway time-out", "timed out", "timeout"))
-            if not retryable or attempt == 2:
+            low = msg.lower()
+            # 429 / user_rpm_rate_limit_exceeded → 尊重 retry-after 退避
+            if "429" in msg or "rate_limit" in low or "too many requests" in low:
+                delay = _extract_retry_after(msg) or 5.0
+                logger.warning(
+                    "LLM 抽取限流(429)，%.1fs 后重试 (%d/%d): %s",
+                    delay, attempt + 1, MAX_ATTEMPTS, msg[:120],
+                )
+                await asyncio.sleep(min(delay, 30.0))
+                continue
+            # 403 model_not_available → 判定当前模型不可用并自动切换
+            if "403" in msg and (
+                "model_not_available" in low
+                or "not available" in low
+                or "permission_error" in low
+            ):
+                switched = await mark_extraction_model_unavailable(model)
+                if switched is not None and switched != model:
+                    logger.warning(
+                        "抽取模型 %s 不存在/无权，已切换至 %s（%d/%d）",
+                        model, switched, attempt + 1, MAX_ATTEMPTS,
+                    )
+                    continue
+                logger.error(
+                    "抽取模型 %s 不可用且无可用回退，放弃该 chunk: %s", model, msg[:200]
+                )
                 raise
-            delay = 2 ** attempt * 2.0  # 2s, 4s
-            logger.warning("LLM 抽取调用失败，%.0fs 后重试 (%d/3): %s", delay, attempt + 1, msg[:120])
+            # 5xx / 网关超时 → 指数退避
+            retryable = any(k in low for k in ("504", "502", "503", "gateway time-out", "timed out", "timeout"))
+            if not retryable:
+                raise
+            delay = 2.0 * (2 ** attempt)  # 2s, 4s, 8s…
+            logger.warning(
+                "LLM 抽取调用失败，%.0fs 后重试 (%d/%d): %s",
+                delay, attempt + 1, MAX_ATTEMPTS, msg[:120],
+            )
             await asyncio.sleep(delay)
     raise last_exc  # type: ignore[misc]
 

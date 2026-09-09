@@ -422,3 +422,148 @@ def chat_json_with_retry(
             return result
 
     raise ValueError(f"LLM 返回非 JSON 内容: {text[:300]}")
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 模型可用性自动回退 resolver
+#  用途：当某模型被网关以 403 model_not_available 拒绝时，重新拉取 /v1/models
+#        可用列表，按偏好（主模型 → fallback_order 子串 → 任选）挑一个可用模型
+#        作为运行时替换；替换结果带 TTL，超时后重新探测，主模型恢复即切回。
+#  只在真的撞到 403 时才拉列表，正常路径零额外开销。
+# ═══════════════════════════════════════════════════════════════════════════
+import asyncio as _asyncio
+import time as _time
+from typing import Optional
+
+# —— 进程级状态（单 key 单进程，均可用模块变量）——
+_effective_model: Optional[str] = None        # 当前实际生效的模型名（None=用主模型）
+_effective_set_at: float = 0.0                # 切换时间戳（用于 TTL 回探主模型）
+_unavailable_models: set[str] = set()         # 已知 403 的模型，选择时排除
+_available_cache: Optional[list[str]] = None  # 最近一次 /models 列表
+_available_ts: float = 0.0
+_models_lock = _asyncio.Lock()                # 防并发拉取打爆网关
+
+
+async def fetch_available_models_async(force: bool = False) -> list[str]:
+    """拉取网关可用模型 id 列表。失败时返回空表（调用方应回退到主模型，维持原状）。"""
+    from app.config import settings
+
+    if (
+        not force
+        and _available_cache is not None
+        and _time.monotonic() - _available_ts < settings.llm_model_list_cache_ttl
+    ):
+        return list(_available_cache)
+
+    async with _models_lock:
+        # 双检锁
+        if (
+            not force
+            and _available_cache is not None
+            and _time.monotonic() - _available_ts < settings.llm_model_list_cache_ttl
+        ):
+            return list(_available_cache)
+        base = (settings.llm_base_url or "").rstrip("/")
+        if not base:
+            return []
+        try:
+            async with httpx.AsyncClient(timeout=10.0, trust_env=False) as client:
+                r = await client.get(
+                    f"{base}/models",
+                    headers={"Authorization": f"Bearer {settings.llm_api_key}"},
+                )
+                if r.status_code != 200:
+                    return list(_available_cache or [])
+                data = r.json()
+                ids = [m.get("id") for m in data.get("data", []) if m.get("id")]
+                _available_cache = ids
+                _available_ts = _time.monotonic()
+                return ids
+        except Exception:
+            # 网络/网关抖动：保留旧缓存，避免每次 403 都死磕
+            return list(_available_cache or [])
+
+
+def _pick_available_model(available: list[str]) -> Optional[str]:
+    """按 主模型 → fallback_order 子串 → 任选 顺序挑选可用模型，排除已知 403 的。"""
+    from app.config import settings
+
+    primary = settings.llm_extraction_model
+    usable = [m for m in available if m not in _unavailable_models]
+    if not usable:
+        return None
+    # 1) 主模型可用（且未被标记坏）→ 直接返回
+    if primary in usable:
+        return primary
+    # 2) 按 fallback_order 子串依次匹配
+    order = settings.llm_extraction_fallback_order or "*"
+    for token in (part.strip() for part in order.split(",")):
+        if not token:
+            continue
+        if token == "*":
+            return usable[0]
+        hit = next((m for m in usable if token.lower() in m.lower()), None)
+        if hit:
+            return hit
+    # 3) 兜底：任一可用
+    return usable[0]
+
+
+async def get_extraction_model(force_refresh: bool = False) -> str:
+    """返回当前抽取应使用的模型名。
+
+    - 未发生 403 时：返回主模型 settings.llm_extraction_model（零网络开销）。
+    - 已切换到回退模型且未超 TTL：返回回退模型。
+    - TTL 过期：重新探测；主模型若恢复可用则切回主模型。
+    """
+    from app.config import settings
+
+    primary = settings.llm_extraction_model
+
+    # 无替换在册，或替换已过期 → 主模型可用即用主模型
+    if _effective_model is None or (
+        _time.monotonic() - _effective_set_at > settings.llm_extraction_model_ttl
+    ):
+        if primary not in _unavailable_models:
+            return primary
+        # 主模型被标记坏且替换过期：重查可用列表决定是否仍不可用
+        avail = await fetch_available_models_async(force=force_refresh)
+        if primary in avail:
+            _unavailable_models.discard(primary)
+            return primary
+
+    eff = _effective_model
+    if eff is not None and eff not in _unavailable_models:
+        return eff
+
+    # 当前替换已失效 → 重选
+    avail = await fetch_available_models_async(force=True)
+    chosen = _pick_available_model(avail)
+    if chosen is not None:
+        _effective_model = chosen
+        _effective_set_at = _time.monotonic()
+        return chosen
+    # 实在挑不出：退回主模型（宁可用原模型报错，也别默默换到不合适的）
+    return primary
+
+
+async def mark_extraction_model_unavailable(model: str) -> Optional[str]:
+    """主模型/当前模型被 403 model_not_available 拒绝时调用：
+    标记其不可用 → 重新拉取可用列表 → 返回一个替换模型（或 None）。
+
+    返回的替换模型已缓存为进程级"当前生效模型"，供后续 chunk 复用。
+    """
+    _unavailable_models.add(model)
+    avail = await fetch_available_models_async(force=True)
+    chosen = _pick_available_model(avail)
+    if chosen is None:
+        return None
+    _effective_model = chosen
+    _effective_set_at = _time.monotonic()
+    if chosen != model:
+        import logging
+
+        logging.getLogger(__name__).warning(
+            "模型 %s 不可用，抽取自动切换至 %s（可用=%d 个）", model, chosen, len(avail)
+        )
+    return chosen
