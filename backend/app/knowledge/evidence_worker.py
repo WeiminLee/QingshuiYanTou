@@ -11,7 +11,7 @@ from typing import Any
 from app.knowledge.evidence import JOB_COMBINED, JOB_SIGNAL, JOB_VECTOR
 from app.knowledge.evidence_service import EvidenceService
 from app.knowledge.extraction.irm_classifier import classify_irm_evidence, extraction_tier
-from app.knowledge.kg_extractor import extract_evidence_async
+from app.knowledge.kg_extractor import extract_evidence_async, extract_evidence_raw
 from app.knowledge.vector_client import upsert_evidence_chunk_vector
 from app.signals.auto_ingestion import ingest_evidence_signals
 
@@ -122,17 +122,49 @@ class EvidenceExtractionWorker:
                             job_id, f"IRM classified as '{category}'; no KG extraction"
                         )
                         return {"status": "skipped", "reason": category}
-                # Remote workers write KG through the cloud API; local fallback keeps legacy path.
+                # Remote workers: LLM 抽取在 worker 本地，云端只做知识图谱入库（/kg/ingest）。
+                # 本地一体（无 KNOWLEDGE_API_URL）走 legacy 路径。
                 import os
                 if os.getenv("KNOWLEDGE_API_URL") and os.getenv("KNOWLEDGE_API_KEY"):
-                    import httpx
-                    async with httpx.AsyncClient(timeout=180) as client:
-                        resp = await client.post(
-                            os.environ["KNOWLEDGE_API_URL"].rstrip("/") + "/api/v1/knowledge/kg/extract/text",
-                            headers={"X-API-Key": os.environ["KNOWLEDGE_API_KEY"]},
-                            json={"text": evidence.get("text_excerpt", ""), "ts_code": (evidence.get("subject_hint") or {}).get("ts_code") or "UNKNOWN", "source_name": evidence.get("source_name", "evidence"), "source_type": evidence.get("source_type", "announcement"), "article_ref": evidence_id},
-                        )
-                        resp.raise_for_status(); result = resp.json()
+                    extracted = await extract_evidence_raw(evidence)
+                    if extracted["status"] == "empty":
+                        result = {
+                            "entities_created": 0, "entities_updated": 0,
+                            "relations_created": 0, "relations_updated": 0,
+                            "chunks_processed": 0,
+                            "evidence_id": evidence.get("evidence_id"),
+                            "entities_raw": [], "relations_raw": [],
+                        }
+                    elif extracted["status"] == "cached":
+                        cached = extracted["cached"]
+                        result = {
+                            "entities_created": 0,
+                            "entities_updated": len(cached.get("entities", [])),
+                            "relations_created": 0,
+                            "relations_updated": len(cached.get("relations", [])),
+                            "chunks_processed": 1,
+                            "evidence_id": extracted["evidence_id"],
+                            "entities": cached.get("entities", []),
+                            "relations": cached.get("relations", []),
+                            "signals": cached.get("signals", []),
+                            "from_cache": True,
+                        }
+                    else:
+                        import httpx
+                        async with httpx.AsyncClient(timeout=180) as client:
+                            resp = await client.post(
+                                os.environ["KNOWLEDGE_API_URL"].rstrip("/") + "/api/v1/knowledge/kg/ingest",
+                                headers={"X-API-Key": os.environ["KNOWLEDGE_API_KEY"]},
+                                json={
+                                    "evidence": evidence,
+                                    "entities_raw": extracted.get("entities_raw", []),
+                                    "relations_raw": extracted.get("relations_raw", []),
+                                    "signals": extracted.get("signals", []),
+                                    "text": extracted.get("text", ""),
+                                },
+                            )
+                            resp.raise_for_status()
+                            result = resp.json()
                 else:
                     result = await extract_evidence_async(evidence)
                 await self.service.mark_job_done(job_id, result)

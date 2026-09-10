@@ -15,6 +15,7 @@ from app.core.file_security import PathTraversalError, validate_file_path
 from app.knowledge.kg_extractor import (
     extract_document,
     extract_text,
+    persist_evidence_extraction,
 )
 
 logger = logging.getLogger(__name__)
@@ -50,6 +51,16 @@ class ExtractDocumentRequest(BaseModel):
     ts_code: str
     source_name: str
     source_type: str = "uploaded_doc"
+
+
+class IngestResultRequest(BaseModel):
+    """worker 侧已完成 LLM 抽取，回传结构化结果给云端入库（LLM 在 worker，知识图谱写入在云端）。"""
+
+    evidence: dict = Field(..., description="原始 evidence 文档（含 evidence_id/source_id/source_type/source_name/subject_hint/publish_date）")
+    entities_raw: list[dict] = Field(default_factory=list)
+    relations_raw: list[dict] = Field(default_factory=list)
+    signals: list[dict] = Field(default_factory=list)
+    text: str = Field(default="", description="实际送入 LLM 的文本（含公司名注入/截断），用于入库消歧")
 
 
 # ── 路由 ───────────────────────────────────────────────
@@ -121,6 +132,31 @@ async def extract_document_api(req: ExtractDocumentRequest, background: Backgrou
     except Exception as e:
         logger.exception("文档抽取失败: %s", req.file_path)
         raise HTTPException(500, f"抽取失败: {e}")
+
+
+@router.post("/ingest")
+async def ingest_extraction_result(req: IngestResultRequest):
+    """
+    接收 worker 侧已完成的结构化抽取结果（实体/关系/信号），由云端写入 Neo4j + 向量 + 信号库。
+
+    职责边界：worker 只做 LLM 抽取（extract_evidence_raw），云端负责知识图谱入库
+    （persist_evidence_extraction），实现云端/worker 解耦、多 worker 横向扩展。
+    """
+    evidence = req.evidence
+    subject_hint = evidence.get("subject_hint") or {}
+    extracted = {
+        "status": "ok",
+        "evidence_id": evidence.get("evidence_id", ""),
+        "ts_code": str(subject_hint.get("ts_code") or "UNKNOWN"),
+        "source_name": str(evidence.get("source_name") or "evidence"),
+        "source_type": str(evidence.get("source_type") or "unknown"),
+        "text": req.text or str(evidence.get("text_excerpt") or ""),
+        "entities_raw": req.entities_raw,
+        "relations_raw": req.relations_raw,
+        "signals": req.signals,
+    }
+    result = await persist_evidence_extraction(evidence, extracted)
+    return result
 
 
 # ── KG 图谱统计 ────────────────────────────────────────

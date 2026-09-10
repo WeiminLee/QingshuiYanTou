@@ -1204,49 +1204,45 @@ async def extract_text_async(
     }
 
 
-async def extract_evidence_async(
-    evidence: dict[str, Any],
-    progress_callback: Any | None = None,
-) -> dict[str, Any]:
-    """Extract entities/relations from a single Evidence record."""
+async def extract_evidence_raw(evidence: dict[str, Any]) -> dict[str, Any]:
+    """纯 LLM 抽取阶段（不写任何库）：取文本 → 缓存判断 → 注入公司名 → rag_extract。
+
+    返回统一 dict，用 "status" 区分：
+      - "empty"  : 文本为空，无抽取内容
+      - "cached" : evidence 已抽取过，缓存结果在 "cached" 字段
+      - "ok"     : 正常抽取，"entities_raw"/"relations_raw"/"signals" 及元数据
+    worker 侧本地抽取只调本函数；云端 /kg/ingest 只调 persist_evidence_extraction。
+    """
     text = str(evidence.get("text_excerpt") or "")
-    if not text.strip():
-        return {
-            "entities_created": 0,
-            "entities_updated": 0,
-            "relations_created": 0,
-            "relations_updated": 0,
-            "chunks_processed": 0,
-            "evidence_id": evidence.get("evidence_id"),
-            "entities_raw": [],
-            "relations_raw": [],
-        }
     source_name = str(evidence.get("source_name") or evidence.get("source_id") or "evidence")
     source_type = str(evidence.get("source_type") or "unknown")
     subject_hint = evidence.get("subject_hint") or {}
     ts_code = str(subject_hint.get("ts_code") or "UNKNOWN")
     evidence_id = evidence.get("evidence_id", "")
 
+    if not text.strip():
+        return {
+            "status": "empty",
+            "evidence_id": evidence_id,
+            "ts_code": ts_code,
+            "source_name": source_name,
+            "source_type": source_type,
+        }
+
     # ── 抽取检查点：已抽取过的 evidence 跳过 LLM 调用，复用缓存结果 ──
-    from app.core.metadata import CURRENT_KG_SCHEMA_VERSION, CURRENT_KG_PARSER_VERSION
+    from app.core.metadata import CURRENT_KG_SCHEMA_VERSION
     extraction_status = evidence.get("extraction_status") or {}
     if extraction_status.get("combined") == "done" and extraction_status.get("schema_version") == CURRENT_KG_SCHEMA_VERSION:
         cached = evidence.get("extraction_result") or {}
         if cached.get("entities") and cached.get("relations"):
             logger.debug("evidence %s 已抽取，复用缓存", evidence_id)
             return {
-                "entities_created": 0,
-                "entities_updated": len(cached.get("entities", [])),
-                "relations_created": 0,
-                "relations_updated": len(cached.get("relations", [])),
-                "chunks_processed": 1,
+                "status": "cached",
                 "evidence_id": evidence_id,
-                "entities_raw": cached.get("entities_raw", []),
-                "relations_raw": cached.get("relations_raw", []),
-                "entities": cached.get("entities", []),
-                "relations": cached.get("relations", []),
-                "signals": cached.get("signals", []),
-                "from_cache": True,
+                "ts_code": ts_code,
+                "source_name": source_name,
+                "source_type": source_type,
+                "cached": cached,
             }
 
     # IRM 证据文本中通常只有"公司""贵公司"等泛称，不包含具体公司名。
@@ -1270,6 +1266,38 @@ async def extract_evidence_async(
         source_file=source_name,
         source_type=source_type,
     )
+
+    return {
+        "status": "ok",
+        "evidence_id": evidence_id,
+        "ts_code": ts_code,
+        "source_name": source_name,
+        "source_type": source_type,
+        "text": text,
+        "entities_raw": merged_entities,
+        "relations_raw": merged_relations,
+        "signals": signals,
+    }
+
+
+async def persist_evidence_extraction(
+    evidence: dict[str, Any],
+    extracted: dict[str, Any],
+) -> dict[str, Any]:
+    """入库阶段：把 raw 抽取结果写入 Neo4j + 向量 + 信号(PG) + MongoDB cache，返回 summary。
+
+    与 extract_evidence_raw 配套；本地一体路径 extract_evidence_async = raw + persist，
+    云端 /kg/ingest 端点直接调用本函数完成「接收结构化抽取结果入库」。
+    """
+    merged_entities = extracted.get("entities_raw") or []
+    merged_relations = extracted.get("relations_raw") or []
+    signals = extracted.get("signals") or []
+    ts_code = extracted.get("ts_code") or "UNKNOWN"
+    source_name = extracted.get("source_name") or "evidence"
+    source_type = extracted.get("source_type") or "unknown"
+    evidence_id = extracted.get("evidence_id") or evidence.get("evidence_id", "")
+    text = extracted.get("text") or str(evidence.get("text_excerpt") or "")
+
     # 持久化 LLM 抽取的信号到 PostgreSQL（去重后）
     try:
         from app.core.database import async_session as _async_session
@@ -1288,6 +1316,7 @@ async def extract_evidence_async(
             await _session.commit()
     except Exception as _sig_ex:
         logger.warning("信号持久化失败 [%s]: %s", source_name, _sig_ex)
+
     lookup = _build_name_to_id_map(merged_entities, ts_code, disambiguation_context=text[:500])
     today = date.today()
     conf, tier = _source_confidence(source_type)
@@ -1448,6 +1477,45 @@ async def extract_evidence_async(
         logger.debug("evidence 抽取结果保存失败 [%s]: %s", evidence_id, _save_ex)
 
     return result
+
+
+async def extract_evidence_async(
+    evidence: dict[str, Any],
+    progress_callback: Any | None = None,
+) -> dict[str, Any]:
+    """Extract entities/relations from a single Evidence record（本地一体：抽取 + 入库）。"""
+    extracted = await extract_evidence_raw(evidence)
+
+    if extracted["status"] == "empty":
+        return {
+            "entities_created": 0,
+            "entities_updated": 0,
+            "relations_created": 0,
+            "relations_updated": 0,
+            "chunks_processed": 0,
+            "evidence_id": extracted["evidence_id"],
+            "entities_raw": [],
+            "relations_raw": [],
+        }
+
+    if extracted["status"] == "cached":
+        cached = extracted["cached"]
+        return {
+            "entities_created": 0,
+            "entities_updated": len(cached.get("entities", [])),
+            "relations_created": 0,
+            "relations_updated": len(cached.get("relations", [])),
+            "chunks_processed": 1,
+            "evidence_id": extracted["evidence_id"],
+            "entities_raw": cached.get("entities_raw", []),
+            "relations_raw": cached.get("relations_raw", []),
+            "entities": cached.get("entities", []),
+            "relations": cached.get("relations", []),
+            "signals": cached.get("signals", []),
+            "from_cache": True,
+        }
+
+    return await persist_evidence_extraction(evidence, extracted)
 
 
 async def extract_document_async(
