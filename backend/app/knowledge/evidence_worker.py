@@ -65,7 +65,14 @@ class EvidenceExtractionWorker:
                     if limit is not None and claimed >= limit:
                         return
                     claimed += 1  # 预留额度，保证不超过 limit
-                job = await self.service.claim_next_job(job_type=job_type, worker_id=self.worker_id)
+                try:
+                    job = await self.service.claim_next_job(job_type=job_type, worker_id=self.worker_id)
+                except Exception as exc:  # noqa: BLE001  网络/网关抖动不应打崩整个进程
+                    logger.warning("Evidence job claim 失败，本轮跳过该 slot: %s", exc)
+                    async with counter_lock:
+                        claimed -= 1  # 未领到，退还额度
+                    await asyncio.sleep(3)
+                    return
                 if not job:
                     async with counter_lock:
                         claimed -= 1  # 无 job 可领，退还额度
@@ -98,8 +105,13 @@ class EvidenceExtractionWorker:
         job_type: str = "combined",
     ) -> None:
         while True:
-            result = await self.run_once(limit=limit_per_loop, job_type=job_type)
-            logger.info("Evidence worker loop: %s", result)
+            try:
+                result = await self.run_once(limit=limit_per_loop, job_type=job_type)
+                logger.info("Evidence worker loop: %s", result)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:  # noqa: BLE001  单轮异常不应终止常驻 worker
+                logger.warning("Evidence worker loop 异常，%ss 后继续: %s", interval_seconds, exc)
             await asyncio.sleep(interval_seconds)
 
     async def process_job(self, job: dict[str, Any]) -> dict[str, Any]:
