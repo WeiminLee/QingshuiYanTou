@@ -67,12 +67,10 @@ class EvidenceExtractionWorker:
                     claimed += 1  # 预留额度，保证不超过 limit
                 try:
                     job = await self.service.claim_next_job(job_type=job_type, worker_id=self.worker_id)
-                except Exception as exc:  # noqa: BLE001  网络/网关抖动不应打崩整个进程
-                    logger.warning("Evidence job claim 失败，本轮跳过该 slot: %s", exc)
-                    async with counter_lock:
-                        claimed -= 1  # 未领到，退还额度
+                except Exception as exc:  # noqa: BLE001  网络/网关抖动不应打崩进程，也不应让 slot 退出
+                    logger.warning("Evidence job claim 失败，3s 后重试（保持 slot）: %s", exc)
                     await asyncio.sleep(3)
-                    return
+                    continue
                 if not job:
                     async with counter_lock:
                         claimed -= 1  # 无 job 可领，退还额度

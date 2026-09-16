@@ -1323,74 +1323,85 @@ async def persist_evidence_extraction(
     entities_created = entities_updated = 0
     entity_ids: list[str] = []
     pending_entity_vecs: list[dict[str, Any]] = []
-    for e in merged_entities:
-        name = str(e.get("entity_name") or "").strip()
-        e_type = str(e.get("entity_type") or "Company")
-        # 过滤非法实体类型
-        if e_type not in ENTITY_TYPES:
-            logger.debug(f"抽取结果过滤非法实体: type={e_type}, name={name}")
-            continue
 
-        description = e.get("description", "")
-        metric = e.get("metric") if isinstance(e.get("metric"), dict) else {}
-        props = {
-            "original_name": name,
-            "description": description,
-            "confidence_tier": tier.name,
-            "source_type": source_type,
-            "evidence_id": evidence.get("evidence_id"),
-            "evidence_ids": [evidence.get("evidence_id")],
-        }
-        if metric:
-            props.update(
-                {
-                    "metric_value": metric.get("value"),
-                    "metric_unit": metric.get("unit"),
-                    "period": metric.get("period"),
-                    "period_type": metric.get("period_type"),
-                    "sentiment": metric.get("sentiment"),
-                }
-            )
-        entity_id = lookup.get(name) or lookup.get(name.lower()) or _entity_id_from_name(name, e_type)
-        try:
-            if e_type == "Company":
-                _, is_new = upsert_entity(
-                    entity_id=entity_id,
-                    entity_type="Company",
-                    name=name,
-                    properties=props,
-                    source_type=source_type,
-                    source_name=source_name,
-                    confidence=conf,
-                    ts_code=ts_code if ts_code != "UNKNOWN" else None,
+    def _write_entities_sync() -> tuple[int, int, list[str], list[dict[str, Any]]]:
+        created = updated = 0
+        ids: list[str] = []
+        vecs: list[dict[str, Any]] = []
+        for e in merged_entities:
+            name = str(e.get("entity_name") or "").strip()
+            e_type = str(e.get("entity_type") or "Company")
+            # 过滤非法实体类型
+            if e_type not in ENTITY_TYPES:
+                logger.debug(f"抽取结果过滤非法实体: type={e_type}, name={name}")
+                continue
+
+            description = e.get("description", "")
+            metric = e.get("metric") if isinstance(e.get("metric"), dict) else {}
+            props = {
+                "original_name": name,
+                "description": description,
+                "confidence_tier": tier.name,
+                "source_type": source_type,
+                "evidence_id": evidence.get("evidence_id"),
+                "evidence_ids": [evidence.get("evidence_id")],
+            }
+            if metric:
+                props.update(
+                    {
+                        "metric_value": metric.get("value"),
+                        "metric_unit": metric.get("unit"),
+                        "period": metric.get("period"),
+                        "period_type": metric.get("period_type"),
+                        "sentiment": metric.get("sentiment"),
+                    }
                 )
-            else:
-                _, is_new = upsert_entity(
-                    entity_id=entity_id,
-                    entity_type=e_type,
-                    name=name,
-                    ts_code=ts_code if e_type in {"Metric"} else None,
-                    properties=props,
-                    source_type=source_type,
-                    source_name=source_name,
-                    confidence=conf,
+            entity_id = lookup.get(name) or lookup.get(name.lower()) or _entity_id_from_name(name, e_type)
+            try:
+                if e_type == "Company":
+                    _, is_new = upsert_entity(
+                        entity_id=entity_id,
+                        entity_type="Company",
+                        name=name,
+                        properties=props,
+                        source_type=source_type,
+                        source_name=source_name,
+                        confidence=conf,
+                        ts_code=ts_code if ts_code != "UNKNOWN" else None,
+                    )
+                else:
+                    _, is_new = upsert_entity(
+                        entity_id=entity_id,
+                        entity_type=e_type,
+                        name=name,
+                        ts_code=ts_code if e_type in {"Metric"} else None,
+                        properties=props,
+                        source_type=source_type,
+                        source_name=source_name,
+                        confidence=conf,
+                    )
+                if is_new:
+                    created += 1
+                else:
+                    updated += 1
+                ids.append(entity_id)
+                vecs.append(
+                    {
+                        "entity_id": entity_id,
+                        "entity_name": name,
+                        "description": description,
+                        "entity_type": e_type,
+                        "ts_code": ts_code,
+                    }
                 )
-            if is_new:
-                entities_created += 1
-            else:
-                entities_updated += 1
-            entity_ids.append(entity_id)
-            pending_entity_vecs.append(
-                {
-                    "entity_id": entity_id,
-                    "entity_name": name,
-                    "description": description,
-                    "entity_type": e_type,
-                    "ts_code": ts_code,
-                }
-            )
-        except Exception as ex:
-            logger.warning("实体入库失败 [%s %s]: %s", e_type, name, ex)
+            except Exception as ex:
+                logger.warning("实体入库失败 [%s %s]: %s", e_type, name, ex)
+        return created, updated, ids, vecs
+
+    # Neo4j 用同步驱动：放到线程执行，避免阻塞事件循环（并发入库的关键）
+    entities_created, entities_updated, entity_ids, pending_entity_vecs = await asyncio.to_thread(
+        _write_entities_sync
+    )
 
     if pending_entity_vecs:
         await async_upsert_entities_batch(pending_entity_vecs)
@@ -1398,48 +1409,58 @@ async def persist_evidence_extraction(
     relations_created = relations_updated = 0
     written_rels: list[dict[str, Any]] = []
     pending_rel_vecs: list[dict[str, Any]] = []
-    for r in merged_relations:
-        src_name = str(r.get("src_id") or "").strip()
-        tgt_name = str(r.get("tgt_id") or "").strip()
-        rel_desc = str(r.get("description") or "").strip()
-        stmt_type = r.get("stmt_type", "Fact")
-        src_eid = lookup.get(src_name) or lookup.get(src_name.lower())
-        tgt_eid = lookup.get(tgt_name) or lookup.get(tgt_name.lower())
-        if not src_eid or not tgt_eid:
-            continue
-        v2_weight = _normalize_relation_weight(r.get("weight", 5.0))
-        relation_subtype = infer_relation_type(rel_desc)
-        try:
-            _, is_new = upsert_relates(
-                from_entity=src_eid,
-                to_entity=tgt_eid,
-                text=rel_desc,
-                weight=v2_weight,
-                source_file=source_name,
-                source_type=source_type,
-                source_name=source_name,
-                valid_from=today,
-                stmt_type=stmt_type,
-                relation_subtype=relation_subtype,
-            )
-            if is_new:
-                relations_created += 1
-            else:
-                relations_updated += 1
-            written_rels.append({"from": src_eid, "to": tgt_eid, "relation": rel_desc})
-            pending_rel_vecs.append(
-                {
-                    "relation_key": f"{src_eid}|{tgt_eid}|{rel_desc[:40]}",
-                    "from_name": src_name,
-                    "to_name": tgt_name,
-                    "description": rel_desc,
-                    "from_entity": src_eid,
-                    "to_entity": tgt_eid,
-                    "ts_code": ts_code,
-                }
-            )
-        except Exception as ex:
-            logger.warning("关系入库失败 [%s → %s]: %s", src_eid, tgt_eid, ex)
+
+    def _write_relations_sync() -> tuple[int, int, list[dict[str, Any]], list[dict[str, Any]]]:
+        created = updated = 0
+        written: list[dict[str, Any]] = []
+        vecs: list[dict[str, Any]] = []
+        for r in merged_relations:
+            src_name = str(r.get("src_id") or "").strip()
+            tgt_name = str(r.get("tgt_id") or "").strip()
+            rel_desc = str(r.get("description") or "").strip()
+            stmt_type = r.get("stmt_type", "Fact")
+            src_eid = lookup.get(src_name) or lookup.get(src_name.lower())
+            tgt_eid = lookup.get(tgt_name) or lookup.get(tgt_name.lower())
+            if not src_eid or not tgt_eid:
+                continue
+            v2_weight = _normalize_relation_weight(r.get("weight", 5.0))
+            relation_subtype = infer_relation_type(rel_desc)
+            try:
+                _, is_new = upsert_relates(
+                    from_entity=src_eid,
+                    to_entity=tgt_eid,
+                    text=rel_desc,
+                    weight=v2_weight,
+                    source_file=source_name,
+                    source_type=source_type,
+                    source_name=source_name,
+                    valid_from=today,
+                    stmt_type=stmt_type,
+                    relation_subtype=relation_subtype,
+                )
+                if is_new:
+                    created += 1
+                else:
+                    updated += 1
+                written.append({"from": src_eid, "to": tgt_eid, "relation": rel_desc})
+                vecs.append(
+                    {
+                        "relation_key": f"{src_eid}|{tgt_eid}|{rel_desc[:40]}",
+                        "from_name": src_name,
+                        "to_name": tgt_name,
+                        "description": rel_desc,
+                        "from_entity": src_eid,
+                        "to_entity": tgt_eid,
+                        "ts_code": ts_code,
+                    }
+                )
+            except Exception as ex:
+                logger.warning("关系入库失败 [%s → %s]: %s", src_eid, tgt_eid, ex)
+        return created, updated, written, vecs
+
+    relations_created, relations_updated, written_rels, pending_rel_vecs = await asyncio.to_thread(
+        _write_relations_sync
+    )
 
     if pending_rel_vecs:
         await async_upsert_relations_batch(pending_rel_vecs)
