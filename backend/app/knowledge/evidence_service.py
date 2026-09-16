@@ -60,6 +60,9 @@ class EvidenceService:
         await self._jobs.create_index("status")
         await self._jobs.create_index("job_type")
         await self._jobs.create_index("updated_at")
+        # claim 查询是 {$or:[status pending / running stale], job_type} + sort created_at，
+        # 单字段索引会退化为全集合内存排序（实测单次 claim 22s）；此复合索引用于命中。
+        await self._jobs.create_index([("job_type", 1), ("status", 1), ("created_at", 1)])
         self._indexes_ensured = True
 
     async def upsert_evidence(self, input: EvidenceInput, chunk_index: int = 0) -> dict[str, Any]:
