@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import re
 from collections import Counter, defaultdict
 from collections.abc import Callable
@@ -38,6 +39,28 @@ from app.knowledge.extraction.rag_prompts import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+# ── 抽取 LLM 限速（滑动窗口，防触发网关 429）─────────────────────────────────
+# LLM_RATE_LIMIT_PER_MINUTE > 0 时启用；<=0 / 未设置则关闭。
+_llm_rate_limiter = None
+_llm_rate_limiter_inited = False
+
+
+def _get_llm_rate_limiter():
+    global _llm_rate_limiter, _llm_rate_limiter_inited
+    if not _llm_rate_limiter_inited:
+        _llm_rate_limiter_inited = True
+        try:
+            rpm = int(os.getenv("LLM_RATE_LIMIT_PER_MINUTE", "0") or "0")
+        except ValueError:
+            rpm = 0
+        if rpm > 0:
+            from app.data_pipeline.rate_limiter import AsyncRateLimiter
+
+            _llm_rate_limiter = AsyncRateLimiter(max_requests=rpm, window_seconds=60.0, name="LLM-extract")
+            logger.info("抽取 LLM 限速启用: %d RPM", rpm)
+    return _llm_rate_limiter
 
 # 合法的 entity_type 白名单（模块级常量）
 VALID_ENTITY_TYPES = frozenset(ENTITY_TYPES)
@@ -300,7 +323,10 @@ async def _call_llm_async(prompt: str, timeout: int = 180, max_tokens: int | Non
 
     last_exc: Exception | None = None
     MAX_ATTEMPTS = 5
+    limiter = _get_llm_rate_limiter()
     for attempt in range(MAX_ATTEMPTS):
+        if limiter is not None:
+            await limiter.wait_and_acquire()
         model = await get_extraction_model()
         try:
             return await chat_async(
@@ -407,6 +433,50 @@ def _prefilter_chunk(content: str) -> str:
         effective_lines.append(raw_line)
 
     return "\n".join(effective_lines)
+
+
+# ── 后置守卫（提升严格 grounded 精度）────────────────────────────────────────
+
+
+def _normalize_entity_name(name: str) -> str:
+    import unicodedata
+
+    if not name:
+        return ""
+    normalized = unicodedata.normalize("NFKC", name)
+    normalized = "".join(ch for ch in normalized if ch.isprintable() or ch in "\n\t")
+    return re.sub(r"\s+", " ", normalized).strip()
+
+
+def _apply_extraction_guardrails(
+    entities: list[dict], relations: list[dict]
+) -> tuple[list[dict], list[dict]]:
+    """丢弃无效 Metric 与端点无效的关系，提升严格 grounded 精度。
+
+    - Metric 名称不含数字 → 丢弃（无值指标不算合格 Metric）
+    - 关系 src/tgt 归一化后必须命中最终实体名集合 → 否则丢弃
+    实体名统一 NFKC 归一化，保证与关系端点对齐。
+    """
+    name_set: set[str] = set()
+    guarded_entities: list[dict] = []
+    for e in entities:
+        name = _normalize_entity_name(e.get("entity_name", ""))
+        if not name:
+            continue
+        if e.get("entity_type") == "Metric" and not re.search(r"\d", name):
+            continue
+        e["entity_name"] = name
+        guarded_entities.append(e)
+        name_set.add(name)
+
+    guarded_relations: list[dict] = []
+    for r in relations:
+        src = _normalize_entity_name(r.get("src_id", ""))
+        tgt = _normalize_entity_name(r.get("tgt_id", ""))
+        if src in name_set and tgt in name_set:
+            r["src_id"], r["tgt_id"] = src, tgt
+            guarded_relations.append(r)
+    return guarded_entities, guarded_relations
 
 
 # ── Gleaning 循环 ──────────────────────────────────────────────────────────────
@@ -595,6 +665,11 @@ class RAGExtractor:
                 all_edges[k].extend(v)
             all_signals.extend(signals)
 
+        # 失败不静默：所有 chunk 调用都失败 → 抛错，让 worker 把 job 标 failed
+        # （否则会以「空结果」标 success，静默烧掉待抽取队列）
+        if error_count and error_count == len(chunks):
+            raise RuntimeError(f"抽取失败：{len(chunks)} 个 chunk 全部调用失败")
+
         callback and callback(
             f"抽取完成: {len(all_nodes)} 实体, {len(all_edges)} 关系, {len(all_signals)} 信号（失败 {error_count} 块）",
             40.0,
@@ -607,6 +682,17 @@ class RAGExtractor:
         # Step 4: 关系合并
         merged_relations = await self._merge_relations(all_edges)
         callback and callback(f"关系合并完成: {len(merged_relations)} 关系", 90.0)
+
+        # Step 5: 后置守卫 —— 提升「严格 grounded」精度
+        # (a) Metric 必须含数值：无数值的"指标名"（如"营业收入""股东户数"）直接丢弃
+        #     （Qwen 等模型会把指标名当 Metric 输出，污染 precision）
+        # (b) 关系端点必须在最终实体名集合内：合并/归一化后仍对齐，否则丢弃该关系
+        merged_entities, merged_relations = _apply_extraction_guardrails(
+            merged_entities, merged_relations
+        )
+        callback and callback(
+            f"守卫后: {len(merged_entities)} 实体, {len(merged_relations)} 关系", 95.0
+        )
 
         return merged_entities, merged_relations, all_signals
 

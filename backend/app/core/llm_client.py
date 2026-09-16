@@ -95,7 +95,8 @@ async def chat_async(
     if max_tokens is not None:
         kwargs["max_tokens"] = max_tokens
     # 推理模型默认开启 thinking，不显式关闭会输出思考文字污染 JSON（deepseek / minimax 均需关闭）
-    if "deepseek" in (kwargs["model"]).lower() or "minimax" in (kwargs["model"]).lower():
+    _m = str(kwargs["model"]).lower()
+    if getattr(settings, "llm_disable_thinking", False) or "deepseek" in _m or "minimax" in _m:
         kwargs["extra_body"] = {"thinking": {"type": "disabled"}}
     if stream:
         kwargs["stream"] = True
@@ -205,7 +206,8 @@ def chat(
     if max_tokens is not None:
         kwargs["max_tokens"] = max_tokens
     # 推理模型默认开启 thinking，显式关闭（deepseek / minimax 均需关闭）
-    if "deepseek" in (kwargs["model"]).lower() or "minimax" in (kwargs["model"]).lower():
+    _m = str(kwargs["model"]).lower()
+    if getattr(settings, "llm_disable_thinking", False) or "deepseek" in _m or "minimax" in _m:
         kwargs["extra_body"] = {"thinking": {"type": "disabled"}}
     response = client.chat.completions.create(**kwargs)
     return response.choices[0].message.content or ""

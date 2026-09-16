@@ -54,6 +54,10 @@ class Settings(BaseSettings):
     llm_model: str = "MiniMax-M2.7-highspeed"
     llm_extraction_model: str = "deepseek-v4-flash"  # 抽取专用快模型（批量知识构建，避免慢模型 504）
 
+    # 全局关闭 LLM thinking：True 时对所有模型显式传 thinking disabled
+    # （否则仅 deepseek/minimax 自动关闭）。抽取批量场景可避免推理模型超时/污染。
+    llm_disable_thinking: bool = False
+
     # 抽取模型可用性自动回退（模型不存在/无权/网关不可用时，重新拉取可用模型并切换）
     # fallback_order：回退时按逗号分隔的"名称子串"依次尝试匹配可用模型；"*"=任选（兜底）
     #   例 "flash,minimax,*"：优先任一含 flash 的模型 → 其次任一含 minimax 的 → 再无则任选。
