@@ -32,7 +32,7 @@ import hashlib
 import logging
 import math
 import re
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from collections.abc import Callable
 from datetime import date
 from pathlib import Path
@@ -69,9 +69,12 @@ from app.knowledge.extraction.signal_extractor import (
     persist_signals_to_company_props,
 )
 from app.knowledge.relation_service import (
+    _default_state_history,
+    _serialize_state_history,
     infer_relation_type,
     upsert_relates,
 )
+from app.knowledge.kg_batch import upsert_entities_batch, upsert_relates_batch
 from app.knowledge.state_machine import (
     build_transition_signal,
     extract_state_transitions,
@@ -1323,9 +1326,11 @@ async def persist_evidence_extraction(
     entities_created = entities_updated = 0
     entity_ids: list[str] = []
     pending_entity_vecs: list[dict[str, Any]] = []
+    now_iso = datetime.now(UTC).isoformat()
+    today_str = str(today)
 
-    def _write_entities_sync() -> tuple[int, int, list[str], list[dict[str, Any]]]:
-        created = updated = 0
+    def _build_entity_rows_sync() -> tuple[list[dict[str, Any]], list[str], list[dict[str, Any]]]:
+        rows: list[dict[str, Any]] = []
         ids: list[str] = []
         vecs: list[dict[str, Any]] = []
         for e in merged_entities:
@@ -1357,51 +1362,55 @@ async def persist_evidence_extraction(
                     }
                 )
             entity_id = lookup.get(name) or lookup.get(name.lower()) or _entity_id_from_name(name, e_type)
-            try:
-                if e_type == "Company":
-                    _, is_new = upsert_entity(
-                        entity_id=entity_id,
-                        entity_type="Company",
-                        name=name,
-                        properties=props,
-                        source_type=source_type,
-                        source_name=source_name,
-                        confidence=conf,
-                        ts_code=ts_code if ts_code != "UNKNOWN" else None,
-                    )
-                else:
-                    _, is_new = upsert_entity(
-                        entity_id=entity_id,
-                        entity_type=e_type,
-                        name=name,
-                        ts_code=ts_code if e_type in {"Metric"} else None,
-                        properties=props,
-                        source_type=source_type,
-                        source_name=source_name,
-                        confidence=conf,
-                    )
-                if is_new:
-                    created += 1
-                else:
-                    updated += 1
-                ids.append(entity_id)
-                vecs.append(
-                    {
-                        "entity_id": entity_id,
-                        "entity_name": name,
-                        "description": description,
-                        "entity_type": e_type,
-                        "ts_code": ts_code,
-                    }
-                )
-            except Exception as ex:
-                logger.warning("实体入库失败 [%s %s]: %s", e_type, name, ex)
-        return created, updated, ids, vecs
+            row_ts = ""
+            if e_type == "Metric":
+                row_ts = ts_code or ""
+            elif e_type == "Company" and ts_code and ts_code != "UNKNOWN":
+                row_ts = ts_code
+            aliases: list[str] = []
+            if row_ts:
+                try:
+                    from app.knowledge.stock_name_resolver import get_stock_name_resolver
 
-    # Neo4j 用同步驱动：放到线程执行，避免阻塞事件循环（并发入库的关键）
-    entities_created, entities_updated, entity_ids, pending_entity_vecs = await asyncio.to_thread(
-        _write_entities_sync
-    )
+                    all_names = get_stock_name_resolver().get_aliases(row_ts)
+                    aliases = [n for n in all_names if n and n != name]
+                except Exception as ex:  # noqa: BLE001
+                    logger.warning("解析 aliases 失败 [%s]: %s", entity_id, ex)
+            rows.append(
+                {
+                    "entity_type": e_type,
+                    "entity_id": entity_id,
+                    "name": name,
+                    "confidence": conf,
+                    "source_type": source_type,
+                    "source_name": source_name,
+                    "evidence_url": None,
+                    "valid_from": today_str,
+                    "valid_to": None,
+                    "parser_version": "v1.3",
+                    "ts_code": row_ts,
+                    "aliases": aliases,
+                    "created_at": now_iso,
+                    "updated_at": now_iso,
+                    "extra_props": props,
+                }
+            )
+            ids.append(entity_id)
+            vecs.append(
+                {
+                    "entity_id": entity_id,
+                    "entity_name": name,
+                    "description": description,
+                    "entity_type": e_type,
+                    "ts_code": ts_code,
+                }
+            )
+        return rows, ids, vecs
+
+    # 同步 Neo4j 调用：放到线程执行，避免阻塞事件循环
+    entity_rows, entity_ids, pending_entity_vecs = await asyncio.to_thread(_build_entity_rows_sync)
+    if entity_rows:
+        entities_created, entities_updated = await asyncio.to_thread(upsert_entities_batch, entity_rows)
 
     if pending_entity_vecs:
         await async_upsert_entities_batch(pending_entity_vecs)
@@ -1409,9 +1418,11 @@ async def persist_evidence_extraction(
     relations_created = relations_updated = 0
     written_rels: list[dict[str, Any]] = []
     pending_rel_vecs: list[dict[str, Any]] = []
+    yesterday_str = str(today - timedelta(days=1))
+    _stmt_rank = {"Fact": 3, "Claim": 2, "Estimate": 1}
 
-    def _write_relations_sync() -> tuple[int, int, list[dict[str, Any]], list[dict[str, Any]]]:
-        created = updated = 0
+    def _build_relation_rows_sync() -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+        rows: list[dict[str, Any]] = []
         written: list[dict[str, Any]] = []
         vecs: list[dict[str, Any]] = []
         for r in merged_relations:
@@ -1425,42 +1436,49 @@ async def persist_evidence_extraction(
                 continue
             v2_weight = _normalize_relation_weight(r.get("weight", 5.0))
             relation_subtype = infer_relation_type(rel_desc)
-            try:
-                _, is_new = upsert_relates(
-                    from_entity=src_eid,
-                    to_entity=tgt_eid,
-                    text=rel_desc,
-                    weight=v2_weight,
-                    source_file=source_name,
-                    source_type=source_type,
-                    source_name=source_name,
-                    valid_from=today,
-                    stmt_type=stmt_type,
-                    relation_subtype=relation_subtype,
-                )
-                if is_new:
-                    created += 1
-                else:
-                    updated += 1
-                written.append({"from": src_eid, "to": tgt_eid, "relation": rel_desc})
-                vecs.append(
-                    {
-                        "relation_key": f"{src_eid}|{tgt_eid}|{rel_desc[:40]}",
-                        "from_name": src_name,
-                        "to_name": tgt_name,
-                        "description": rel_desc,
-                        "from_entity": src_eid,
-                        "to_entity": tgt_eid,
-                        "ts_code": ts_code,
-                    }
-                )
-            except Exception as ex:
-                logger.warning("关系入库失败 [%s → %s]: %s", src_eid, tgt_eid, ex)
-        return created, updated, written, vecs
+            rows.append(
+                {
+                    "from_entity": src_eid,
+                    "to_entity": tgt_eid,
+                    "valid_from": today_str,
+                    "yesterday": yesterday_str,
+                    "now": now_iso,
+                    "desc": f"[{source_name}]neutral: {rel_desc}",
+                    "text": rel_desc,
+                    "weight": v2_weight,
+                    "direction": "neutral",
+                    "stmt_type": stmt_type,
+                    "stmt_rank": _stmt_rank.get(stmt_type, 0),
+                    "relation_subtype": relation_subtype or "",
+                    "source_type": source_type,
+                    "source_name": source_name,
+                    "source_file": source_name,
+                    "source_chunk": "",
+                    "evidence_id": evidence.get("evidence_id") or "",
+                    "evidence_ids": [evidence.get("evidence_id")] if evidence.get("evidence_id") else [],
+                    "valid_to": None,
+                    "state_history": _serialize_state_history(
+                        _default_state_history(rel_desc, today_str, None)
+                    ),
+                }
+            )
+            written.append({"from": src_eid, "to": tgt_eid, "relation": rel_desc})
+            vecs.append(
+                {
+                    "relation_key": f"{src_eid}|{tgt_eid}|{rel_desc[:40]}",
+                    "from_name": src_name,
+                    "to_name": tgt_name,
+                    "description": rel_desc,
+                    "from_entity": src_eid,
+                    "to_entity": tgt_eid,
+                    "ts_code": ts_code,
+                }
+            )
+        return rows, written, vecs
 
-    relations_created, relations_updated, written_rels, pending_rel_vecs = await asyncio.to_thread(
-        _write_relations_sync
-    )
+    relation_rows, written_rels, pending_rel_vecs = await asyncio.to_thread(_build_relation_rows_sync)
+    if relation_rows:
+        relations_created, relations_updated = await asyncio.to_thread(upsert_relates_batch, relation_rows)
 
     if pending_rel_vecs:
         await async_upsert_relations_batch(pending_rel_vecs)
