@@ -87,85 +87,40 @@ SYMMETRIC_TYPES = frozenset({"CONTRADICTS", "COMPETES_WITH", "SUBSTITUTES"})
 
 # ── LLM 描述 → 结构化关系类型映射 ──────────────────────────────────────
 
-_TYPE_KEYWORDS: dict[str, list[re.Pattern]] = {
-    "BELONGS_TO": [
-        re.compile(r"属于|隶属|归属|所在板块|所属板块"),
-        re.compile(r"主营.*行业|行业为|业务领域"),
-    ],
-    "PRODUCES": [
-        re.compile(r"生产|制造|量产|出货|供货产品"),
-        re.compile(r"主营|主要产品|核心产品|主要从事"),
-    ],
-    "DIRECTLY_SUPPLIES_TO": [
-        re.compile(r"直接供货|直接供应|已通过.*认证|认证.*供货"),
-        re.compile(r"已.*供货|批量供货|稳定供货|开始供货"),
-        re.compile(r"已向.*提供|已给.*供应"),
-    ],
-    "SUPPLIES_TO": [
-        re.compile(r"供货|供应|是.*供应商|供应商"),
-        re.compile(r"供应链|上游.*供应|供应.*芯片"),
-    ],
-    "USES": [
-        re.compile(r"采用|使用|应用.*技术|搭载"),
-        re.compile(r"使用.*技术路线|技术路线为"),
-    ],
-    "APPLIES_TO": [
-        re.compile(r"应用于|应用场景|应用领域|适用"),
-        re.compile(r"可用于|面向|针对.*市场"),
-    ],
-    "COMPETES_WITH": [
-        re.compile(r"竞争|竞争对手|对标|替代"),
-        re.compile(r"与.*竞争|取代|替代.*产品"),
-    ],
-    "STATE_TRANSITION": [
-        re.compile(r"进入|从.*到|跃迁|升级"),
-        re.compile(r"从.*阶段|阶段跃迁|状态转移"),
-        re.compile(r"量产爬坡|产能释放|规模量产|中试|送样"),
-    ],
-    "DISCLOSES": [
-        re.compile(r"披露|公告|说明|发布"),
-        re.compile(r"在.*披露|公告称|表示"),
-    ],
-    "CATALYZES": [
-        re.compile(r"催化|推动|加速|促进"),
-        re.compile(r"带动|拉动|赋能"),
-    ],
-    "CONSTRAINS": [
-        re.compile(r"受限于|取决于|瓶颈|约束"),
-        re.compile(r"受限|产能.*不足|产能.*紧张"),
-    ],
-}
+# 关系子类型：有序规则，**首个命中即返回**；无命中返回中性 RELATED。
+# 注意：不要再用"无命中→SUPPLIES_TO"的兜底（曾导致 98% 关系被误标为供应链）。
+_ORDERED_RULES: list[tuple[str, re.Pattern]] = [
+    ("DIRECTLY_SUPPLIES_TO", re.compile(r"直接供货|直接供应|批量供货|稳定供货|开始供货|已向.{0,8}供应|已给.{0,8}供应")),
+    ("SUPPLIES_TO", re.compile(r"供货|供应|供应商|供应链|上游|采购|客户")),
+    ("PRODUCES", re.compile(r"生产|制造|量产|出货|主要产品|核心产品|主营产品|主要从事|研发")),
+    ("BELONGS_TO", re.compile(r"控股|全资|参股|母公司|子公司|属于|隶属|归属|关联方|股东")),
+    ("APPLIES_TO", re.compile(r"应用于|应用场景|应用领域|适用|可用于|面向|针对")),
+    ("USES", re.compile(r"采用|使用|搭载")),
+    ("COMPETES_WITH", re.compile(r"竞争|竞争对手|对标|替代")),
+    ("STATE_TRANSITION", re.compile(r"量产爬坡|产能释放|中试|送样|进入|阶段")),
+    ("CATALYZES", re.compile(r"催化|推动|加速|促进|带动|拉动|赋能")),
+    ("CONSTRAINS", re.compile(r"受限于|取决于|瓶颈|约束|产能.{0,6}不足|产能.{0,6}紧张")),
+    ("DISCLOSES", re.compile(r"披露|公告|说明|发布")),
+]
 
 
-def infer_relation_type(description: str) -> str:
+def infer_relation_type(
+    description: str,
+    src_type: str | None = None,
+    tgt_type: str | None = None,
+) -> str:
+    """推断关系子类型。
+
+    - 指向 Metric 的关系（如 Company→Metric）统一为 HAS_METRIC（指标关系，非供应链）。
+    - 其余按关键词有序规则，首个命中即返回；无命中返回中性 RELATED。
     """
-    根据关系描述推断最可能的结构化关系类型。
-
-    策略：匹配关键词模式，返回得分最高的关系类型。
-    如无匹配，返回 SUPPLIES_TO（最通用的供应链关系）。
-
-    Args:
-        description: 自然语言关系描述
-
-    Returns:
-        结构化 relationship_type
-    """
-    if not description:
-        return "SUPPLIES_TO"
-
-    scores: dict[str, int] = {}
-    for rel_type, patterns in _TYPE_KEYWORDS.items():
-        score = 0
-        for pat in patterns:
-            if pat.search(description):
-                score += 1
-        if score > 0:
-            scores[rel_type] = score
-
-    if not scores:
-        return "SUPPLIES_TO"
-
-    return max(scores, key=lambda k: scores[k])
+    if tgt_type == "Metric":
+        return "HAS_METRIC"
+    text = description or ""
+    for name, pat in _ORDERED_RULES:
+        if pat.search(text):
+            return name
+    return "RELATED"
 
 
 # ── 关系 → dict 互转 ──────────────────────────────────

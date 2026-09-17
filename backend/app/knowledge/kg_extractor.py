@@ -660,7 +660,7 @@ def extract_text(
         rel_weight = _normalize_relation_weight(r.get("weight"))
 
         # Infer relation_subtype from description text
-        relation_subtype = infer_relation_type(rel_desc)
+        relation_subtype = infer_relation_type(rel_desc, _type_from_eid(src_eid), _type_from_eid(tgt_eid))
 
         try:
             _, is_new = upsert_relates(
@@ -1065,7 +1065,7 @@ async def extract_text_async(
         v2_weight = _normalize_relation_weight(r.get("weight", 5.0))
 
         # Infer relation_subtype from description text
-        relation_subtype = infer_relation_type(rel_desc)
+        relation_subtype = infer_relation_type(rel_desc, _type_from_eid(src_eid), _type_from_eid(tgt_eid))
 
         try:
             _, is_new = upsert_relates(
@@ -1301,13 +1301,39 @@ def _is_generic_company_name(name: str) -> bool:
     return n in _GENERIC_COMPANY_NAMES or bool(_GENERIC_COMPANY_RE.match(n))
 
 
-def _resolve_subject_company(evidence: dict[str, Any]) -> str | None:
-    """从 evidence 主体信息解析标准公司名（用于泛称改写）。"""
+def _resolve_subject_company(evidence: dict[str, Any], ts_code: str | None = None) -> str | None:
+    """从 evidence 主体信息解析标准公司名（用于泛称改写）。
+
+    company_name 缺失时，用 ts_code 经 StockNameResolver 兜底解析。
+    """
     sh = evidence.get("subject_hint") or {}
     name = str(sh.get("company_name") or "").strip()
     if name and not _is_generic_company_name(name):
         return name
+    ts = str(ts_code or sh.get("ts_code") or "").strip()
+    if ts and ts != "UNKNOWN":
+        try:
+            from app.knowledge.stock_name_resolver import get_stock_name_resolver
+
+            for cand in get_stock_name_resolver().get_aliases(ts):
+                c = str(cand or "").strip()
+                if c and not _is_generic_company_name(c):
+                    return c
+        except Exception as ex:  # noqa: BLE001
+            logger.debug("ts_code 兜底解析公司名失败 [%s]: %s", ts, ex)
     return None
+
+
+def _type_from_eid(entity_id: str) -> str:
+    """由 entity_id 前缀推断实体类型（用于关系子类型推断）。"""
+    eid = entity_id or ""
+    if eid.startswith(("C:", "CO")):
+        return "Company"
+    if eid.startswith("P:"):
+        return "Product"
+    if eid.startswith("M:"):
+        return "Metric"
+    return ""
 
 
 async def persist_evidence_extraction(
@@ -1348,7 +1374,7 @@ async def persist_evidence_extraction(
         logger.warning("信号持久化失败 [%s]: %s", source_name, _sig_ex)
 
     # 泛称实体/关系端点 → 标准公司名（依据 evidence 主体公司），修复归属丢失
-    canonical_company = _resolve_subject_company(evidence)
+    canonical_company = _resolve_subject_company(evidence, ts_code)
     if canonical_company:
         for e in merged_entities:
             if _is_generic_company_name(e.get("entity_name")):
@@ -1477,7 +1503,9 @@ async def persist_evidence_extraction(
             if not src_eid or not tgt_eid:
                 continue
             v2_weight = _normalize_relation_weight(r.get("weight", 5.0))
-            relation_subtype = infer_relation_type(rel_desc)
+            relation_subtype = infer_relation_type(
+                rel_desc, _type_from_eid(src_eid), _type_from_eid(tgt_eid)
+            )
             rows.append(
                 {
                     "from_entity": src_eid,
