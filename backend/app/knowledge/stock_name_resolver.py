@@ -37,6 +37,8 @@ class StockNameResolver:
     def __init__(self) -> None:
         # A-share: name variant → ts_code
         self._name_to_ts_code: dict[str, str] = {}
+        # A-share: 短名(2-8字且不含法律后缀) → ts_code，用于全称子串兜底匹配
+        self._short_to_ts_code: dict[str, str] = {}
         # A-share: ts_code → all known name variants
         self._ts_code_to_names: dict[str, list[str]] = {}
         # A-share: ts_code → industry
@@ -68,6 +70,7 @@ class StockNameResolver:
         supp_count = self._load_supplemental()
 
         self._loaded = True
+        self._build_short_index()
         total = len(self._name_to_ts_code) + len(self._co_name_to_id)
         logger.info(
             "StockNameResolver 已加载: %d 条 A-share 映射 (PG=%d, 补充=%d), %d 条非 A-share 映射, 总计 %d 条名称",
@@ -201,6 +204,61 @@ class StockNameResolver:
         h = hashlib.md5(name.encode("utf-8")).hexdigest()[:12].upper()
         return f"CO:{h}"
 
+    # 法律后缀（长在前，反复剥离以处理"集团股份有限公司"等组合）
+    _LEGAL_SUFFIXES = (
+        "集团股份有限公司", "控股集团有限公司", "股份有限公司", "有限责任公司",
+        "集团有限公司", "控股有限公司", "有限公司", "责任公司", "公司", "集团", "控股", "股份",
+    )
+    _LEGAL_WORDS = ("公司", "集团", "股份", "有限", "责任", "控股")
+
+    @classmethod
+    def _strip_legal_suffix(cls, name: str) -> str:
+        n = name
+        changed = True
+        while changed and n:
+            changed = False
+            for suf in cls._LEGAL_SUFFIXES:
+                if n.endswith(suf) and len(n) > len(suf):
+                    n = n[: -len(suf)]
+                    changed = True
+        return n.strip()
+
+    def _build_short_index(self) -> None:
+        """短名索引：2-8 字且不含法律后缀的名称 → ts_code，用于全称子串兜底。"""
+        idx: dict[str, str] = {}
+        for nm, tc in self._name_to_ts_code.items():
+            if 2 <= len(nm) <= 8 and not any(w in nm for w in self._LEGAL_WORDS):
+                idx.setdefault(nm, tc)
+        self._short_to_ts_code = idx
+
+    def _resolve_by_substring(self, name: str) -> str | None:
+        """在名称里查找已知短名（优先最长匹配）。"""
+        if not self._short_to_ts_code:
+            return None
+        n = name.lower()
+        L = len(n)
+        for size in range(min(8, L), 1, -1):
+            for i in range(0, L - size + 1):
+                tc = self._short_to_ts_code.get(n[i : i + size])
+                if tc:
+                    return tc
+        return None
+
+    def _resolve_ashare_ts_code(self, name: str) -> str | None:
+        """A股名称 → ts_code：精确 → 剥离法律后缀 → 短名子串兜底。"""
+        name_lower = (name or "").lower()
+        if not name_lower:
+            return None
+        tc = self._name_to_ts_code.get(name_lower)
+        if tc:
+            return tc
+        stripped = self._strip_legal_suffix(name).lower()
+        if stripped and stripped != name_lower:
+            tc = self._name_to_ts_code.get(stripped)
+            if tc:
+                return tc
+        return self._resolve_by_substring(stripped or name_lower)
+
     # ── Public lookup methods (all synchronous, in-memory) ─────────────
 
     def resolve(self, name: str) -> str | None:
@@ -211,8 +269,8 @@ class StockNameResolver:
         if not name:
             return None
         name_lower = name.lower()
-        # A-share lookup
-        ts_code = self._name_to_ts_code.get(name_lower)
+        # A-share lookup（含法名归一化/短名兜底）
+        ts_code = self._resolve_ashare_ts_code(name)
         if ts_code:
             return ts_code
         # Non-A-share: check if it maps to a CO_ entity with ts_code
@@ -236,8 +294,8 @@ class StockNameResolver:
 
         name_lower = name.lower()
 
-        # A-share: name → ts_code → entity_id
-        ts_code = self._name_to_ts_code.get(name_lower)
+        # A-share: name → ts_code → entity_id（含法名归一化/短名兜底）
+        ts_code = self._resolve_ashare_ts_code(name)
         if ts_code:
             entity_id = f"C:{ts_code}"
             # Return the primary name (from stocks table, first in names list)
