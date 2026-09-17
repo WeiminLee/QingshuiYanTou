@@ -1283,6 +1283,33 @@ async def extract_evidence_raw(evidence: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+# ── 泛称公司名 → 标准公司名 ────────────────────────────────────────────────
+# LLM 在原文只出现"公司"等泛称时会输出泛称实体，合并后所有公司黏到一个节点上，
+# 关系归属丢失。入库前按 evidence 主体公司名改写为具体公司。
+_GENERIC_COMPANY_NAMES = {
+    "公司", "本公司", "贵公司", "该公司", "上市公司", "标的公司", "目标公司", "标的",
+    "本集团", "该集团", "集团", "本公司集团", "本企业", "该企业", "企业",
+    "本行", "本银行", "我们", "我司", "我公司", "本行公司",
+}
+_GENERIC_COMPANY_RE = re.compile(r"^(本|该|贵|标的|目标|上市)?(公司|集团|企业|银行?|行)$")
+
+
+def _is_generic_company_name(name: str) -> bool:
+    n = (name or "").strip()
+    if not n:
+        return False
+    return n in _GENERIC_COMPANY_NAMES or bool(_GENERIC_COMPANY_RE.match(n))
+
+
+def _resolve_subject_company(evidence: dict[str, Any]) -> str | None:
+    """从 evidence 主体信息解析标准公司名（用于泛称改写）。"""
+    sh = evidence.get("subject_hint") or {}
+    name = str(sh.get("company_name") or "").strip()
+    if name and not _is_generic_company_name(name):
+        return name
+    return None
+
+
 async def persist_evidence_extraction(
     evidence: dict[str, Any],
     extracted: dict[str, Any],
@@ -1319,6 +1346,18 @@ async def persist_evidence_extraction(
             await _session.commit()
     except Exception as _sig_ex:
         logger.warning("信号持久化失败 [%s]: %s", source_name, _sig_ex)
+
+    # 泛称实体/关系端点 → 标准公司名（依据 evidence 主体公司），修复归属丢失
+    canonical_company = _resolve_subject_company(evidence)
+    if canonical_company:
+        for e in merged_entities:
+            if _is_generic_company_name(e.get("entity_name")):
+                e["entity_name"] = canonical_company
+        for r in merged_relations:
+            if _is_generic_company_name(r.get("src_id")):
+                r["src_id"] = canonical_company
+            if _is_generic_company_name(r.get("tgt_id")):
+                r["tgt_id"] = canonical_company
 
     lookup = _build_name_to_id_map(merged_entities, ts_code, disambiguation_context=text[:500])
     today = date.today()
