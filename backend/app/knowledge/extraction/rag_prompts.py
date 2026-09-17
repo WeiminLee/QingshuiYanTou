@@ -11,12 +11,13 @@ EXTRACTION_PROMPT = """你是一名 A 股买方研究员，从上市公司公告
 【entities 表】
 {{
   "entities": [
-    {{"name": "具体名称", "type": "Company|Product|Metric"}}
+    {{"name": "具体名称", "type": "Company|Product|Metric", "description": "一句话说明该实体，无则留空"}}
   ]
 }}
 - Company：公司全称或简称。绝对禁止使用"公司""本集团""本公司"等泛称。若文本中未出现公司名，使用【公司信息】中指定的名称。
 - Product：产品、材料、技术、业务线、品牌（如"碳酸锶""己二腈""智能座舱""垃圾焚烧发电""百联繁花里"）
 - Metric：量化指标，命名格式为"指标含义+数值+单位"。示例："营收120亿元""毛利率32%""产能20万吨/年""股东户数31104户""深加工收入占比41%"。没有数值的定性描述不算 Metric。
+- description：用一句简明中文说明该实体是什么/做什么或关键属性，须来自原文；无信息则留空字符串 ""。
 
 【relations 表】
 {{
@@ -88,7 +89,7 @@ GENERIC_NAME_RETRY_PROMPT = """【重要】你之前的输出中使用了"公司
 若文本中未出现公司名，使用【公司信息】中指定的名称。
 
 {{
-  "entities": [{{"name": "具体名称", "type": "Company|Product|Metric"}}],
+  "entities": [{{"name": "具体名称", "type": "Company|Product|Metric", "description": "一句话说明该实体，无则留空"}}],
   "relations": [{{"entity1": "...", "entity2": "...", "description": "...", "confidence": 1.0, "stmt_type": "Fact|Claim|Estimate", "source": "...", "metric_value": null, "metric_unit": null, "metric_period": null, "metric_period_type": null, "metric_sentiment": null}}],
   "signals": [{{"signal_type": "...", "polarity": "...", "strength": 0, "subject_name": "...", "subject_type": "...", "summary": "...", "evidence_excerpt": "..."}}]
 }}

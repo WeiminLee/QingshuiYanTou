@@ -76,6 +76,7 @@ EntityType = Literal["Company", "Product", "Metric"]
 class Entity(BaseModel):
     name: str = Field(min_length=1)
     type: EntityType
+    description: str = ""
 
 
 class Relation(BaseModel):
@@ -183,7 +184,9 @@ def _parse_json_output(raw_text: str) -> tuple[list[dict], list[dict], list[dict
     for e in parsed.entities:
         if e.name not in seen:
             seen.add(e.name)
-            deduped_entities.append({"entity_name": e.name, "entity_type": e.type})
+            deduped_entities.append(
+                {"entity_name": e.name, "entity_type": e.type, "description": e.description}
+            )
     entities_out = deduped_entities
 
     # 过滤孤立关系：entity1/entity2 必须在 entities 中
