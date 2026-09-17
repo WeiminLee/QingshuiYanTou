@@ -1403,9 +1403,12 @@ async def persist_evidence_extraction(
             entity_id = lookup.get(name) or lookup.get(name.lower()) or _entity_id_from_name(name, e_type)
             row_ts = ""
             if e_type == "Metric":
-                row_ts = ts_code or ""
-            elif e_type == "Company" and ts_code and ts_code != "UNKNOWN":
-                row_ts = ts_code
+                # 指标值属于该 evidence 的主体公司（供按公司/时序聚合）
+                row_ts = ts_code if (ts_code and ts_code != "UNKNOWN") else ""
+            elif e_type == "Company":
+                # 只给真正映射到 A 股的节点写「自身」ts_code；非上市(CO:)不写，
+                # 避免把 evidence 主体代码误挂到供应商/子公司/人名等节点上。
+                row_ts = entity_id[2:] if entity_id.startswith("C:") else ""
             aliases: list[str] = []
             if row_ts:
                 try:
