@@ -448,6 +448,23 @@ def _normalize_entity_name(name: str) -> str:
     return re.sub(r"\s+", " ", normalized).strip()
 
 
+# 单位/期间等"非主体"字，用于判断 Metric 是否只是裸值（无主体，如 "5000万元"、"0.59%"）
+_METRIC_NON_SUBJECT_CHARS = set(
+    "元万亿个户台套吨只人天年月季度股百份点期内以上下左右约近增减比率的0-9.%—-~至"
+)
+
+
+def _is_bare_metric(name: str) -> bool:
+    """Metric 无主体（去掉数字/单位/期间后没有实义主体）则判为裸值。"""
+    n = name or ""
+    if re.search(r"[A-Za-z]", n):  # 含字母缩写(ROE/PE/EPS/PB 等)视为有主体
+        return False
+    cjk = re.sub(r"[^\u4e00-\u9fff]", "", n)
+    if not cjk:
+        return True
+    return all(ch in _METRIC_NON_SUBJECT_CHARS for ch in cjk)
+
+
 def _apply_extraction_guardrails(
     entities: list[dict], relations: list[dict]
 ) -> tuple[list[dict], list[dict]]:
@@ -463,7 +480,9 @@ def _apply_extraction_guardrails(
         name = _normalize_entity_name(e.get("entity_name", ""))
         if not name:
             continue
-        if e.get("entity_type") == "Metric" and not re.search(r"\d", name):
+        if e.get("entity_type") == "Metric" and (
+            not re.search(r"\d", name) or _is_bare_metric(name)
+        ):
             continue
         e["entity_name"] = name
         guarded_entities.append(e)
