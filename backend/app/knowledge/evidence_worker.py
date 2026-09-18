@@ -13,6 +13,7 @@ from app.knowledge.evidence import JOB_COMBINED, JOB_LINK, JOB_SIGNAL, JOB_VECTO
 from app.knowledge.evidence_service import EvidenceService
 from app.knowledge.extraction.irm_classifier import classify_irm_evidence, extraction_tier
 from app.knowledge.kg_extractor import extract_evidence_async, extract_evidence_raw
+from app.knowledge.linklayer.candidates import emit_radar_signals, generate_candidates, persist_candidates
 from app.knowledge.linklayer.ingest import ingest_evidence
 from app.knowledge.vector_client import upsert_evidence_chunk_vector
 from app.signals.auto_ingestion import ingest_evidence_signals
@@ -196,6 +197,10 @@ class EvidenceExtractionWorker:
             if job_type == JOB_LINK:
                 async with async_session() as session:
                     result = await ingest_evidence(evidence_id, _session=session)
+                    # 广度触发器（spec §4.3 修订 1）：机械候选 → 台账 → 雷达信号
+                    candidates = await generate_candidates(evidence_id, session)
+                    result["candidates"] = await persist_candidates(candidates, session)
+                    result["radar_signals"] = await emit_radar_signals(candidates, session)
                 await self.service.mark_job_done(job_id, result)
                 return {"status": "done", **result}
             await self.service.mark_job_failed(job_id, f"unsupported job_type: {job_type}")

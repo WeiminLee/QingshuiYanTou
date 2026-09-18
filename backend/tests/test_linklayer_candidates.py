@@ -1,14 +1,17 @@
 # backend/tests/test_linklayer_candidates.py
 """机械候选观察测试：零 LLM，纯 SQL 组装逻辑。"""
 
+from types import SimpleNamespace
+
 from sqlalchemy.dialects import postgresql
 
 from app.knowledge.linklayer.candidates import (
     build_candidates_from_links,
     emit_radar_signals,
     generate_candidates,
+    persist_candidates,
 )
-from app.knowledge.linklayer.ledger_models import Watermark
+from app.knowledge.linklayer.ledger_models import SCOPE_SENTINEL, Watermark
 from app.knowledge.linklayer.models import Keyword, Link
 
 
@@ -18,6 +21,9 @@ class _Rows:
 
     def all(self):
         return self._rows
+
+    def one(self):
+        return self._rows[0]
 
 
 class _Scalar:
@@ -38,13 +44,29 @@ class FakeLinkSession:
         return _Rows(self._rows)
 
 
-class FakeRadarSession:
-    """emit_radar_signals 的假会话：水位线查询返回预置行，insert 语句全部捕获。"""
+def _upsert_row(**kwargs):
+    payload = {
+        "subject_ts_code": "003026.SZ",
+        "dimension": "产线进展",
+        "dimension_scope": SCOPE_SENTINEL,
+        "max_level": None,
+        "max_value": None,
+        "first_reached_at": None,
+        "last_updated_at": None,
+    }
+    payload.update(kwargs)
+    return SimpleNamespace(**payload)
 
-    def __init__(self, watermark=None, insert_returning=(1,)):
+
+class FakeRadarSession:
+    """emit_radar_signals / persist_candidates 的假会话：按表路由语句。"""
+
+    def __init__(self, watermark=None, insert_returning=(1,), upsert_returning=None):
         self.watermark = watermark
         self.insert_returning = insert_returning
+        self.upsert_returning = upsert_returning or _upsert_row()
         self.watermark_queries = []
+        self.watermark_upserts = []
         self.inserts = []
         self.commits = 0
 
@@ -53,6 +75,9 @@ class FakeRadarSession:
         if Watermark in entities:
             self.watermark_queries.append(stmt)
             return _Scalar(self.watermark)
+        if getattr(stmt, "table", None) is not None and stmt.table.name == "watermarks":
+            self.watermark_upserts.append(stmt)
+            return _Rows([self.upsert_returning])
         self.inserts.append(stmt)
         rows = [] if self.insert_returning is None else [self.insert_returning]
         return _Rows(rows)
@@ -240,3 +265,95 @@ async def test_emit_radar_signals_scopeless_uses_sentinel():
     sql = str(compiled)
     assert "IS NULL" not in sql
     assert compiled.params["dimension_scope_1"] == ""
+
+
+async def test_emit_radar_signals_advances_watermark():
+    """level > 水位线 → 产信号 + 推进水位线（GREATEST 只升不降、first_reached_at 仅插入写）。"""
+    cand = {
+        "obs_id": "OB:deadbeef",
+        "subject_ts_code": "003026.SZ",
+        "dimension": "产线进展",
+        "dimension_scope": None,
+        "stage_raw": "量产",
+        "stage_level": 6,
+        "evidence_id": "EV:1",
+    }
+    session = FakeRadarSession(watermark=None)
+    emitted = await emit_radar_signals([cand], session)
+    assert emitted == 1
+    assert len(session.watermark_upserts) == 1
+
+    compiled = session.watermark_upserts[0].compile(dialect=postgresql.dialect())
+    assert compiled.params["subject_ts_code"] == "003026.SZ"
+    assert compiled.params["dimension"] == "产线进展"
+    assert compiled.params["dimension_scope"] == SCOPE_SENTINEL
+    assert compiled.params["max_level"] == 6
+    assert compiled.params["first_reached_at"] is not None
+    set_clause = str(compiled).split("DO UPDATE SET", 1)[1].split("RETURNING", 1)[0]
+    assert "greatest" in set_clause.lower()
+    assert "first_reached_at" not in set_clause
+
+
+async def test_emit_radar_signals_same_level_no_advance():
+    """level == 水位线 → 不产信号也不推进水位线（旧闻去噪）。"""
+    cand = {
+        "obs_id": "OB:deadbeef",
+        "subject_ts_code": "003026.SZ",
+        "dimension": "产线进展",
+        "dimension_scope": None,
+        "stage_raw": "量产",
+        "stage_level": 6,
+        "evidence_id": "EV:1",
+    }
+    session = FakeRadarSession(watermark=Watermark(subject_ts_code="003026.SZ", dimension="产线进展", max_level=6))
+    emitted = await emit_radar_signals([cand], session)
+    assert emitted == 0
+    assert session.inserts == []
+    assert session.watermark_upserts == []
+
+
+async def test_persist_candidates_writes_pipeline_rows():
+    """候选落库：written_by=pipeline、status=candidate、obs_id 冲突 do nothing。"""
+    cand = {
+        "obs_id": "OB:deadbeef",
+        "subject_ts_code": "003026.SZ",
+        "dimension": "产线进展",
+        "dimension_scope": "8英寸抛光硅片",
+        "stage_raw": "量产",
+        "stage_level": 6,
+        "evidence_id": "EV:1",
+        "published_at": "2026-06-15T00:00:00+08:00",
+        "status": "candidate",
+    }
+    session = FakeRadarSession()
+    persisted = await persist_candidates([cand], session)
+    assert persisted == 1
+
+    sql = str(session.inserts[0].compile(dialect=postgresql.dialect()))
+    assert "ON CONFLICT (obs_id) DO NOTHING" in sql
+    params = session.inserts[0].compile(dialect=postgresql.dialect()).params
+    assert params["obs_id"] == "OB:deadbeef"
+    assert params["subject_ts_code"] == "003026.SZ"
+    assert params["dimension"] == "产线进展"
+    assert params["dimension_scope"] == "8英寸抛光硅片"
+    assert params["stage_raw"] == "量产"
+    assert params["stage_level"] == 6
+    assert params["written_by"] == "pipeline"
+    assert params["status"] == "candidate"
+    assert params["published_at"] is not None
+
+
+async def test_persist_candidates_conflict_not_counted():
+    """同 obs_id 已存在（RETURNING 空）→ 不计数，即 obs_id 幂等安全。"""
+    cand = {
+        "obs_id": "OB:deadbeef",
+        "subject_ts_code": "003026.SZ",
+        "dimension": "产线进展",
+        "dimension_scope": None,
+        "stage_raw": "量产",
+        "stage_level": 6,
+        "evidence_id": "EV:1",
+    }
+    session = FakeRadarSession(insert_returning=None)
+    persisted = await persist_candidates([cand], session)
+    assert persisted == 0

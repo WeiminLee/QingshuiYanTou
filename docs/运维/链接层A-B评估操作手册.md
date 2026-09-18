@@ -83,4 +83,9 @@ cd backend && uv run --no-sync python -m scripts.eval_retrieval --backend link -
 - **Mongo 中已 pending 的 combined job 仍会被 worker 消费**：`ENABLE_KG_EXTRACTION=false` 只停新发，不停消费。如需彻底停跑三元组抽取，须另行清理 job 队列中的存量 combined pending；
 - **`extraction_status` 初始化仍含 `combined: pending` 占位**：新 evidence 入库时状态字典里保留该键（无害占位），未随开关移除；
 - zhparser 全文检索、涌现聚类、embedding 概念层附着（spec §4.4 第 2/3 层）为后续迭代，本手册不含；
-- `resolve` / `expand` 过渡期只读保留（承接传导查询），`neo4j_kg_search` 已在工具注册层下线。
+- `resolve` / `expand` 过渡期只读保留（承接传导查询），`neo4j_kg_search` 已在工具注册层下线；
+- **部署前必须先 `alembic upgrade head`（027/028）**：否则链接层/台账表不存在，link job 会因表缺失而反复失败，进入失败循环；
+- **`server_start.sh` 启动的 evidence worker 容器需重建**：容器内代码是构建时打入的，重启容器不会更新，须重建后才能拿到 link 等新 job 类型的处理逻辑；
+- **存量 pending combined job 在排空前仍会被消费**（同本节首条）：切换开关后需关注 worker 日志，直至存量排空；
+- **回填断点续跑以 keyword_extraction 缓存为键**：空文本 evidence 不产生缓存，每轮回填都会重新列出（无害，仅重复列名不重复扣 LLM 配额）；
+- **雷达信号已由 link job 自动产出**：建链完成后机械候选落库并对比水位线发雷达信号；agent 确认路径 `write_observation` 与之共用同一水位线，双边只升不降。

@@ -201,3 +201,35 @@ class TestYamlConfigFile:
         expected_new = {"web_fetch", "read_file", "write_file", "ls", "ask_clarification"}
         missing = expected_new - names
         assert not missing, f"以下新增工具未在 config.yaml 中声明: {missing}"
+
+
+class TestFallbackConfig:
+    """内嵌回退配置（无 YAML 时）须与 config.yaml 注册表同步"""
+
+    def test_fallback_includes_link_and_ledger_tools(self):
+        """回退配置应包含 8 个新工具（链接层检索 5 + 判断台账 3），use 路径与 config.yaml 一致。"""
+        from app.reasoning.registry.loader import _build_default_config
+
+        configs = {c.name: c for c in _build_default_config()}
+        expected = {
+            "pull_history": "app.reasoning.tools.knowledge.link_queries:pull_history_tool",
+            "scan_dimension": "app.reasoning.tools.knowledge.link_queries:scan_dimension_tool",
+            "lookup_products": "app.reasoning.tools.knowledge.link_queries:lookup_products_tool",
+            "lookup_players": "app.reasoning.tools.knowledge.link_queries:lookup_players_tool",
+            "backlinks": "app.reasoning.tools.knowledge.link_queries:backlinks_tool",
+            "write_observation": "app.reasoning.tools.knowledge.ledger_tools:write_observation_tool",
+            "write_finding": "app.reasoning.tools.knowledge.ledger_tools:write_finding_tool",
+            "watermark": "app.reasoning.tools.knowledge.ledger_tools:watermark_tool",
+        }
+        for name, use in expected.items():
+            assert name in configs, f"回退配置缺少工具 {name}"
+            assert configs[name].use == use, f"{name} 的 use 路径与 config.yaml 不一致"
+            assert configs[name].group == "knowledge"
+            assert configs[name].enabled, f"{name} 在回退配置中应为启用状态"
+
+    def test_fallback_disables_neo4j_kg_search(self):
+        """回退配置中 neo4j_kg_search 应与 config.yaml 一致地下线（enabled=False）。"""
+        from app.reasoning.registry.loader import _build_default_config
+
+        configs = {c.name: c for c in _build_default_config()}
+        assert configs["neo4j_kg_search"].enabled is False

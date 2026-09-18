@@ -11,11 +11,11 @@ write_observation 顺带推进水位线（spec §4.3：水位线按写入维护�
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Annotated
 
 from langchain_core.tools import tool
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.reasoning.tools._async_runner import run_async
@@ -43,55 +43,16 @@ async def validate_supports(supports: list[dict], session) -> list[str]:
 
 
 def _watermark_dict(wm) -> dict:
-    if wm is None:
-        return {}
-    return {
-        "subject_ts_code": wm.subject_ts_code,
-        "dimension": wm.dimension,
-        "dimension_scope": wm.dimension_scope,
-        "max_level": wm.max_level,
-        "max_value": wm.max_value,
-        "first_reached_at": wm.first_reached_at.isoformat() if wm.first_reached_at else None,
-        "last_updated_at": wm.last_updated_at.isoformat() if wm.last_updated_at else None,
-    }
+    from app.knowledge.linklayer.ledger_models import watermark_dict
+
+    return watermark_dict(wm)
 
 
 async def _advance_watermark(session, subject_ts_code: str, dimension: str, dimension_scope: str | None, level) -> dict:
-    """水位线推进（只升不降）：单条 upsert 消除 select-then-insert 竞态。
+    """水位线推进——共享 upsert（机械候选雷达链路同用），语义见 ledger_models.advance_watermark。"""
+    from app.knowledge.linklayer.ledger_models import advance_watermark
 
-    dimension_scope 统一走哨兵空串（normalize_scope）；first_reached_at 仅在
-    插入时写入；max_level 用 GREATEST 保证只升不降。
-    """
-    from app.knowledge.linklayer.ledger_models import Watermark, normalize_scope
-
-    if level is None:
-        return {}
-    now = datetime.now(UTC)
-    stmt = pg_insert(Watermark).values(
-        subject_ts_code=subject_ts_code,
-        dimension=dimension,
-        dimension_scope=normalize_scope(dimension_scope),
-        max_level=level,
-        first_reached_at=now,
-        last_updated_at=now,
-    )
-    stmt = stmt.on_conflict_do_update(
-        index_elements=["subject_ts_code", "dimension", "dimension_scope"],
-        set_={
-            "max_level": func.greatest(stmt.excluded.max_level, Watermark.max_level),
-            "last_updated_at": now,
-        },
-    ).returning(
-        Watermark.subject_ts_code,
-        Watermark.dimension,
-        Watermark.dimension_scope,
-        Watermark.max_level,
-        Watermark.max_value,
-        Watermark.first_reached_at,
-        Watermark.last_updated_at,
-    )
-    row = (await session.execute(stmt)).one()
-    return _watermark_dict(row)
+    return await advance_watermark(session, subject_ts_code, dimension, dimension_scope, level)
 
 
 async def save_observation(

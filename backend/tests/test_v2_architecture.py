@@ -118,11 +118,11 @@ class TestToolRegistry:
     """工具注册表测试"""
 
     def test_registry_has_11_builtin_tools(self):
-        """内嵌默认配置应包含 11 个工具（含 write_todos）"""
+        """内嵌默认配置应包含 33 个工具（含链接层检索 5 + 判断台账 3）"""
         from app.reasoning.registry.loader import _build_default_config
 
         configs = _build_default_config()
-        assert len(configs) == 25, f"Expected 25 built-in tools, got {len(configs)}"
+        assert len(configs) == 33, f"Expected 33 built-in tools, got {len(configs)}"
         names = [c.name for c in configs]
         expected = {
             "get_kline",
@@ -150,6 +150,14 @@ class TestToolRegistry:
             "write_file",
             "find_events",
             "get_event_detail",
+            "pull_history",
+            "scan_dimension",
+            "lookup_products",
+            "lookup_players",
+            "backlinks",
+            "write_observation",
+            "write_finding",
+            "watermark",
         }
         assert set(names) == expected
 

@@ -67,6 +67,56 @@ def _build_default_config() -> list[ToolConfig]:
             description="获取事件原始全文内容",
         ),
         # ── knowledge ────────────────────────────────
+        # 链接层检索（时间线/横截面/单跳聚合/双向引用）
+        ToolConfig(
+            name="pull_history",
+            group=ToolGroup.KNOWLEDGE,
+            use="app.reasoning.tools.knowledge.link_queries:pull_history_tool",
+            description="按(主体×维度)拉取时间序证据时间线——判断递进/变化的第一入口，替代语义搜索做预期差判断",
+        ),
+        ToolConfig(
+            name="scan_dimension",
+            group=ToolGroup.KNOWLEDGE,
+            use="app.reasoning.tools.knowledge.link_queries:scan_dimension_tool",
+            description="横截面查询：某维度（如毛利率）下各主体的证据聚合，用于跨公司对比",
+        ),
+        ToolConfig(
+            name="lookup_products",
+            group=ToolGroup.KNOWLEDGE,
+            use="app.reasoning.tools.knowledge.link_queries:lookup_products_tool",
+            description="单跳聚合：某公司关联的产品列表（带提及频次与最近提及）",
+        ),
+        ToolConfig(
+            name="lookup_players",
+            group=ToolGroup.KNOWLEDGE,
+            use="app.reasoning.tools.knowledge.link_queries:lookup_players_tool",
+            description="单跳聚合：某产品/关键字下的公司列表（传导挖掘入口）",
+        ),
+        ToolConfig(
+            name="backlinks",
+            group=ToolGroup.KNOWLEDGE,
+            use="app.reasoning.tools.knowledge.link_queries:backlinks_tool",
+            description="查看某条证据的全部关键字及同关键字关联证据（双向引用导航）",
+        ),
+        # 判断台账（L2）：观察/判断写回 + 水位线
+        ToolConfig(
+            name="write_observation",
+            group=ToolGroup.KNOWLEDGE,
+            use="app.reasoning.tools.knowledge.ledger_tools:write_observation_tool",
+            description="写回观察（task-time 确认，status=verified）并推进水位线；evidence_id+span 句级锚定为硬闸门",
+        ),
+        ToolConfig(
+            name="write_finding",
+            group=ToolGroup.KNOWLEDGE,
+            use="app.reasoning.tools.knowledge.ledger_tools:write_finding_tool",
+            description="写回判断（递进/恶化/新事件/关联/矛盾）；supports 必须句级锚定真实 evidence，否则拒绝写入",
+        ),
+        ToolConfig(
+            name="watermark",
+            group=ToolGroup.KNOWLEDGE,
+            use="app.reasoning.tools.knowledge.ledger_tools:watermark_tool",
+            description="查询 (主体×维度[×scope]) 水位线 max_level——判断\"这是不是新台阶\"的依据",
+        ),
         # resolve + expand: 新一代图谱导航（resolve→expand 模式）
         ToolConfig(
             name="resolve",
@@ -112,7 +162,8 @@ def _build_default_config() -> list[ToolConfig]:
             name="neo4j_kg_search",
             group=ToolGroup.KNOWLEDGE,
             use="app.reasoning.tools.knowledge.neo4j:neo4j_kg_search",
-            description="知识图谱智能搜索：自动选择实体/关系/路径搜索策略，返回相关性排序的结果",
+            description="[已弃用] 请使用 pull_history",
+            enabled=False,
         ),
         ToolConfig(
             name="fetch_evidence",

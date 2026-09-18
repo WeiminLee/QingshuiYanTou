@@ -1,10 +1,11 @@
 # backend/app/knowledge/linklayer/ledger_models.py
 """判断台账（L2）：observation（观察·双源）/ finding（判断·派生）/ watermark（水位线·物化视图）。"""
 import hashlib
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 
 from sqlalchemy import Date, DateTime, Float, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
 
@@ -33,7 +34,7 @@ def normalize_scope(scope: str | None) -> str:
 
 
 class Observation(Base):
-    """观察记录。status ∈ candidate(机械) | verified(agent) | dismissed；written_by = pipeline | agent:<run_id>"""
+    """观察记录。status ∈ candidate(机械) | verified(agent) | dismissed；written_by = pipeline | agent"""
 
     __tablename__ = "observations"
     __table_args__ = (
@@ -105,3 +106,54 @@ class Watermark(Base):
     max_value: Mapped[dict | None] = mapped_column(JSONB)
     first_reached_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+def watermark_dict(wm) -> dict:
+    """Watermark 行（ORM 或 RETURNING 行）→ dict；None → {}。"""
+    if wm is None:
+        return {}
+    return {
+        "subject_ts_code": wm.subject_ts_code,
+        "dimension": wm.dimension,
+        "dimension_scope": wm.dimension_scope,
+        "max_level": wm.max_level,
+        "max_value": wm.max_value,
+        "first_reached_at": wm.first_reached_at.isoformat() if wm.first_reached_at else None,
+        "last_updated_at": wm.last_updated_at.isoformat() if wm.last_updated_at else None,
+    }
+
+
+async def advance_watermark(session, subject_ts_code: str, dimension: str, dimension_scope: str | None, level) -> dict:
+    """水位线推进（只升不降）：单条 upsert 消除 select-then-insert 竞态。
+
+    dimension_scope 统一走哨兵空串（normalize_scope）；first_reached_at 仅在
+    插入时写入；max_level 用 GREATEST 保证只升不降。level 为 None 时不动。
+    """
+    if level is None:
+        return {}
+    now = datetime.now(UTC)
+    stmt = pg_insert(Watermark).values(
+        subject_ts_code=subject_ts_code,
+        dimension=dimension,
+        dimension_scope=normalize_scope(dimension_scope),
+        max_level=level,
+        first_reached_at=now,
+        last_updated_at=now,
+    )
+    stmt = stmt.on_conflict_do_update(
+        index_elements=["subject_ts_code", "dimension", "dimension_scope"],
+        set_={
+            "max_level": func.greatest(stmt.excluded.max_level, Watermark.max_level),
+            "last_updated_at": now,
+        },
+    ).returning(
+        Watermark.subject_ts_code,
+        Watermark.dimension,
+        Watermark.dimension_scope,
+        Watermark.max_level,
+        Watermark.max_value,
+        Watermark.first_reached_at,
+        Watermark.last_updated_at,
+    )
+    row = (await session.execute(stmt)).one()
+    return watermark_dict(row)

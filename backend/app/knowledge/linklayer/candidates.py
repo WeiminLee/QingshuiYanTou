@@ -2,6 +2,8 @@
 """机械候选观察（spec §4.3 修订 1）：批量侧零 LLM 的广度触发器。"""
 from __future__ import annotations
 
+from datetime import datetime
+
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
@@ -136,12 +138,61 @@ def _signal_values_from_candidate(cand: dict) -> dict:
     }
 
 
-async def emit_radar_signals(candidates: list[dict], session) -> int:
-    """水位线对比：level 上升 → 写 Signal（雷达低置信信号）。返回写入数。
+def _parse_published_at(value) -> datetime | None:
+    """published_at 字符串/naive datetime → aware datetime；无效返回 None。"""
+    if isinstance(value, datetime):
+        return value if value.tzinfo else value.astimezone()
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value))
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo else parsed.astimezone()
 
-    水位线按 (subject, dimension, scope) 三键匹配（无 scope 归一化为哨兵空串）；
-    signal_id = "LL:" + obs_id 确定性生成，冲突时静默跳过（RETURNING 计数）。
+
+async def persist_candidates(candidates: list[dict], session) -> int:
+    """候选观察落库（written_by=pipeline, status=candidate）。
+
+    obs_id 冲突静默跳过（do nothing），返回实际新插入数。
     """
+    from app.knowledge.linklayer.ledger_models import Observation
+
+    persisted = 0
+    for cand in candidates:
+        stmt = (
+            pg_insert(Observation)
+            .values(
+                obs_id=cand["obs_id"],
+                subject_ts_code=cand["subject_ts_code"],
+                subject_name=cand["subject_ts_code"],
+                dimension=cand["dimension"],
+                dimension_scope=cand.get("dimension_scope"),
+                stage_raw=cand.get("stage_raw"),
+                stage_level=cand.get("stage_level"),
+                evidence_id=cand["evidence_id"],
+                published_at=_parse_published_at(cand.get("published_at")),
+                written_by="pipeline",
+                status="candidate",
+            )
+            .on_conflict_do_nothing(index_elements=["obs_id"])
+            .returning(Observation.id)
+        )
+        inserted = (await session.execute(stmt)).all()
+        persisted += len(inserted)
+    return persisted
+
+
+async def emit_radar_signals(candidates: list[dict], session) -> int:
+    """水位线对比（spec §4.3 修订 1）：level > 水位线 → 写 Signal + 推进水位线。
+
+    level == 水位线 → 不产信号（旧闻去噪）；水位线按 (subject, dimension,
+    scope) 三键匹配（无 scope 归一化为哨兵空串），推进走 advance_watermark
+    （GREATEST 只升不降）。signal_id = "LL:" + obs_id 确定性生成，冲突时
+    静默跳过（RETURNING 计数）。
+    """
+    from app.knowledge.linklayer.ledger_models import advance_watermark
+
     emitted = 0
     for cand in candidates:
         level = cand.get("stage_level")
@@ -165,5 +216,6 @@ async def emit_radar_signals(candidates: list[dict], session) -> int:
         )
         inserted = (await session.execute(stmt)).all()
         emitted += len(inserted)
+        await advance_watermark(session, cand["subject_ts_code"], cand["dimension"], cand.get("dimension_scope"), level)
     await session.commit()
     return emitted
