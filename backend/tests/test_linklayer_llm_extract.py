@@ -26,8 +26,47 @@ def test_metric_value_passthrough():
     assert got["metric"][0]["value"] == 45
 
 
+def test_parse_llm_json_non_list_fields_dropped():
+    got = parse_llm_json('{"company": "中晶科技", "product": null, "metric": "毛利率"}')
+    assert got == {"company": [], "product": [], "metric": []}
+
+
+def test_parse_llm_json_null_fields_returns_valid_dict():
+    got = parse_llm_json('{"company": null, "product": null, "metric": null}')
+    assert got == {"company": [], "product": [], "metric": []}
+
+
+def test_parse_llm_json_single_line_code_fence():
+    raw = '```json {"company": ["中晶科技"], "product": [], "metric": []}```'
+    got = parse_llm_json(raw)
+    assert got is not None
+    assert got["company"] == ["中晶科技"]
+
+
 def test_keyword_prompt_version():
     assert KEYWORD_PROMPT_VERSION == "kw_v1"
+
+
+async def test_extract_keywords_missing_cached_result_is_cache_miss(monkeypatch):
+    """version 匹配但 result 缺失 → 视为缓存未命中，走 LLM 重新提取。"""
+    from app.knowledge import evidence_service as es
+    from app.knowledge.linklayer import llm_extract
+
+    async def fake_chat(prompt, **kw):
+        return '{"company": ["中晶科技"], "product": [], "metric": []}'
+
+    async def fake_update(self, evidence_id, payload):
+        pass
+
+    monkeypatch.setattr(llm_extract, "chat_async", fake_chat)
+    monkeypatch.setattr(es.EvidenceService, "update_keyword_extraction", fake_update)
+    evidence = {
+        "evidence_id": "EV:cache-miss",
+        "text_excerpt": "中晶科技量产",
+        "keyword_extraction": {"version": "kw_v1"},  # result 缺失
+    }
+    got = await llm_extract.extract_keywords(evidence)
+    assert got == {"company": ["中晶科技"], "product": [], "metric": []}
 
 
 @pytest.mark.integration

@@ -27,25 +27,34 @@ KEYWORD_SYSTEM_PROMPT = """你是投研文本的关键字标注器。从用户�
 
 
 def parse_llm_json(raw: str) -> dict | None:
-    """解析 LLM 输出；失败返回 None（不重试——浅任务不允许重试链）。"""
+    """解析 LLM 输出；失败返回 None（不重试——浅任务不允许重试链）。
+
+    company/product/metric 字段非列表时整体丢弃（防 None / 字符串被逐字符拆分）。
+    """
     if not raw:
         return None
     raw = raw.strip()
     if raw.startswith("```"):
         raw = raw.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
+        if raw.startswith("```"):  # 单行 fence：```json {...}```
+            raw = raw[3:].strip()
+            if raw[:4].lower() == "json":
+                raw = raw[4:].strip()
     try:
         data = json.loads(raw)
     except json.JSONDecodeError:
         return None
     if not isinstance(data, dict):
         return None
+    company = data.get("company")
+    product = data.get("product")
+    metric = data.get("metric")
     return {
-        "company": [str(x) for x in data.get("company", [])][:20],
-        "product": [str(x) for x in data.get("product", [])][:20],
-        "metric": [
-            m for m in data.get("metric", [])
-            if isinstance(m, dict) and m.get("name")
-        ][:20],
+        "company": [str(x) for x in company[:20]] if isinstance(company, list) else [],
+        "product": [str(x) for x in product[:20]] if isinstance(product, list) else [],
+        "metric": [m for m in metric[:20] if isinstance(m, dict) and m.get("name")]
+        if isinstance(metric, list)
+        else [],
     }
 
 
@@ -53,7 +62,9 @@ async def extract_keywords(evidence: dict, *, use_cache: bool = True) -> dict | 
     """对单条 evidence 做关键字浅提取。结果写回 Mongo `keyword_extraction` 字段缓存。"""
     cached = evidence.get("keyword_extraction") or {}
     if use_cache and cached.get("version") == KEYWORD_PROMPT_VERSION:
-        return cached["result"]
+        cached_result = cached.get("result")
+        if cached_result is not None:  # result 缺失视为缓存未命中，走重新提取
+            return cached_result
 
     from app.knowledge.evidence_service import EvidenceService  # 延迟导入避免循环
 
