@@ -5,20 +5,28 @@
     "subject": "中晶科技",
     "dimension": "产线进展",
     "question": "中晶科技 8 英寸抛光硅片产线的进展如何演进？",
-    "expected_evidence_ids": ["<真实evidence_id_1>", "<真实evidence_id_2>"],
+    "expected_evidence_ids": [
+      "EV:ed90f88e337858eaae2ece0caa1d5330515a3c9ebeb19e8872d8ebb225d4fa5b",
+      "EV:57eec7ade2fd552302d0d8f99173b112b21c19e07b5ccf117f6f47a74d8b4d81",
+      "EV:db32e43cc82d07fb88ea2b7a00d6252c3a5e725821c9c144b3aa0a41436bd275"
+    ],
     "hard_negative_evidence_ids": [],
-    "note": "预期 3-6 月的 产线调试→增产上量 时间线；占位 ID 待按数据收集协议回填"
+    "note": "真实证据链：2-23 增产上量+认证中 → 7-14 产能爬坡+认证关键期 → 8-13 产能释放承接订单"
   },
   {
     "query_id": "cross_section-margin-001",
     "type": "cross_section",
     "subject": null,
     "dimension": "毛利率",
-    "scope": "8英寸抛光硅片",
+    "scope": "硅片",
     "question": "生产8英寸抛光硅片的公司毛利率对比",
-    "expected_evidence_ids": ["<真实evidence_id_3>"],
+    "expected_evidence_ids": [
+      "EV:4b9324417a4d9a88504fb7a33affd849d384761357ab37f9dede58569fb4ba21",
+      "EV:103cfda420248f23a03d64d953957686740788a9ae9362b72f46fe4e1d6822ff",
+      "EV:e9ad8c9dd58a8dd8fe6202473b056506423bf52313e6cb6d502af6f81b309e56"
+    ],
     "hard_negative_evidence_ids": [],
-    "note": "预期跨公司命中；占位 ID 待按数据收集协议回填"
+    "note": "真实证据：中晶科技2026年报/神工股份半年报/光力科技半年报，均含毛利率与硅片"
   },
   {
     "query_id": "theme-001",
@@ -27,7 +35,9 @@
     "dimension": null,
     "scope": null,
     "question": "AI 算力板块最近扩产动态",
-    "expected_evidence_ids": ["<真实evidence_id_4>"],
+    "expected_evidence_ids": [
+      "<真实evidence_id_4>"
+    ],
     "hard_negative_evidence_ids": [],
     "note": "向量通道（semantic_search）职责，链接层不评估"
   },
