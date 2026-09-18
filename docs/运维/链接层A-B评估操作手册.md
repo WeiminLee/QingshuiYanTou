@@ -1,41 +1,74 @@
-# 链接层 A/B 评估操作手册（2026-09-18 现实版补记）
+# 链接层 A/B 评估操作手册（2026-09-18 部署执行版）
 
-> 本文为《链接层A-B评估操作手册》的运维补记，记录 2026-09-18 部署执行后的实际状态与增量操作。
-> 全量回填仍在进行（后台），本页状态以当日为准。
+> 状态：代码与数据库迁移已落地，全量回填后台进行中（~2 天）。本手册为运维一步-by-一步操作与当日现实记录。
 
-## 已执行完毕（2026-09-18）
+## 1. 数据库迁移（已执行 ✅）
 
-| 步骤 | 状态 |
-|---|---|
-| 生产库 alembic 历史 | 生产库此前无 alembic 版本记录 → `stamp 026` 后执行 **027/028**（current=028） |
-| 代码同步 | GitHub 直连不可达 → **bundle over SSH**：`git bundle create /tmp/x.bundle <from>..main` + `git pull /tmp/x.bundle main`（云端仓库 `/home/lwm/code/QingShuiTouYan`） |
-| LLM 网关 | 生产 `.env` 曾被切到付费中转 tianxuncloud（额度耗尽 403）→ **已切回 pjlab 免费网关**；抽取模型 `Qwen3.6-35B-A3B-FP8`（owner 指定）；对话主力模型暂代 `glm-5.3`（pjlab 无 deepseek-v4-pro-0813） |
-| combined 积压 | **150,107 条 pending/running 已批量置 skipped**（可逆：置回 pending 即恢复） |
-| link 进程 | `knowledge_worker --job-type link`（daemon，增量）+ `backfill_keyword_links`（全量）均在后台跑 |
+```bash
+ssh root@124.221.188.38
+cd /home/lwm/code/QingShuiTouYan/backend
+/home/lwm/code/QingShuiTouYan/.venv/bin/python -m alembic upgrade head   # 生产库 stamp 026 后已执行 027/028，current=028
+/home/lwm/code/QingShuiTouYan/.venv/bin/python -m alembic current
+```
 
-## 关键运维脚本（2026-09-18 新增）
+注意：生产库原本无 alembic 版本记录（历史表结构在迁移体系外演化），因此先 `stamp 026` 再 `upgrade head`。
 
-| 脚本 | 用途 |
-|---|---|
-| `scripts/ingest_evidence_ids.py` | 按 evidence_id 精准回填（gold set/单条修复） |
-| `scripts/merge_keyword.py` | 字表变体归并（LLM 提议、词典裁决闭环；链接迁移 + merged 标记，可逆幂等） |
+## 2. gold set 回填（已执行 ✅，持续扩充中）
 
-词表治理用法示例：`python -m scripts.merge_keyword --layer scope 抛光硅片 外延硅片 --to 硅片`
+`backend/eval/gold_set_v1.json` 中的 `expected_evidence_ids` 必须是 Mongo `kg_evidence` 里的真实 `evidence_id`。
 
-## A/B 评估当前结果（真实证据条目）
+协议：从 `minishare_announcements` 池选真实公司 → `db.kg_evidence.find({subject_hint.ts_code: <ts_code>})` 挑选真实 evidence_id → 人工确认相关性后填入。
+当前已填 2 条（timeline / cross_section 各一）；theme 类条目待向量通道修复后重填。
 
-| 查询 | 类型 | link Recall@20 |
+## 3. 链接层回填（进行中）
+
+```bash
+cd /home/lwm/code/QingShuiTouYan/backend
+# 干跑
+/home/lwm/code/QingShuiTouYan/.venv/bin/python -m scripts.backfill_keyword_links --dry-run --sample 10
+# 精准回填（gold set / 单条修复）
+#   --refresh 强制重跑 LLM 提取（忽略缓存）——若未来加该参数；当前单条重置缓存可用 mongosh $unset
+/home/lwm/code/QingShuiTouYan/.venv/bin/python -m scripts.backfill_keyword_links            # 全量（含 LLM）
+/home/lwm/code/QingShuiTouYan/.venv/bin/python -m scripts.backfill_keyword_links --skip-llm # 只建词典层（网关不可用/省额度）
+```
+
+- 断点续跑键：`kg_evidence.keyword_extraction` 缓存（LLM 成功才写入，缓存 miss 即续跑）
+- 幂等：link PK 冲突 do-nothing；重复执行安全
+- 词典层（subject/stage/dimension + subject_hint 权威锚点）零 LLM，分钟级可全量重算
+
+## 4. A/B 双跑与验收口径
+
+```bash
+cd /home/lwm/code/QingShuiTouYan/backend
+/home/lwm/code/QingShuiTouYan/.venv/bin/python -m scripts.eval_retrieval --backend semantic --k 20   # 基线（需 embedding 服务）
+/home/lwm/code/QingShuiTouYan/.venv/bin/python -m scripts.eval_retrieval --backend link     --k 20
+```
+
+验收：timeline / cross_section 条目上 **link ≥ semantic**；theme 条目为向量通道职责，不计入链接层验收。
+
+**2026-09-18 实测（真实证据条目）**：timeline **1.00**，cross_section **1.00**（semantic 基线因 d-cluster 隧道断而不可测，见遗留 1）。
+
+## 5. LLM 网关现实（2026-09-18 切换）
+
+- 生产 `.env` 已从付费中转 tianxuncloud（额度耗尽 403）**切回 pjlab 免费网关** `token.pjlab.org.cn`（备份：`.env.bak-20260918-pre-pjlab-swap`）
+- 抽取模型：`Qwen3.6-35B-A3B-FP8`（owner 指定）；对话主力暂代 `glm-5.3`（pjlab 无 deepseek-v4-pro-0813）
+
+## 6. 生产切换（等待验收后执行）
+
+```text
+1. 云端 backend/.env 加 ENABLE_KG_EXTRACTION=false
+2. docker compose --env-file backend/.env build backend && up -d backend
+3. 重建 evidence worker 容器（server_start.sh，EVIDENCE_JOB_TYPES 含 link）
+4. systemctl restart qingshui-scheduler.service
+5. d 集群 tar 同步（GitHub 云端不可达，改走 bundle over SSH）
+```
+
+## 7. 遗留事项
+
+| # | 事项 | 依赖 |
 |---|---|---|
-| 中晶科技产线递进链 | timeline | **1.00** |
-| 硅片厂商毛利率对比 | cross_section | **1.00** |
-| 主题类（占位） | theme | —（向量通道修复后重填） |
-
-theme 类查询依赖 semantic 基线，被 **d-cluster bge-m3 隧道（9-17 起断）** 阻塞；隧道修复后补回 theme gold 条目重测。
-
-## 遗留事项（按依赖顺序）
-
-1. **d-cluster 隧道修复**（需内网 ssh）：重启 `qingshui-embed-tunnel.sh`，验证 `curl http://172.18.0.1:11434/health`。
-2. **全量回填完成**（~2 天，后台自走）；完成后按 `keyword_extraction` 缓存口径核对覆盖数。
-3. **生产切换**（binary flip）：`.env` 加 `ENABLE_KG_EXTRACTION=false` → 后端容器 build + 重启、evidence worker 容器重建（`server_start.sh`）、`systemctl restart qingshui-scheduler.service`、d 集群 tar 同步。注意：flag 未翻前，新证据仍会入队 combined（量小，可定期重跑 skip 批处理：`/tmp/mark_combined_skipped.js`）。
-4. **词表治理例会**：scope 候选增长 ~2 条/证据，需周期性 merge（工具已就绪）；中期优化方向：prompt 直接请求已知规范键。
-5. collation version mismatch（PG 警告）：glibc 升级遗留元数据，择期 `ALTER DATABASE qingshui REFRESH COLLATION VERSION`（需评估索引重建）。
+| 1 | **d-cluster 隧道修复**（9-17 起断）：daemon 机上重启 `qingshui-embed-tunnel.sh`，云端验证 `curl http://172.18.0.1:11434/health` | 内网 ssh 权限 |
+| 2 | 全量回填完成核对（`keyword_extraction` 缓存口径 × 316k evidence） | 时间 |
+| 3 | 词表治理例会：scope 候选 ~2 条/证据增长，周期性 `merge_keyword` 归并 | 运营例程 |
+| 4 | collation version mismatch `ALTER DATABASE qingshui REFRESH COLLATION VERSION`（需评估索引重建） | 择期 |
+| 5 | flag 未翻前新证据仍会入队 combined（量小）；可重跑 `/tmp/mark_combined_skipped.js` 批量清理 | flip 前 |
