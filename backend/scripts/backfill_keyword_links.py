@@ -72,6 +72,8 @@ async def main() -> None:
                 done += 1
                 print(f"{evidence_id}: {result}")
             except Exception as exc:  # 单条失败不中断
+                # DBAPI 错误后 session 进入 pending-rollback，须先回滚才能处理后续条目
+                await session.rollback()
                 failed += 1
                 print(f"FAIL {evidence_id}: {exc}")
     print(f"done={done} failed={failed}")

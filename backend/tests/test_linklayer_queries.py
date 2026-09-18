@@ -222,3 +222,56 @@ async def test_lookup_players_aggregates_subject_layer(monkeypatch):
     compiled = str(session.statements[0].compile(dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True}))
     assert "'scope'" in compiled and "'subject'" in compiled
     assert "LIMIT 10" in compiled
+
+
+@pytest.mark.asyncio
+async def test_backfill_rolls_back_session_and_continues_after_db_error(monkeypatch, capsys):
+    """回填循环：单条 DB 异常后 rollback 会话，且不中断后续条目。
+
+    DBAPI 错误会把 SQLAlchemy session 置为 pending-rollback，不回滚的话
+    "单条失败不中断"会退化成"首个 DB 错误拖垮整批"。
+    """
+    import sys
+
+    import scripts.backfill_keyword_links as backfill_mod
+    from app.core import database as db_mod
+    from app.knowledge.linklayer import ingest as ingest_mod
+
+    class _RollbackSession:
+        def __init__(self):
+            self.rollbacks = 0
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        async def rollback(self):
+            self.rollbacks += 1
+
+    calls = []
+
+    async def fake_ingest(evidence_id, *, _session=None):
+        calls.append(evidence_id)
+        if evidence_id == "EV:bad":
+            raise RuntimeError("模拟 DB 异常")
+        return {"links": 1, "keywords": 1, "llm_used": False}
+
+    async def fake_collect(svc, limit):
+        return ["EV:bad", "EV:good"]
+
+    session = _RollbackSession()
+    monkeypatch.setattr(backfill_mod, "_collect_evidence_ids", fake_collect)
+    monkeypatch.setattr(db_mod, "async_session", lambda: session)
+    monkeypatch.setattr(ingest_mod, "ingest_evidence", fake_ingest)
+    monkeypatch.setattr(sys, "argv", ["backfill_keyword_links.py"])
+
+    await backfill_mod.main()
+
+    out = capsys.readouterr().out
+    assert calls == ["EV:bad", "EV:good"]  # 失败后继续处理
+    assert session.rollbacks == 1  # 恰好回滚一次
+    assert "FAIL EV:bad" in out
+    assert "EV:good: {'links': 1" in out
+    assert "done=1 failed=1" in out
