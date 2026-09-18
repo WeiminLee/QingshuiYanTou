@@ -252,7 +252,7 @@ async def test_backfill_rolls_back_session_and_continues_after_db_error(monkeypa
 
     calls = []
 
-    async def fake_ingest(evidence_id, *, _session=None):
+    async def fake_ingest(evidence_id, *, _session=None, **_kwargs):
         calls.append(evidence_id)
         if evidence_id == "EV:bad":
             raise RuntimeError("模拟 DB 异常")
