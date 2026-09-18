@@ -29,7 +29,7 @@ Backend API
       |
       +--> Knowledge Construction
       |      Parser -> Chunker -> Evidence -> Extraction Jobs
-      |      -> Entity / Relation / StructuredFact -> Vector Index
+      |      -> Link Layer (keyword / link) + Judgment Ledger -> Vector Index
       |
       +--> Reasoning Runtime
       |      Agent / Tool Registry / Middleware / Subagents / Memory / Journal
@@ -43,7 +43,7 @@ Backend API
 - `frontend/`: Vue 3 前端，提供聊天、图谱、投研交互和可视化入口。
 - `backend/app/main.py`: FastAPI 应用入口，注册数据、知识、Agent、日志等 API。
 - `backend/app/data_pipeline/`: 股票、行情、公告、研报、互动易等数据接入和调度。
-- `backend/app/knowledge/`: 知识构建、实体关系抽取、Evidence-first 管线、图谱与向量检索。
+- `backend/app/knowledge/`: 知识构建、链接层与判断台账、Evidence-first 管线、图谱与向量检索。
 - `backend/app/reasoning/`: Agent 运行时、工具注册、推理中间件、SSE 事件、子任务和记忆机制。
 - `backend/scripts/`: 运维脚本、知识抽取脚本、worker、健康检查和批处理入口。
 - `docs/`: 架构设计、知识图谱设计、Agent 设计和开发讨论记录。
@@ -149,8 +149,9 @@ updated_at
 
 Evidence 入库后会生成 extraction jobs。当前 job 类型：
 
-- `combined`: Evidence -> entities + relations + structured_facts
+- `combined`: Evidence -> entities + relations + structured_facts（退役中：由 `ENABLE_KG_EXTRACTION` 开关控制，关闭后不再入队）
 - `vector`: Evidence chunk -> Qdrant vector
+- `link`: Evidence -> LLM 浅提取 + 词典匹配 -> 链接层（`link_keywords` / `link_links`）
 
 worker 入口：
 
@@ -188,6 +189,27 @@ metadata
 - `financial / earnings_below_expectation`
 
 `StructuredFact` 会引用 `evidence_id`，保证每个结构化状态可以追溯到原文。
+
+### 链接层与判断台账（2026-09 重构）
+
+知识构建层在 Evidence-first 之上引入链接层与判断台账，替代批量三元组抽取：
+
+```text
+L0 证据层    kg_evidence（Mongo，append-only 真源，全部保留）
+L1 链接层    keyword / link（PostgreSQL）
+             LLM 浅提取（Company/Product/Metric，单次 flash 调用，只出 surface form）
+             + 词典匹配（subject 兜底 / dimension / stage，确定性）
+L2 判断层    observation / finding / watermark（PostgreSQL）
+             机械候选（共现 × 水位线，零 LLM）+ task-time 深判断（LLM 深判断唯一发生地）
+```
+
+要点：
+
+- **批量侧只做浅任务**：类型受约束的关键字提取，可缓存、可全量重算；LLM 深判断只在 task-time。
+- **检索原语**：`pull_history`（时间线）/ `scan_dimension`（横截面）/ `backlinks` / `lookup_products` / `lookup_players` / `lookup_customers`（单跳聚合）；`browse`（主题，向量概念层）为后续迭代。
+- **写回原语**：`write_observation` / `write_finding` / `watermark`，句级锚定到 evidence span。
+- **存储处置**：新结构全部入 PostgreSQL；Neo4j 冻结只读（`resolve`/`expand` 过渡期保留），Qdrant `kg_entities`/`kg_relations` 随三元组管线退役；`neo4j_kg_search` 已下线。
+- **后续迭代**：zhparser 全文检索、涌现聚类、embedding 概念层附着（见 `docs/superpowers/specs/2026-09-18-knowledge-layer-redesign-design.md`）。
 
 ## Agent 与推理运行机制
 
@@ -332,6 +354,19 @@ Evidence-first 管线测试：
 
 ```bash
 python -m pytest backend/tests/test_evidence_service.py backend/tests/test_evidence_builders.py backend/tests/test_evidence_worker.py -q
+```
+
+链接层 A/B 检索评估（需部署环境，先回填 gold set；完整流程见 [`docs/运维/链接层A-B评估操作手册.md`](docs/运维/链接层A-B评估操作手册.md)）：
+
+```bash
+cd backend && uv run python -m scripts.eval_retrieval --backend semantic --k 20
+cd backend && uv run python -m scripts.eval_retrieval --backend link --k 20
+```
+
+链接层全量回填（幂等、可断点续跑）：
+
+```bash
+cd backend && uv run python -m scripts.backfill_keyword_links --dry-run
 ```
 
 后端健康检查：
