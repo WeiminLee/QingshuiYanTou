@@ -44,7 +44,7 @@ def test_parse_llm_json_single_line_code_fence():
 
 
 def test_keyword_prompt_version():
-    assert KEYWORD_PROMPT_VERSION == "kw_v1"
+    assert KEYWORD_PROMPT_VERSION == "kw_v2"
 
 
 async def test_extract_keywords_missing_cached_result_is_cache_miss(monkeypatch):

@@ -14,7 +14,10 @@ from app.core.llm_client import chat_async
 
 logger = logging.getLogger(__name__)
 
-KEYWORD_PROMPT_VERSION = "kw_v1"
+KEYWORD_PROMPT_VERSION = "kw_v2"  # v2: 抽取窗口 6000→12000（长 evidence 尾部 scope 召回）
+LLM_INPUT_MAX_CHARS = 12_000  # 浅提取语料窗口（96.4% evidence 全文覆盖）
+# 极重要：版本号变更会使 keyword_extraction 缓存全量失效——LLM 回填在全量跑完后
+# 由 v2 重放一遍（skip-llm 词典层不受影响，链接幂等）。
 
 KEYWORD_SYSTEM_PROMPT = """你是投研文本的关键字标注器。从用户给出的文本中提取三类关键字，只输出原文出现过的表述：
 - COMPANY: 公司名（上市/非上市/境外均算）
@@ -68,7 +71,9 @@ async def extract_keywords(evidence: dict, *, use_cache: bool = True) -> dict | 
 
     from app.knowledge.evidence_service import EvidenceService  # 延迟导入避免循环
 
-    text = (evidence.get("text_excerpt") or "")[:6000]
+    # 抽取语料窗口（spec §4.2）：覆盖 96.4% evidence 全文；
+    # 超长 evidence（整章大年报等 6.7% 长尾）尾部仍会截断，由词表治理与重切分兜底
+    text = (evidence.get("text_excerpt") or "")[:LLM_INPUT_MAX_CHARS]
     result: dict | None = None
     if text.strip():
         try:
