@@ -27,6 +27,11 @@ class _Result:
         self.modified_count = modified_count
 
 
+class _BulkResult:
+    def __init__(self, upserted_count: int = 0):
+        self.upserted_count = upserted_count
+
+
 def _get_path(doc: dict[str, Any], path: str) -> Any:
     cur: Any = doc
     for part in path.split("."):
@@ -126,6 +131,17 @@ class FakeCollection:
     async def count_documents(self, query):
         return sum(1 for doc in self.docs if _match(doc, query))
 
+    async def bulk_write(self, operations, ordered=True):
+        upserted = 0
+        for op in operations:
+            doc = next((d for d in self.docs if _match(d, op._filter)), None)
+            if doc is None and getattr(op, "_upsert", False):
+                doc = deepcopy(op._filter)
+                self._apply(doc, op._doc, inserting=True)
+                self.docs.append(doc)
+                upserted += 1
+        return _BulkResult(upserted)
+
     def aggregate(self, pipeline):
         groups: dict[Any, int] = {}
         for doc in self.docs:
@@ -209,6 +225,23 @@ def test_enqueue_default_jobs_is_idempotent() -> None:
         assert {j["job_type"] for j in jobs1} == {JOB_COMBINED, JOB_VECTOR, JOB_LINK}
         assert [j["job_id"] for j in jobs1] == [j["job_id"] for j in jobs2]
         assert await svc._jobs.count_documents({}) == 3
+
+    asyncio.run(main())
+
+
+def test_bulk_enqueue_jobs_includes_link_and_is_idempotent() -> None:
+    async def main():
+        svc = _service()
+        upserted = await svc.bulk_enqueue_jobs(["EV:a", "EV:b"])
+        assert upserted == 6
+        jobs = svc._jobs.docs
+        assert {job["job_type"] for job in jobs} == {JOB_COMBINED, JOB_VECTOR, JOB_LINK}
+        assert all(job["status"] == STATUS_PENDING for job in jobs)
+        assert all(job["evidence_id"] in {"EV:a", "EV:b"} for job in jobs)
+        # 幂等：重复入队不新增
+        upserted_again = await svc.bulk_enqueue_jobs(["EV:a", "EV:b"])
+        assert upserted_again == 0
+        assert await svc._jobs.count_documents({}) == 6
 
     asyncio.run(main())
 

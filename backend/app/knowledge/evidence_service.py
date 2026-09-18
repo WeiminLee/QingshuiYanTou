@@ -223,7 +223,7 @@ class EvidenceService:
         now = _utc_now()
         operations = []
         for evidence_id in evidence_ids:
-            for job_type in [JOB_COMBINED, JOB_VECTOR]:
+            for job_type in [JOB_COMBINED, JOB_VECTOR, JOB_LINK]:
                 job_id = stable_job_id(evidence_id, job_type, EXTRACTOR_VERSION)
                 doc = {
                     "job_id": job_id,
