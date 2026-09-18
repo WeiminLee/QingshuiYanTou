@@ -80,6 +80,22 @@ tools:
     use: app.reasoning.tools.knowledge.link_queries:backlinks_tool
     description: 查看某条证据的全部关键字及同关键字关联证据（双向引用导航）
 
+  # 判断台账（L2）：观察/判断写回 + 水位线
+  - name: write_observation
+    group: knowledge
+    use: app.reasoning.tools.knowledge.ledger_tools:write_observation_tool
+    description: 写回观察（task-time 确认，status=verified）并推进水位线；evidence_id+span 句级锚定为硬闸门
+
+  - name: write_finding
+    group: knowledge
+    use: app.reasoning.tools.knowledge.ledger_tools:write_finding_tool
+    description: 写回判断（递进/恶化/新事件/关联/矛盾）；supports 必须句级锚定真实 evidence，否则拒绝写入
+
+  - name: watermark
+    group: knowledge
+    use: app.reasoning.tools.knowledge.ledger_tools:watermark_tool
+    description: 查询 (主体×维度[×scope]) 水位线 max_level——判断"这是不是新台阶"的依据
+
   # resolve + expand: 新一代图谱导航（resolve→expand 模式）
   - name: resolve
     group: knowledge
