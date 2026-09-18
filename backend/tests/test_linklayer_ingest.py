@@ -180,7 +180,7 @@ async def test_ingest_subject_hint_fallback(monkeypatch):
 
     session = _StubSession()
     result = await ingest_mod.ingest_evidence("EV:irm-nocallout", _session=session)
-    assert any(r == ("subject", "003026.SZ", "dictionary") for r in recorded), recorded
+    assert any(r == ("subject", "003026.SZ", "hint") for r in recorded), recorded
     assert any(r[0] == "stage" and r[1] == "增产上量" for r in recorded), recorded
     assert result["llm_used"] is False
 

@@ -149,16 +149,15 @@ def test_scan_dimension_sql_joins_scope():
 
 
 def test_scan_dimension_sql_explicit_joins():
-    """横截面骨架：dimension 链路 join subject 链路，scope 走 IN 子查询。"""
+    """横截面 evidence 侧骨架：dimension 链路 + scope IN 子查询，DISTINCT evidence。"""
     from sqlalchemy.dialects import postgresql
 
     from app.knowledge.linklayer.queries import build_scan_dimension_sql
 
     stmt, _ = build_scan_dimension_sql(dimension="毛利率", scope="8英寸抛光硅片")
     compiled = str(stmt.compile(dialect=postgresql.dialect()))
-    assert compiled.count("link_links AS") == 2  # l + l2（dimension 链路 + subject 链路）
-    assert compiled.count("link_keywords AS") == 2  # k + sk
-    assert compiled.count("evidence_id IN (SELECT") == 1  # scope 交集
+    assert "GROUP BY" in compiled.upper()  # evidence 级去重（不再逐行 join subject）
+    assert "existence" not in compiled.lower() and "IN (SELECT" in compiled  # scope 交集
     assert "ORDER BY" in compiled.upper()
 
 
@@ -173,20 +172,32 @@ async def test_scan_dimension_none_dimension_returns_empty():
 
 @pytest.mark.asyncio
 async def test_scan_dimension_maps_rows_to_items(monkeypatch):
-    """横截面结果映射：subject / evidence_id / published_at。"""
+    """横截面归属：hint 主体优先，dictionary 主体兜底。"""
     from datetime import UTC, datetime
 
     published = datetime(2026, 6, 15, tzinfo=UTC)
-    session = _StubSession([[("003026.SZ", "EV:1", published), ("中际旭创", "EV:2", None)]])
+    session = _StubSession(
+        [
+            # 第 1 次查询：evidence 集合
+            [("EV:1", published), ("EV:2", None)],
+            # 第 2 次查询：主体归属（hint 优先 + 兜底行）
+            [
+                ("EV:1", "003026.SZ", "hint"),
+                ("EV:2", "000776.SZ", "dictionary"),
+                ("EV:1", "000776.SZ", "dictionary"),  # 同文本共现公司，不应抢占归属
+            ],
+        ]
+    )
     monkeypatch.setattr(queries_mod, "async_session", lambda: session)
 
     result = await queries_mod.scan_dimension("毛利率", scope="8英寸抛光硅片")
     assert result["count"] == 2
     assert result["items"][0] == {
-        "subject": "003026.SZ",
+        "subject": "003026.SZ",  # hint 权威主体
         "evidence_id": "EV:1",
         "published_at": "2026-06-15 00:00:00+00:00",
     }
+    assert result["items"][1]["subject"] == "000776.SZ"  # 无 hint，兜底
     assert result["items"][1]["published_at"] is None
     assert result["dimension"] == "毛利率"
     assert result["scope"] == "8英寸抛光硅片"

@@ -153,32 +153,21 @@ async def backlinks(evidence_id: str) -> dict:
 
 
 def build_scan_dimension_sql(dimension: str, scope: str | None = None, as_of: str | None = None, limit: int = 50):
-    """横截面查询：该维度（×可选 scope）下，按主体聚合的 evidence/数值。
+    """横截面查询（evidence 侧）：该维度（×可选 scope）的 DISTINCT evidence 集合。
 
-    SQL 骨架（最终实现按此展开为 SQLAlchemy 语句）：
-      SELECT sk.norm_text AS subject, l.evidence_id, l.published_at
-      FROM link_links l
-      JOIN link_keywords k  ON k.keyword_id = l.keyword_id AND k.layer='dimension'
-      JOIN link_links l2   ON l2.evidence_id = l.evidence_id
-      JOIN link_keywords sk ON sk.keyword_id = l2.keyword_id AND sk.layer='subject'
-      WHERE k.norm_text = :dimension [AND EXISTS scope 子查询]
-      ORDER BY l.published_at DESC LIMIT :limit
+    主体归属不在本查询内——evidence 的权威主体由 evidence.subject_hint（link.source='hint'）决定，
+    scan_dimension 在本查询之后按 evidence 批量归属主体（hint 优先，任意 subject 链接兜底），
+    避免年报前十大股东等共现主体污染归属。
     """
-    link_dim = aliased(Link, name="l")
-    kw_dim = aliased(Keyword, name="k")
-    link_sub = aliased(Link, name="l2")
-    kw_subject = aliased(Keyword, name="sk")
     stmt = (
-        select(kw_subject.norm_text.label("subject"), link_dim.evidence_id, link_dim.published_at)
-        .select_from(link_dim)
-        .join(kw_dim, and_(kw_dim.keyword_id == link_dim.keyword_id, kw_dim.layer == "dimension"))
-        .join(link_sub, link_sub.evidence_id == link_dim.evidence_id)
-        .join(kw_subject, and_(kw_subject.keyword_id == link_sub.keyword_id, kw_subject.layer == "subject"))
-        .where(kw_dim.norm_text == dimension)
+        select(Link.evidence_id, func.max(Link.published_at).label("published_at"))
+        .join(Keyword, and_(Keyword.keyword_id == Link.keyword_id, Keyword.layer == "dimension"))
+        .where(Keyword.norm_text == dimension)
+        .group_by(Link.evidence_id)
     )
     if scope:
         stmt = stmt.where(
-            link_dim.evidence_id.in_(
+            Link.evidence_id.in_(
                 select(Link.evidence_id).where(
                     Link.keyword_id.in_(
                         select(Keyword.keyword_id).where(Keyword.layer == "scope", Keyword.norm_text == scope)
@@ -188,9 +177,10 @@ def build_scan_dimension_sql(dimension: str, scope: str | None = None, as_of: st
         )
     cutoff = _parse_cutoff(as_of)
     if cutoff is not None:
-        stmt = stmt.where(link_dim.published_at <= cutoff)
-    # 同一 evidence 的同关键字多 span 会产生重复行，DISTINCT 在 SQL 侧先去重
-    stmt = stmt.distinct().order_by(link_dim.published_at.desc()).limit(limit)
+        stmt = stmt.having(func.max(Link.published_at) <= cutoff)
+    stmt = stmt.having(func.max(Link.published_at).is_not(None)).order_by(
+        func.max(Link.published_at).desc()
+    ).limit(limit)
     return stmt, {"dimension": dimension, "scope": scope}
 
 
@@ -214,7 +204,34 @@ async def scan_dimension(
     async with async_session() as session:
         stmt, _ = build_scan_dimension_sql(dimension, scope, as_of, limit)
         rows = (await session.execute(stmt)).all()
-    items = [{"subject": r[0], "evidence_id": r[1], "published_at": str(r[2]) if r[2] else None} for r in rows]
+
+    # 主体归属：hint（evidence 自报主体）优先，任意 subject 链接兜底
+    evidence_ids = [r[0] for r in rows]
+    hint_map, fallback_map = {}, {}
+    if evidence_ids:
+        subj_stmt = (
+            select(Link.evidence_id, Keyword.norm_text, Link.source)
+            .join(Keyword, and_(Keyword.keyword_id == Link.keyword_id, Keyword.layer == "subject"))
+            .where(Link.evidence_id.in_(evidence_ids))
+            .order_by(Link.evidence_id)
+        )
+        subj_rows = (await session.execute(subj_stmt)).all()
+        for evid, norm, src in subj_rows:
+            if src == "hint":
+                hint_map.setdefault(evid, norm)
+            fallback_map.setdefault(evid, norm)
+    items = []
+    for r in rows:
+        evid = r[0]
+        subject = hint_map.get(evid) or fallback_map.get(evid)
+        if subject:
+            items.append(
+                {
+                    "subject": subject,
+                    "evidence_id": evid,
+                    "published_at": str(r[1]) if r[1] else None,
+                }
+            )
     return {"dimension": dimension, "scope": scope, "items": items, "count": len(items)}
 
 

@@ -41,11 +41,12 @@ async def ingest_evidence(evidence_id: str, *, _session=None, skip_llm: bool = F
 
     # subject_hint 权威锚点（spec §4.2）：互动易/公告 evidence 的主体即其所属公司，
     # 与正文词典匹配相互独立——正文提及的竞品/同业公司会同时共存为主体共现。
+    # source='hint' 使横截面（scan）等按权威主体归属的查询可精准过滤。
     hint_subject = _subject_from_hint(evidence.get("subject_hint"))
     if hint_subject and not any(
         l == "subject" and norm == hint_subject for l, norm, *_ in actions
     ):
-        actions.append(("subject", hint_subject, "dictionary", 0, 0, published))
+        actions.append(("subject", hint_subject, "hint", 0, 0, published))
 
     # 通道 2：LLM 浅提取（开放类：Company/Product/Metric）
     # skip_llm=True 时跳过（网关不可用/省额度场景）：只建词典层，
@@ -66,18 +67,22 @@ async def ingest_evidence(evidence_id: str, *, _session=None, skip_llm: bool = F
     link_count = 0
     for layer, norm, source, s, e, pub in actions:
         kw_id = await ensure_keyword(_session, layer, norm, source=source)
-        stmt = (
-            pg_insert(Link)
-            .values(
-                keyword_id=kw_id,
-                evidence_id=evidence_id,
-                span_start=s,
-                span_end=e,
-                published_at=pub,
-                source=source,
-            )
-            .on_conflict_do_nothing()
+        base = pg_insert(Link).values(
+            keyword_id=kw_id,
+            evidence_id=evidence_id,
+            span_start=s,
+            span_end=e,
+            published_at=pub,
+            source=source,
         )
+        if source == "hint":
+            # 权威主体可覆盖旧渠道写入的同位行（早期实现误标 dictionary/llm）
+            stmt = base.on_conflict_do_update(
+                index_elements=["keyword_id", "evidence_id", "span_start"],
+                set_={"source": "hint"},
+            )
+        else:
+            stmt = base.on_conflict_do_nothing()
         await _session.execute(stmt)
         link_count += 1
     await _session.commit()
