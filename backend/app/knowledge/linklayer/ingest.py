@@ -35,6 +35,12 @@ async def ingest_evidence(evidence_id: str, *, _session=None) -> dict:
     for m in match_all(text, vocab, subject_index):
         actions.append((m.layer, m.norm_text, "dictionary", m.span_start, m.span_end, published))
 
+    # subject_hint 兜底（spec §4.2）：互动易等正文常不点名公司，以证据元数据锚定主体
+    if not any(layer == "subject" for layer, *_ in actions):
+        hint_subject = _subject_from_hint(evidence.get("subject_hint"))
+        if hint_subject:
+            actions.append(("subject", hint_subject, "dictionary", 0, 0, published))
+
     # 通道 2：LLM 浅提取（开放类：Company/Product/Metric）
     llm_result = await extract_keywords(evidence)
     llm_used = llm_result is not None
@@ -68,6 +74,24 @@ async def ingest_evidence(evidence_id: str, *, _session=None) -> dict:
         link_count += 1
     await _session.commit()
     return {"links": link_count, "keywords": len(actions), "llm_used": llm_used}
+
+
+def _subject_from_hint(subject_hint) -> str | None:
+    """从 evidence.subject_hint 提取主体规范键（spec §4.2 subject 层兜底）。
+
+    观测到的形态：IRM 为 {"ts_code", "company_name"}，公告为
+    {"ts_code", "name", "ann_type"}；上市主体规范键 = ts_code
+    （与词典/查询侧 build_subject_index 的归一口径一致）。
+    """
+    if isinstance(subject_hint, dict):
+        return (
+            subject_hint.get("ts_code")
+            or subject_hint.get("company_name")
+            or subject_hint.get("name")
+        )
+    if isinstance(subject_hint, str):
+        return subject_hint or None
+    return None
 
 
 def _parse_date(value) -> datetime | None:

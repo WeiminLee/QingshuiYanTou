@@ -143,3 +143,79 @@ def test_parse_date_treats_naive_as_local():
     assert _parse_date(None) is None
     assert _parse_date("") is None
     assert _parse_date("不是日期") is None
+
+
+@pytest.mark.asyncio
+async def test_ingest_subject_hint_fallback(monkeypatch):
+    """正文不点名公司（IRM 常态）时，subject_hint 元数据应锚定主体（spec §4.2）。"""
+    recorded = []
+
+    async def fake_get_evidence(self, evidence_id):
+        return {
+            "evidence_id": evidence_id,
+            "text_excerpt": "您好！募投项目以中晶新材料为实施主体，当前处于增产上量和新客户认证过程中",
+            "publish_date": "2026-02-23",
+            "source_type": "irm",
+            "subject_hint": {"ts_code": "003026.SZ", "company_name": "中晶科技"},
+        }
+
+    async def fake_extract(evidence, *, use_cache=True):
+        return None  # LLM 不可用（额度耗尽等）
+
+    monkeypatch.setattr(ingest_mod.EvidenceService, "get_evidence", fake_get_evidence)
+    monkeypatch.setattr(ingest_mod, "extract_keywords", fake_extract)
+
+    async def fake_ensure(session, layer, norm_text, *, source):
+        recorded.append((layer, norm_text, source))
+        return f"KW:{layer}:{norm_text}"
+
+    monkeypatch.setattr(ingest_mod, "ensure_keyword", fake_ensure)
+
+    from app.knowledge.linklayer.dict_match import SubjectIndex
+
+    async def fake_build_subject_index():
+        return SubjectIndex(alias_to_norm={})  # stocks 名覆盖不到此正文
+
+    monkeypatch.setattr(ingest_mod, "build_subject_index", fake_build_subject_index)
+
+    session = _StubSession()
+    result = await ingest_mod.ingest_evidence("EV:irm-nocallout", _session=session)
+    assert any(r == ("subject", "003026.SZ", "dictionary") for r in recorded), recorded
+    assert any(r[0] == "stage" and r[1] == "增产上量" for r in recorded), recorded
+    assert result["llm_used"] is False
+
+
+@pytest.mark.asyncio
+async def test_ingest_subject_hint_skipped_when_text_names_subject(monkeypatch):
+    """词典/LLM 已锚定主体时，hint 兜底不应重复追加。"""
+    recorded = []
+
+    async def fake_get_evidence(self, evidence_id):
+        return {
+            "evidence_id": evidence_id,
+            "text_excerpt": "中晶科技处于增产上量阶段",
+            "subject_hint": {"ts_code": "003026.SZ"},
+        }
+
+    async def fake_extract(evidence, *, use_cache=True):
+        return None
+
+    monkeypatch.setattr(ingest_mod.EvidenceService, "get_evidence", fake_get_evidence)
+    monkeypatch.setattr(ingest_mod, "extract_keywords", fake_extract)
+
+    async def fake_ensure(session, layer, norm_text, *, source):
+        recorded.append((layer, norm_text, source))
+        return f"KW:{layer}:{norm_text}"
+
+    monkeypatch.setattr(ingest_mod, "ensure_keyword", fake_ensure)
+
+    from app.knowledge.linklayer.dict_match import SubjectIndex
+
+    async def fake_build_subject_index():
+        return SubjectIndex(alias_to_norm={"中晶科技": "003026.SZ"})
+
+    monkeypatch.setattr(ingest_mod, "build_subject_index", fake_build_subject_index)
+
+    await ingest_mod.ingest_evidence("EV:dup-probe", _session=_StubSession())
+    subject_hits = [r for r in recorded if r[0] == "subject" and r[1] == "003026.SZ"]
+    assert len(subject_hits) == 1, recorded
