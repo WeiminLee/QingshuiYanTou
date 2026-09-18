@@ -8,6 +8,7 @@ import pytest
 
 from app.knowledge.evidence import (
     JOB_COMBINED,
+    JOB_LINK,
     JOB_SIGNAL,
     JOB_VECTOR,
     STATUS_DONE,
@@ -106,8 +107,12 @@ def test_run_once_limit_zero_returns_zero() -> None:
     asyncio.run(main())
 
 
-def test_successful_combined_job_marks_done_and_updates_evidence() -> None:
+def test_successful_combined_job_marks_done_and_updates_evidence(monkeypatch) -> None:
     async def main():
+        async def fake_extract(evidence):
+            return {"entities_created": 1, "relations_created": 0}
+
+        monkeypatch.setattr("app.knowledge.evidence_worker.extract_evidence_async", fake_extract)
         service = FakeService()
         service.jobs = [
             {
@@ -178,8 +183,12 @@ def test_extractor_exception_marks_failed() -> None:
     asyncio.run(main())
 
 
-def test_two_jobs_processed() -> None:
+def test_two_jobs_processed(monkeypatch) -> None:
     async def main():
+        async def fake_extract(evidence):
+            return {"entities_created": 1, "relations_created": 0}
+
+        monkeypatch.setattr("app.knowledge.evidence_worker.extract_evidence_async", fake_extract)
         service = FakeService()
         service.jobs = [
             {
@@ -248,5 +257,35 @@ def test_signal_job_success(monkeypatch) -> None:
         assert calls == ["EV:1"]
         assert service.done[-1][1] == {"signals_upserted": 1, "propagations_upserted": 2}
         assert service.evidence["EV:1"]["status_updates"][-1] == (JOB_SIGNAL, STATUS_DONE)
+
+    asyncio.run(main())
+
+
+def test_link_job_success(monkeypatch) -> None:
+    async def main():
+        service = FakeService()
+        service.jobs = [
+            {
+                "job_id": "J5",
+                "evidence_id": "EV:1",
+                "job_type": JOB_LINK,
+                "status": STATUS_PENDING,
+            }
+        ]
+        calls = []
+
+        async def fake_ingest(evidence_id, *, _session=None):
+            calls.append(evidence_id)
+            return {"links": 3, "keywords": 3, "llm_used": True}
+
+        monkeypatch.setattr("app.knowledge.evidence_worker.ingest_evidence", fake_ingest)
+
+        worker = _worker(service)
+        result = await worker.run_once(limit=1, job_type=JOB_LINK)
+
+        assert result["success"] == 1
+        assert calls == ["EV:1"]
+        assert service.done[-1][1] == {"links": 3, "keywords": 3, "llm_used": True}
+        assert service.evidence["EV:1"]["status_updates"][-1] == (JOB_LINK, STATUS_DONE)
 
     asyncio.run(main())

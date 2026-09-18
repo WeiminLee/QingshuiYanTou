@@ -8,10 +8,12 @@ import socket
 import time
 from typing import Any
 
-from app.knowledge.evidence import JOB_COMBINED, JOB_SIGNAL, JOB_VECTOR
+from app.core.database import async_session
+from app.knowledge.evidence import JOB_COMBINED, JOB_LINK, JOB_SIGNAL, JOB_VECTOR
 from app.knowledge.evidence_service import EvidenceService
 from app.knowledge.extraction.irm_classifier import classify_irm_evidence, extraction_tier
 from app.knowledge.kg_extractor import extract_evidence_async, extract_evidence_raw
+from app.knowledge.linklayer.ingest import ingest_evidence
 from app.knowledge.vector_client import upsert_evidence_chunk_vector
 from app.signals.auto_ingestion import ingest_evidence_signals
 
@@ -189,6 +191,11 @@ class EvidenceExtractionWorker:
                 return {"status": "failed", **result}
             if job_type == JOB_SIGNAL:
                 result = await ingest_evidence_signals(evidence)
+                await self.service.mark_job_done(job_id, result)
+                return {"status": "done", **result}
+            if job_type == JOB_LINK:
+                async with async_session() as session:
+                    result = await ingest_evidence(evidence_id, _session=session)
                 await self.service.mark_job_done(job_id, result)
                 return {"status": "done", **result}
             await self.service.mark_job_failed(job_id, f"unsupported job_type: {job_type}")

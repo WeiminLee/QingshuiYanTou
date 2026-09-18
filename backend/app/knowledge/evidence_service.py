@@ -14,6 +14,7 @@ from app.knowledge.evidence import (
     EXTRACTION_JOBS_COLLECTION,
     EXTRACTOR_VERSION,
     JOB_COMBINED,
+    JOB_LINK,
     JOB_SIGNAL,
     JOB_VECTOR,
     STATUS_DONE,
@@ -155,6 +156,7 @@ class EvidenceService:
         return [
             await self.enqueue_job(evidence_id, JOB_COMBINED),
             await self.enqueue_job(evidence_id, JOB_VECTOR),
+            await self.enqueue_job(evidence_id, JOB_LINK),
         ]
 
     # ── 批量写入 ────────────────────────────────────────────────
