@@ -35,11 +35,13 @@ async def ingest_evidence(evidence_id: str, *, _session=None) -> dict:
     for m in match_all(text, vocab, subject_index):
         actions.append((m.layer, m.norm_text, "dictionary", m.span_start, m.span_end, published))
 
-    # subject_hint 兜底（spec §4.2）：互动易等正文常不点名公司，以证据元数据锚定主体
-    if not any(layer == "subject" for layer, *_ in actions):
-        hint_subject = _subject_from_hint(evidence.get("subject_hint"))
-        if hint_subject:
-            actions.append(("subject", hint_subject, "dictionary", 0, 0, published))
+    # subject_hint 权威锚点（spec §4.2）：互动易/公告 evidence 的主体即其所属公司，
+    # 与正文词典匹配相互独立——正文提及的竞品/同业公司会同时共存为主体共现。
+    hint_subject = _subject_from_hint(evidence.get("subject_hint"))
+    if hint_subject and not any(
+        l == "subject" and norm == hint_subject for l, norm, *_ in actions
+    ):
+        actions.append(("subject", hint_subject, "dictionary", 0, 0, published))
 
     # 通道 2：LLM 浅提取（开放类：Company/Product/Metric）
     llm_result = await extract_keywords(evidence)
