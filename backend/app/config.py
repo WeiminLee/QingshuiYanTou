@@ -73,6 +73,9 @@ class Settings(BaseSettings):
     neo4j_user: str = "neo4j"
     neo4j_password: str = ""
 
+    # 三元组抽取退役开关：False=停发三元组 combined job（Neo4j 不再有新写入）
+    enable_kg_extraction: bool = True
+
     # Embedding 后端选择器
     # 可选值：openai（默认，qwen3-embedding 等 OpenAI 兼容格式）、
     #         local（BGE-M3 本地服务）、

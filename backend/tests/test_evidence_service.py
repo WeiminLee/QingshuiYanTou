@@ -7,6 +7,7 @@ from copy import deepcopy
 from datetime import datetime
 from typing import Any
 
+from app.config import settings
 from app.knowledge.evidence import (
     JOB_COMBINED,
     JOB_LINK,
@@ -203,7 +204,10 @@ def test_upsert_evidence_is_idempotent() -> None:
     asyncio.run(main())
 
 
-def test_upsert_evidence_auto_enqueues_default_jobs() -> None:
+def test_upsert_evidence_auto_enqueues_default_jobs(monkeypatch) -> None:
+    # 开关开启（默认）时，upsert 自动入队完整默认 job 集合
+    monkeypatch.setattr(settings, "enable_kg_extraction", True)
+
     async def main():
         svc = _service()
         ev = await svc.upsert_evidence(_input(), chunk_index=0)
@@ -216,7 +220,10 @@ def test_upsert_evidence_auto_enqueues_default_jobs() -> None:
     asyncio.run(main())
 
 
-def test_enqueue_default_jobs_is_idempotent() -> None:
+def test_enqueue_default_jobs_is_idempotent(monkeypatch) -> None:
+    # 开关开启（默认）时，默认 job 集合为 {combined, vector, link}
+    monkeypatch.setattr(settings, "enable_kg_extraction", True)
+
     async def main():
         svc = _service()
         ev = await svc.upsert_evidence(_input())
@@ -229,7 +236,10 @@ def test_enqueue_default_jobs_is_idempotent() -> None:
     asyncio.run(main())
 
 
-def test_bulk_enqueue_jobs_includes_link_and_is_idempotent() -> None:
+def test_bulk_enqueue_jobs_includes_link_and_is_idempotent(monkeypatch) -> None:
+    # 开关开启（默认）时，批量入队包含 combined，共 3 job/evidence
+    monkeypatch.setattr(settings, "enable_kg_extraction", True)
+
     async def main():
         svc = _service()
         upserted = await svc.bulk_enqueue_jobs(["EV:a", "EV:b"])

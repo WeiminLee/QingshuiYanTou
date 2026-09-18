@@ -8,6 +8,7 @@ from typing import Any
 
 from pymongo import ReturnDocument, UpdateOne
 
+from app.config import settings
 from app.core.mongodb import get_mongo_db
 from app.knowledge.evidence import (
     EVIDENCE_COLLECTION,
@@ -153,11 +154,12 @@ class EvidenceService:
         return dict(saved) if saved else doc
 
     async def enqueue_default_jobs(self, evidence_id: str) -> list[dict[str, Any]]:
-        return [
-            await self.enqueue_job(evidence_id, JOB_COMBINED),
-            await self.enqueue_job(evidence_id, JOB_VECTOR),
-            await self.enqueue_job(evidence_id, JOB_LINK),
-        ]
+        jobs = []
+        if settings.enable_kg_extraction:
+            jobs.append(await self.enqueue_job(evidence_id, JOB_COMBINED))
+        jobs.append(await self.enqueue_job(evidence_id, JOB_VECTOR))
+        jobs.append(await self.enqueue_job(evidence_id, JOB_LINK))
+        return jobs
 
     # ── 批量写入 ────────────────────────────────────────────────
 
@@ -221,9 +223,12 @@ class EvidenceService:
             return 0
         await self.ensure_indexes()
         now = _utc_now()
+        job_types = [JOB_VECTOR, JOB_LINK]
+        if settings.enable_kg_extraction:
+            job_types.insert(0, JOB_COMBINED)
         operations = []
         for evidence_id in evidence_ids:
-            for job_type in [JOB_COMBINED, JOB_VECTOR, JOB_LINK]:
+            for job_type in job_types:
                 job_id = stable_job_id(evidence_id, job_type, EXTRACTOR_VERSION)
                 doc = {
                     "job_id": job_id,

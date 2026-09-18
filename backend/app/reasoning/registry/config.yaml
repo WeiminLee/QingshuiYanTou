@@ -139,7 +139,8 @@ tools:
   - name: neo4j_kg_search
     group: knowledge
     use: app.reasoning.tools.knowledge.neo4j:neo4j_kg_search
-    description: 知识图谱智能搜索：自动选择实体/关系/路径搜索策略，返回相关性排序的结果
+    description: "[已弃用] 请使用 pull_history"
+    enabled: false
 
   - name: fetch_evidence
     group: knowledge
