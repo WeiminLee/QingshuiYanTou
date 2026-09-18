@@ -54,6 +54,32 @@ tools:
     use: app.reasoning.tools.knowledge.semantic_search:semantic_search
     description: 语义向量检索（前置探查）：不知道 entity_id 时先模糊搜索候选。scope=entities 返回实体(含 entity_id，可接 expand)，scope=chunks 返回证据片段(含 evidence_id，可接 fetch_evidence)
 
+  # 链接层检索（时间线/横截面/单跳聚合/双向引用）
+  - name: pull_history
+    group: knowledge
+    use: app.reasoning.tools.knowledge.link_queries:pull_history_tool
+    description: 按(主体×维度)拉取时间序证据时间线——判断递进/变化的第一入口，替代语义搜索做预期差判断
+
+  - name: scan_dimension
+    group: knowledge
+    use: app.reasoning.tools.knowledge.link_queries:scan_dimension_tool
+    description: 横截面查询：某维度（如毛利率）下各主体的证据聚合，用于跨公司对比
+
+  - name: lookup_products
+    group: knowledge
+    use: app.reasoning.tools.knowledge.link_queries:lookup_products_tool
+    description: 单跳聚合：某公司关联的产品列表（带提及频次与最近提及）
+
+  - name: lookup_players
+    group: knowledge
+    use: app.reasoning.tools.knowledge.link_queries:lookup_players_tool
+    description: 单跳聚合：某产品/关键字下的公司列表（传导挖掘入口）
+
+  - name: backlinks
+    group: knowledge
+    use: app.reasoning.tools.knowledge.link_queries:backlinks_tool
+    description: 查看某条证据的全部关键字及同关键字关联证据（双向引用导航）
+
   # resolve + expand: 新一代图谱导航（resolve→expand 模式）
   - name: resolve
     group: knowledge
