@@ -1,11 +1,12 @@
 # backend/app/knowledge/linklayer/queries.py
-"""链接层检索原语（spec §5.1）：pull_history 时间线 / backlinks 双向引用。"""
+"""链接层检索原语（spec §5.1）：时间线 / 双向引用 / 横截面 / 单跳聚合。"""
 
 from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import and_, select
+from sqlalchemy import and_, func, select
+from sqlalchemy.orm import aliased
 
 from app.core.database import async_session
 from app.knowledge.linklayer.dict_match import build_subject_index
@@ -149,3 +150,103 @@ async def backlinks(evidence_id: str) -> dict:
                     if ev_id not in bucket:
                         bucket.append(ev_id)
     return {"evidence_id": evidence_id, "keywords": keywords, "related": related}
+
+
+def build_scan_dimension_sql(dimension: str, scope: str | None = None, as_of: str | None = None, limit: int = 50):
+    """横截面查询：该维度（×可选 scope）下，按主体聚合的 evidence/数值。
+
+    SQL 骨架（最终实现按此展开为 SQLAlchemy 语句）：
+      SELECT sk.norm_text AS subject, l.evidence_id, l.published_at
+      FROM link_links l
+      JOIN link_keywords k  ON k.keyword_id = l.keyword_id AND k.layer='dimension'
+      JOIN link_links l2   ON l2.evidence_id = l.evidence_id
+      JOIN link_keywords sk ON sk.keyword_id = l2.keyword_id AND sk.layer='subject'
+      WHERE k.norm_text = :dimension [AND EXISTS scope 子查询]
+      ORDER BY l.published_at DESC LIMIT :limit
+    """
+    link_dim = aliased(Link, name="l")
+    kw_dim = aliased(Keyword, name="k")
+    link_sub = aliased(Link, name="l2")
+    kw_subject = aliased(Keyword, name="sk")
+    stmt = (
+        select(kw_subject.norm_text.label("subject"), link_dim.evidence_id, link_dim.published_at)
+        .select_from(link_dim)
+        .join(kw_dim, and_(kw_dim.keyword_id == link_dim.keyword_id, kw_dim.layer == "dimension"))
+        .join(link_sub, link_sub.evidence_id == link_dim.evidence_id)
+        .join(kw_subject, and_(kw_subject.keyword_id == link_sub.keyword_id, kw_subject.layer == "subject"))
+        .where(kw_dim.norm_text == dimension)
+    )
+    if scope:
+        stmt = stmt.where(
+            link_dim.evidence_id.in_(
+                select(Link.evidence_id).where(
+                    Link.keyword_id.in_(
+                        select(Keyword.keyword_id).where(Keyword.layer == "scope", Keyword.norm_text == scope)
+                    )
+                )
+            )
+        )
+    cutoff = _parse_cutoff(as_of)
+    if cutoff is not None:
+        stmt = stmt.where(link_dim.published_at <= cutoff)
+    # 同一 evidence 的同关键字多 span 会产生重复行，DISTINCT 在 SQL 侧先去重
+    stmt = stmt.distinct().order_by(link_dim.published_at.desc()).limit(limit)
+    return stmt, {"dimension": dimension, "scope": scope}
+
+
+async def scan_dimension(
+    dimension: str | None, scope: str | None = None, as_of: str | None = None, limit: int = 50
+) -> dict:
+    """横截面：该维度（×可选 scope）下，各主体的 evidence/数值观察。
+
+    dimension=None 时（theme 类 gold 条目由向量通道负责，eval runner 会对 theme
+    条目以 dimension=None 调入），链接层无横截面可扫，直接返回空结果 + note，
+    不触碰数据库。
+    """
+    if not dimension:
+        return {
+            "dimension": dimension,
+            "scope": scope,
+            "items": [],
+            "count": 0,
+            "note": "dimension 未指定：theme 类查询由向量通道负责，链接层无横截面可扫",
+        }
+    async with async_session() as session:
+        stmt, _ = build_scan_dimension_sql(dimension, scope, as_of, limit)
+        rows = (await session.execute(stmt)).all()
+    items = [{"subject": r[0], "evidence_id": r[1], "published_at": str(r[2]) if r[2] else None} for r in rows]
+    return {"dimension": dimension, "scope": scope, "items": items, "count": len(items)}
+
+
+async def _cooccur_aggregate(anchor_layer: str, target_layer: str, anchor_norm: str, top_k: int) -> list[dict]:
+    """单跳聚合通用骨架：anchor 关键字 → 同 evidence 的 target 层关键字聚合。"""
+    async with async_session() as session:
+        anchor_sub = (
+            select(Keyword.keyword_id)
+            .where(Keyword.layer == anchor_layer, Keyword.norm_text == anchor_norm)
+            .scalar_subquery()
+        )
+        evidence_sub = select(Link.evidence_id).where(Link.keyword_id.in_(anchor_sub))
+        mention_count = func.count(Link.evidence_id).label("mention_count")
+        last_seen = func.max(Link.published_at).label("last_seen")
+        stmt = (
+            select(Keyword.norm_text, mention_count, last_seen)
+            .select_from(Keyword)
+            .join(Link, Link.keyword_id == Keyword.keyword_id)
+            .where(Link.evidence_id.in_(evidence_sub), Keyword.layer == target_layer)
+            .group_by(Keyword.norm_text)
+            .order_by(mention_count.desc())
+            .limit(top_k)
+        )
+        rows = (await session.execute(stmt)).all()
+    return [{"norm_text": r[0], "mention_count": r[1], "last_seen": str(r[2]) if r[2] else None} for r in rows]
+
+
+async def lookup_products(company: str, top_k: int = 20) -> list[dict]:
+    """公司有哪些产品（spec §5.4 单跳聚合）。company 须为归一化后的 subject norm（如 ts_code）。"""
+    return await _cooccur_aggregate("subject", "scope", company, top_k)
+
+
+async def lookup_players(keyword_norm_text: str, top_k: int = 20) -> list[dict]:
+    """某产品/关键字下的玩家有哪些（传导挖掘入口）。"""
+    return await _cooccur_aggregate("scope", "subject", keyword_norm_text, top_k)
