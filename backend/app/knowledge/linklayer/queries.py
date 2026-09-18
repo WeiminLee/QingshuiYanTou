@@ -1,0 +1,151 @@
+# backend/app/knowledge/linklayer/queries.py
+"""链接层检索原语（spec §5.1）：pull_history 时间线 / backlinks 双向引用。"""
+
+from __future__ import annotations
+
+from datetime import datetime
+
+from sqlalchemy import and_, select
+
+from app.core.database import async_session
+from app.knowledge.linklayer.dict_match import build_subject_index
+from app.knowledge.linklayer.models import Keyword, Link
+
+# backlinks 每个 keyword 最多返回的关联 evidence 数（与 brief 的 .limit(50) 对齐）
+MAX_RELATED_PER_KEYWORD = 50
+
+
+def _parse_cutoff(value: str | datetime | None) -> datetime | None:
+    """before/as_of 字符串 → datetime；None/空串返回 None，非法格式抛 ValueError。"""
+    if value is None or value == "":
+        return None
+    if isinstance(value, datetime):
+        return value
+    try:
+        return datetime.fromisoformat(str(value))
+    except ValueError as exc:
+        raise ValueError(f"无效的时间过滤参数: {value!r}") from exc
+
+
+def build_pull_history_sql(
+    subject: str, dimension: str | None = None, scope: str | None = None, before: str | None = None, limit: int = 100
+):
+    """构造时间线查询：subject 关键字 ∩ 可选 dimension/scope 关键字，按 published_at 倒序。
+
+    返回 (stmt, params)，便于单测校验结构。norm_text 匹配用 keyword 表的
+    display_text/aliases 兜底（如"中晶科技"未归一成 ts_code 时仍可命中）。
+    dimension/scope 为 None 时跳过对应的交集子查询（不做过滤）。
+    """
+    stmt = (
+        select(Link.evidence_id, Link.published_at)
+        .select_from(Link)
+        .join(Keyword, and_(Keyword.keyword_id == Link.keyword_id, Keyword.layer == "subject"))
+        .where(Keyword.norm_text == subject)
+    )
+    if dimension:
+        stmt = stmt.where(
+            Link.evidence_id.in_(
+                select(Link.evidence_id).where(
+                    Link.keyword_id.in_(
+                        select(Keyword.keyword_id).where(Keyword.layer == "dimension", Keyword.norm_text == dimension)
+                    )
+                )
+            )
+        )
+    if scope:
+        stmt = stmt.where(
+            Link.evidence_id.in_(
+                select(Link.evidence_id).where(
+                    Link.keyword_id.in_(
+                        select(Keyword.keyword_id).where(Keyword.layer == "scope", Keyword.norm_text == scope)
+                    )
+                )
+            )
+        )
+    cutoff = _parse_cutoff(before)
+    if cutoff is not None:
+        stmt = stmt.where(Link.published_at < cutoff)
+    # 同一 evidence 的同关键字多 span 会产生重复行，DISTINCT 在 SQL 侧先去重
+    stmt = stmt.distinct().order_by(Link.published_at.desc()).limit(limit)
+    return stmt, {"subject": subject, "dimension": dimension, "scope": scope}
+
+
+async def pull_history(
+    subject: str, dimension: str | None = None, scope: str | None = None, before: str | None = None, limit: int = 100
+) -> dict:
+    """时间线拉取：完整、有序、去重——判断任务的正门（spec §5.1 主原语）。
+
+    dimension/scope 传 None 时不做交集过滤；link.published_at 缺失时回退
+    evidence.publish_date，仍缺失则排序键按空串处理（不崩溃）。
+    """
+    from app.knowledge.evidence_service import EvidenceService
+
+    # 1. 主体归一（"中晶科技" → ts_code）
+    subject_index = await build_subject_index()
+    norm = subject_index.alias_to_norm.get(subject, subject)
+    async with async_session() as session:
+        stmt, _ = build_pull_history_sql(norm, dimension, scope, before, limit)
+        rows = (await session.execute(stmt)).all()
+        matched: dict[str, list[str]] = {}
+        if rows:
+            kw_rows = (
+                await session.execute(
+                    select(Link.evidence_id, Keyword.norm_text)
+                    .select_from(Link)
+                    .join(Keyword, Keyword.keyword_id == Link.keyword_id)
+                    .where(Link.evidence_id.in_({row[0] for row in rows}))
+                )
+            ).all()
+            for evidence_id, norm_text in kw_rows:
+                keywords = matched.setdefault(evidence_id, [])
+                if norm_text not in keywords:
+                    keywords.append(norm_text)
+
+    svc = EvidenceService()
+    items = []
+    seen = set()
+    for row in rows:
+        evidence_id = row[0]
+        if evidence_id in seen:
+            continue
+        seen.add(evidence_id)
+        ev = await svc.get_evidence(evidence_id) or {}
+        published = row[1] or ev.get("publish_date")
+        items.append(
+            {
+                "evidence_id": evidence_id,
+                "published_at": str(published) if published else None,
+                "source_type": ev.get("source_type", ""),
+                "source_name": ev.get("source_name", ""),
+                "text_excerpt": ev.get("text_excerpt", ""),
+                "matched_keywords": matched.get(evidence_id, []),
+            }
+        )
+    items.sort(key=lambda x: x["published_at"] or "", reverse=True)
+    return {"items": items, "count": len(items)}
+
+
+async def backlinks(evidence_id: str) -> dict:
+    """双向引用：evidence → 其全部关键字 → 各关键字下的其他 evidence。"""
+    async with async_session() as session:
+        kw_rows = (
+            await session.execute(
+                select(Keyword, Link)
+                .select_from(Link)
+                .join(Keyword, Keyword.keyword_id == Link.keyword_id)
+                .where(Link.evidence_id == evidence_id)
+            )
+        ).all()
+        keywords = [{"keyword_id": k.keyword_id, "layer": k.layer, "norm_text": k.norm_text} for k, _ in kw_rows]
+        name_by_id = {k.keyword_id: k.norm_text for k, _ in kw_rows}
+        related: dict[str, list[str]] = {norm: [] for norm in name_by_id.values()}
+        if name_by_id:
+            link_rows = (
+                await session.execute(select(Link.keyword_id, Link.evidence_id).where(Link.keyword_id.in_(name_by_id)))
+            ).all()
+            for keyword_id, ev_id in link_rows:
+                bucket = related[name_by_id[keyword_id]]
+                if ev_id != evidence_id and len(bucket) < MAX_RELATED_PER_KEYWORD:
+                    if ev_id not in bucket:
+                        bucket.append(ev_id)
+    return {"evidence_id": evidence_id, "keywords": keywords, "related": related}
