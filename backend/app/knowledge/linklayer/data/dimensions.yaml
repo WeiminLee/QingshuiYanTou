@@ -1,0 +1,60 @@
+# 维度种子词表 v1 — staged=有阶梯; numeric=数值型（无 level，靠 METRIC 提取的数值）
+dimensions:
+  - name: 产线进展
+    kind: staged
+    stages:
+      - {level: 1, words: [规划中, 立项]}
+      - {level: 2, words: [建设中, 在建]}
+      - {level: 3, words: [设备安装, 调试]}
+      - {level: 4, words: [试产, 试生产]}
+      - {level: 5, words: [小批量, 爬坡]}
+      - {level: 6, words: [量产, 达产, 增产上量, 满产]}
+  - name: 客户认证
+    kind: staged
+    stages:
+      - {level: 1, words: [送样]}
+      - {level: 2, words: [验证中, 认证中, 审核中]}
+      - {level: 3, words: [通过验证, 认证通过, 通过客户验证]}
+      - {level: 4, words: [批量供货, 小批量供货, 导入客户]}
+  - name: 订单
+    kind: staged
+    stages:
+      - {level: 1, words: [意向订单, 框架协议]}
+      - {level: 2, words: [签订订单, 中标]}
+      - {level: 3, words: [排产, 在手订单]}
+      - {level: 4, words: [交付, 出货]}
+  - name: 产能
+    kind: staged
+    stages:
+      - {level: 1, words: [产能规划]}
+      - {level: 2, words: [在建产能]}
+      - {level: 3, words: [投产]}
+      - {level: 4, words: [产能爬坡]}
+      - {level: 5, words: [满产, 产能饱满]}
+  - name: 客户导入
+    kind: staged
+    stages:
+      - {level: 1, words: [接洽, 域内测试]}
+      - {level: 2, words: [样品测试, 小批量试用]}
+      - {level: 3, words: [导入, 进入供应链, 导入客户]}
+  - name: 毛利率
+    kind: numeric
+  - name: 营收
+    kind: numeric
+  - name: 净利润
+    kind: numeric
+  - name: 开工率
+    kind: numeric
+  - name: 价格
+    kind: numeric
+metrics:
+  - 毛利率
+  - 营收
+  - 收入
+  - 净利润
+  - 出货量
+  - 产能利用率
+  - 开工率
+  - 市占率
+  - 单价
+  - 排产
