@@ -1,0 +1,75 @@
+[
+  {
+    "query_id": "timeline-zj-001",
+    "type": "timeline",
+    "subject": "中晶科技",
+    "dimension": "产线进展",
+    "question": "中晶科技 8 英寸抛光硅片产线的进展如何演进？",
+    "expected_evidence_ids": ["<真实evidence_id_1>", "<真实evidence_id_2>"],
+    "hard_negative_evidence_ids": [],
+    "note": "预期 3-6 月的 产线调试→增产上量 时间线；占位 ID 待按数据收集协议回填"
+  },
+  {
+    "query_id": "cross_section-margin-001",
+    "type": "cross_section",
+    "subject": null,
+    "dimension": "毛利率",
+    "scope": "8英寸抛光硅片",
+    "question": "生产8英寸抛光硅片的公司毛利率对比",
+    "expected_evidence_ids": ["<真实evidence_id_3>"],
+    "hard_negative_evidence_ids": [],
+    "note": "预期跨公司命中；占位 ID 待按数据收集协议回填"
+  },
+  {
+    "query_id": "theme-001",
+    "type": "theme",
+    "subject": null,
+    "dimension": null,
+    "scope": null,
+    "question": "AI 算力板块最近扩产动态",
+    "expected_evidence_ids": ["<真实evidence_id_4>"],
+    "hard_negative_evidence_ids": [],
+    "note": "向量通道（semantic_search）职责，链接层不评估"
+  },
+  {
+    "query_id": "timeline-cjc-001",
+    "type": "timeline",
+    "subject": "中际旭创",
+    "dimension": "产能",
+    "question": "中际旭创光模块产能扩张的推进节奏如何演进？",
+    "expected_evidence_ids": [
+      "EV:ae541396ab401c8ffe8b2f2a44e38c811ab8410f7701e6855818c7da9312c7b6",
+      "EV:33a57dbe0edbb04d3b5663c4aa15f896f458d84fbeaa988b08d114e556d9dcc4"
+    ],
+    "hard_negative_evidence_ids": [],
+    "note": "示例格式条目：ID 为 sha256(占位键) 生成的格式样例，非真实 evidence_id，运行评估前须回填"
+  },
+  {
+    "query_id": "cross_section-order-001",
+    "type": "cross_section",
+    "subject": null,
+    "dimension": "订单",
+    "scope": "800G 光模块",
+    "question": "生产800G光模块的公司最新订单进展对比",
+    "expected_evidence_ids": [
+      "EV:c306281c192c4bd1ae19e91f92aa5657ec3a5fb3f84a62fe52266a4da33e4eb1",
+      "EV:e7462c2b733655963441a81e10ba8c3ba3de394c16e2f6e42b616855deb64095"
+    ],
+    "hard_negative_evidence_ids": [],
+    "note": "预期跨公司命中（中际旭创/新易盛/天孚通信等）；ID 为格式样例，运行评估前须回填"
+  },
+  {
+    "query_id": "theme-002",
+    "type": "theme",
+    "subject": null,
+    "dimension": null,
+    "scope": null,
+    "question": "半导体设备国产替代最近有哪些新变化",
+    "expected_evidence_ids": [
+      "EV:facdb73f5215151ee84f4a8ae94b9bad4c556084b971df4df05b57eaf8f8a7e3",
+      "EV:6206454c97376c0230d871e659ca062948078ee95e362eee2c8ff4dcce79a337"
+    ],
+    "hard_negative_evidence_ids": [],
+    "note": "向量通道（semantic_search）职责；ID 为格式样例，运行评估前须回填"
+  }
+]
