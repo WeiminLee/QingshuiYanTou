@@ -18,7 +18,7 @@ from app.knowledge.linklayer.normalize import canonicalize_subject, ensure_keywo
 logger = logging.getLogger(__name__)
 
 
-async def ingest_evidence(evidence_id: str, *, _session=None) -> dict:
+async def ingest_evidence(evidence_id: str, *, _session=None, skip_llm: bool = False) -> dict:
     """对单条 evidence 建链。幂等：link PK 冲突 do nothing。"""
     svc = EvidenceService()
     evidence = await svc.get_evidence(evidence_id)
@@ -48,7 +48,9 @@ async def ingest_evidence(evidence_id: str, *, _session=None) -> dict:
         actions.append(("subject", hint_subject, "dictionary", 0, 0, published))
 
     # 通道 2：LLM 浅提取（开放类：Company/Product/Metric）
-    llm_result = await extract_keywords(evidence)
+    # skip_llm=True 时跳过（网关不可用/省额度场景）：只建词典层，
+    # 不写 keyword_extraction 缓存，后续 LLM 回填会全量重放（幂等）。
+    llm_result = None if skip_llm else await extract_keywords(evidence)
     llm_used = llm_result is not None
     if llm_result:
         for surface in llm_result.get("company", []):

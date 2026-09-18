@@ -48,6 +48,11 @@ async def main() -> None:
     parser.add_argument("--limit", type=int, default=0, help="最多处理条数，0=全部")
     parser.add_argument("--dry-run", action="store_true", help="只列出将回填的 evidence_id，不写入")
     parser.add_argument("--sample", type=int, default=0, help="dry-run 时最多打印的 evidence_id 条数，0=全部")
+    parser.add_argument(
+        "--skip-llm",
+        action="store_true",
+        help="跳过 LLM 浅提取，只建词典层（网关不可用/省额度场景）；不写缓存，后续 LLM 回填全量重放（幂等）",
+    )
     args = parser.parse_args()
 
     from app.core.database import async_session
@@ -68,7 +73,7 @@ async def main() -> None:
     async with async_session() as session:
         for evidence_id in evidence_ids:
             try:
-                result = await ingest_evidence(evidence_id, _session=session)
+                result = await ingest_evidence(evidence_id, _session=session, skip_llm=args.skip_llm)
                 done += 1
                 print(f"{evidence_id}: {result}")
             except Exception as exc:  # 单条失败不中断
