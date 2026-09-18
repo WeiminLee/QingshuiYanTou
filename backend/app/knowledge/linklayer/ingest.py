@@ -41,11 +41,10 @@ async def ingest_evidence(evidence_id: str, *, _session=None, skip_llm: bool = F
 
     # subject_hint 权威锚点（spec §4.2）：互动易/公告 evidence 的主体即其所属公司，
     # 与正文词典匹配相互独立——正文提及的竞品/同业公司会同时共存为主体共现。
-    # source='hint' 使横截面（scan）等按权威主体归属的查询可精准过滤。
+    # hint 行无条件落库（source='hint'）：与正文 span 行是不同 PK 行不改写；
+    # 既有同位行则以 hint upsert 转正为权威标记（横截面归属依赖此标记）。
     hint_subject = _subject_from_hint(evidence.get("subject_hint"))
-    if hint_subject and not any(
-        l == "subject" and norm == hint_subject for l, norm, *_ in actions
-    ):
+    if hint_subject:
         actions.append(("subject", hint_subject, "hint", 0, 0, published))
 
     # 通道 2：LLM 浅提取（开放类：Company/Product/Metric）

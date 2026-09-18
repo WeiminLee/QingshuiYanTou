@@ -53,9 +53,9 @@ def parse_llm_json(raw: str) -> dict | None:
     product = data.get("product")
     metric = data.get("metric")
     return {
-        "company": [str(x) for x in company[:20]] if isinstance(company, list) else [],
-        "product": [str(x) for x in product[:20]] if isinstance(product, list) else [],
-        "metric": [m for m in metric[:20] if isinstance(m, dict) and m.get("name")]
+        "company": [str(x) for x in company[:50]] if isinstance(company, list) else [],
+        "product": [str(x) for x in product[:50]] if isinstance(product, list) else [],
+        "metric": [m for m in metric[:50] if isinstance(m, dict) and m.get("name")]
         if isinstance(metric, list)
         else [],
     }

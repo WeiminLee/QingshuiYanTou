@@ -218,7 +218,9 @@ async def test_ingest_subject_hint_skipped_when_text_names_subject(monkeypatch):
 
     await ingest_mod.ingest_evidence("EV:dup-probe", _session=_StubSession())
     subject_hits = [r for r in recorded if r[0] == "subject" and r[1] == "003026.SZ"]
-    assert len(subject_hits) == 1, recorded
+    # 词典行（正文 span）+ hint 行（span0，判定为权威主体）各一条
+    assert ("subject", "003026.SZ", "dictionary") in subject_hits, recorded
+    assert ("subject", "003026.SZ", "hint") in subject_hits, recorded
 
 
 @pytest.mark.asyncio
