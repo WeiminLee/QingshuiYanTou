@@ -23,16 +23,29 @@ from app.ops.worker_config import WorkerSettings
 
 logger = logging.getLogger(__name__)
 
+EVIDENCE_JOB_TYPES = ("combined", "vector", "signal", "link")
+
 
 async def run_evidence(settings: WorkerSettings, once: bool, limit: int | None, job_type: str) -> None:
     from app.knowledge.evidence_worker import EvidenceExtractionWorker
 
     worker = EvidenceExtractionWorker(max_concurrency=settings.concurrency)
-    if once:
-        result = await worker.run_once(limit=limit, job_type=job_type)
-        logger.info("Evidence worker result: %s", result)
-        return
-    await worker.run_loop(interval_seconds=settings.poll_interval, limit_per_loop=limit, job_type=job_type)
+    job_types = EVIDENCE_JOB_TYPES if job_type == "all" else (job_type,)
+    while True:
+        for jt in job_types:
+            try:
+                result = await worker.run_once(limit=limit, job_type=jt)
+                if once or result.get("claimed", 0) > 0:
+                    logger.info("Evidence worker result [%s]: %s", jt, result)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:  # noqa: BLE001 — 单类异常不应终止常驻 worker
+                if once:
+                    raise
+                logger.warning("Evidence worker loop 异常，%ss 后继续: %s", settings.poll_interval, exc)
+        if once:
+            return
+        await asyncio.sleep(settings.poll_interval)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -40,7 +53,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--role", default=None, choices=["evidence-extraction", "ingestion"])
     parser.add_argument("--once", action="store_true")
     parser.add_argument("--limit", type=int, default=None)
-    parser.add_argument("--job-type", default="combined")
+    parser.add_argument(
+        "--job-type",
+        default="all",
+        choices=["combined", "vector", "signal", "link", "all"],
+        help="Job type to process ('all' rotates combined/vector/signal/link)",
+    )
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--preflight", action="store_true", help="Check cloud dependencies before starting")
     args = parser.parse_args(argv)

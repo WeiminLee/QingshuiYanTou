@@ -21,7 +21,7 @@
 #   DATA_JOB_WORKER_SCALE=1
 #   ENSURE_CLOUD_SCHEMA=1
 #   EVIDENCE_WORKER_ENABLED=0
-#   EVIDENCE_JOB_TYPES="combined vector"
+#   EVIDENCE_JOB_TYPES="combined vector link"
 #   EVIDENCE_MAX_CONCURRENCY=1
 #   EVIDENCE_LIMIT_PER_LOOP=5
 #   EVIDENCE_INTERVAL=60
@@ -41,7 +41,7 @@ PIP_TRUSTED_HOST="${PIP_TRUSTED_HOST:-mirrors.cloud.tencent.com}"
 export PIP_INDEX_URL PIP_TRUSTED_HOST
 
 EVIDENCE_WORKER_ENABLED="${EVIDENCE_WORKER_ENABLED:-0}"
-EVIDENCE_JOB_TYPES="${EVIDENCE_JOB_TYPES:-combined vector}"
+EVIDENCE_JOB_TYPES="${EVIDENCE_JOB_TYPES:-combined vector link}"
 EVIDENCE_MAX_CONCURRENCY="${EVIDENCE_MAX_CONCURRENCY:-1}"
 EVIDENCE_LIMIT_PER_LOOP="${EVIDENCE_LIMIT_PER_LOOP:-5}"
 EVIDENCE_INTERVAL="${EVIDENCE_INTERVAL:-60}"
@@ -87,7 +87,7 @@ Useful env overrides:
   ENSURE_CLOUD_SCHEMA=1
   EVIDENCE_WORKER_ENABLED=0
   EVIDENCE_WORKER_ENABLED=1 ./server_start.sh start  # manually enable evidence workers
-  EVIDENCE_JOB_TYPES="combined vector"
+  EVIDENCE_JOB_TYPES="combined vector link"
   EVIDENCE_MAX_CONCURRENCY=1
   EVIDENCE_LIMIT_PER_LOOP=5
   EVIDENCE_INTERVAL=60
@@ -235,7 +235,7 @@ start_evidence_workers() {
 
 stop_evidence_workers() {
   local job_type
-  for job_type in $EVIDENCE_JOB_TYPES combined vector signal; do
+  for job_type in $EVIDENCE_JOB_TYPES combined vector signal link; do
     docker rm -f "$(evidence_container_name "$job_type")" >/dev/null 2>&1 || true
   done
 }

@@ -451,6 +451,9 @@ async def _run_evidence_worker_job() -> None:
         result = await worker.run_once(limit=200, job_type="signal")
         if result.get("claimed", 0) > 0:
             logger.info("[evidence_worker] signal: %s", result)
+        result = await worker.run_once(limit=200, job_type="link")
+        if result.get("claimed", 0) > 0:
+            logger.info("[evidence_worker] link: %s", result)
     except Exception as exc:
         logger.warning("[evidence_worker] 执行异常: %s", exc)
 

@@ -277,6 +277,23 @@ def test_scheduler_skips_evidence_worker_when_disabled(monkeypatch):
     assert "evidence_worker" not in ids
 
 
+def test_evidence_worker_job_drains_link(monkeypatch):
+    from app.data_pipeline import scheduler as scheduler_mod
+    from app.knowledge.evidence_worker import EvidenceExtractionWorker
+
+    claimed = []
+
+    async def fake_run_once(self, limit=None, job_type="combined"):
+        claimed.append(job_type)
+        return {"claimed": 0, "success": 0, "failed": 0, "skipped": 0, "job_type": job_type}
+
+    monkeypatch.setattr(EvidenceExtractionWorker, "run_once", fake_run_once)
+
+    asyncio.run(scheduler_mod._run_evidence_worker_job())
+
+    assert set(claimed) == {"combined", "vector", "signal", "link"}
+
+
 def test_ingestion_worker_job_drains_once(monkeypatch):
     from app.data_pipeline import scheduler as scheduler_mod
 
