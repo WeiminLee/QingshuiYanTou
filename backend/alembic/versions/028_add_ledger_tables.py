@@ -91,7 +91,8 @@ def upgrade() -> None:
         "watermarks",
         sa.Column("subject_ts_code", sa.Text(), primary_key=True),
         sa.Column("dimension", sa.Text(), primary_key=True),
-        sa.Column("dimension_scope", sa.Text(), primary_key=True),
+        # 哨兵空串替代 NULL：复合主键不接受 NULL，且 NULL 不参与 ON CONFLICT 匹配
+        sa.Column("dimension_scope", sa.Text(), primary_key=True, nullable=False, server_default=""),
         sa.Column("max_level", sa.Integer(), nullable=True),
         sa.Column("max_value", postgresql.JSONB(), nullable=True),
         sa.Column("first_reached_at", sa.DateTime(timezone=True), nullable=True),

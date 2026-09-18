@@ -5,7 +5,7 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-from app.knowledge.linklayer.ledger_models import Watermark, make_obs_id
+from app.knowledge.linklayer.ledger_models import Watermark, make_obs_id, normalize_scope
 from app.knowledge.linklayer.models import Keyword, Link
 from app.signals.models import Signal
 
@@ -139,7 +139,7 @@ def _signal_values_from_candidate(cand: dict) -> dict:
 async def emit_radar_signals(candidates: list[dict], session) -> int:
     """水位线对比：level 上升 → 写 Signal（雷达低置信信号）。返回写入数。
 
-    水位线按 (subject, dimension, scope) 三键匹配（scope 缺失匹配 NULL 行）；
+    水位线按 (subject, dimension, scope) 三键匹配（无 scope 归一化为哨兵空串）；
     signal_id = "LL:" + obs_id 确定性生成，冲突时静默跳过（RETURNING 计数）。
     """
     emitted = 0
@@ -147,16 +147,11 @@ async def emit_radar_signals(candidates: list[dict], session) -> int:
         level = cand.get("stage_level")
         if not level:
             continue
-        scope_cond = (
-            Watermark.dimension_scope == cand["dimension_scope"]
-            if cand.get("dimension_scope") is not None
-            else Watermark.dimension_scope.is_(None)
-        )
         wm = (await session.execute(
             select(Watermark).where(
                 Watermark.subject_ts_code == cand["subject_ts_code"],
                 Watermark.dimension == cand["dimension"],
-                scope_cond,
+                Watermark.dimension_scope == normalize_scope(cand.get("dimension_scope")),
             )
         )).scalar_one_or_none()
         max_level = wm.max_level if wm and wm.max_level is not None else 0

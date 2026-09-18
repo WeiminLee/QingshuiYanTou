@@ -1,9 +1,12 @@
 # backend/tests/test_linklayer_ledger_tools.py
 """台账工具测试：句级锚定校验（SearchAtlas 硬证据闸门）+ 写回 + 水位线。"""
+from types import SimpleNamespace
+
 import yaml
+from sqlalchemy.dialects import postgresql
 
 from app.knowledge.evidence_service import EvidenceService
-from app.knowledge.linklayer.ledger_models import Watermark
+from app.knowledge.linklayer.ledger_models import SCOPE_SENTINEL, Watermark
 from app.reasoning.tools.knowledge.ledger_tools import (
     read_watermark,
     save_finding,
@@ -22,6 +25,9 @@ class _Rows:
     def all(self):
         return self._rows
 
+    def one(self):
+        return self._rows[0]
+
 
 class _Scalar:
     def __init__(self, value):
@@ -31,13 +37,28 @@ class _Scalar:
         return self._value
 
 
-class FakeLedgerSession:
-    """台账写回假会话：水位线查询返回预置行，insert 语句全部捕获。"""
+def _watermark_row(**kwargs):
+    """模拟 INSERT ... RETURNING 单行结果（属性访问）。"""
+    payload = {
+        "subject_ts_code": "003026.SZ",
+        "dimension": "产线进展",
+        "dimension_scope": SCOPE_SENTINEL,
+        "max_level": None,
+        "max_value": None,
+        "first_reached_at": None,
+        "last_updated_at": None,
+    }
+    payload.update(kwargs)
+    return SimpleNamespace(**payload)
 
-    def __init__(self, watermark=None):
+
+class FakeLedgerSession:
+    """台账写回假会话：水位线 upsert 返回预置 RETURNING 行，insert 语句全部捕获。"""
+
+    def __init__(self, watermark=None, upsert_row=None):
         self.watermark = watermark
+        self.upsert_row = upsert_row or _watermark_row()
         self.statements = []
-        self.added = []
         self.commits = 0
 
     async def execute(self, stmt):
@@ -45,10 +66,9 @@ class FakeLedgerSession:
         entities = [d["entity"] for d in getattr(stmt, "column_descriptions", [])]
         if Watermark in entities:
             return _Scalar(self.watermark)
+        if getattr(stmt, "table", None) is not None and stmt.table.name == "watermarks":
+            return _Rows([self.upsert_row])
         return _Rows([])
-
-    def add(self, obj):
-        self.added.append(obj)
 
     async def commit(self):
         self.commits += 1
@@ -97,7 +117,7 @@ async def test_save_observation_verifies_and_advances_watermark(monkeypatch):
         return {"evidence_id": evidence_id, "text_excerpt": "公司8英寸抛光硅片产线已进入量产阶段"}
 
     monkeypatch.setattr(EvidenceService, "get_evidence", fake_get_evidence)
-    session = FakeLedgerSession(watermark=None)
+    session = FakeLedgerSession()
     result = await save_observation(
         session,
         subject_ts_code="003026.SZ",
@@ -113,27 +133,25 @@ async def test_save_observation_verifies_and_advances_watermark(monkeypatch):
     assert result["ok"] is True
     assert result["obs_id"].startswith("OB:")
 
-    from sqlalchemy.dialects import postgresql
-
     obs_sql = str(session.statements[0].compile(dialect=postgresql.dialect()))
     assert "ON CONFLICT (obs_id) DO UPDATE" in obs_sql
 
-    wm = session.added[0]
-    assert isinstance(wm, Watermark)
-    assert wm.max_level == 6
-    assert wm.dimension_scope == "8英寸抛光硅片"
-    assert wm.first_reached_at is not None
+    wm_compiled = session.statements[1].compile(dialect=postgresql.dialect())
+    wm_sql = str(wm_compiled)
+    assert "ON CONFLICT (subject_ts_code, dimension, dimension_scope) DO UPDATE" in wm_sql
+    assert wm_compiled.params["dimension_scope"] == "8英寸抛光硅片"
+    assert wm_compiled.params["max_level"] == 6
+    assert wm_compiled.params["first_reached_at"] is not None
     assert session.commits == 1
 
 
-async def test_save_observation_does_not_lower_watermark(monkeypatch):
+async def test_save_observation_watermark_upsert_never_lowers(monkeypatch):
+    """只升不降由 SQL 层 GREATEST 保证；first_reached_at 只在插入时写。"""
     async def fake_get_evidence(self, evidence_id):
         return {"evidence_id": evidence_id, "text_excerpt": "公司产线尚在建设"}
 
     monkeypatch.setattr(EvidenceService, "get_evidence", fake_get_evidence)
-    session = FakeLedgerSession(
-        watermark=Watermark(subject_ts_code="003026.SZ", dimension="产线进展", dimension_scope=None, max_level=6)
-    )
+    session = FakeLedgerSession()
     result = await save_observation(
         session,
         subject_ts_code="003026.SZ",
@@ -145,9 +163,32 @@ async def test_save_observation_does_not_lower_watermark(monkeypatch):
         stage_level=2,
     )
     assert result["ok"] is True
-    assert session.watermark.max_level == 6, "水位线只升不降"
-    assert session.watermark.first_reached_at is None, "未破水位线不刷新 first_reached_at"
-    assert session.watermark.last_updated_at is not None
+    wm_sql = str(session.statements[1].compile(dialect=postgresql.dialect()))
+    set_clause = wm_sql.split("DO UPDATE SET", 1)[1].split("RETURNING", 1)[0]
+    assert "greatest" in set_clause.lower()
+    assert "first_reached_at" not in set_clause
+
+
+async def test_save_observation_scopeless_uses_sentinel(monkeypatch):
+    """无 scope 的 write_observation：水位线 upsert 参数为哨兵空串（PK 不含 NULL）。"""
+    async def fake_get_evidence(self, evidence_id):
+        return {"evidence_id": evidence_id, "text_excerpt": "公司产线已进入量产阶段"}
+
+    monkeypatch.setattr(EvidenceService, "get_evidence", fake_get_evidence)
+    session = FakeLedgerSession()
+    result = await save_observation(
+        session,
+        subject_ts_code="003026.SZ",
+        dimension="产线进展",
+        evidence_id="EV:1",
+        span_start=0,
+        span_end=11,
+        stage_raw="量产",
+        stage_level=6,
+    )
+    assert result["ok"] is True
+    wm_compiled = session.statements[1].compile(dialect=postgresql.dialect())
+    assert wm_compiled.params["dimension_scope"] == SCOPE_SENTINEL
 
 
 async def test_save_observation_rejects_bad_anchor(monkeypatch):
@@ -239,8 +280,6 @@ async def test_save_finding_writes_with_deterministic_id(monkeypatch):
     assert result["ok"] is True
     assert result["finding_id"].startswith("FD:")
 
-    from sqlalchemy.dialects import postgresql
-
     sql = str(session.statements[0].compile(dialect=postgresql.dialect()))
     assert "ON CONFLICT (finding_id) DO UPDATE" in sql
     assert session.commits == 1
@@ -248,11 +287,15 @@ async def test_save_finding_writes_with_deterministic_id(monkeypatch):
 
 async def test_read_watermark_found_and_missing():
     session = FakeLedgerSession(
-        watermark=Watermark(subject_ts_code="003026.SZ", dimension="产线进展", dimension_scope=None, max_level=5)
+        watermark=Watermark(
+            subject_ts_code="003026.SZ", dimension="产线进展", dimension_scope=SCOPE_SENTINEL, max_level=5
+        )
     )
     found = await read_watermark("003026.SZ", "产线进展", None, session)
     assert found["found"] is True
     assert found["watermark"]["max_level"] == 5
+    assert found["watermark"]["dimension_scope"] == SCOPE_SENTINEL
+    assert "IS NULL" not in str(session.statements[0])
 
     missing = await read_watermark("003026.SZ", "客户认证", None, FakeLedgerSession())
     assert missing["found"] is False

@@ -219,6 +219,24 @@ async def test_emit_radar_signals_scope_matched_lookup():
     }
     session = FakeRadarSession(watermark=None)
     await emit_radar_signals([cand], session)
-    sql = str(session.watermark_queries[0].compile(dialect=postgresql.dialect()))
-    assert "dimension_scope" in sql
+    compiled = session.watermark_queries[0].compile(dialect=postgresql.dialect())
+    assert compiled.params["dimension_scope_1"] == "8英寸抛光硅片"
+
+
+async def test_emit_radar_signals_scopeless_uses_sentinel():
+    """无 scope 候选：水位线查询按哨兵空串匹配（不允许 IS NULL 形式）。"""
+    cand = {
+        "obs_id": "OB:deadbeef",
+        "subject_ts_code": "003026.SZ",
+        "dimension": "产线进展",
+        "dimension_scope": None,
+        "stage_raw": "量产",
+        "stage_level": 6,
+        "evidence_id": "EV:1",
+    }
+    session = FakeRadarSession(watermark=None)
+    await emit_radar_signals([cand], session)
+    compiled = session.watermark_queries[0].compile(dialect=postgresql.dialect())
+    sql = str(compiled)
     assert "IS NULL" not in sql
+    assert compiled.params["dimension_scope_1"] == ""

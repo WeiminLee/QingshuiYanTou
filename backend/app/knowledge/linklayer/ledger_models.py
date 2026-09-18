@@ -22,6 +22,16 @@ def make_finding_id(subject: str, dimension: str, to_level: int, obs_ids: str) -
     return "FD:" + hashlib.sha256(f"{subject}|{dimension}|{to_level}|{obs_ids}".encode()).hexdigest()[:16]
 
 
+# watermarks.dimension_scope 的哨兵值：复合主键不接受 NULL（且 NULL 不参与
+# ON CONFLICT 匹配），"无 scope" 统一归一化为空串。
+SCOPE_SENTINEL = ""
+
+
+def normalize_scope(scope: str | None) -> str:
+    """dimension_scope 归一化：None/'' → 哨兵空串。"""
+    return scope if scope else SCOPE_SENTINEL
+
+
 class Observation(Base):
     """观察记录。status ∈ candidate(机械) | verified(agent) | dismissed；written_by = pipeline | agent:<run_id>"""
 
@@ -90,7 +100,7 @@ class Watermark(Base):
 
     subject_ts_code: Mapped[str] = mapped_column(Text, primary_key=True)
     dimension: Mapped[str] = mapped_column(Text, primary_key=True)
-    dimension_scope: Mapped[str | None] = mapped_column(Text, primary_key=True)
+    dimension_scope: Mapped[str] = mapped_column(Text, primary_key=True, server_default=SCOPE_SENTINEL)
     max_level: Mapped[int | None] = mapped_column(Integer)
     max_value: Mapped[dict | None] = mapped_column(JSONB)
     first_reached_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

@@ -3,11 +3,13 @@
 from sqlalchemy import UniqueConstraint
 
 from app.knowledge.linklayer.ledger_models import (
+    SCOPE_SENTINEL,
     Finding,
     Observation,
     Watermark,
     make_finding_id,
     make_obs_id,
+    normalize_scope,
 )
 
 
@@ -57,3 +59,17 @@ def test_finding_unique_finding_id():
 def test_watermark_pk_columns():
     pk = {c.name for c in Watermark.__table__.primary_key.columns}
     assert pk == {"subject_ts_code", "dimension", "dimension_scope"}
+
+
+def test_watermark_scope_not_nullable():
+    """复合主键不接受 NULL：dimension_scope NOT NULL + 哨兵空串 server_default。"""
+    col = Watermark.__table__.c.dimension_scope
+    assert col.nullable is False
+    assert col.server_default is not None
+
+
+def test_normalize_scope():
+    assert normalize_scope(None) == SCOPE_SENTINEL
+    assert normalize_scope("") == SCOPE_SENTINEL
+    assert SCOPE_SENTINEL == ""
+    assert normalize_scope("8英寸抛光硅片") == "8英寸抛光硅片"
