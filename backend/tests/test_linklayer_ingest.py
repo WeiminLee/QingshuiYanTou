@@ -122,3 +122,24 @@ async def test_ingest_llm_failure_still_records_dict_matches(monkeypatch):
     assert result["llm_used"] is False
     assert result["keywords"] > 0
     assert result["links"] == len(session.executed)
+
+
+def test_parse_date_treats_naive_as_local():
+    """publish_date 无时区时按本地时间处理（墙钟不变，补挂本地时区）。"""
+    from datetime import UTC, datetime
+
+    from app.knowledge.linklayer.ingest import _parse_date
+
+    naive = datetime(2026, 6, 15, 0, 30, 0)
+    parsed = _parse_date(naive)
+    assert parsed.tzinfo is not None
+    assert parsed.replace(tzinfo=None) == naive
+
+    assert _parse_date("2026-06-15T00:30:00").tzinfo is not None
+
+    aware = datetime(2026, 6, 15, tzinfo=UTC)
+    assert _parse_date(aware) == aware
+
+    assert _parse_date(None) is None
+    assert _parse_date("") is None
+    assert _parse_date("不是日期") is None

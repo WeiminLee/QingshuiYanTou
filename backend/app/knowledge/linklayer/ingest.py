@@ -71,11 +71,17 @@ async def ingest_evidence(evidence_id: str, *, _session=None) -> dict:
 
 
 def _parse_date(value) -> datetime | None:
+    """publish_date 解析；无时区的 naive datetime 视为本地时间（补挂本地时区）。
+
+    timestamptz 列遇到 naive datetime 会按 UTC 解释，直接落库会产生
+    本地时区偏移（如 UTC+8 差 8 小时），故在边界处统一补挂时区。
+    """
     if isinstance(value, datetime):
-        return value
+        return value if value.tzinfo else value.astimezone()
     if not value:
         return None
     try:
-        return datetime.fromisoformat(str(value))
+        parsed = datetime.fromisoformat(str(value))
     except ValueError:
         return None
+    return parsed if parsed.tzinfo else parsed.astimezone()
