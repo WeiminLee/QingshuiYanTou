@@ -219,3 +219,38 @@ async def test_ingest_subject_hint_skipped_when_text_names_subject(monkeypatch):
     await ingest_mod.ingest_evidence("EV:dup-probe", _session=_StubSession())
     subject_hits = [r for r in recorded if r[0] == "subject" and r[1] == "003026.SZ"]
     assert len(subject_hits) == 1, recorded
+
+
+@pytest.mark.asyncio
+async def test_ingest_stage_implies_dimension(monkeypatch):
+    """阶梯词命中应机械挂上所属维度的链接（词表元数据推理）。"""
+    recorded = []
+
+    async def fake_get_evidence(self, evidence_id):
+        return {
+            "evidence_id": evidence_id,
+            "text_excerpt": "公司产线处于调试阶段",
+            "subject_hint": {"ts_code": "003026.SZ"},
+        }
+
+    async def fake_extract(evidence, *, use_cache=True):
+        return None
+
+    monkeypatch.setattr(ingest_mod.EvidenceService, "get_evidence", fake_get_evidence)
+    monkeypatch.setattr(ingest_mod, "extract_keywords", fake_extract)
+
+    async def fake_ensure(session, layer, norm_text, *, source):
+        recorded.append((layer, norm_text, source))
+        return f"KW:{layer}:{norm_text}"
+
+    monkeypatch.setattr(ingest_mod, "ensure_keyword", fake_ensure)
+
+    from app.knowledge.linklayer.dict_match import SubjectIndex
+
+    async def fake_build_subject_index():
+        return SubjectIndex(alias_to_norm={})
+
+    monkeypatch.setattr(ingest_mod, "build_subject_index", fake_build_subject_index)
+
+    await ingest_mod.ingest_evidence("EV:stage-dim", _session=_StubSession())
+    assert ("dimension", "产线进展", "dictionary") in recorded, recorded

@@ -34,6 +34,10 @@ async def ingest_evidence(evidence_id: str, *, _session=None) -> dict:
     published = _parse_date(evidence.get("publish_date"))
     for m in match_all(text, vocab, subject_index):
         actions.append((m.layer, m.norm_text, "dictionary", m.span_start, m.span_end, published))
+        # 阶梯词携带所属维度（词表元数据）：命中 stage 即机械推断 evidence ↔ 维度，
+        # 使 (主体×维度) 过滤对"未点名维度名"的文本同样成立
+        if m.layer == "stage" and m.dimension:
+            actions.append(("dimension", m.dimension, "dictionary", m.span_start, m.span_end, published))
 
     # subject_hint 权威锚点（spec §4.2）：互动易/公告 evidence 的主体即其所属公司，
     # 与正文词典匹配相互独立——正文提及的竞品/同业公司会同时共存为主体共现。
