@@ -401,6 +401,13 @@ class EvidenceService:
             update["extraction_status.last_extracted_at"] = now
         await self._evidence.update_one({"evidence_id": evidence_id}, {"$set": update})
 
+    async def update_keyword_extraction(self, evidence_id: str, payload: dict[str, Any]) -> None:
+        """$set 更新 evidence 文档的 keyword_extraction 缓存字段（LLM 浅提取结果）。"""
+        await self._evidence.update_one(
+            {"evidence_id": evidence_id},
+            {"$set": {"keyword_extraction": payload, "updated_at": _utc_now()}},
+        )
+
     async def heal_running_jobs(self, older_than_minutes: int = 30) -> int:
         now = _utc_now()
         cutoff = now - timedelta(minutes=older_than_minutes)
