@@ -53,6 +53,7 @@ async def main() -> None:
         action="store_true",
         help="跳过 LLM 浅提取，只建词典层（网关不可用/省额度场景）；不写缓存，后续 LLM 回填全量重放（幂等）",
     )
+    parser.add_argument("--concurrency", type=int, default=4, help="并行回填数（各任务独立 session）")
     args = parser.parse_args()
 
     from app.core.database import async_session
@@ -70,17 +71,41 @@ async def main() -> None:
         return
 
     done = failed = 0
-    async with async_session() as session:
-        for evidence_id in evidence_ids:
+    concurrency = max(1, args.concurrency)
+    sem = asyncio.Semaphore(concurrency)
+    progress_lock = asyncio.Lock()
+
+    async def _one(evidence_id: str) -> bool:
+        nonlocal done, failed
+        async with sem:
             try:
-                result = await ingest_evidence(evidence_id, _session=session, skip_llm=args.skip_llm)
+                # 会话不能跨并发任务共享（SQLAlchemy AsyncSession 非并发安全）
+                async with async_session() as session:
+                    result = await ingest_evidence(
+                        evidence_id, _session=session, skip_llm=args.skip_llm
+                    )
                 done += 1
                 print(f"{evidence_id}: {result}")
+                return True
             except Exception as exc:  # 单条失败不中断
-                # DBAPI 错误后 session 进入 pending-rollback，须先回滚才能处理后续条目
-                await session.rollback()
                 failed += 1
                 print(f"FAIL {evidence_id}: {exc}")
+                # 会话已用毕即弃（async with 会关闭），但显式回滚防 pending-rollback 泄漏
+                try:
+                    await session.rollback()
+                except Exception:
+                    pass
+                return False
+
+    async def _report() -> None:
+        while True:
+            await asyncio.sleep(60)
+            async with progress_lock:
+                print(f"== 进度 done={done} failed={failed} / {len(evidence_ids)}")
+
+    reporter = asyncio.create_task(_report())
+    await asyncio.gather(*[_one(eid) for eid in evidence_ids])
+    reporter.cancel()
     print(f"done={done} failed={failed}")
 
 
