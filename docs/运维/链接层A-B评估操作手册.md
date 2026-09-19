@@ -72,3 +72,13 @@ cd /home/lwm/code/QingShuiTouYan/backend
 | 3 | 词表治理例会：scope 候选 ~2 条/证据增长，周期性 `merge_keyword` 归并 | 运营例程 |
 | 4 | collation version mismatch `ALTER DATABASE qingshui REFRESH COLLATION VERSION`（需评估索引重建） | 择期 |
 | 5 | flag 未翻前新证据仍会入队 combined（量小）；可重跑 `/tmp/mark_combined_skipped.js` 批量清理 | flip 前 |
+
+## 8. 事故记录（2026-09-19）
+
+**09-18 事故**：云机 8G 内存被回填并发（concurrency=4 + 新增 2 进程）打穿（available 从 426MB 起步），sshd 卡 banner，owner 云端重启恢复。
+
+**修正**：
+- 回填并发胃口以 `free -m` available > 2G 为水位线开闸；当前采用 `--concurrency 2`（重启后 available 5,492MB 起步）
+- 全量回填按 evidence 剩余 ~312k、实测 ~30/min（LLM 延迟主导）估算，完成需 ~7 天；如需提速：a) 升配云机至 16G；b) 等台式机恢复后续把 backfill 移到台式机跑（资源体量大两个数量级）
+- 设备优先序的重申：embedding 通道修复（d-cluster）优先于一切回填调参
+- vector worker（`qingshui-vector-worker.service`，owner 原有 systemd 单元）在 embedding 修复前会持续把 pending vector 任务置 failed：**隧道修复后需批量 `failed → pending` 回收**（mongosh updateMany）
