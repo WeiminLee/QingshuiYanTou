@@ -146,3 +146,27 @@ cd /home/lwm/code/QingShuiTouYan/backend
 **根因**：`LLM_DISABLE_THINKING` 从未在任何 .env 设置（默认 False），chat_async 只对 deepseek/minimax 显式关 thinking。Qwen3.6-35B-A3B-FP8 为推理模型，长年报证据"想"到 180s 流总超时（A/B 实测：ON 133.6s 均值，一半撞墙；OFF 2~4s）。
 **修复**：pod + cloud .env 双加 `LLM_DISABLE_THINKING=true`；compose 三 service 补键（同 §11）；实测回填 24 槽 **101/min**（14.5 → 101，约 7 倍）。
 **教训（换模型必查清单）**：① thinking 流费与该模型推理属性；② chat_async 是否 stream + 总超时兜底值；③ 网关无 429 时以"长尾卡死"形态限流，压测表不呈线性——按 p95 观察而非并发峰值。
+
+## 12.1 模型选型横评存档（2026-09-19 晚，boyue 网关）
+
+**口径**：同 40/24 条真实证据（kw_v2 基线 = 生产 Qwen3.6-35B-A3B-FP8 的抽取缓存），字段集 F1（company/product/metric）。
+
+| 模型 | 总体 F1 | 备注 |
+|---|---|---|
+| 生产 pjlab Qwen3.6-35B-A3B-FP8 | 基线 | 101/min（24 槽，thinking off） |
+| **Qwen2.5-14B-Instruct** | **0.739** | 公司 0.910 全家最强；13.0/min；贴质量闸 |
+| Qwen3-14B | 0.643 | 22.9/min；零解析失败 |
+| Qwen3.5-4B | 0.632 | 10.5/min；零解析失败 |
+| Qwen3.5-9B | 0.620 | 4 条格式失败 + 慢车道 |
+| qwen3-30b-a3b-instruct-2507 | 0.587 | **公司 0.448 崩**——同生产架构假说被证伪 |
+| Qwen3-8B | 0.455 | 出局 |
+
+**本地部署实验**：pod GPU1 上 transformers bs1 裸跑 Qwen3-4B-Instruct → **40 条 >85 分钟未完（<0.6/min）：部署形态否决**（MetaX 生态无 vllm 情况下 transformers 不可用于批量抽取）。F1 未取得即出局（吞吐先杀）。
+
+**四条教训**：
+1. 架构新 ≠ 任务强：同生产血统的 30b-a3b（2507 旧块）公司识别崩盘，而上代 2.5-14B 是小模型冠军——**模型必须实测，别赌血统**
+2. 浅抽取吃 instruct 纪律（稳定 JSON、稳实体粒度），不吃推理深度
+3. MetaX 上批量抽取的本地化前提 = vllm-metax（或 llama.cpp）可用性——候选模型定为 **Qwen2.5-14B-Instruct**（28GB bf16 单卡可装）
+4. 长文本（年报 18-24k 字符）是所有小模型的共同软肋：截断窗口 + 实体丢失，company 精度首当其冲
+
+**事故两连（当日运维）**：① 本地持有会话被远端重置时，pod 端 nohup 进程与隧道全部存活（与平台清后台的旧教训相比，说明清理具有选择性）；但本地 ssh 的 TCP 半开会让包装任务悬挂——监控要与远端 log 文件挂钩而非本地管道。② `pkill -f` 模式若与同一命令行的其他段（heredoc/路径）匹配时会自杀——多动作命令必须拆分或用极短独特 pattern。
