@@ -63,10 +63,23 @@ async def retrieve_link(entry: dict, k: int) -> set[str]:
 
 
 async def retrieve_semantic(entry: dict, k: int) -> set[str]:
-    """基线 backend：现有 Qdrant 向量检索（chunks 通道）。"""
-    from app.knowledge.vector_ops import hybrid_vector_search
+    """基线 backend：doc_chunks 通道纯向量检索（与 docstring 声明一致）。
 
-    results = await hybrid_vector_search(entry["question"], top_k_per_collection=k, global_top_k=k)
+    不用 hybrid_vector_search：其 RRF 合并把 entities/relations 的结果
+    （payload 无 evidence_id，永不命中）混进 global top-k，压缩 chunks
+    排名并系统性低估基线。评估语义召回只与本 lane 的 evidence 向量有关。
+    """
+    from app.knowledge.vector_client import (
+        COLLECTION_CHUNKS,
+        get_embedding_model,
+        get_vector_client,
+    )
+
+    embedder = get_embedding_model()
+    q_vec = (await embedder.aembed([entry["question"]]))[0]
+    results = get_vector_client().search(
+        collection=COLLECTION_CHUNKS, query_vector=q_vec, top_k=k
+    )
     return {r.payload.get("evidence_id") for r in results if r.payload.get("evidence_id")}
 
 
