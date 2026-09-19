@@ -82,3 +82,26 @@ cd /home/lwm/code/QingShuiTouYan/backend
 - 全量回填按 evidence 剩余 ~312k、实测 ~30/min（LLM 延迟主导）估算，完成需 ~7 天；如需提速：a) 升配云机至 16G；b) 等台式机恢复后续把 backfill 移到台式机跑（资源体量大两个数量级）
 - 设备优先序的重申：embedding 通道修复（d-cluster）优先于一切回填调参
 - vector worker（`qingshui-vector-worker.service`，owner 原有 systemd 单元）在 embedding 修复前会持续把 pending vector 任务置 failed：**隧道修复后需批量 `failed → pending` 回收**（mongosh updateMany）
+
+## 9. 遗留事项 1 收口（2026-09-19 三通道 A/B 终版）
+
+**embedding 通道**：d-cluster（sensecore pod，root@10.140.158.130:49190）bge-m3 GPU 服务 `sembed_server.py` 绑 127.0.0.1:11434 + 反向隧道 `-R 172.18.0.1:11434→127.0.0.1:11434`，云端 `curl http://172.18.0.1:11434/health` → 200。生产 `.env` 已指向 172.18.0.1:11434/v1，vector worker / eval 全链路复通。模型缓存在 pod `/root/hf-cache`，venv `/root/wq/venv`（必带 `MACA_PATH=/opt/maca`）。
+
+**gold set 扩到 3 条**（backend/eval/gold_set_v1.json，commit 972214d）：
+- 新增 `theme-ai-copper-foil-001`（博威合金 601137.SH 压延铜箔 IRM，expected EV:b147cb8d…）；theme 按设计走 **semantic** 通道（queries.py scan_dimension 对 dimension=None 返回空）。
+
+**eval 语义基线口径修正**（`scripts/eval_retrieval.py`）：retrieve_semantic 改为 **doc_chunks 单通道** top-k 直查。原先误用 hybrid_vector_search（RRF 四集合合并），entities/relations 的结果 payload 无 evidence_id、永不命中，却挤占 global top-k，系统性低估基线。
+
+**终版数字（k=20）**：
+
+| 通道 | timeline | cross_section | theme | mean | hit rate |
+|---|---|---|---|---|---|
+| link | 1.00 | 1.00 | —（设计内走向量） | **1.000** | **1.000** |
+| semantic（chunks lane） | 0.67 | 0.00 | 1.00 | 0.556 | 0.667 |
+
+结论不变且更扎实：横截面（跨公司毛利率对比）semantic 基线全灭（长年报 chunk 稀释 + 稠密跨文本对齐弱），正是链接层价值主张的实证。
+
+**vector 数据修复（当日完成）**：
+1. `kg_extraction_jobs` 里 vector/failed 3,999 条 → 批量 reset pending（vector worker 已全部消费回 done）
+2. 池内 evidence vs doc_chunks 索引精确 diff（uuid5 批检索）→ **48,471 条缺向量**（无任务可走，纯入池时 embedding 断供遗留）→ `/tmp/build_gap_v3.py`（求差集）+ `/tmp/repair_gap_v1.py`（并发 3 直写 upsert_evidence_chunk_vector，断点 `/tmp/vector_repair_done.txt`，日志 `/tmp/vector-repair.out`），实测 ~20/s，ETA ~40min
+3. **company_aliases.json** 缺失：`backend/data/` 是 gitignore 的部署时产物，需在云端从 `stocks` 表生成（`/tmp/build_aliases.py`，7,972 条；dict_match 有 stocks 兜底但告警噪音大）——若换机部署必须重建
