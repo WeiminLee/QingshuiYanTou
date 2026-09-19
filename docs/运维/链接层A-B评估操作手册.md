@@ -105,3 +105,21 @@ cd /home/lwm/code/QingShuiTouYan/backend
 1. `kg_extraction_jobs` 里 vector/failed 3,999 条 → 批量 reset pending（vector worker 已全部消费回 done）
 2. 池内 evidence vs doc_chunks 索引精确 diff（uuid5 批检索）→ **48,471 条缺向量**（无任务可走，纯入池时 embedding 断供遗留）→ `/tmp/build_gap_v3.py`（求差集）+ `/tmp/repair_gap_v1.py`（并发 3 直写 upsert_evidence_chunk_vector，断点 `/tmp/vector_repair_done.txt`，日志 `/tmp/vector-repair.out`），实测 ~20/s，ETA ~40min
 3. **company_aliases.json** 缺失：`backend/data/` 是 gitignore 的部署时产物，需在云端从 `stocks` 表生成（`/tmp/build_aliases.py`，7,972 条；dict_match 有 stocks 兜底但告警噪音大）——若换机部署必须重建
+
+## 10. 架构铁律与回填迁移 d 集群（2026-09-19 owner 定调）
+
+**铁律**（详见仓库根 `AGENTS.md`）：evidence 处理代码一律在 d 集群以 worker 拉取任务消费；云机只做存储（Mongo/PG/Qdrant/Neo4j）与调度面。云侧不再新增/扩容 evidence 处理 worker。
+
+**回填迁移记录（当日）**：
+- pod 实底：1,507GB RAM / 255 核 / 出网 pjlab 200；venv Python 3.12
+- 停云端 `backfill_keyword_links`（PID 8287）防双跑
+- pod 装最小依赖（aliyun 镜像：tuna 缺 sqlalchemy 2.0.36）：sqlalchemy/asyncpg/motor/pydantic-*/openai/tiktoken/httpx —— **numpy 1.26.4 与 torch 2.8.0+metax 完好**（装包前后均验证）
+- 配置：pod 持有锁，直接 `ssh cloud 'cat backend/.env' > /root/wq/backend/.env`（云端 PG=5433 / Mongo=27018 非标端口）
+- 正向隧道：`ssh -N -L 127.0.0.1:5433 -L 127.0.0.1:27018 root@124.221.188.38`（由本地 Mac 持有，disable_timeout）
+- 连通验证：PG `select 1` ✅ / Mongo `kg_evidence` 计数 ✅
+- 试跑：`--limit 200 --concurrency 4`，观察吞吐与 pjlab 429，再定全量并发（目标 8~12、1~2 天跑完 312k 池）
+
+**Pod worker 运维三条**：
+1. worker/隧道必须前台持有式挂起（Mac 后台 bash disable_timeout，86400s 上限需每日重挂，幂等断点无损失）
+2. 断点 = Mongo `keyword_extraction` 缓存标记，重启即续
+3. 音量协调：云端 knowledge_worker（新证据 link 消费）仍共享 pjlab 网关，试跑期并发 4 起步，防 429 连坐
