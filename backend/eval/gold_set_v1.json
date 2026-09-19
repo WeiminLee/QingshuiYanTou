@@ -27,5 +27,17 @@
     ],
     "hard_negative_evidence_ids": [],
     "note": "真实证据：中晶科技2026年报/神工股份半年报/光力科技半年报，均含毛利率与硅片"
+  },
+  {
+    "query_id": "theme-ai-copper-foil-001",
+    "type": "theme",
+    "subject": null,
+    "dimension": null,
+    "question": "AI 算力服务器高速传输专用压延铜箔的量产扩产与客户覆盖进展如何？",
+    "expected_evidence_ids": [
+      "EV:b147cb8d396fc071e5d8688d44d5f5c2ad6bce36035a437b2b39aa80154f8234"
+    ],
+    "hard_negative_evidence_ids": [],
+    "note": "theme 由向量通道负责：scan_dimension 对 dimension=None 返回空（见 queries.py 设计注释），本条目只计入 semantic 基线，不计入 link 通道分母"
   }
 ]
