@@ -123,3 +123,26 @@ cd /home/lwm/code/QingShuiTouYan/backend
 1. worker/隧道必须前台持有式挂起（Mac 后台 bash disable_timeout，86400s 上限需每日重挂，幂等断点无损失）
 2. 断点 = Mongo `keyword_extraction` 缓存标记，重启即续
 3. 音量协调：云端 knowledge_worker（新证据 link 消费）仍共享 pjlab 网关，试跑期并发 4 起步，防 429 连坐
+
+## 11. 生产 flip 完成记录（2026-09-19 14:31 检查点自动执行）
+
+**前置全绿**：
+- 48k 向量直写修复收官：48,471/48,471，**零失败**（10:53→14:11，实测 ~190/min）
+- gold 六点抽验（uuid5 直查）：**6/6 全 200**
+- 终跑 eval：link **1.000**（2/2）；semantic **0.556**（timeline 0.67 / cross 0.00 / theme 1.00），与 12:10 结果逐位一致
+
+**flip 动作链**：
+1. `backend/.env`：`ENABLE_KG_EXTRACTION=false`（grep 守卫幂等）
+2. compose 发现漏键：**docker-compose.yml 原本没有 CONsumed 这两个环境键的声明**——`up` 后容器 env 里查无此旗。已在 backend/scheduler/job-worker 三个 service 的 environment 段补 `ENABLE_KG_EXTRACTION=${VAR:-false}` 与 `LLM_DISABLE_THINKING=${VAR:-false}`（compose default 即 flip 态），重建 backend 容器后 `docker inspect` 确认两旗在场
+3. `systemctl restart qingshui-scheduler`
+4. d 集群代码同步：git archive(HEAD) → **Mac 中继** scp → pod /root/wq 解包（云→pod 无法直连，方向永远 pod→引干线/云，Mac 是唯一双向跳板）；pod 补生成 company_aliases.json（7,972 条）
+5. 云仓库与 GitHub 对齐：**bundle 中继**（cloud 3ce6432 → 本地 4f62ad5）。教训：云端 git 树长期落后于 origin，任何以 cloud 为源的 archive/tar 都可能缺近几日 commit——**发布前必须比对 `git log -1`**
+
+**效果**：旧三元组 combined 抽取管道停止入队（存量 150,973 skipped 保持不动，690 failed 已 Frozen）；新证据只走 vector + link 两条任务;链接层成为唯一知识层。
+
+## 12. LLM thinking 事故与修复（2026-09-19，迁移排障记录）
+
+**现象**：迁移到 d 集群后回填实测仅 14.5/min（压测同池可达 68~100）。
+**根因**：`LLM_DISABLE_THINKING` 从未在任何 .env 设置（默认 False），chat_async 只对 deepseek/minimax 显式关 thinking。Qwen3.6-35B-A3B-FP8 为推理模型，长年报证据"想"到 180s 流总超时（A/B 实测：ON 133.6s 均值，一半撞墙；OFF 2~4s）。
+**修复**：pod + cloud .env 双加 `LLM_DISABLE_THINKING=true`；compose 三 service 补键（同 §11）；实测回填 24 槽 **101/min**（14.5 → 101，约 7 倍）。
+**教训（换模型必查清单）**：① thinking 流费与该模型推理属性；② chat_async 是否 stream + 总超时兜底值；③ 网关无 429 时以"长尾卡死"形态限流，压测表不呈线性——按 p95 观察而非并发峰值。
