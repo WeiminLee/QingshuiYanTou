@@ -473,6 +473,39 @@ def test_link_job_remote_uses_api_and_no_db(monkeypatch) -> None:
     assert posted["actions"][0]["layer"] == "subject"
 
 
+def test_link_job_remote_does_not_touch_mongo(monkeypatch) -> None:
+    service = FakeService()
+    service.jobs = [
+        {"job_id": "JM", "evidence_id": "EV:1", "job_type": JOB_LINK, "status": STATUS_PENDING}
+    ]
+    worker = EvidenceExtractionWorker(service=service)
+    posted = {}
+
+    class FakeApi:
+        async def upsert_links(self, evidence_id, actions):
+            posted["actions"] = actions
+            return {"ok": True, "links": len(actions), "candidates": 1, "radar_signals": 0}
+
+    class BoomEvidenceService:
+        def __init__(self, *a, **k):
+            raise AssertionError("remote link path must not construct EvidenceService")
+
+    async def fake_chat(*a, **k):
+        return '{"company": ["宁德时代"], "product": ["压延铜箔"], "metric": []}'
+
+    monkeypatch.setenv("KNOWLEDGE_API_URL", "http://cloud")
+    monkeypatch.setenv("KNOWLEDGE_API_KEY", "k")
+    monkeypatch.setattr("app.knowledge.evidence_worker.KnowledgeApiClient", lambda *a, **k: FakeApi())
+    monkeypatch.setattr(
+        "app.knowledge.evidence_service.EvidenceService", BoomEvidenceService
+    )
+    monkeypatch.setattr("app.knowledge.linklayer.llm_extract.chat_async", fake_chat)
+
+    result = asyncio.run(worker.run_once(limit=1, job_type=JOB_LINK))
+    assert result["success"] == 1
+    assert any(a["source"] == "llm" for a in posted["actions"])
+
+
 def test_link_job_persists_candidates_and_emits_radar(monkeypatch) -> None:
     """链接 job 集成链路：建链 → 机械候选落库 → 雷达信号 + 水位线推进（广度触发器）。
 

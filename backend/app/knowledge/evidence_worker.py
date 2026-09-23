@@ -209,7 +209,9 @@ class EvidenceExtractionWorker:
             if job_type == JOB_LINK:
                 import os
                 if os.getenv("KNOWLEDGE_API_URL") and os.getenv("KNOWLEDGE_API_KEY"):
-                    actions, _ = await compute_link_actions(evidence, use_db=False)
+                    actions, llm_used = await compute_link_actions(
+                        evidence, use_db=False, persist_llm_cache=False
+                    )
                     client = KnowledgeApiClient(
                         os.environ["KNOWLEDGE_API_URL"], os.environ["KNOWLEDGE_API_KEY"]
                     )
@@ -223,6 +225,7 @@ class EvidenceExtractionWorker:
                         "links": response.get("links", 0),
                         "candidates": response.get("candidates", 0),
                         "radar_signals": response.get("radar_signals", 0),
+                        "llm_used": llm_used,
                     }
                     await self.service.mark_job_done(job_id, result)
                     return {"status": "done", **result}

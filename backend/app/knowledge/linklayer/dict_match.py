@@ -82,6 +82,11 @@ async def build_subject_index(use_db: bool = True) -> SubjectIndex:
     """
     alias_to_norm = load_alias_table()
     if not use_db:
+        if not alias_to_norm:
+            logger.warning(
+                "subject 别名表为空且 use_db=False：字典层公司匹配将失效，"
+                "请在部署时生成/同步 company_aliases.json"
+            )
         return SubjectIndex(alias_to_norm=alias_to_norm)
     try:
         from sqlalchemy import select

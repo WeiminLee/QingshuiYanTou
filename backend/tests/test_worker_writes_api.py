@@ -110,3 +110,16 @@ def test_link_upsert_persists_and_runs_ledger(client):
     assert r.json() == {"ok": True, "links": 1, "candidates": 2, "radar_signals": 1}
     assert calls["persisted_evidence"] == "EV:1"
     assert calls["pipeline_evidence"] == "EV:1"
+
+
+def test_worker_writes_router_declares_paths():
+    paths = {r.path for r in worker_writes_router.routes}
+    assert "/api/v1/knowledge/vector/upsert" in paths
+    assert "/api/v1/knowledge/link/upsert" in paths
+
+
+def test_link_upsert_rejects_empty_evidence_id(client):
+    r = client.post(
+        "/api/v1/knowledge/link/upsert", headers=HEADERS, json={"evidence_id": "", "actions": []}
+    )
+    assert r.status_code == 422

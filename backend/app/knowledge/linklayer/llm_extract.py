@@ -61,15 +61,18 @@ def parse_llm_json(raw: str) -> dict | None:
     }
 
 
-async def extract_keywords(evidence: dict, *, use_cache: bool = True) -> dict | None:
-    """对单条 evidence 做关键字浅提取。结果写回 Mongo `keyword_extraction` 字段缓存。"""
+async def extract_keywords(
+    evidence: dict, *, use_cache: bool = True, persist: bool = True
+) -> dict | None:
+    """对单条 evidence 做关键字浅提取。persist=True 时结果写回 Mongo `keyword_extraction` 缓存。
+
+    远端 worker（无 DB 通道）以 persist=False 调用，只读 evidence dict 里的缓存、不落库。
+    """
     cached = evidence.get("keyword_extraction") or {}
     if use_cache and cached.get("version") == KEYWORD_PROMPT_VERSION:
         cached_result = cached.get("result")
         if cached_result is not None:  # result 缺失视为缓存未命中，走重新提取
             return cached_result
-
-    from app.knowledge.evidence_service import EvidenceService  # 延迟导入避免循环
 
     # 抽取语料窗口（spec §4.2）：覆盖 96.4% evidence 全文；
     # 超长 evidence（整章大年报等 6.7% 长尾）尾部仍会截断，由词表治理与重切分兜底
@@ -90,7 +93,9 @@ async def extract_keywords(evidence: dict, *, use_cache: bool = True) -> dict | 
             logger.exception("keyword extraction failed for %s", evidence.get("evidence_id"))
             return None
 
-    if result is not None:
+    if result is not None and persist:
+        from app.knowledge.evidence_service import EvidenceService  # 延迟导入避免循环
+
         svc = EvidenceService()
         await svc.update_keyword_extraction(
             evidence["evidence_id"],

@@ -49,8 +49,12 @@ async def compute_link_actions(
     skip_llm: bool = False,
     subject_index=None,
     use_db: bool = True,
+    persist_llm_cache: bool = True,
 ) -> tuple[list[LinkAction], bool]:
-    """计算一条 evidence 的 link 行集合（不做任何落库）。返回 (actions, llm_used)。"""
+    """计算一条 evidence 的 link 行集合（不做任何落库）。返回 (actions, llm_used)。
+
+    persist_llm_cache=False 供无 DB 通道的远端 worker 使用：LLM 提取结果不写 Mongo 缓存。
+    """
     text = evidence.get("text_excerpt") or ""
     vocab = load_vocabulary()
     if subject_index is None:
@@ -69,7 +73,10 @@ async def compute_link_actions(
     if hint_subject:
         actions.append(LinkAction("subject", hint_subject, "hint", 0, 0, published))
 
-    llm_result = None if skip_llm else await extract_keywords(evidence)
+    llm_result = (
+        None if skip_llm
+        else await extract_keywords(evidence, persist=persist_llm_cache)
+    )
     llm_used = llm_result is not None
     if llm_result:
         for surface in llm_result.get("company", []):

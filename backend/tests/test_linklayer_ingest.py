@@ -33,7 +33,7 @@ async def test_ingest_combines_dict_and_llm(monkeypatch):
             "source_type": "irm",
         }
 
-    async def fake_extract(evidence, *, use_cache=True):
+    async def fake_extract(evidence, *, use_cache=True, persist=True):
         return {"company": ["中晶科技"], "product": ["8英寸抛光硅片"], "metric": []}
 
     monkeypatch.setattr(ingest_mod.EvidenceService, "get_evidence", fake_get_evidence)
@@ -95,7 +95,7 @@ async def test_ingest_llm_failure_still_records_dict_matches(monkeypatch):
             "source_type": "irm",
         }
 
-    async def fake_extract(evidence, *, use_cache=True):
+    async def fake_extract(evidence, *, use_cache=True, persist=True):
         return None
 
     async def fake_ensure(session, layer, norm_text, *, source):
@@ -159,7 +159,7 @@ async def test_ingest_subject_hint_fallback(monkeypatch):
             "subject_hint": {"ts_code": "003026.SZ", "company_name": "中晶科技"},
         }
 
-    async def fake_extract(evidence, *, use_cache=True):
+    async def fake_extract(evidence, *, use_cache=True, persist=True):
         return None  # LLM 不可用（额度耗尽等）
 
     monkeypatch.setattr(ingest_mod.EvidenceService, "get_evidence", fake_get_evidence)
@@ -197,7 +197,7 @@ async def test_ingest_subject_hint_skipped_when_text_names_subject(monkeypatch):
             "subject_hint": {"ts_code": "003026.SZ"},
         }
 
-    async def fake_extract(evidence, *, use_cache=True):
+    async def fake_extract(evidence, *, use_cache=True, persist=True):
         return None
 
     monkeypatch.setattr(ingest_mod.EvidenceService, "get_evidence", fake_get_evidence)
@@ -235,7 +235,7 @@ async def test_ingest_stage_implies_dimension(monkeypatch):
             "subject_hint": {"ts_code": "003026.SZ"},
         }
 
-    async def fake_extract(evidence, *, use_cache=True):
+    async def fake_extract(evidence, *, use_cache=True, persist=True):
         return None
 
     monkeypatch.setattr(ingest_mod.EvidenceService, "get_evidence", fake_get_evidence)
