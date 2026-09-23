@@ -5,17 +5,12 @@ from typing import Any
 from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel, Field
 
-from app.config import settings
 from app.data_pipeline.job_queue import IngestionJobQueue
+from app.knowledge.api._auth import require_api_key as _auth
 from app.knowledge.evidence import EvidenceInput
 from app.knowledge.evidence_service import EvidenceService
 
 router = APIRouter(prefix="/api/v1/knowledge/jobs", tags=["知识 Worker"])
-
-def _auth(key: str | None) -> None:
-    expected = settings.knowledge_api_key or settings.api_key
-    if not expected or key != expected:
-        raise HTTPException(401, "无效 API 密钥")
 
 class ClaimRequest(BaseModel):
     worker_id: str = Field(min_length=1, max_length=200)
