@@ -439,6 +439,40 @@ def test_vector_job_remote_uses_api(monkeypatch) -> None:
     assert posted["vector"] == [9.9]
 
 
+def test_link_job_remote_uses_api_and_no_db(monkeypatch) -> None:
+    service = FakeService()
+    service.jobs = [
+        {"job_id": "JL", "evidence_id": "EV:1", "job_type": JOB_LINK, "status": STATUS_PENDING}
+    ]
+    worker = EvidenceExtractionWorker(service=service)
+    posted = {}
+
+    class FakeApi:
+        async def upsert_links(self, evidence_id, actions):
+            posted["evidence_id"] = evidence_id
+            posted["actions"] = actions
+            return {"ok": True, "links": len(actions)}
+
+    async def fake_compute(evidence, **kwargs):
+        from app.knowledge.linklayer.ingest import LinkAction
+
+        return [LinkAction("subject", "300001.SZ", "hint", 0, 0)], True
+
+    def boom(*a, **k):
+        raise AssertionError("远端模式不得使用 async_session")
+
+    monkeypatch.setenv("KNOWLEDGE_API_URL", "http://cloud")
+    monkeypatch.setenv("KNOWLEDGE_API_KEY", "k")
+    monkeypatch.setattr("app.knowledge.evidence_worker.compute_link_actions", fake_compute)
+    monkeypatch.setattr("app.knowledge.evidence_worker.KnowledgeApiClient", lambda *a, **k: FakeApi())
+    monkeypatch.setattr("app.knowledge.evidence_worker.async_session", boom)
+
+    result = asyncio.run(worker.run_once(limit=1, job_type=JOB_LINK))
+    assert result["success"] == 1
+    assert posted["evidence_id"] == "EV:1"
+    assert posted["actions"][0]["layer"] == "subject"
+
+
 def test_link_job_persists_candidates_and_emits_radar(monkeypatch) -> None:
     """链接 job 集成链路：建链 → 机械候选落库 → 雷达信号 + 水位线推进（广度触发器）。
 

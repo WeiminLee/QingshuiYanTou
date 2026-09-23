@@ -45,3 +45,14 @@ class KnowledgeApiClient:
                 headers=self.headers,
             )
         return r.is_success
+
+    async def upsert_links(self, evidence_id, actions):
+        async with httpx.AsyncClient(timeout=self.timeout) as c:
+            r = await c.post(
+                f"{self.base_url}/api/v1/knowledge/link/upsert",
+                json={"evidence_id": evidence_id, "actions": actions},
+                headers=self.headers,
+            )
+        if not r.is_success:
+            return None
+        return r.json()

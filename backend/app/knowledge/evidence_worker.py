@@ -14,7 +14,7 @@ from app.knowledge.evidence_service import EvidenceService
 from app.knowledge.extraction.irm_classifier import classify_irm_evidence, extraction_tier
 from app.knowledge.kg_extractor import extract_evidence_async, extract_evidence_raw
 from app.knowledge.linklayer.candidates import emit_radar_signals, generate_candidates, persist_candidates
-from app.knowledge.linklayer.ingest import ingest_evidence
+from app.knowledge.linklayer.ingest import compute_link_actions, ingest_evidence
 from app.knowledge.vector_client import build_evidence_vector_record, upsert_evidence_chunk_vector
 from app.knowledge.worker_api_client import KnowledgeApiClient
 from app.signals.auto_ingestion import ingest_evidence_signals
@@ -207,6 +207,25 @@ class EvidenceExtractionWorker:
                 await self.service.mark_job_done(job_id, result)
                 return {"status": "done", **result}
             if job_type == JOB_LINK:
+                import os
+                if os.getenv("KNOWLEDGE_API_URL") and os.getenv("KNOWLEDGE_API_KEY"):
+                    actions, _ = await compute_link_actions(evidence, use_db=False)
+                    client = KnowledgeApiClient(
+                        os.environ["KNOWLEDGE_API_URL"], os.environ["KNOWLEDGE_API_KEY"]
+                    )
+                    response = await client.upsert_links(
+                        evidence_id, [a.to_payload() for a in actions]
+                    )
+                    if response is None:
+                        await self.service.mark_job_failed(job_id, "link upsert failed")
+                        return {"status": "failed", "links": 0}
+                    result = {
+                        "links": response.get("links", 0),
+                        "candidates": response.get("candidates", 0),
+                        "radar_signals": response.get("radar_signals", 0),
+                    }
+                    await self.service.mark_job_done(job_id, result)
+                    return {"status": "done", **result}
                 async with async_session() as session:
                     result = await ingest_evidence(evidence_id, _session=session)
                     # 广度触发器（spec §4.3 修订 1）：机械候选 → 台账 → 雷达信号
