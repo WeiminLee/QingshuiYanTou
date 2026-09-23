@@ -256,3 +256,23 @@ async def test_ingest_stage_implies_dimension(monkeypatch):
 
     await ingest_mod.ingest_evidence("EV:stage-dim", _session=_StubSession())
     assert ("dimension", "产线进展", "dictionary") in recorded, recorded
+
+
+def test_compute_link_actions_payload_has_span_and_source():
+    import asyncio
+
+    from app.knowledge.linklayer.ingest import compute_link_actions
+
+    evidence = {
+        "evidence_id": "EV:1",
+        "text_excerpt": "公司公告称量产。",
+        "subject_hint": {"ts_code": "300001.SZ"},
+        "publish_date": "2026-05-21",
+    }
+    actions, llm_used = asyncio.run(
+        compute_link_actions(evidence, skip_llm=True, use_db=False)
+    )
+    assert llm_used is False
+    assert any(a.source == "hint" and a.norm_text == "300001.SZ" for a in actions)
+    payload = actions[0].to_payload()
+    assert set(payload) >= {"layer", "norm_text", "source", "span_start", "span_end"}

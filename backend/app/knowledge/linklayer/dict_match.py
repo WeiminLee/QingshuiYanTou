@@ -75,13 +75,14 @@ def load_alias_table() -> dict[str, str]:
     return alias_to_norm
 
 
-async def build_subject_index() -> SubjectIndex:
+async def build_subject_index(use_db: bool = True) -> SubjectIndex:
     """构建 subject 层别名索引（JSON 别名 + PG stocks 表名，均尽力而为）。
 
-    - JSON 别名：company_aliases.json，规范名优先取 ts_code；
-    - stocks 表：name → ts_code，查询失败仅警告（不阻断），且不覆盖 JSON 中的既有别名。
+    use_db=False 时跳过 PG（远端 worker 无数据库通道）。
     """
     alias_to_norm = load_alias_table()
+    if not use_db:
+        return SubjectIndex(alias_to_norm=alias_to_norm)
     try:
         from sqlalchemy import select
 

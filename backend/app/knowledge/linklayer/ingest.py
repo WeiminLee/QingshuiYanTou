@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from datetime import datetime
 
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -18,73 +19,106 @@ from app.knowledge.linklayer.normalize import canonicalize_subject, ensure_keywo
 logger = logging.getLogger(__name__)
 
 
-async def ingest_evidence(evidence_id: str, *, _session=None, skip_llm: bool = False) -> dict:
-    """对单条 evidence 建链。幂等：link PK 冲突 do nothing。"""
-    svc = EvidenceService()
-    evidence = await svc.get_evidence(evidence_id)
-    if not evidence:
-        return {"links": 0, "keywords": 0, "llm_used": False}
+@dataclass
+class LinkAction:
+    layer: str
+    norm_text: str
+    source: str
+    span_start: int
+    span_end: int
+    published_at: datetime | None = None
+    dimension: str | None = None
+    level: int | None = None
 
+    def to_payload(self) -> dict:
+        return {
+            "layer": self.layer,
+            "norm_text": self.norm_text,
+            "source": self.source,
+            "span_start": self.span_start,
+            "span_end": self.span_end,
+            "published_at": self.published_at.isoformat() if self.published_at else None,
+            "dimension": self.dimension,
+            "level": self.level,
+        }
+
+
+async def compute_link_actions(
+    evidence: dict,
+    *,
+    skip_llm: bool = False,
+    subject_index=None,
+    use_db: bool = True,
+) -> tuple[list[LinkAction], bool]:
+    """计算一条 evidence 的 link 行集合（不做任何落库）。返回 (actions, llm_used)。"""
     text = evidence.get("text_excerpt") or ""
     vocab = load_vocabulary()
-    subject_index = await build_subject_index()
+    if subject_index is None:
+        subject_index = (
+            await build_subject_index() if use_db else await build_subject_index(use_db=False)
+        )
 
-    # 通道 1：词典匹配（封闭类：subject 兜底 / dimension / stage）
-    actions: list[tuple[str, str, str, int, int, datetime | None]] = []  # layer, norm, source, s, e, published
+    actions: list[LinkAction] = []
     published = _parse_date(evidence.get("publish_date"))
     for m in match_all(text, vocab, subject_index):
-        actions.append((m.layer, m.norm_text, "dictionary", m.span_start, m.span_end, published))
-        # 阶梯词携带所属维度（词表元数据）：命中 stage 即机械推断 evidence ↔ 维度，
-        # 使 (主体×维度) 过滤对"未点名维度名"的文本同样成立
+        actions.append(LinkAction(m.layer, m.norm_text, "dictionary", m.span_start, m.span_end, published))
         if m.layer == "stage" and m.dimension:
-            actions.append(("dimension", m.dimension, "dictionary", m.span_start, m.span_end, published))
+            actions.append(LinkAction("dimension", m.dimension, "dictionary", m.span_start, m.span_end, published))
 
-    # subject_hint 权威锚点（spec §4.2）：互动易/公告 evidence 的主体即其所属公司，
-    # 与正文词典匹配相互独立——正文提及的竞品/同业公司会同时共存为主体共现。
-    # hint 行无条件落库（source='hint'）：与正文 span 行是不同 PK 行不改写；
-    # 既有同位行则以 hint upsert 转正为权威标记（横截面归属依赖此标记）。
     hint_subject = _subject_from_hint(evidence.get("subject_hint"))
     if hint_subject:
-        actions.append(("subject", hint_subject, "hint", 0, 0, published))
+        actions.append(LinkAction("subject", hint_subject, "hint", 0, 0, published))
 
-    # 通道 2：LLM 浅提取（开放类：Company/Product/Metric）
-    # skip_llm=True 时跳过（网关不可用/省额度场景）：只建词典层，
-    # 不写 keyword_extraction 缓存，后续 LLM 回填会全量重放（幂等）。
     llm_result = None if skip_llm else await extract_keywords(evidence)
     llm_used = llm_result is not None
     if llm_result:
         for surface in llm_result.get("company", []):
             norm = canonicalize_subject(surface, subject_index) or surface
-            actions.append(("subject", norm, "llm", 0, 0, published))
+            actions.append(LinkAction("subject", norm, "llm", 0, 0, published))
         for surface in llm_result.get("product", []):
-            actions.append(("scope", surface, "llm", 0, 0, published))
+            actions.append(LinkAction("scope", surface, "llm", 0, 0, published))
         for m in llm_result.get("metric", []):
-            actions.append(("dimension", m["name"], "llm", 0, 0, published))
+            actions.append(LinkAction("dimension", m["name"], "llm", 0, 0, published))
 
-    # # # 落库 # # #
-    assert _session is not None, "需要 PG session（由 worker / script 传入）"
+    return actions, llm_used
+
+
+async def persist_link_actions(session, evidence_id: str, actions: list[LinkAction]) -> int:
+    """落库 link 行（幂等）。返回处理行数。"""
     link_count = 0
-    for layer, norm, source, s, e, pub in actions:
-        kw_id = await ensure_keyword(_session, layer, norm, source=source)
+    for action in actions:
+        kw_id = await ensure_keyword(session, action.layer, action.norm_text, source=action.source)
         base = pg_insert(Link).values(
             keyword_id=kw_id,
             evidence_id=evidence_id,
-            span_start=s,
-            span_end=e,
-            published_at=pub,
-            source=source,
+            span_start=action.span_start,
+            span_end=action.span_end,
+            published_at=action.published_at,
+            source=action.source,
         )
-        if source == "hint":
-            # 权威主体可覆盖旧渠道写入的同位行（早期实现误标 dictionary/llm）
+        if action.source == "hint":
             stmt = base.on_conflict_do_update(
                 index_elements=["keyword_id", "evidence_id", "span_start"],
                 set_={"source": "hint"},
             )
         else:
             stmt = base.on_conflict_do_nothing()
-        await _session.execute(stmt)
+        await session.execute(stmt)
         link_count += 1
-    await _session.commit()
+    await session.commit()
+    return link_count
+
+
+async def ingest_evidence(evidence_id: str, *, _session=None, skip_llm: bool = False) -> dict:
+    """对单条 evidence 建链。幂等：link PK 冲突 do nothing。行为与拆分前一致。"""
+    svc = EvidenceService()
+    evidence = await svc.get_evidence(evidence_id)
+    if not evidence:
+        return {"links": 0, "keywords": 0, "llm_used": False}
+
+    actions, llm_used = await compute_link_actions(evidence, skip_llm=skip_llm)
+    assert _session is not None, "需要 PG session（由 worker / script 传入）"
+    link_count = await persist_link_actions(_session, evidence_id, actions)
     return {"links": link_count, "keywords": len(actions), "llm_used": llm_used}
 
 
