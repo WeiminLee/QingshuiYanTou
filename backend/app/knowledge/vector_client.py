@@ -996,11 +996,15 @@ def upsert_evidence_chunk_vector(
     evidence: dict[str, Any],
     collection: str = COLLECTION_CHUNKS,
 ) -> bool:
-    """将 Evidence 片段写入向量库（计算 + 写入一体，保持原行为）。"""
-    record = build_evidence_vector_record(evidence)
-    if record is None:
+    """将 Evidence 片段写入向量库（计算 + 写入一体，保持原行为：任何失败返回 False）。"""
+    try:
+        record = build_evidence_vector_record(evidence)
+        if record is None:
+            return False
+        return write_chunk_vector(record, collection)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("upsert_evidence_chunk_vector 失败: %s", e)
         return False
-    return write_chunk_vector(record, collection)
 
 
 def semantic_search_entities(

@@ -40,6 +40,14 @@ def test_write_chunk_vector_swallows_errors():
         assert write_chunk_vector(rec) is False
 
 
+def test_upsert_swallows_embedding_failure():
+    with patch(
+        "app.knowledge.vector_client.build_evidence_vector_record",
+        side_effect=RuntimeError("embed boom"),
+    ):
+        assert upsert_evidence_chunk_vector(EV) is False
+
+
 def test_upsert_evidence_chunk_vector_delegates_to_split_functions():
     with patch(
         "app.knowledge.vector_client.build_evidence_vector_record",
