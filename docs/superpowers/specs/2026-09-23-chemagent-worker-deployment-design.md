@@ -232,3 +232,58 @@ rjob submit \
 - PDF 落 shared storage，dev 机工作空间删除重建后文件仍在。
 - 重复提交 link/vector 结果幂等，无重复记录。
 - 全链路不出现任何依赖 Mac 的常驻会话。
+
+---
+
+## 13. 落地记录（2026-09-23 实装完成）
+
+### 13.1 终版拓扑（已验证）
+
+```
+云端 124.221.188.38                      dev 机 lwm-server-chemagent        H200 rjob (单卡)
+┌──────────────────────┐                ┌─────────────────────────┐       ┌──────────────────┐
+│ Mongo/PG/Qdrant/Neo4j│◀── HTTP/代理 ──│ worker_supervisor.py     │       │ vllm-openai:v0.28│
+│ Knowledge API :8080  │   (拉任务/回写) │  ├ knowledge_worker link │─内网─▶│ :23457 Qwen3.6   │
+│ scheduler(采集/入队)  │                │  └ knowledge_worker vector│       │ :23456 bge-m3    │
+└──────────────────────┘                └─────────────────────────┘       └──────────────────┘
+         ▲                                                                         │
+         └───────────────── 云端与 GPU 之间【零连接】─────────────────────────────┘
+```
+
+**关键不变量**：云端连不到 GPU（实测 CLOSED）；dev 机是唯一枢纽；GPU 断网只暴露内网 API。
+
+### 13.2 部署要点（踩坑后定稿）
+
+| 项 | 结论 |
+|---|---|
+| 推理镜像 | `registry.h.pjlab.org.cn/ailab/vllm-openai:v0.28.0`（租户公共，**不自建**） |
+| 必加参数 | `--language-model-only`（否则多模态 encoder 画像挂死）；0.19.1 会静默挂死 |
+| 单卡双服务 | LLM `--gpu-memory-utilization 0.62`（KV 47.6GiB / 62× 并发）+ embedding `0.03` |
+| 权重来源 | ModelScope（HF 经代理 0 字节卡死）；bge-m3 4.3G + Qwen FP8 35G |
+| 缓存持久化 | `TRITON_CACHE_DIR`/`DG_JIT_CACHE_DIR`/`VLLM_CACHE_ROOT`/`TORCH_EXTENSIONS_DIR` → shared storage |
+| **thinking 关闭** | vLLM 须 `extra_body.chat_template_kwargs.enable_thinking=False`（DeepSeek 格式无效，差 14 倍） |
+| **no_proxy** | httpx 不识别 CIDR，GPU 节点 IP 必须**字面**写入 |
+| worker venv | Python 3.13（3.10 缺 `datetime.UTC`）；PyPI 直连经代理（内网镜像大 wheel 硬 504） |
+| worker 形态 | dev 机直跑（无 docker）；systemd + supervisor 常驻 |
+
+### 13.3 自愈能力（已验证）
+
+| 事件 | 行为 |
+|---|---|
+| worker 子进程崩溃 | supervisor 检测并重启 |
+| GPU 节点漂移 | supervisor 比对 `endpoints.json` → 自动重启 worker（实测通过） |
+| GPU 不可用 | supervisor 停子进程等待，不刷失败 |
+| dev 机重启 | systemd `enabled`，开机自启 |
+| rjob 被 kill | 平台 `--auto-restart` 重拉，缓存命中后秒级就绪 |
+
+### 13.4 性能与质量
+
+- **吞吐**：37.4 条/分钟（thinking 修复前 2.5）；单条 link 0.7–1.0s、vector 0.7–0.9s
+- **质量**（对照生产 kw_v2 缓存，40 条样本）：company 0.856 / product 0.770 / metric 0.859 / **总体 0.828**，零解析失败，优于历史本地最优（Qwen3-32B-AWQ 0.731）
+- **端到端**：6/6 jobs done，PG `link_links` 29/29/11 行、Qdrant 344,167 点、observations 231,713、signals 410,416
+
+### 13.5 运维入口
+
+- 状态总览：`bash /mnt/shared-storage-user/liweimin/qingshui/status.sh`
+- worker 服务：`systemctl {status,restart} qingshui-worker.service`
+- GPU 服务：`rjob list` / `rjob submit ... serve.sh`
