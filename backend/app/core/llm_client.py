@@ -64,9 +64,34 @@ def _strip_thinking_tags(text: str) -> str:
     text = re.sub(r"<thinking>[\s\S]*?</thinking>", "", text)
     text = re.sub(r"<context>[\s\S]*?</context>", "", text)
     text = re.sub(r"<reflection>[\s\S]*?</reflection>", "", text)
-    # 单行思考: <think> xxx -->
-    text = re.sub(r"<think>[\s\S]*?-->", "", text)
+    # 单行思考:  thinking xxx -->
+    text = re.sub(r" thinking[\s\S]*?-->", "", text)
     return text.strip()
+
+
+def _disable_thinking(kwargs: dict) -> None:
+    """按后端类型关闭推理模型的 thinking，就地写入 kwargs。
+
+    各后端关思考的协议不同，必须分别处理（写错等于没关，模型会持续吐思考链，
+    长文本下直接耗尽 180s 超时——实测 Qwen3.6 未关 16.7s vs 关闭 1.19s）：
+      · DeepSeek / MiniMax / pjlab 网关：extra_body["thinking"] = {"type": "disabled"}
+      · vLLM（Qwen 系等）：chat_template_kwargs["enable_thinking"] = False
+
+    触发条件：显式配置 LLM_DISABLE_THINKING=true，或模型名命中已知推理模型。
+    """
+    from app.config import settings
+
+    model = str(kwargs.get("model") or "").lower()
+    if not (getattr(settings, "llm_disable_thinking", False) or "deepseek" in model or "minimax" in model):
+        return
+
+    base_url = str(getattr(settings, "llm_base_url", "") or "").lower()
+    # openai SDK 只接受 extra_body 里的未知字段；vLLM 侧再从 extra_body 展开到请求体
+    if "vllm" in base_url or "qwen" in model:
+        kwargs["extra_body"] = {"chat_template_kwargs": {"enable_thinking": False}}
+    else:
+        kwargs["extra_body"] = {"thinking": {"type": "disabled"}}
+
 
 
 async def chat_async(
@@ -94,10 +119,9 @@ async def chat_async(
     }
     if max_tokens is not None:
         kwargs["max_tokens"] = max_tokens
-    # 推理模型默认开启 thinking，不显式关闭会输出思考文字污染 JSON（deepseek / minimax 均需关闭）
-    _m = str(kwargs["model"]).lower()
-    if getattr(settings, "llm_disable_thinking", False) or "deepseek" in _m or "minimax" in _m:
-        kwargs["extra_body"] = {"thinking": {"type": "disabled"}}
+    # 推理模型默认开启 thinking，不显式关闭会输出思考文字污染 JSON，且长文本下
+    # 思考链会耗尽超时（实测 Qwen3.6 未关思考 16.7s vs 关闭 1.19s，约 14 倍差距）
+    _disable_thinking(kwargs)
     if stream:
         kwargs["stream"] = True
         chunks: list[str] = []
@@ -205,10 +229,8 @@ def chat(
     }
     if max_tokens is not None:
         kwargs["max_tokens"] = max_tokens
-    # 推理模型默认开启 thinking，显式关闭（deepseek / minimax 均需关闭）
-    _m = str(kwargs["model"]).lower()
-    if getattr(settings, "llm_disable_thinking", False) or "deepseek" in _m or "minimax" in _m:
-        kwargs["extra_body"] = {"thinking": {"type": "disabled"}}
+    # 推理模型默认开启 thinking，显式关闭（见 _disable_thinking）
+    _disable_thinking(kwargs)
     response = client.chat.completions.create(**kwargs)
     return response.choices[0].message.content or ""
 
