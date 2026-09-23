@@ -1115,6 +1115,14 @@ git push origin main
 **偏离说明**：spec §5.2 原列 3 个端点，本计划并成 2 个（`/vector/upsert`、`/link/upsert`），
 `ledger` 段由云端在 link 落库后立即运行；`signal` 延后。建议同步修订 spec §5.2/§10 以保持一致。
 
+**评审后追加缺口（2026-09-23 最终评审发现，已部分修复）**
+
+| # | 缺口 | 处置 |
+|---|---|---|
+| G1 | 远端 link 调 `extract_keywords` 时仍会写 Mongo `keyword_extraction` 缓存 → "worker 无 DB"不成立 | **已修**（commit `e513098`）：`extract_keywords(persist=)` / `compute_link_actions(persist_llm_cache=)`，远端传 `False` 并回传 `llm_used` |
+| G2 | 缓存写入被跳过 → 与 `backfill_keyword_links` 池扫描断点口径不一致 | **待补**（R7）：云端缓存写入（`/link/upsert` 载荷字段或独立端点）。仅重复 LLM 成本，非正确性 |
+| G3 | `company_aliases.json` 不在仓库，远端 worker 字典层公司匹配可能全空 | **部署要求**（R8）：P3 生成/同步该文件；已加空表告警 |
+
 **类型一致性**：`LinkAction`（Task 4 定义）在 Task 5/6 使用；`to_payload()` 字段与
 `LinkActionPayload`（Task 5）一致；`write_chunk_vector`/`build_evidence_vector_record`（Task 1）
 在 Task 2/3 使用；`require_api_key`（Task 2）在 Task 5 复用。

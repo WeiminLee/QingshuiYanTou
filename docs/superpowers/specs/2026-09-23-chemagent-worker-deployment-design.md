@@ -208,7 +208,7 @@ rjob submit \
 | P0 | 基础设施验证 | ✅ 已完成 |
 | P1 | 权重→shared storage；rjob 起 bge-m3 + vLLM；endpoints.json | 验证 Qwen3.6-35B-A3B 的 vLLM 支持 |
 | P2 | 云侧 2 个写入端点（vector/link）+ worker 远端分支（vector 优先） | 改云侧代码 |
-| P3 | dev 机 worker 容器化 + link 接入 | P2 |
+| P3 | dev 机 worker 容器化 + link 接入 + 生成/同步 `company_aliases.json` | P2 |
 | P4 | PDF 下载 worker + shared storage 落盘 | — |
 | P5 | 切流、下线 pod/隧道、修订 AGENTS.md | P1–P4 |
 
@@ -222,6 +222,8 @@ rjob submit \
 | R4 | `ingest_evidence` 计算/持久化耦合较深，拆解有回归风险 | 先 vector（最小面），link 随后；补单测 |
 | R5 | GPU 节点 IP 浮动 | endpoints.json + 启动时校验 |
 | R6 | `signal` 计算依赖 Neo4j 读取，无法在断网 worker 完成 | 本期不做（生产未启用该 job type）；单独立项，候选方案：云端提供 `/signal/ingest`（收 evidence_id，云端算+写） |
+| R7 | 远端 link 不写 `keyword_extraction` 缓存（无 DB），与 `backfill_keyword_links` 的"无缓存即待处理"断点口径不一致 | 已让远端路径不再触碰 DB（`extract_keywords(persist=False)`）并回传 `llm_used`；**缓存写入待补**：云端新增缓存写入（`/link/upsert` 载荷字段或独立端点）。影响仅为池扫描路径的重复 LLM 成本，非正确性 |
+| R8 | `company_aliases.json` 是 gitignore 的部署产物，不在仓库 | 远端 worker 字典层公司匹配依赖它；已在空表时告警。**部署时必须生成/同步该文件到 worker**（P3 步骤） |
 
 ## 12. 验收标准
 
