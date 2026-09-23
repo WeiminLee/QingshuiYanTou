@@ -951,47 +951,56 @@ def upsert_chunk_vector(
         return False
 
 
+def build_evidence_vector_record(evidence: dict[str, Any]) -> VectorRecord | None:
+    """生成 doc_chunks 向量记录（含 embedding 计算）。输入无效返回 None。"""
+    evidence_id = str(evidence.get("evidence_id") or "")
+    text = str(evidence.get("text_excerpt") or "")
+    if not evidence_id or not text.strip():
+        logger.warning("build_evidence_vector_record 输入无效: evidence_id=%s", evidence_id)
+        return None
+
+    # bge-m3 上下文窗口 8192 tokens，截断到 7000 字避免超限
+    MAX_EMBED_CHARS = 7000
+    if len(text) > MAX_EMBED_CHARS:
+        text = text[:MAX_EMBED_CHARS]
+
+    vec = get_embedding_model().embed(text)
+    return VectorRecord(
+        id=str(uuid.uuid5(uuid.NAMESPACE_DNS, evidence_id)),
+        vector=vec,
+        payload={
+            "evidence_id": evidence_id,
+            "content": text,
+            "source_type": evidence.get("source_type", ""),
+            "source_name": evidence.get("source_name", ""),
+            "subject_hint": evidence.get("subject_hint") or {},
+            "source_ref": evidence.get("source_ref") or {},
+            "publish_date": evidence.get("publish_date"),
+            "observed_at": evidence.get("observed_at"),
+            "checksum": evidence.get("checksum", ""),
+        },
+    )
+
+
+def write_chunk_vector(record: VectorRecord, collection: str = COLLECTION_CHUNKS) -> bool:
+    """把已构造好的向量记录写入 Qdrant。"""
+    try:
+        get_vector_client().upsert(collection, [record])
+        return True
+    except Exception as e:  # noqa: BLE001
+        logger.warning("write_chunk_vector 失败: %s", e)
+        return False
+
+
 def upsert_evidence_chunk_vector(
     evidence: dict[str, Any],
     collection: str = COLLECTION_CHUNKS,
 ) -> bool:
-    """将 Evidence 片段写入向量库。"""
-    try:
-        evidence_id = str(evidence.get("evidence_id") or "")
-        text = str(evidence.get("text_excerpt") or "")
-        if not evidence_id or not text.strip():
-            logger.warning("upsert_evidence_chunk_vector 输入无效: evidence_id=%s", evidence_id)
-            return False
-
-        # bge-m3 上下文窗口 8192 tokens，截断到 7000 字避免超限
-        MAX_EMBED_CHARS = 7000
-        if len(text) > MAX_EMBED_CHARS:
-            text = text[:MAX_EMBED_CHARS]
-
-        client = get_vector_client()
-        embedder = get_embedding_model()
-        vec = embedder.embed(text)
-        point_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, evidence_id))
-        record = VectorRecord(
-            id=point_id,
-            vector=vec,
-            payload={
-                "evidence_id": evidence_id,
-                "content": text,
-                "source_type": evidence.get("source_type", ""),
-                "source_name": evidence.get("source_name", ""),
-                "subject_hint": evidence.get("subject_hint") or {},
-                "source_ref": evidence.get("source_ref") or {},
-                "publish_date": evidence.get("publish_date"),
-                "observed_at": evidence.get("observed_at"),
-                "checksum": evidence.get("checksum", ""),
-            },
-        )
-        client.upsert(collection, [record])
-        return True
-    except Exception as e:
-        logger.warning("upsert_evidence_chunk_vector 失败: %s", e)
+    """将 Evidence 片段写入向量库（计算 + 写入一体，保持原行为）。"""
+    record = build_evidence_vector_record(evidence)
+    if record is None:
         return False
+    return write_chunk_vector(record, collection)
 
 
 def semantic_search_entities(
