@@ -1,5 +1,10 @@
 # QingShui 远程 PDF / Evidence Worker 改造方案
 
+> ⚠️ **部署形态已作废（2026-09-23）**：本文"台式机 / `lwm-server-d` 承担 PDF 与 Evidence"的形态已被
+> **H 集群 chemagent** 取代（见 `AGENTS.md`）。
+> **另：PDF 落盘位置更正** —— 不再存 worker 本地易失盘，一律落
+> `shared storage：/mnt/shared-storage-user/liweimin/qingshui-pdfs`。
+
 > 更新时间：2026-09-01
 >
 > 目标：腾讯云继续承载公网生产服务，台式机承担高性能 PDF 解析、Evidence 切分和抽取任务，系统对外仍表现为一个完整的 QingShui 服务。

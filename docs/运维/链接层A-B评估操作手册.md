@@ -1,5 +1,10 @@
 # 链接层 A/B 评估操作手册（2026-09-18 部署执行版）
 
+> ⚠️ **部署/集群相关章节已作废（2026-09-23）**：文中 sensecore pod + Mac 持隧道的部署与运维章节已被
+> **H 集群 chemagent** 形态取代（见 `AGENTS.md` 与
+> `docs/superpowers/specs/2026-09-23-chemagent-worker-deployment-design.md`）。
+> A/B 评估口径与业务记录部分仍有效。
+
 > 状态：代码与数据库迁移已落地，全量回填后台进行中（~2 天）。本手册为运维一步-by-一步操作与当日现实记录。
 
 ## 1. 数据库迁移（已执行 ✅）
@@ -170,3 +175,29 @@ cd /home/lwm/code/QingShuiTouYan/backend
 4. 长文本（年报 18-24k 字符）是所有小模型的共同软肋：截断窗口 + 实体丢失，company 精度首当其冲
 
 **事故两连（当日运维）**：① 本地持有会话被远端重置时，pod 端 nohup 进程与隧道全部存活（与平台清后台的旧教训相比，说明清理具有选择性）；但本地 ssh 的 TCP 半开会让包装任务悬挂——监控要与远端 log 文件挂钩而非本地管道。② `pkill -f` 模式若与同一命令行的其他段（heredoc/路径）匹配时会自杀——多动作命令必须拆分或用极短独特 pattern。
+
+## 12.2 本地化实测记录(2026-09-21,vllm-metax 已跑通,fp8/3.5 系双双卡死)
+
+**§12.1 前置条件已翻绿且翻车面明确**——`vllm_metax-0.13.0+g181dc3.d20260129` 可批量服务(live 实测载入/吞吐正常),但本 build 两条硬限制:
+1. **fp8 全线不支持**:Qwen3-32B-FP8 与 Qwen3.6-35B-A3B-FP8 均 `Value error: fp8 quantization is currently not supported in maca`(留档 `/root/wq/vllm_32b.log`);
+2. **qwen3_5_moe 架构(3.5/3.6 系)无实现**:transformers 旧版不识别 model_type + vllm/metax models/ 全仓无注册(`/root/wq/vllm_35b.log`)。→ 3.5/3.6 本地化 = 等 MetaX 新 wheel;权重(3.6-FP8 36GB)已落盘 `/root/models/` 备用。
+
+**当前最优本地形态 = Qwen3-32B-AWQ**(int4,插件专用 MacaAWQConfig 上车):GPU1 单卡权重 18.14GiB、KV 池 30.97GiB(126,832 tokens)、16k 窗口最大并发 7.74x、thinking 0 泄漏。
+
+**同口径对比(终版,pinned)**(`backend/scripts/eval_local_extract.py`,样本钉死 `pinned_sample_ids_seed42_40.json`(40 条 = 30 IRM + 10 公告,ids 入库存 `backend/eval/local_extract_2026-09-21/`),参照 = 云上生产 kw_v2 缓存,Qwen3 系 `enable_thinking=false`;三份 JSON `*_pinned.json` 同库可查):
+
+| 模型 | company | product | metric | 总体 F1 | 解析失败 | 吞吐@6并发 |
+|---|---|---|---|---|---|---|
+| **Qwen3-32B-AWQ**(GPU int4) | **0.801** | 0.619 | **0.773** | **0.731** | 0 | 8.9/min |
+| Qwen2.5-14B-Instruct(GPU bf16) | 0.738 | 0.616 | 0.708 | 0.687 | 0 | 14.8/min |
+| Qwen3.5-35B-A3B-Q8_0(CPU llama.cpp) | 0.761 | 0.649 | 0.603 | 0.671 | 2 | 0.1/min |
+
+- 生产 3.6-35B(网关)仍为参照本身(101/min);本地最优 = 32B-AWQ(质量),14B(吞吐),两者各有定位;
+- **Qwen3.5-35B-A3B(用户问询象)实测质量差于 32B-AWQ/14B**:metric 崩(0.603)、总体垫底 0.671——与 §12.1"3.5 系小弟中游"家族趋势一致;且 llm.cpp CPU 通路(0.1/min,28 核配额 + 宿机 load 38)注定其只作质量验证,不作生产;
+- **方法学三连教训(当日)**:① Mongo `$sample` 无 seed → §12.1 无法复现(要 pin);② 池增长 + 回填 `$set` 引发自然序漂移,同 seed 不同取(曾两轮假"同题"),解法 = ids 钉文件;③ GPU 链与 CPU 齐跑会互相污染(客户端 180s 超时被 contention 触发 21/40 假失败),解法 = 请求层 3600s + `.partial` 逐条落盘;故跨模型结论只认 pinned 表,下列历史数字全部作废:0.760/0.742(漂移样本)、0.7778/0.7312(canonical-A/B 互异)、0.7949(N=8 初步)、0.488(超时污染)。
+
+**吞吐对照 = 不能独立承担回填**:生产网关 101/min(24槽) vs 本地 GPU 9-15/min;31 万池本地独跑约 11-24 天。定位 = 网关故障时的冗余通道,或"本地夜间 + 网关峰值"混合。
+
+**运维注**:评测 serve 均经本地 Mac 后台会话持有(合乎 §10 纪律);ModelScope 下载实测 ~3.5GB/min(hf-mirror 同达,huggingface 被墙);llama.cpp 源码经 gh-proxy 获取(github 直连 git 协议不通,https curl 反而 200);pod cgroup CPU 配额 28 核(nproc 255 具迷惑性),宿机 load 常态 ~38-44 含他租户。**遗留**:llama-server/14B/32B 实验 serve 已全部清理,卡与端口归还回填与生产。
+
+**运维注**:今日评测 serve 均经本地 Mac 后台会话持有(合乎 §10 纪律);ModelScope 下载实测 ~3.5GB/min(hf-mirror 同达,huggingface 被墙)。

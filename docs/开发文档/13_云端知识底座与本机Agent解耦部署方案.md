@@ -1,5 +1,8 @@
 # 云端知识底座与本机 Agent 解耦部署方案
 
+> ⚠️ **已作废（2026-09-23）**：本文部署形态已被 **H 集群 chemagent** 取代（见 `AGENTS.md` 与
+> `docs/superpowers/specs/2026-09-23-chemagent-worker-deployment-design.md`）。仅作历史存档。
+
 > 日期：2026-08-17
 > 背景：本机可能关机，知识采集、Evidence 构建、抽取和索引不能依赖本机常驻运行。
 

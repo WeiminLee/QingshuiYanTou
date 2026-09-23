@@ -1,5 +1,9 @@
 # lwm-server-d Knowledge Extraction Migration Implementation Plan
 
+> ⚠️ **已被取代（2026-09-23）**：本计划面向 `lwm-server-d`（sensecore），形态已由 **H 集群 chemagent**
+> 取代（见 `AGENTS.md` 与 `docs/superpowers/specs/2026-09-23-chemagent-worker-deployment-design.md`）。
+> API 契约部分仍有参考价值，部署部分仅作历史存档。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task.
 
 **Goal:** Enable remote PDF/Evidence workers to process jobs through authenticated HTTPS APIs.

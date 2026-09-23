@@ -1,5 +1,9 @@
 # lwm-server-d 知识抽取节点迁移实施方案
 
+> ⚠️ **已作废（2026-09-23）**：本文描述的 sensecore / `lwm-server-d` pod 形态已被 **H 集群 chemagent**
+> 取代。现行铁律见根目录 `AGENTS.md`，形态细节见
+> `docs/superpowers/specs/2026-09-23-chemagent-worker-deployment-design.md`。本文仅作历史存档。
+
 ## 1. 背景
 
 项目原先计划将 PDF 下载、解析和 Evidence 抽取运行在台式机上，通过 WireGuard 直连云端 PostgreSQL、MongoDB 和 Qdrant。实际部署时发现，`lwm-server-d` 更适合承担批处理任务：它拥有 2 张 MetaX C550 GPU、28 vCPU、360 GiB 内存和大容量存储；同时，d 集群实例不允许普通用户创建 WireGuard 网卡，无法授予 `NET_ADMIN` 时不能采用数据库直连方案。

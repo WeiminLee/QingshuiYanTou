@@ -1,5 +1,9 @@
 # d-cluster Embedding 修复包（2026-09-19）
 
+> ⚠️ **已作废（2026-09-23）**：d-cluster（sensecore pod）+ Mac 持隧道形态已被 **H 集群 chemagent**
+> 取代（embedding 改为 rjob @ `chemagent_gpu_pool` 的 H200 服务）。现行铁律见 `AGENTS.md`，
+> 形态细节见 `docs/superpowers/specs/2026-09-23-chemagent-worker-deployment-design.md`。本文仅作历史存档。
+
 > 背景证据：云端探针任务（vector job）被 d-cluster worker 秒级领走但 3 连失败（`vector upsert failed`），
 > 证明 **d-cluster worker 进程存活、embedding 通道断裂**；云端侧 `GatewayPorts clientspecified` 正常，
 > sshd 仅 2 条孤立 `ssh-rsa` 拒绝记录（非持续重试），隧道脚本 9-17 晚起死亡且未自愈。
