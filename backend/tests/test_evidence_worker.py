@@ -408,6 +408,37 @@ def test_link_job_success(monkeypatch) -> None:
     asyncio.run(main())
 
 
+def test_vector_job_remote_uses_api(monkeypatch) -> None:
+    from app.knowledge.vector_client import VectorRecord
+
+    service = FakeService()
+    service.jobs = [
+        {"job_id": "JV", "evidence_id": "EV:1", "job_type": JOB_VECTOR, "status": STATUS_PENDING}
+    ]
+    worker = EvidenceExtractionWorker(service=service)
+    posted = {}
+
+    class FakeApi:
+        async def upsert_vector(self, evidence_id, vector, payload):
+            posted["evidence_id"] = evidence_id
+            posted["vector"] = vector
+            posted["payload"] = payload
+            return True
+
+    def fake_build(evidence):
+        return VectorRecord(id="p1", vector=[9.9], payload={"evidence_id": evidence["evidence_id"]})
+
+    monkeypatch.setenv("KNOWLEDGE_API_URL", "http://cloud")
+    monkeypatch.setenv("KNOWLEDGE_API_KEY", "k")
+    monkeypatch.setattr("app.knowledge.evidence_worker.build_evidence_vector_record", fake_build)
+    monkeypatch.setattr("app.knowledge.evidence_worker.KnowledgeApiClient", lambda *a, **k: FakeApi())
+
+    result = asyncio.run(worker.run_once(limit=1, job_type=JOB_VECTOR))
+    assert result["success"] == 1
+    assert posted["evidence_id"] == "EV:1"
+    assert posted["vector"] == [9.9]
+
+
 def test_link_job_persists_candidates_and_emits_radar(monkeypatch) -> None:
     """链接 job 集成链路：建链 → 机械候选落库 → 雷达信号 + 水位线推进（广度触发器）。
 

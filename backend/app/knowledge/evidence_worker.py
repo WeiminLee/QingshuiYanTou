@@ -15,7 +15,8 @@ from app.knowledge.extraction.irm_classifier import classify_irm_evidence, extra
 from app.knowledge.kg_extractor import extract_evidence_async, extract_evidence_raw
 from app.knowledge.linklayer.candidates import emit_radar_signals, generate_candidates, persist_candidates
 from app.knowledge.linklayer.ingest import ingest_evidence
-from app.knowledge.vector_client import upsert_evidence_chunk_vector
+from app.knowledge.vector_client import build_evidence_vector_record, upsert_evidence_chunk_vector
+from app.knowledge.worker_api_client import KnowledgeApiClient
 from app.signals.auto_ingestion import ingest_evidence_signals
 
 logger = logging.getLogger(__name__)
@@ -183,7 +184,18 @@ class EvidenceExtractionWorker:
                 await self.service.mark_job_done(job_id, result)
                 return {"status": "done", **result}
             if job_type == JOB_VECTOR:
-                ok = upsert_evidence_chunk_vector(evidence)
+                import os
+                if os.getenv("KNOWLEDGE_API_URL") and os.getenv("KNOWLEDGE_API_KEY"):
+                    record = build_evidence_vector_record(evidence)
+                    if record is None:
+                        await self.service.mark_job_failed(job_id, "vector build rejected")
+                        return {"status": "failed", "vector_ok": False}
+                    client = KnowledgeApiClient(
+                        os.environ["KNOWLEDGE_API_URL"], os.environ["KNOWLEDGE_API_KEY"]
+                    )
+                    ok = await client.upsert_vector(evidence_id, record.vector, record.payload)
+                else:
+                    ok = upsert_evidence_chunk_vector(evidence)
                 result = {"vector_ok": ok}
                 if ok:
                     await self.service.mark_job_done(job_id, result)

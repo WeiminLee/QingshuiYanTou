@@ -36,3 +36,12 @@ class KnowledgeApiClient:
             r = await c.post(f"{self.base_url}/api/v1/knowledge/evidence/upsert", json={"input": data, "chunk_index": chunk_index}, headers=self.headers)
             r.raise_for_status()
             return r.json().get("evidence")
+
+    async def upsert_vector(self, evidence_id, vector, payload):
+        async with httpx.AsyncClient(timeout=self.timeout) as c:
+            r = await c.post(
+                f"{self.base_url}/api/v1/knowledge/vector/upsert",
+                json={"evidence_id": evidence_id, "vector": list(vector), "payload": payload},
+                headers=self.headers,
+            )
+        return r.is_success
