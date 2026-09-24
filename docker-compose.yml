@@ -44,6 +44,8 @@ services:
   mongo:
     image: mongo:7
     container_name: qingshui_mongo
+    # 限制 WiredTiger 缓存：7.5G 小机器上默认取 50% 会挤压其他服务
+    command: ["mongod", "--wiredTigerCacheSizeGB", "2"]
     ports:
       - "27018:27017"
     volumes:
