@@ -110,3 +110,19 @@ async def test_ensure_keyword_merged_redirects_to_target(monkeypatch):
     variant_id = make_keyword_id("scope", "抛光硅片")
     got = await ensure_keyword(_Sess(), "scope", "抛光硅片", source="llm")
     assert got == make_keyword_id("scope", "硅片"), got
+
+
+def test_canonicalize_dimension_maps_long_surface_to_standard():
+    """metric 的长句 surface 必须归一到标准维度（防 dimension 层脏词）。"""
+    from app.knowledge.linklayer.normalize import canonicalize_dimension
+
+    dims = {"毛利率", "营收", "净利润", "订单", "产线进展", "产能", "价格", "客户认证", "开工率"}
+    assert canonicalize_dimension("毛利率", dims) == "毛利率"
+    assert canonicalize_dimension("电源管理芯片毛利率比上年变动", dims) == "毛利率"
+    assert canonicalize_dimension("归母净利润同比", dims) == "净利润"
+    # 单义命中：仅含"产线"标记 → 产线进展
+    assert canonicalize_dimension("8英寸抛光片产线建设", dims) == "产线进展"
+    assert canonicalize_dimension("新建产线正式投产", dims) == "产线进展"
+    # 无法映射 → None（宁缺毋滥）
+    assert canonicalize_dimension("公司整体经营情况讨论", dims) is None
+    assert canonicalize_dimension("", dims) is None

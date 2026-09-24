@@ -14,6 +14,47 @@ def canonicalize_subject(surface: str, subject_index: SubjectIndex) -> str | Non
     return subject_index.alias_to_norm.get(surface)
 
 
+# 标准维度 → 判定词。LLM 的 metric.name 是原文字面串（可能是
+# "电源管理芯片毛利率比上年变动" 这类整句），必须机械映射到 YAML 定义的
+# 标准维度，否则 dimension 层会被长句淹没（实测曾达 49.9 万条脏词 / 12.4 万条超 20 字）。
+_DIMENSION_MARKERS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("毛利率", ("毛利率", "毛利水平", "毛利润", "毛利")),
+    ("营收", ("营业收入", "营收", "销售收入", "营业额")),
+    ("净利润", ("净利润", "归母净利", "净利")),
+    ("开工率", ("开工率", "产能利用率")),
+    ("价格", ("单价", "售价", "均价", "价格")),
+    ("产能", ("产能", "产量")),
+    ("订单", ("订单", "在手订单", "排产")),
+    ("客户认证", ("认证", "客户导入", "送样", "验证")),
+    ("产线进展", ("产线", "量产", "投产", "达产", "爬坡", "扩产", "试产")),
+)
+
+
+def canonicalize_dimension(surface: str, known_dimensions: set[str] | None = None) -> str | None:
+    """metric surface form → 标准维度名；无法映射返回 None（宁缺毋滥）。
+
+    精确命中已知维度集（YAML）优先；否则按**最长标记优先**匹配——
+    避免"产能爬坡"被短标记"产能"抢先命中而丢失"产线进展"语义。
+    """
+    text = (surface or "").strip()
+    if not text:
+        return None
+    if known_dimensions and text in known_dimensions:
+        return text
+
+    # 收集所有命中（dim, marker_len），取标记最长者
+    hits: list[tuple[str, int]] = []
+    for dim, markers in _DIMENSION_MARKERS:
+        if known_dimensions and dim not in known_dimensions:
+            continue
+        for marker in markers:
+            if marker in text:
+                hits.append((dim, len(marker)))
+    if not hits:
+        return None
+    return max(hits, key=lambda x: x[1])[0]
+
+
 async def ensure_keyword(session, layer: str, norm_text: str, *, source: str) -> str:
     """幂等确保 keyword 存在，返回最终应有链接归属的 keyword_id。
 

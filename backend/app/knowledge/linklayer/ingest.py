@@ -14,7 +14,11 @@ from app.knowledge.linklayer.dict_match import build_subject_index, match_all
 from app.knowledge.linklayer.dictionaries import load_vocabulary
 from app.knowledge.linklayer.llm_extract import extract_keywords
 from app.knowledge.linklayer.models import Link
-from app.knowledge.linklayer.normalize import canonicalize_subject, ensure_keyword
+from app.knowledge.linklayer.normalize import (
+    canonicalize_dimension,
+    canonicalize_subject,
+    ensure_keyword,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +70,7 @@ async def compute_link_actions(
 
     match_text = text[: max(LLM_INPUT_MAX_CHARS, MATCH_MIN_CHARS)]
     vocab = load_vocabulary()
+    known_dimensions = set(vocab.dimensions.keys())
     if subject_index is None:
         subject_index = (
             await build_subject_index() if use_db else await build_subject_index(use_db=False)
@@ -94,7 +99,12 @@ async def compute_link_actions(
         for surface in llm_result.get("product", []):
             actions.append(LinkAction("scope", surface, "llm", 0, 0, published))
         for m in llm_result.get("metric", []):
-            actions.append(LinkAction("dimension", m["name"], "llm", 0, 0, published))
+            # metric.name 是原文字面串（可能是整句），必须机械归一到标准维度；
+            # 无法映射的丢弃——dimension 是封闭类，不能容忍长句噪声
+            # （历史事故：未归一化导致 dimension 层积压 49.9 万条脏词）。
+            dim = canonicalize_dimension(m.get("name") or "", known_dimensions)
+            if dim:
+                actions.append(LinkAction("dimension", dim, "llm", 0, 0, published))
 
     return actions, llm_used
 
