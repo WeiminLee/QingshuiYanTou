@@ -18,6 +18,9 @@ from app.knowledge.linklayer.normalize import canonicalize_subject, ensure_keywo
 
 logger = logging.getLogger(__name__)
 
+# 字典匹配的最小窗口：即使 LLM 窗口调小，也保证覆盖 evidence 主体段落
+MATCH_MIN_CHARS = 12_000
+
 
 @dataclass
 class LinkAction:
@@ -56,6 +59,12 @@ async def compute_link_actions(
     persist_llm_cache=False 供无 DB 通道的远端 worker 使用：LLM 提取结果不写 Mongo 缓存。
     """
     text = evidence.get("text_excerpt") or ""
+    # 字典匹配窗口：与 LLM 浅提取窗口对齐（超长公告可达 26 万字，全量扫描会让
+    # 单条耗时冲到 100s+ 并长期占用 PG 连接/slot）。截断口径与 LLM 一致，
+    # 保证两条通道看到同一段文本，避免"字典命中但 LLM 未命中"的不一致。
+    from app.knowledge.linklayer.llm_extract import LLM_INPUT_MAX_CHARS
+
+    match_text = text[: max(LLM_INPUT_MAX_CHARS, MATCH_MIN_CHARS)]
     vocab = load_vocabulary()
     if subject_index is None:
         subject_index = (
@@ -64,7 +73,7 @@ async def compute_link_actions(
 
     actions: list[LinkAction] = []
     published = _parse_date(evidence.get("publish_date"))
-    for m in match_all(text, vocab, subject_index):
+    for m in match_all(match_text, vocab, subject_index):
         actions.append(LinkAction(m.layer, m.norm_text, "dictionary", m.span_start, m.span_end, published))
         if m.layer == "stage" and m.dimension:
             actions.append(LinkAction("dimension", m.dimension, "dictionary", m.span_start, m.span_end, published))
