@@ -55,13 +55,7 @@ def build_pull_history_sql(
         )
     if scope:
         stmt = stmt.where(
-            Link.evidence_id.in_(
-                select(Link.evidence_id).where(
-                    Link.keyword_id.in_(
-                        select(Keyword.keyword_id).where(Keyword.layer == "scope", Keyword.norm_text == scope)
-                    )
-                )
-            )
+            Link.evidence_id.in_(_scope_evidence_subquery(scope))
         )
     cutoff = _parse_cutoff(before)
     if cutoff is not None:
@@ -152,6 +146,26 @@ async def backlinks(evidence_id: str) -> dict:
     return {"evidence_id": evidence_id, "keywords": keywords, "related": related}
 
 
+def _scope_evidence_subquery(scope: str):
+    """scope 过滤子查询：开放词表 → 前缀/子串匹配（不是精确相等）。
+
+    scope 层是开放词表（实测 61.9 万条碎片化候选，如"6-8英寸抛光硅片"
+    "8英寸硅片""高端硅片"），而查询通常给归一化的粗粒度词（如"硅片"）。
+    精确相等必然漏召，故用 ILIKE 双向包含：
+      · scope 词包含查询词（"6-8英寸抛光硅片" LIKE "%硅片%"）
+      · 或查询词包含 scope 词（查询"抛光硅片"命中词条"硅片"）
+    """
+    pattern = f"%{scope}%"
+    return (
+        select(Link.evidence_id)
+        .join(Keyword, and_(Keyword.keyword_id == Link.keyword_id, Keyword.layer == "scope"))
+        .where(
+            Keyword.status.in_(("active", "candidate")),
+            Keyword.norm_text.ilike(pattern),
+        )
+    )
+
+
 def build_scan_dimension_sql(dimension: str, scope: str | None = None, as_of: str | None = None, limit: int = 50):
     """横截面查询（evidence 侧）：该维度（×可选 scope）的 DISTINCT evidence 集合。
 
@@ -167,13 +181,7 @@ def build_scan_dimension_sql(dimension: str, scope: str | None = None, as_of: st
     )
     if scope:
         stmt = stmt.where(
-            Link.evidence_id.in_(
-                select(Link.evidence_id).where(
-                    Link.keyword_id.in_(
-                        select(Keyword.keyword_id).where(Keyword.layer == "scope", Keyword.norm_text == scope)
-                    )
-                )
-            )
+            Link.evidence_id.in_(_scope_evidence_subquery(scope))
         )
     cutoff = _parse_cutoff(as_of)
     if cutoff is not None:
@@ -202,7 +210,11 @@ async def scan_dimension(
             "note": "dimension 未指定：theme 类查询由向量通道负责，链接层无横截面可扫",
         }
     async with async_session() as session:
-        stmt, _ = build_scan_dimension_sql(dimension, scope, as_of, limit)
+        # 横截面语义 = 跨主体对比，故取数后**按主体去重、每主体保留最新一条**，
+        # 避免同一公司的多份年报/candidate 词条挤占 limit（实测 875 候选中期望证据
+        # 被排到 26/28/217 位而漏召）。limit 在去重后按主体数生效，故先放大候选。
+        wide_limit = max(limit * 20, 200)
+        stmt, _ = build_scan_dimension_sql(dimension, scope, as_of, wide_limit)
         rows = (await session.execute(stmt)).all()
 
     # 主体归属：hint（evidence 自报主体）优先，任意 subject 链接兜底
@@ -220,18 +232,23 @@ async def scan_dimension(
             if src == "hint":
                 hint_map.setdefault(evid, norm)
             fallback_map.setdefault(evid, norm)
-    items = []
+
+    # rows 已按 published_at DESC；此处按主体去重，每主体只留最新一条
+    seen_subjects: set[str] = set()
+    deduped: list[tuple[str, str, str | None]] = []
     for r in rows:
         evid = r[0]
         subject = hint_map.get(evid) or fallback_map.get(evid)
-        if subject:
-            items.append(
-                {
-                    "subject": subject,
-                    "evidence_id": evid,
-                    "published_at": str(r[1]) if r[1] else None,
-                }
-            )
+        if not subject or subject in seen_subjects:
+            continue
+        seen_subjects.add(subject)
+        deduped.append((subject, evid, str(r[1]) if r[1] else None))
+        if len(deduped) >= limit:
+            break
+
+    items = [
+        {"subject": s, "evidence_id": e, "published_at": p} for s, e, p in deduped
+    ]
     return {"dimension": dimension, "scope": scope, "items": items, "count": len(items)}
 
 
