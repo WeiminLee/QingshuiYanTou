@@ -55,19 +55,24 @@ def canonicalize_dimension(surface: str, known_dimensions: set[str] | None = Non
     return max(hits, key=lambda x: x[1])[0]
 
 
-async def ensure_keyword(session, layer: str, norm_text: str, *, source: str) -> str:
+async def ensure_keyword(
+    session, layer: str, norm_text: str, *, source: str, parent: str | None = None
+) -> str:
     """幂等确保 keyword 存在，返回最终应有链接归属的 keyword_id。
 
     - subject/dimension/stage 层调用前应已完成归一化，直接 active。
     - scope 层允许未知 surface form 直接建条目（recall 优先），status="candidate"，
       由词表治理流程审核后转 active（LLM 提议、词典裁决）。
     - 若目标已处于 merged 状态，链接归属其后继（merged_into），治理不产生孤儿链接。
+    - parent：开放词表的聚合锚点（细粒度词挂到粗粒度标准词），写入 parent_keyword_id，
+      查询时可沿此上卷；不替换 norm_text。
     """
     keyword_id = make_keyword_id(layer, norm_text)
     status = "candidate" if (layer == "scope" and source == "llm") else "active"
+    parent_id = make_keyword_id(layer, parent) if parent else None
     stmt = pg_insert(Keyword).values(
         keyword_id=keyword_id, layer=layer, norm_text=norm_text,
-        display_text=norm_text, status=status,
+        display_text=norm_text, status=status, parent_keyword_id=parent_id,
     ).on_conflict_do_nothing(index_elements=["keyword_id"])
     await session.execute(stmt)
 

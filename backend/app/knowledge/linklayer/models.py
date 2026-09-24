@@ -31,6 +31,11 @@ class Keyword(Base):
     aliases: Mapped[list] = mapped_column(JSONB, nullable=False, default=list, server_default="[]")
     status: Mapped[str] = mapped_column(String(16), nullable=False, server_default="active")
     merged_into: Mapped[str | None] = mapped_column(String(32))
+    # 开放词表的聚合锚点：细粒度词 → 粗粒度标准词的 keyword_id。
+    # 用于查询时上卷（"高速通信线营业收入" ⊂ "营收"），不替换原词。
+    parent_keyword_id: Mapped[str | None] = mapped_column(String(32))
+    # 规格属性（size/process/…），由机械层从 surface 提取，供过滤与聚合
+    attributes: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default="{}")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
@@ -52,7 +57,11 @@ class Link(Base):
     span_start: Mapped[int] = mapped_column(Integer, primary_key=True)
     span_end: Mapped[int] = mapped_column(Integer)
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    source: Mapped[str] = mapped_column(String(16), nullable=False)  # llm | dictionary
+    source: Mapped[str] = mapped_column(String(16), nullable=False)  # llm | dictionary | hint
+    # metric 结构化数值（LLM 已抽出；承载用于横向/纵向对比与预期差计算）
+    metric_value: Mapped[str | None] = mapped_column(Text)
+    metric_unit: Mapped[str | None] = mapped_column(String(32))
+    metric_period: Mapped[str | None] = mapped_column(String(64))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

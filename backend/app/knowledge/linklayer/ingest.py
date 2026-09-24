@@ -36,6 +36,13 @@ class LinkAction:
     published_at: datetime | None = None
     dimension: str | None = None
     level: int | None = None
+    # 开放词表的聚合锚点：细粒度词（"高速通信线营业收入"）挂到粗粒度标准维度（"营收"）。
+    # 不是归一化替换，而是**保留原词 + 标注归属**，查询时可沿此上卷。
+    parent: str | None = None
+    # metric 结构化数值（LLM 已抽出，此前被丢弃）
+    value: str | None = None
+    unit: str | None = None
+    period: str | None = None
 
     def to_payload(self) -> dict:
         return {
@@ -47,6 +54,10 @@ class LinkAction:
             "published_at": self.published_at.isoformat() if self.published_at else None,
             "dimension": self.dimension,
             "level": self.level,
+            "parent": self.parent,
+            "value": self.value,
+            "unit": self.unit,
+            "period": self.period,
         }
 
 
@@ -99,12 +110,19 @@ async def compute_link_actions(
         for surface in llm_result.get("product", []):
             actions.append(LinkAction("scope", surface, "llm", 0, 0, published))
         for m in llm_result.get("metric", []):
-            # metric.name 是原文字面串（可能是整句），必须机械归一到标准维度；
-            # 无法映射的丢弃——dimension 是封闭类，不能容忍长句噪声
-            # （历史事故：未归一化导致 dimension 层积压 49.9 万条脏词）。
-            dim = canonicalize_dimension(m.get("name") or "", known_dimensions)
-            if dim:
-                actions.append(LinkAction("dimension", dim, "llm", 0, 0, published))
+            # 开放词表策略：保留 LLM 原始指标名（细粒度可检索），同时标注其归属的
+            # 标准维度 parent（若有）供上卷聚合。不丢弃、不替换——
+            # "高速通信线营业收入"与"营业收入"是不同粒度的有效标尺，都该保留。
+            name = (m.get("name") or "").strip()
+            if not name:
+                continue
+            actions.append(LinkAction(
+                "dimension", name, "llm", 0, 0, published,
+                parent=canonicalize_dimension(name, known_dimensions),
+                value=(str(m["value"]) if m.get("value") is not None else None),
+                unit=m.get("unit"),
+                period=m.get("period"),
+            ))
 
     return actions, llm_used
 
@@ -113,7 +131,9 @@ async def persist_link_actions(session, evidence_id: str, actions: list[LinkActi
     """落库 link 行（幂等）。返回处理行数。"""
     link_count = 0
     for action in actions:
-        kw_id = await ensure_keyword(session, action.layer, action.norm_text, source=action.source)
+        kw_id = await ensure_keyword(
+            session, action.layer, action.norm_text, source=action.source, parent=action.parent
+        )
         base = pg_insert(Link).values(
             keyword_id=kw_id,
             evidence_id=evidence_id,
@@ -121,6 +141,9 @@ async def persist_link_actions(session, evidence_id: str, actions: list[LinkActi
             span_end=action.span_end,
             published_at=action.published_at,
             source=action.source,
+            metric_value=action.value,
+            metric_unit=action.unit,
+            metric_period=action.period,
         )
         if action.source == "hint":
             stmt = base.on_conflict_do_update(

@@ -40,7 +40,7 @@ async def test_ingest_combines_dict_and_llm(monkeypatch):
     monkeypatch.setattr(ingest_mod, "extract_keywords", fake_extract)
 
     # DB 部分打桩：ensure_keyword/link 写入收集到 recorded
-    async def fake_ensure(session, layer, norm_text, *, source):
+    async def fake_ensure(session, layer, norm_text, *, source, parent=None):
         recorded.append((layer, norm_text, source))
         return f"KW:{layer}:{norm_text}"
 
@@ -98,7 +98,7 @@ async def test_ingest_llm_failure_still_records_dict_matches(monkeypatch):
     async def fake_extract(evidence, *, use_cache=True, persist=True):
         return None
 
-    async def fake_ensure(session, layer, norm_text, *, source):
+    async def fake_ensure(session, layer, norm_text, *, source, parent=None):
         recorded.append((layer, norm_text, source))
         return f"KW:{layer}:{norm_text}"
 
@@ -165,7 +165,7 @@ async def test_ingest_subject_hint_fallback(monkeypatch):
     monkeypatch.setattr(ingest_mod.EvidenceService, "get_evidence", fake_get_evidence)
     monkeypatch.setattr(ingest_mod, "extract_keywords", fake_extract)
 
-    async def fake_ensure(session, layer, norm_text, *, source):
+    async def fake_ensure(session, layer, norm_text, *, source, parent=None):
         recorded.append((layer, norm_text, source))
         return f"KW:{layer}:{norm_text}"
 
@@ -203,7 +203,7 @@ async def test_ingest_subject_hint_skipped_when_text_names_subject(monkeypatch):
     monkeypatch.setattr(ingest_mod.EvidenceService, "get_evidence", fake_get_evidence)
     monkeypatch.setattr(ingest_mod, "extract_keywords", fake_extract)
 
-    async def fake_ensure(session, layer, norm_text, *, source):
+    async def fake_ensure(session, layer, norm_text, *, source, parent=None):
         recorded.append((layer, norm_text, source))
         return f"KW:{layer}:{norm_text}"
 
@@ -241,7 +241,7 @@ async def test_ingest_stage_implies_dimension(monkeypatch):
     monkeypatch.setattr(ingest_mod.EvidenceService, "get_evidence", fake_get_evidence)
     monkeypatch.setattr(ingest_mod, "extract_keywords", fake_extract)
 
-    async def fake_ensure(session, layer, norm_text, *, source):
+    async def fake_ensure(session, layer, norm_text, *, source, parent=None):
         recorded.append((layer, norm_text, source))
         return f"KW:{layer}:{norm_text}"
 

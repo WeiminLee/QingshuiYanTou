@@ -48,6 +48,11 @@ class LinkActionPayload(BaseModel):
     published_at: str | None = None
     dimension: str | None = None
     level: int | None = None
+    # 开放词表聚合锚点 + metric 结构化数值（横向/纵向对比与预期差计算所需）
+    parent: str | None = None
+    value: str | None = None
+    unit: str | None = None
+    period: str | None = None
 
 
 class LinkUpsertRequest(BaseModel):
@@ -68,6 +73,10 @@ async def link_upsert(req: LinkUpsertRequest, x_api_key: str | None = Header(def
             published_at=_parse_iso(a.published_at),
             dimension=a.dimension,
             level=a.level,
+            parent=a.parent,
+            value=a.value,
+            unit=a.unit,
+            period=a.period,
         )
         for a in req.actions
     ]
