@@ -21,6 +21,25 @@ from app.knowledge.linklayer.models import Keyword, Link
 from app.reasoning.tools.knowledge.link_queries import run_async
 
 
+async def _with_fresh_pool(coro):
+    """在隔离 loop 内执行；结束后归还连接池，避免跨 loop 复用。
+
+    全局 async engine 的连接池绑定创建它的 loop。工具的临时 loop 结束后，
+    池中残留的连接会在下一次调用（新 loop）里报
+    'got Future attached to a different loop'（实测 rollup_metric 踩坑）。
+    故每次用完显式 dispose，让下次重开干净连接池。
+    """
+    from app.core.database import engine
+    try:
+        return await coro
+    finally:
+        await engine.dispose()
+
+
+def _run_sync(coro):
+    return run_async(_with_fresh_pool(coro))
+
+
 _NUM_RE = re.compile(r"-?\d+(?:\.\d+)?")
 
 
@@ -34,7 +53,7 @@ def _to_float(value: str | None) -> float | None:
 
 async def _collect_rows(dimension: str, scope: str | None, as_of: str | None, limit: int) -> list[dict]:
     """按标尺（dimension × scope）收集带数值的 link 行。"""
-    from sqlalchemy import and_, func, select
+    from sqlalchemy import and_, func, or_, select
 
     from app.knowledge.linklayer.queries import _parse_cutoff, _scope_evidence_subquery
 
@@ -49,14 +68,31 @@ async def _collect_rows(dimension: str, scope: str | None, as_of: str | None, li
         )
         .select_from(Link)
         .join(Keyword, Keyword.keyword_id == Link.keyword_id)
-        .where(Keyword.layer == "dimension", Keyword.norm_text == dimension)
+        .where(
+            Keyword.layer == "dimension",
+            # 标尺匹配：精确命中 OR 沿 parent 上卷（细粒度指标归属到粗粒度标尺）。
+            # 例：查"营业收入"时应同时命中"营业收入（2024年3月31日）"这类子指标，
+            # 否则粗粒度标尺查不到值（实测 missing=86 全因此）。
+            or_(
+                Keyword.norm_text == dimension,
+                Keyword.parent_keyword_id.in_(
+                    select(Keyword.keyword_id).where(
+                        Keyword.layer == "dimension", Keyword.norm_text == dimension
+                    )
+                ),
+            ),
+        )
     )
     if scope:
         stmt = stmt.where(Link.evidence_id.in_(_scope_evidence_subquery(scope)))
     cutoff = _parse_cutoff(as_of)
     if cutoff is not None:
         stmt = stmt.where(Link.published_at <= cutoff)
-    stmt = stmt.limit(limit * 20)
+    # 只取有数值的行：本工具是「数值对比」，无值行只会挤占 limit。
+    # 期望差/无数值场景应由 metric_trend + fetch_evidence 处理。
+    stmt = stmt.where(Link.metric_value.is_not(None))
+    # 值优先 + 时间倒序：确保每主体拿到最新且有值的那条
+    stmt = stmt.order_by(Link.metric_value.is_(None), Link.published_at.desc()).limit(limit * 20)
 
     async with async_session() as session:
         rows = (await session.execute(stmt)).all()
@@ -96,7 +132,7 @@ def compare_metric(
     返回按数值降序排列的主体列表（含单位/期间），可直接看出谁高谁低、差距多少。
     若同一主体有多条记录，取最新一条。数值缺失者单列 missing_value。
     """
-    rows = run_async(_collect_rows(dimension, scope, as_of, top_k))
+    rows = _run_sync(_collect_rows(dimension, scope, as_of, top_k))
 
     # 按主体取最新一条（有数值者优先）
     latest: dict[str, dict] = {}
@@ -176,7 +212,7 @@ def rollup_metric(
                 for r in (await session.execute(child_stmt)).all()
             ]
 
-    children = run_async(_run())
+    children = _run_sync(_run())
     return {
         "parent": parent,
         "scope": scope,
@@ -230,7 +266,7 @@ def metric_trend(
                 for r in (await session.execute(stmt)).all()
             ]
 
-    rows = run_async(_run())
+    rows = _run_sync(_run())
     return {
         "subject": subject,
         "dimension": dimension,
