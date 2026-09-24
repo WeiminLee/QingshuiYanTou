@@ -174,7 +174,15 @@ def build_scan_dimension_sql(dimension: str, scope: str | None = None, as_of: st
     避免年报前十大股东等共现主体污染归属。
     """
     stmt = (
-        select(Link.evidence_id, func.max(Link.published_at).label("published_at"))
+        select(
+            Link.evidence_id,
+            func.max(Link.published_at).label("published_at"),
+            # 数值随行返回：横向对比（谁高谁低）与预期差计算的原料。
+            # 同 evidence 可能有多条同维度 link，取任一非空的数值/单位/期间。
+            func.max(Link.metric_value).label("metric_value"),
+            func.max(Link.metric_unit).label("metric_unit"),
+            func.max(Link.metric_period).label("metric_period"),
+        )
         .join(Keyword, and_(Keyword.keyword_id == Link.keyword_id, Keyword.layer == "dimension"))
         .where(Keyword.norm_text == dimension)
         .group_by(Link.evidence_id)
@@ -235,21 +243,26 @@ async def scan_dimension(
 
     # rows 已按 published_at DESC；此处按主体去重，每主体只留最新一条
     seen_subjects: set[str] = set()
-    deduped: list[tuple[str, str, str | None]] = []
+    deduped: list[dict] = []
     for r in rows:
         evid = r[0]
         subject = hint_map.get(evid) or fallback_map.get(evid)
         if not subject or subject in seen_subjects:
             continue
         seen_subjects.add(subject)
-        deduped.append((subject, evid, str(r[1]) if r[1] else None))
+        deduped.append({
+            "subject": subject,
+            "evidence_id": evid,
+            "published_at": str(r[1]) if r[1] else None,
+            # 数值/单位/期间：横向对比的标尺数据（可能为 None——该维度未抽到数值）
+            "value": r[2],
+            "unit": r[3],
+            "period": r[4],
+        })
         if len(deduped) >= limit:
             break
 
-    items = [
-        {"subject": s, "evidence_id": e, "published_at": p} for s, e, p in deduped
-    ]
-    return {"dimension": dimension, "scope": scope, "items": items, "count": len(items)}
+    return {"dimension": dimension, "scope": scope, "items": deduped, "count": len(deduped)}
 
 
 async def _cooccur_aggregate(anchor_layer: str, target_layer: str, anchor_norm: str, top_k: int) -> list[dict]:

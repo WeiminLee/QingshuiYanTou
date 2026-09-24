@@ -24,8 +24,11 @@ def test_gold_set_schema():
     assert len(data) >= 5, "gold set 至少 5 条起步"
     types_seen = set()
     for entry in data:
-        for field in ("query_id", "type", "subject", "question", "expected_evidence_ids"):
+        # subject 是「主体」字段：cross_section/theme 类是跨主体查询，天然无单一主体
+        for field in ("query_id", "type", "question", "expected_evidence_ids"):
             assert field in entry, f"缺少字段 {field}"
+        if entry["type"] == "timeline":
+            assert entry.get("subject"), "timeline 条目必须有 subject"
         assert entry["type"] in ("timeline", "cross_section", "theme")
         assert len(entry["expected_evidence_ids"]) > 0
         for evidence_id in entry["expected_evidence_ids"]:

@@ -65,6 +65,21 @@ tools:
     use: app.reasoning.tools.knowledge.link_queries:scan_dimension_tool
     description: 横截面查询：某维度（如毛利率）下各主体的证据聚合，用于跨公司对比
 
+  - name: compare_metric
+    group: knowledge
+    use: app.reasoning.tools.knowledge.metric_ops:compare_metric
+    description: 横向预期差：同一标尺下不同公司的数值对比与排名（谁高谁低、差距多少）
+
+  - name: rollup_metric
+    group: knowledge
+    use: app.reasoning.tools.knowledge.metric_ops:rollup_metric
+    description: 层次上卷：把细粒度指标聚合到粗粒度标尺下（如"高速通信线营收" ⊂ "营收"）
+
+  - name: metric_trend
+    group: knowledge
+    use: app.reasoning.tools.knowledge.metric_ops:metric_trend
+    description: 纵向预期差：同一主体在时间轴上的数值/表述变化（递进/回退/分歧）
+
   - name: lookup_products
     group: knowledge
     use: app.reasoning.tools.knowledge.link_queries:lookup_products_tool

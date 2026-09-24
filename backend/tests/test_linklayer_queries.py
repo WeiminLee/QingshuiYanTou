@@ -178,8 +178,8 @@ async def test_scan_dimension_maps_rows_to_items(monkeypatch):
     published = datetime(2026, 6, 15, tzinfo=UTC)
     session = _StubSession(
         [
-            # 第 1 次查询：evidence 集合
-            [("EV:1", published), ("EV:2", None)],
+            # 第 1 次查询：evidence 集合（含 metric 数值列）
+            [("EV:1", published, "12.46", "亿元", "2025年半年度"), ("EV:2", None, None, None, None)],
             # 第 2 次查询：主体归属（hint 优先 + 兜底行）
             [
                 ("EV:1", "003026.SZ", "hint"),
@@ -192,11 +192,11 @@ async def test_scan_dimension_maps_rows_to_items(monkeypatch):
 
     result = await queries_mod.scan_dimension("毛利率", scope="8英寸抛光硅片")
     assert result["count"] == 2
-    assert result["items"][0] == {
-        "subject": "003026.SZ",  # hint 权威主体
-        "evidence_id": "EV:1",
-        "published_at": "2026-06-15 00:00:00+00:00",
-    }
+    assert result["items"][0]["subject"] == "003026.SZ"  # hint 权威主体
+    assert result["items"][0]["evidence_id"] == "EV:1"
+    assert result["items"][0]["published_at"] == "2026-06-15 00:00:00+00:00"
+    assert result["items"][0]["value"] == "12.46"  # 数值随行返回（横向对比原料）
+    assert result["items"][0]["unit"] == "亿元"
     assert result["items"][1]["subject"] == "000776.SZ"  # 无 hint，兜底
     assert result["items"][1]["published_at"] is None
     assert result["dimension"] == "毛利率"

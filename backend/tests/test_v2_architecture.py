@@ -185,7 +185,7 @@ class TestToolRegistry:
         expected_new = {"web_fetch", "ls", "read_file", "write_file", "ask_clarification"}
         missing = expected_new - names
         assert not missing, f"New tools missing from config.yaml: {missing}"
-        assert len(names) == 35, f"Expected 35 tools in YAML, got {len(names)}"
+        assert len(names) == 38, f"Expected 38 tools in YAML, got {len(names)}"
 
 
 class TestV2MiddlewaresChain:

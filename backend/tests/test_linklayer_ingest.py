@@ -28,7 +28,7 @@ async def test_ingest_combines_dict_and_llm(monkeypatch):
     async def fake_get_evidence(self, evidence_id):
         return {
             "evidence_id": evidence_id,
-            "text_excerpt": "中晶科技产线处于调试阶段",
+            "text_excerpt": "中晶科技产线处于调试阶段，8英寸抛光硅片已量产",
             "publish_date": "2026-06-15",
             "source_type": "irm",
         }

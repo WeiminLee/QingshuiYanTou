@@ -26,6 +26,25 @@ logger = logging.getLogger(__name__)
 MATCH_MIN_CHARS = 12_000
 
 
+def _normalize_for_match(text: str) -> str:
+    """用于位置反查的归一化：全角→半角、去空白与连接符、统一小写。
+
+    实测 9.4% 的 scope 词在原文中"找不到"只是格式差异（如
+    "005L－CT 001沪" vs "005L-CT001沪"），归一化后可正确匹配，
+    避免把格式变体误判为污染而丢弃。
+    """
+    out = []
+    for ch in text:
+        code = ord(ch)
+        if 0xFF01 <= code <= 0xFF5E:  # 全角 ASCII → 半角
+            ch = chr(code - 0xFEE0)
+        elif code == 0x3000:  # 全角空格
+            ch = " "
+        out.append(ch)
+    s = "".join(out).lower()
+    return "".join(c for c in s if not c.isspace() and c not in "-_—–")
+
+
 @dataclass
 class LinkAction:
     layer: str
@@ -104,11 +123,32 @@ async def compute_link_actions(
     )
     llm_used = llm_result is not None
     if llm_result:
+        # span 回填：LLM 只给 surface，机械层用 text.find() 反查真实位置。
+        # 历史上 LLM 类 link 一律 span=0，导致无法校验"该词是否真在原文"，
+        # 是污染（跨文档串台/幻觉）无法拦截的根因。反查失败即视为污染丢弃。
+        def _locate(surface: str) -> int:
+            if not surface:
+                return -1
+            pos = match_text.find(surface)
+            if pos >= 0:
+                return pos
+            # 格式变体兜底（全角↔半角、空白差异）：归一化后再找
+            norm_surface = _normalize_for_match(surface)
+            if not norm_surface:
+                return -1
+            return _normalize_for_match(match_text).find(norm_surface)
+
         for surface in llm_result.get("company", []):
             norm = canonicalize_subject(surface, subject_index) or surface
-            actions.append(LinkAction("subject", norm, "llm", 0, 0, published))
+            pos = _locate(surface)
+            actions.append(LinkAction("subject", norm, "llm",
+                                      pos if pos >= 0 else 0, (pos + len(surface)) if pos >= 0 else 0,
+                                      published))
         for surface in llm_result.get("product", []):
-            actions.append(LinkAction("scope", surface, "llm", 0, 0, published))
+            pos = _locate(surface)
+            if pos < 0:
+                continue  # 原文不含 → 丢弃（污染拦截）
+            actions.append(LinkAction("scope", surface, "llm", pos, pos + len(surface), published))
         for m in llm_result.get("metric", []):
             # 开放词表策略：保留 LLM 原始指标名（细粒度可检索），同时标注其归属的
             # 标准维度 parent（若有）供上卷聚合。不丢弃、不替换——
@@ -116,8 +156,11 @@ async def compute_link_actions(
             name = (m.get("name") or "").strip()
             if not name:
                 continue
+            pos = _locate(name)
+            if pos < 0:
+                continue  # 原文不含 → 丢弃
             actions.append(LinkAction(
-                "dimension", name, "llm", 0, 0, published,
+                "dimension", name, "llm", pos, pos + len(name), published,
                 parent=canonicalize_dimension(name, known_dimensions),
                 value=(str(m["value"]) if m.get("value") is not None else None),
                 unit=m.get("unit"),
