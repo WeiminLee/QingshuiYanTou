@@ -25,10 +25,14 @@ metadata:
 ### 第二步：技术面
 4. `get_kline` → 获取 K 线数据，观察趋势和估值分位
 
-### 第三步：基本面
+### 第三步：基本面（含量化对标）
 5. `get_research_report` → 获取最新研报观点
 6. `get_announcement` → 查看近期公告
 7. `get_irm` → 查看投资者关系互动记录
+8. **`metric_trend(subject, dimension)`** → 该公司的指标时间线（营收/毛利率等逐期数值），
+   用于判断经营趋势；`rollup_metric("营收")` 可看营收由哪些细分子业务构成
+9. **`compare_metric(dimension, scope)`** → 与同业横向对标：同一标尺下谁高谁低、
+   差距多少（如"硅片公司毛利率排名"）
 
 ### 第四步：事件与舆情
 8. `find_events` → 搜索国内相关新闻事件（优先于 tavily_search）

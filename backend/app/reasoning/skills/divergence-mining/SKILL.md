@@ -25,28 +25,39 @@ metadata:
    - 判断递进/变化/矛盾，这是第一入口——不是语义搜索
    - 时间线完整、有序、去重；可用 `before` 向更早翻页
 2. 若不确定主体有哪些维度：`lookup_products(company)` 先摸清产品/技术面
+3. **有数值的趋势优先走 `metric_trend(subject, dimension=...)`**：直接返回时间轴上
+   的 value/unit/period，比读原文快且可量化（如营收/毛利率的逐期变化）
 
-### 第二步：分歧检测
+### 第二步：分歧检测（三类预期差各有对应工具）
 3. 在时间线上找分歧点：证据是否递进（认证→量产→放量）？是否变化（口径切换）？是否矛盾（新旧数据打架）？
 4. 判断 Fact（已发生）与 Estimate（市场预期）的错位：市场还停在旧水位吗？
+5. **按预期差类型选工具**：
+   - **横向预期差**（不同公司在同一标尺上谁高谁低）→ `compare_metric(dimension, scope)`
+     返回按数值排序的跨主体列表（含单位/期间），直接看出排名与差距
+   - **纵向预期差**（同一主体随时间递进/回退）→ `metric_trend(subject, dimension)`
+     或 `pull_history`（无数值时读原文表述）
+   - **细分结构**（大盘子由哪些细分子指标构成）→ `rollup_metric(parent)`
+     例：`rollup_metric("营收")` 列出"高速通信线营业收入"等子指标及命中量
 
 ### 第三步：才开证据分支（HypoSearch 先探索后承诺）
-5. 检测到分歧点后，才按假设开证据分支，每条分支只服务于一个待验证假设
-6. 传导验证：`lookup_players(keyword_norm_text)` 查该产品/关键字的玩家 → 传导挖掘入口
+6. 检测到分歧点后，才按假设开证据分支，每条分支只服务于一个待验证假设
+7. 传导验证：`lookup_players(keyword_norm_text)` 查该产品/关键字的玩家 → 传导挖掘入口
 
 ### 第四步：分支级证据比较
-7. `scan_dimension(dimension, scope=...)` → 横截面：该维度下各主体的证据聚合，跨公司对比验证
-8. `backlinks(evidence_id)` → 双向引用：查关键证据的全部关键字及同关键字关联证据，看证据网络是否支持分支假设
+8. `scan_dimension(dimension, scope=...)` → 横截面：该维度下各主体的证据聚合，
+   **现返回 value/unit/period**（可直接比较数值，注意期间口径需一致）
+9. `backlinks(evidence_id)` → 双向引用：查关键证据的全部关键字及同关键字关联证据，看证据网络是否支持分支假设
 
 ### 第五步：fetch_evidence 验证
-9. `fetch_evidence(evidence_id)` → 逐条追溯分支内关键证据的原文，确认 Fact 可信度
+10. `fetch_evidence(evidence_id)` → 逐条追溯分支内关键证据的原文，确认 Fact 可信度
 
 ### 第六步：write_finding 沉淀
-10. `write_finding`（T14 后可用）→ 通过验证的分歧点沉淀为 finding，强制带 evidence_id + span
+11. `write_finding`（T14 后可用）→ 通过验证的分歧点沉淀为 finding，强制带 evidence_id + span
 
 ## 关键工具
-- pull_history, scan_dimension, lookup_products, lookup_players, backlinks
-- fetch_evidence, write_finding（T14 后可用）
+- **预期差三件套**：`compare_metric`（横向）/ `metric_trend`（纵向）/ `rollup_metric`（层次）
+- 检索：pull_history, scan_dimension, lookup_products, lookup_players, backlinks
+- 验证：fetch_evidence, write_finding（T14 后可用）
 
 ## 输出要求
 - 列出发现的预期差点（按置信度排序）

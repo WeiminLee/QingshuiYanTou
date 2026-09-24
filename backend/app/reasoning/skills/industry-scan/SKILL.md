@@ -29,13 +29,17 @@ metadata:
 5. `resolve("行业关键词")` → 锚定行业核心实体
 6. `expand(entity_id, select=["upstream","downstream"])` → 产业链结构
 
-### 第四步：研报验证
-7. `get_research_report` → 获取行业研报，验证判断
+### 第四步：量化验证
+7. **`compare_metric(dimension, scope)`** → 板块内跨公司同标尺对比（如"硅片公司毛利率排名"），
+   用数值验证热度是否落到基本面
+8. **`rollup_metric(parent)`** → 看该标尺由哪些细分构成，定位真正的高增长子赛道
+9. `get_research_report` → 获取行业研报，验证判断
 
 ## 关键工具
 - get_concept_hot, get_market_breadth
 - find_events, tavily_search
 - resolve, expand
+- **compare_metric, rollup_metric**（量化横评与细分定位）
 - get_research_report
 
 ## 输出要求

@@ -80,6 +80,16 @@ tools:
     use: app.reasoning.tools.knowledge.metric_ops:metric_trend
     description: 纵向预期差：同一主体在时间轴上的数值/表述变化（递进/回退/分歧）
 
+  - name: related_nodes
+    group: knowledge
+    use: app.reasoning.tools.knowledge.graph_walk:related_nodes
+    description: 图传递（一跳）：某节点的关联节点及共现广度（边由同证据共现涌现）
+
+  - name: propagate_along
+    group: knowledge
+    use: app.reasoning.tools.knowledge.graph_walk:propagate_along
+    description: 图传递（多跳）：沿共现链找间接关联（产业链传导、隐藏关联）
+
   - name: lookup_products
     group: knowledge
     use: app.reasoning.tools.knowledge.link_queries:lookup_products_tool
