@@ -140,12 +140,13 @@ async def main() -> None:
                 total_deleted += len(batch_bad)
 
             last = rows[-1]
-            _save_cursor(last[0], last[2])
+            cursor = (last[0], last[2])
+            _save_cursor(*cursor)
 
             print(
                 f"已检查 {total_checked}，污染 {total_bad}"
                 f"（{100*total_bad/max(total_checked,1):.1f}%），已删 {total_deleted}，"
-                f"游标 kw={last[0][:8]}.. ev={last[2][:10]}..",
+                f"游标 kw={last[0]} ev={last[2][:12]}..",
                 flush=True,
             )
             if args.limit and total_checked >= args.limit:
