@@ -113,3 +113,4 @@ backend/data/board_concept/
 
 # Agent/图表工具生成的运行产物
 backend/static/charts/*.html
+backend/eval/local_extract_*/

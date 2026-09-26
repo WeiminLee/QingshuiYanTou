@@ -1,43 +1,281 @@
 [
-  {
-    "query_id": "timeline-zj-001",
-    "type": "timeline",
-    "subject": "中晶科技",
-    "dimension": "产线进展",
-    "question": "中晶科技 8 英寸抛光硅片产线的进展如何演进？",
-    "expected_evidence_ids": [
-      "EV:ed90f88e337858eaae2ece0caa1d5330515a3c9ebeb19e8872d8ebb225d4fa5b",
-      "EV:57eec7ade2fd552302d0d8f99173b112b21c19e07b5ccf117f6f47a74d8b4d81",
-      "EV:db32e43cc82d07fb88ea2b7a00d6252c3a5e725821c9c144b3aa0a41436bd275"
-    ],
-    "hard_negative_evidence_ids": [],
-    "note": "真实证据链：2-23 增产上量+认证中 → 7-14 产能爬坡+认证关键期 → 8-13 产能释放承接订单"
-  },
-  {
-    "query_id": "cross_section-margin-001",
-    "type": "cross_section",
-    "subject": null,
-    "dimension": "毛利率",
-    "scope": "硅片",
-    "question": "生产8英寸抛光硅片的公司毛利率对比",
-    "expected_evidence_ids": [
-      "EV:4b9324417a4d9a88504fb7a33affd849d384761357ab37f9dede58569fb4ba21",
-      "EV:103cfda420248f23a03d64d953957686740788a9ae9362b72f46fe4e1d6822ff",
-      "EV:e9ad8c9dd58a8dd8fe6202473b056506423bf52313e6cb6d502af6f81b309e56"
-    ],
-    "hard_negative_evidence_ids": [],
-    "note": "真实证据：中晶科技2026年报/神工股份半年报/光力科技半年报，均含毛利率与硅片"
-  },
-  {
-    "query_id": "theme-ai-copper-foil-001",
-    "type": "theme",
-    "subject": null,
-    "dimension": null,
-    "question": "AI 算力服务器高速传输专用压延铜箔的量产扩产与客户覆盖进展如何？",
-    "expected_evidence_ids": [
-      "EV:b147cb8d396fc071e5d8688d44d5f5c2ad6bce36035a437b2b39aa80154f8234"
-    ],
-    "hard_negative_evidence_ids": [],
-    "note": "theme 由向量通道负责：scan_dimension 对 dimension=None 返回空（见 queries.py 设计注释），本条目只计入 semantic 基线，不计入 link 通道分母"
-  }
+ {
+  "query_id": "timeline-zj-001",
+  "type": "timeline",
+  "subject": "中晶科技",
+  "dimension": "产线进展",
+  "question": "中晶科技 8 英寸抛光硅片产线的进展如何演进？",
+  "expected_evidence_ids": [
+   "EV:ed90f88e337858eaae2ece0caa1d5330515a3c9ebeb19e8872d8ebb225d4fa5b",
+   "EV:57eec7ade2fd552302d0d8f99173b112b21c19e07b5ccf117f6f47a74d8b4d81",
+   "EV:db32e43cc82d07fb88ea2b7a00d6252c3a5e725821c9c144b3aa0a41436bd275"
+  ],
+  "hard_negative_evidence_ids": [],
+  "note": "真实证据链：2-23 增产上量+认证中 → 7-14 产能爬坡+认证关键期 → 8-13 产能释放承接订单"
+ },
+ {
+  "query_id": "cross_section-margin-001",
+  "type": "cross_section",
+  "subject": null,
+  "dimension": "毛利率",
+  "scope": "硅片",
+  "question": "生产8英寸抛光硅片的公司毛利率对比",
+  "expected_evidence_ids": [
+   "EV:4b9324417a4d9a88504fb7a33affd849d384761357ab37f9dede58569fb4ba21",
+   "EV:103cfda420248f23a03d64d953957686740788a9ae9362b72f46fe4e1d6822ff",
+   "EV:e9ad8c9dd58a8dd8fe6202473b056506423bf52313e6cb6d502af6f81b309e56"
+  ],
+  "hard_negative_evidence_ids": [],
+  "note": "真实证据：中晶科技2026年报/神工股份半年报/光力科技半年报，均含毛利率与硅片"
+ },
+ {
+  "query_id": "theme-ai-copper-foil-001",
+  "type": "theme",
+  "subject": null,
+  "dimension": null,
+  "question": "AI 算力服务器高速传输专用压延铜箔的量产扩产与客户覆盖进展如何？",
+  "expected_evidence_ids": [
+   "EV:b147cb8d396fc071e5d8688d44d5f5c2ad6bce36035a437b2b39aa80154f8234"
+  ],
+  "hard_negative_evidence_ids": [],
+  "note": "theme 由向量通道负责：scan_dimension 对 dimension=None 返回空（见 queries.py 设计注释），本条目只计入 semantic 基线，不计入 link 通道分母"
+ },
+ {
+  "query_id": "cross_section-auto-015",
+  "type": "cross_section",
+  "dimension": "订单",
+  "scope": "硅片",
+  "question": "哪家公司实现半导体8-12英寸大硅片设备的国产化？",
+  "expected_evidence_ids": [
+   "EV:b4fd5237fcf1c259a4423e8910b1b7e660042239f6d93b6d06c8c5a64dc5caa8"
+  ],
+  "hard_negative_evidence_ids": [
+   "EV:20f8c004053f6bca0a2ce34711c0b5b08505fc549bb7ba24162c6203475a7bad",
+   "EV:3a803ba2388c9cb7fea8fc9ad91be311044dfb2ebfb99a093624b042ccd315f5",
+   "EV:74de3026ebd7108aa2a322c816a915e7575e7b5e8089c95b77630e408332285f"
+  ],
+  "note": "prescreen-approved 2026-09-20; auto-generated; content-token filtered; pending human review | prescreen(true): 预审修复：问句原表述歧义（硅片+设备混淆），按证据（晶盛机电300316 IRM：8-12英寸大硅片设备国产化）改写为单答案问句"
+ },
+ {
+  "query_id": "cross_section-auto-018",
+  "type": "cross_section",
+  "dimension": "加权平均净资产收益率",
+  "scope": "硅片",
+  "question": "列出2026年半年度加权平均净资产收益率最高的硅片公司。",
+  "expected_evidence_ids": [
+   "EV:74de3026ebd7108aa2a322c816a915e7575e7b5e8089c95b77630e408332285f",
+   "EV:b5bbd2803f4680eb216be67c02fea28a42b75b859fe317c455d10713147b5cd5"
+  ],
+  "hard_negative_evidence_ids": [
+   "EV:3a803ba2388c9cb7fea8fc9ad91be311044dfb2ebfb99a093624b042ccd315f5"
+  ],
+  "note": "prescreen-approved 2026-09-20; auto-generated; content-token filtered; pending human review | prescreen(true): 预审保留：晶澳/双良中报均含硅片业务与ROE数据；拓日(非硅片制造)移为hard negative"
+ },
+ {
+  "query_id": "cross_section-auto-022",
+  "type": "cross_section",
+  "dimension": "单价",
+  "scope": "硅片",
+  "question": "2026年上半年，哪些硅片生产企业的产品单价最高？",
+  "expected_evidence_ids": [
+   "EV:74de3026ebd7108aa2a322c816a915e7575e7b5e8089c95b77630e408332285f",
+   "EV:b5bbd2803f4680eb216be67c02fea28a42b75b859fe317c455d10713147b5cd5"
+  ],
+  "hard_negative_evidence_ids": [
+   "EV:3c655ea76d2e5f92880af7ac68471b8a166cb9418c7e26520474b2486f172856"
+  ],
+  "note": "prescreen-approved 2026-09-20; auto-generated; content-token filtered; pending human review | prescreen(true): 预审保留：晶澳/双良含价格数据；永臻(铝材)移为hard negative"
+ },
+ {
+  "query_id": "cross_section-auto-023",
+  "type": "cross_section",
+  "dimension": "总资产",
+  "scope": "硅片",
+  "question": "2026年半年度总资产最高的硅片公司是哪一家？",
+  "expected_evidence_ids": [
+   "EV:74de3026ebd7108aa2a322c816a915e7575e7b5e8089c95b77630e408332285f",
+   "EV:b5bbd2803f4680eb216be67c02fea28a42b75b859fe317c455d10713147b5cd5"
+  ],
+  "hard_negative_evidence_ids": [
+   "EV:3a803ba2388c9cb7fea8fc9ad91be311044dfb2ebfb99a093624b042ccd315f5",
+   "EV:3c655ea76d2e5f92880af7ac68471b8a166cb9418c7e26520474b2486f172856"
+  ],
+  "note": "prescreen-approved 2026-09-20; auto-generated; content-token filtered; pending human review | prescreen(true): 预审保留：晶澳/双良中报含对应财务指标，硅片业务实质命中(46-86次)；拓日(非硅片制造)、永臻(铝材)移为hard negative"
+ },
+ {
+  "query_id": "cross_section-auto-024",
+  "type": "cross_section",
+  "dimension": "归属于上市公司股东的净资产",
+  "scope": "硅片",
+  "question": "2026年半年度，哪些硅片公司的归属于上市公司股东的净资产最高？",
+  "expected_evidence_ids": [
+   "EV:74de3026ebd7108aa2a322c816a915e7575e7b5e8089c95b77630e408332285f",
+   "EV:b5bbd2803f4680eb216be67c02fea28a42b75b859fe317c455d10713147b5cd5"
+  ],
+  "hard_negative_evidence_ids": [
+   "EV:3a803ba2388c9cb7fea8fc9ad91be311044dfb2ebfb99a093624b042ccd315f5",
+   "EV:3c655ea76d2e5f92880af7ac68471b8a166cb9418c7e26520474b2486f172856"
+  ],
+  "note": "prescreen-approved 2026-09-20; auto-generated; content-token filtered; pending human review | prescreen(true): 预审保留：晶澳/双良中报含对应财务指标，硅片业务实质命中(46-86次)；拓日(非硅片制造)、永臻(铝材)移为hard negative"
+ },
+ {
+  "query_id": "cross_section-auto-025",
+  "type": "cross_section",
+  "dimension": "经营活动产生的现金流量净额",
+  "scope": "硅片",
+  "question": "2026年半年度，硅片行业各公司经营活动产生的现金流量净额排名",
+  "expected_evidence_ids": [
+   "EV:74de3026ebd7108aa2a322c816a915e7575e7b5e8089c95b77630e408332285f",
+   "EV:b5bbd2803f4680eb216be67c02fea28a42b75b859fe317c455d10713147b5cd5"
+  ],
+  "hard_negative_evidence_ids": [
+   "EV:3a803ba2388c9cb7fea8fc9ad91be311044dfb2ebfb99a093624b042ccd315f5",
+   "EV:3c655ea76d2e5f92880af7ac68471b8a166cb9418c7e26520474b2486f172856"
+  ],
+  "note": "prescreen-approved 2026-09-20; auto-generated; content-token filtered; pending human review | prescreen(true): 预审保留：晶澳/双良中报含对应财务指标，硅片业务实质命中(46-86次)；拓日(非硅片制造)、永臻(铝材)移为hard negative"
+ },
+ {
+  "query_id": "cross_section-auto-026",
+  "type": "cross_section",
+  "dimension": "归属于上市公司股东的净利润",
+  "scope": "硅片",
+  "question": "2026年上半年归属于上市公司股东的净利润最高的硅片公司是哪一家？",
+  "expected_evidence_ids": [
+   "EV:74de3026ebd7108aa2a322c816a915e7575e7b5e8089c95b77630e408332285f",
+   "EV:b5bbd2803f4680eb216be67c02fea28a42b75b859fe317c455d10713147b5cd5"
+  ],
+  "hard_negative_evidence_ids": [
+   "EV:3a803ba2388c9cb7fea8fc9ad91be311044dfb2ebfb99a093624b042ccd315f5",
+   "EV:3c655ea76d2e5f92880af7ac68471b8a166cb9418c7e26520474b2486f172856"
+  ],
+  "note": "prescreen-approved 2026-09-20; auto-generated; content-token filtered; pending human review | prescreen(true): 预审保留：晶澳/双良中报含对应财务指标，硅片业务实质命中(46-86次)；拓日(非硅片制造)、永臻(铝材)移为hard negative"
+ },
+ {
+  "query_id": "cross_section-auto-027",
+  "type": "cross_section",
+  "dimension": "归属于上市公司股东的扣除非经常性损益的净利润",
+  "scope": "硅片",
+  "question": "列出2026年半年度归属于上市公司股东的扣除非经常性损益的净利润为正的硅片公司。",
+  "expected_evidence_ids": [
+   "EV:74de3026ebd7108aa2a322c816a915e7575e7b5e8089c95b77630e408332285f",
+   "EV:b5bbd2803f4680eb216be67c02fea28a42b75b859fe317c455d10713147b5cd5"
+  ],
+  "hard_negative_evidence_ids": [
+   "EV:3a803ba2388c9cb7fea8fc9ad91be311044dfb2ebfb99a093624b042ccd315f5",
+   "EV:3c655ea76d2e5f92880af7ac68471b8a166cb9418c7e26520474b2486f172856"
+  ],
+  "note": "prescreen-approved 2026-09-20; auto-generated; content-token filtered; pending human review | prescreen(true): 预审保留：晶澳/双良中报含对应财务指标，硅片业务实质命中(46-86次)；拓日(非硅片制造)、永臻(铝材)移为hard negative"
+ },
+ {
+  "query_id": "cross_section-auto-028",
+  "type": "cross_section",
+  "dimension": "营业收入",
+  "scope": "硅片",
+  "question": "2026年上半年营业收入最高的硅片生产企业是哪家公司？",
+  "expected_evidence_ids": [
+   "EV:74de3026ebd7108aa2a322c816a915e7575e7b5e8089c95b77630e408332285f",
+   "EV:b5bbd2803f4680eb216be67c02fea28a42b75b859fe317c455d10713147b5cd5"
+  ],
+  "hard_negative_evidence_ids": [
+   "EV:3a803ba2388c9cb7fea8fc9ad91be311044dfb2ebfb99a093624b042ccd315f5",
+   "EV:3c655ea76d2e5f92880af7ac68471b8a166cb9418c7e26520474b2486f172856"
+  ],
+  "note": "prescreen-approved 2026-09-20; auto-generated; content-token filtered; pending human review | prescreen(true): 预审保留：晶澳/双良中报含对应财务指标，硅片业务实质命中(46-86次)；拓日(非硅片制造)、永臻(铝材)移为hard negative"
+ },
+ {
+  "query_id": "theme-auto-031",
+  "type": "theme",
+  "scope": "硅片",
+  "question": "硅片业务垂直一体化战略下，公司如何平衡自有产能与采购策略以应对价格波动并实现降本增效？",
+  "expected_evidence_ids": [
+   "EV:a8c24b2226c534e0fff73f07924192ce13fc04a44cae3fe06e471b5a9c3d6056"
+  ],
+  "hard_negative_evidence_ids": [
+   "EV:20f8c004053f6bca0a2ce34711c0b5b08505fc549bb7ba24162c6203475a7bad",
+   "EV:3a803ba2388c9cb7fea8fc9ad91be311044dfb2ebfb99a093624b042ccd315f5"
+  ],
+  "note": "prescreen-approved 2026-09-20; auto-generated; content-token filtered; pending human review | prescreen(true): 预审保留：晶澳IRM(a8c24b22)正面回答垂直一体化战略；新北洋/拓日移为hard negative"
+ },
+ {
+  "query_id": "timeline-auto-001",
+  "type": "timeline",
+  "subject": "云南锗业",
+  "subject_code": "002428.SZ",
+  "question": "云南锗业光伏级锗单晶片及太空太阳能电池业务的进展如何演进？",
+  "expected_evidence_ids": [
+   "EV:5ae0f90610742d7687b4f7fc0b2f6420800c0b6cb75af7be5848d9eac2cbbaf3",
+   "EV:740a1f244de91488ef709fa504823d4cd4bef4fdd9c08f6c112f16759d6abfc2",
+   "EV:a6a2f85d01b34d6b05405d3374a773c87244db3b4dd10d69356419d38c2bfc74",
+   "EV:ae0229473387610d53300a8de4799b3a6d137f9d95603ec7df28c76c7aa1eb79"
+  ],
+  "hard_negative_evidence_ids": [
+   "EV:0133696cd6f463567c4c3b0e4dcd921630008900175d7fc6b408e2489106a91f"
+  ],
+  "note": "prescreen-approved 2026-09-20; auto-generated; content-token filtered; pending human review | prescreen(true): 预审修复：原subject'太阳能(000591)'系关键词误标，4条IRM均为云南锗业(002428)本体证据（锗单晶片/太空电池），按hint身份改正主体并重写问句"
+ },
+ {
+  "query_id": "timeline-auto-002",
+  "type": "timeline",
+  "subject": "新北洋",
+  "subject_code": "002376.SZ",
+  "dimension": "市值",
+  "question": "请梳理新北洋（002376.SZ）在智能自助终端、物流自动化及专用打印扫描领域的核心业务进展与时间演进。",
+  "expected_evidence_ids": [
+   "EV:08201275df28995b9e512b6ad4c852ee013ff529830d16a6af1f2747d3ebccd1",
+   "EV:4419449ac3538aceb39f627d44dd4a35bbe0aec995b5d2439e670e397b4dcd90",
+   "EV:4e1877aee3a3293dc825802a2085813415c6640242dd85d55a8dbbe7b577f26a"
+  ],
+  "hard_negative_evidence_ids": [
+   "EV:e532ae0211c30f8e487beb437fca02e9b040614b529ac5248d9ae944dc66464a"
+  ],
+  "note": "prescreen-approved 2026-09-20; auto-generated; content-token filtered; pending human review | prescreen(true): 预审通过：4条IRM全部为新北洋(002376)本体（售货机/AGV/打印扫描），删去股东户数1条；dimension原'市值'与证据不符置空"
+ },
+ {
+  "query_id": "timeline-auto-003",
+  "type": "timeline",
+  "subject": "高德红外",
+  "subject_code": "002414.SZ",
+  "question": "高德红外军工无人机配套业务及关联资产注入进展如何演进？",
+  "expected_evidence_ids": [
+   "EV:16283208b95e72d05126992b65f5d730c1e855db5553bd314a511631a2ee69d0",
+   "EV:82f12e9f23240b02ad936b82353836b1cb40618135ce89fc77c7c535bcd2c106"
+  ],
+  "hard_negative_evidence_ids": [
+   "EV:21030661b099731f4376d73cc0909579e4b3c37e43c2e9d2c0e45296515d8e01",
+   "EV:24c1cf104c54ffbe92e95f0db5e0f809d8a0d16919e0c68753d3961170fe65ad",
+   "EV:c8b0022cda9197323b64305317fae14e5f25e25664c1eb4b650b77a9d1a2c714"
+  ],
+  "note": "prescreen-approved 2026-09-20; auto-generated; content-token filtered; pending human review | prescreen(true): 预审修复：原subject'高端装备(000097)'误标，2条IRM为高德红外(002414)本体（导弹配套无人机/关联普宙重组），晶升/沃尔德年报删除"
+ },
+ {
+  "query_id": "timeline-auto-005",
+  "type": "timeline",
+  "subject": "启明星辰",
+  "subject_code": "002439.SZ",
+  "question": "启明星辰被中国移动实控后的业务融合与订单进展如何演进？",
+  "expected_evidence_ids": [
+   "EV:8c3d8e1abba4f152a6e93c9c0348142f92c5025c1f097769a6dc59f81df4d315",
+   "EV:beceab1071d34ee70bae5b8794b21b5a5e93489a3f52024ee390e7a8dfc54187",
+   "EV:6c749bf583c9db0bd615988a4ff3f02ba0f7809356ff8dc7d459d76c2e6a097b"
+  ],
+  "hard_negative_evidence_ids": [],
+  "note": "prescreen-approved 2026-09-20; auto-generated; content-token filtered; pending human review | prescreen(true): 预审修复：原问句'CMMI5认证'证据不可答；3条IRM为启明星辰(002439)本体（中国移动入主后融合），按证据重写问句"
+ },
+ {
+  "query_id": "timeline-auto-008",
+  "type": "timeline",
+  "subject": "四维图新",
+  "subject_code": "002405.SZ",
+  "question": "四维图新智能驾驶出货与新增订单业务的进展如何演进？",
+  "expected_evidence_ids": [
+   "EV:713db5a8b9e8b054763ce93b2f509d76c3220d530828c452d7bfb07e7363974d",
+   "EV:5b79f5707af5c0b4173fe7e03633708f9d19bd2ee96fe3cce0fa69a0af071126",
+   "EV:78b26af286d9f9ef2c4642a8c2ec5c00c3c91b61bf182bc0891b39bb4e114294"
+  ],
+  "hard_negative_evidence_ids": [
+   "EV:13e26d16321b20c699d929ca65768aaac54e7c39da650f6e7d1bc1ceca30eb53",
+   "EV:1ce7e90c2fb1234ab7855af737f01b3f9ba970d8857c5eb7ae1d59ac35b397b0"
+  ],
+  "note": "prescreen-approved 2026-09-20; auto-generated; content-token filtered; pending human review | prescreen(true): 预审修复：原证据含苏州天脉/杉杉年报2条杂物；3条IRM为四维图新(002405)本体，按证据重写问句"
+ }
 ]
