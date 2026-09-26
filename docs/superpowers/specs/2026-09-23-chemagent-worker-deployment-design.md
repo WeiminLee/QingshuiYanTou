@@ -287,3 +287,37 @@ rjob submit \
 - 状态总览：`bash /mnt/shared-storage-user/liweimin/qingshui/status.sh`
 - worker 服务：`systemctl {status,restart} qingshui-worker.service`
 - GPU 服务：`rjob list` / `rjob submit ... serve.sh`
+
+## 14. 预期差系统落地记录（2026-09-25）
+
+### 14.1 新增能力（commits e1a318d → 3cbcd3d）
+
+| 能力 | 工具/入口 | 验证 |
+|---|---|---|
+| 三类预期差 | `compare_metric`(横向) / `metric_trend`(纵向) / `rollup_metric`(层次) | 容器内实测通过 |
+| 图传递 | `related_nodes`(一跳) / `propagate_along`(多跳)，link 共现图，不依赖已冻结的 Neo4j | 中晶科技/硅片实测 |
+| metric 数值落库 | `LinkAction` 扩展 `parent/value/unit/period`，迁移 029 | 80.9 万带值 link |
+| Skill 接入 | divergence-mining / stock-deep-dive / industry-scan 三处补入调用指引 | — |
+
+YAML 工具 40 条目（含 3 个 disabled 的 neo4j_*，enabled=37）。
+
+### 14.2 数据治理
+
+- 污染清洗（`scripts/clean_link_pollution.py` v2）：全量检查 501.8 万条，
+  删除 LLM 类 span 校验不合格 link **50,069 条（1.0%）**；随机复检 100 条零残留。
+  v2 特性：keyset 分页 + 批删即提交 + 断点续跑（曾修复游标不前进的 O(n²) 重扫）。
+- failed 任务治理：887 → 0（627 benign IRM skip 改标 / 83 evidence_gone 改标 /
+  177 真失败回收重试）；`qingshui_failed_monitor.sh` cron 每 30 分自动兜底。
+- 互动易补漏：fail 581 → 0。
+- 连接池：PG pool 30+20（`DB_POOL_SIZE`/`DB_MAX_OVERFLOW`），worker 并发 24/24。
+- `.dockerignore` 补 `!data/company_aliases.json`：subject 中文名查询需经
+  别名表转 ts_code（此前容器内缺失导致 `found=False`）。
+
+### 14.3 实战试跑暴露的数据质量长尾（后续 task）
+
+1. `rollup_metric` 的 children 含表述碎片（"占X比例"/"X合计"/"复合增长率"），
+   需 normalize 加组合词过滤或 parent 映射表。
+2. `propagate_along` 默认 `min_cooccur` 应降为 2（5 太严，硅片只剩 1 家公司）。
+3. metric_trend 在部分标的上无数值点（需配合 dimension=None 查全指标）。
+
+回填收尾状态：done 78.2 万 / pending ~1.5k / failed 26 / skipped 15.2 万。
