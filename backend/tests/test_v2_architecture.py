@@ -185,7 +185,14 @@ class TestToolRegistry:
         expected_new = {"web_fetch", "ls", "read_file", "write_file", "ask_clarification"}
         missing = expected_new - names
         assert not missing, f"New tools missing from config.yaml: {missing}"
-        assert len(names) == 40, f"Expected 40 tools in YAML, got {len(names)}"
+        # 40 个条目，其中 3 个 neo4j_* 因依赖冻结而 disabled → enabled 37
+        assert len(names) == 40, f"Expected 40 YAML entries, got {len(names)}"
+        disabled = {t["name"] for t in data["tools"] if not t.get("enabled", True)}
+        assert disabled == {
+            "neo4j_traverse",
+            "neo4j_entity_info",
+            "neo4j_kg_search",
+        }, f"Unexpected disabled set: {disabled}"
 
 
 class TestV2MiddlewaresChain:
