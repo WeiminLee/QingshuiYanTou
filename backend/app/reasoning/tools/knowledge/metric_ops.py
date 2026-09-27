@@ -84,7 +84,30 @@ async def _collect_rows(dimension: str, scope: str | None, as_of: str | None, li
         )
     )
     if scope:
-        stmt = stmt.where(Link.evidence_id.in_(_scope_evidence_subquery(scope)))
+        # 两段式 scope 归因（实战发现：值句与产品句常不在同一 evidence，
+        # 仅按 evidence 命中会把横评归零）。修法：
+        #   A) evidence 直接命中"硅片"scope；或
+        #   B) 该行的 subject 曾出现在 scope 命中证据里（主体级归因）。
+        from sqlalchemy.orm import aliased
+
+        ids_scope = _scope_evidence_subquery(scope)
+        LinkA = aliased(Link)
+        KeywordA = aliased(Keyword)
+        subject_ids_scope = (
+            select(KeywordA.keyword_id)
+            .select_from(LinkA, KeywordA)
+            .where(
+                LinkA.keyword_id == KeywordA.keyword_id,
+                KeywordA.layer == "subject",
+                LinkA.evidence_id.in_(ids_scope),
+            )
+        ).scalar_subquery()
+        stmt = stmt.where(
+            or_(
+                Link.evidence_id.in_(ids_scope),
+                Link.keyword_id.in_(subject_ids_scope),
+            )
+        )
     cutoff = _parse_cutoff(as_of)
     if cutoff is not None:
         stmt = stmt.where(Link.published_at <= cutoff)
