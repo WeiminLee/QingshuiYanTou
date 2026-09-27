@@ -75,6 +75,7 @@ logs/
 
 backend/storage/
 backend/data/
+!backend/data/company_aliases.json
 backend/uploads/
 *.db
 *.sqlite

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -26,10 +27,27 @@ class DictMatch:
 
 
 class SubjectIndex:
-    """公司别名 → 规范名（上市优先 ts_code）。v1 从 company_aliases.json + stocks 表构建。"""
+    """公司别名 → 规范名（上市优先 ts_code）。v1 从 company_aliases.json + stocks 表构建。
+
+    规范化两级：
+      1) 精确命中：alias_to_norm[surface]（简称/规范全称/ts_code）；
+      2) 前缀规则：surface 以某 alias（len>=4）开头，且 alias 后接的是公司后缀
+        （股份有限公司/有限公司/集团…）→ 该 alias 的规范名。
+        解注册全称（如"隆基绿能科技股份有限公司" = 简称"隆基绿能" + 注册后缀）
+        ——LLM 常抽全称，纯精确匹配会 miss 而落全称碎片（实战已见）。
+    """
+
+    _SUFFIXES = (
+        "股份有限公司", "集团股份有限公司", "科技集团股份有限公司",
+        "有限公司", "控股有限公司", "集团控股有限公司",
+    )
 
     def __init__(self, alias_to_norm: dict[str, str]) -> None:
         self.alias_to_norm = dict(alias_to_norm)
+        # ts_code 自身（hint 路径的规范形态）恒等映射，避免精确 get miss
+        for norm in list(self.alias_to_norm.values()):
+            if re.fullmatch(r"\d{6}\.(SH|SZ|BJ|SI)", norm):
+                self.alias_to_norm.setdefault(norm, norm)
 
     def match(self, text: str):
         for alias, norm in self.alias_to_norm.items():
@@ -40,6 +58,25 @@ class SubjectIndex:
                     span_start=start, span_end=start + len(alias),
                 )
                 start += len(alias)
+
+    def canonicalize(self, surface: str) -> str | None:
+        """LLM 抽出的公司 surface → 规范主体名。规则：精确 → 前缀+后缀 → 后缀剥离。"""
+        s = (surface or "").strip()
+        if not s:
+            return None
+        if s in self.alias_to_norm:
+            return self.alias_to_norm[s]
+        # 前缀规则：surface 以 alias 开头
+        for alias, norm in self.alias_to_norm.items():
+            if s.startswith(alias) and len(alias) >= 4:
+                return norm
+        # 后缀剥离：稳态实践——"XX股份有限公司"剥到"XX"，仅对最短后缀最末级
+        for suf in self._SUFFIXES:
+            if s.endswith(suf):
+                stem = s[: -len(suf)]
+                if stem and stem in self.alias_to_norm:
+                    return self.alias_to_norm[stem]
+        return None
 
 
 def load_alias_table() -> dict[str, str]:

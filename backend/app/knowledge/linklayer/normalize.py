@@ -10,8 +10,12 @@ from app.knowledge.linklayer.models import Keyword, make_keyword_id
 
 
 def canonicalize_subject(surface: str, subject_index: SubjectIndex) -> str | None:
-    """公司 surface form → ts_code（上市）或规范全称（非上市）。查不到返回 None。"""
-    return subject_index.alias_to_norm.get(surface)
+    """公司 surface form → ts_code（上市）或规范全称（非上市）。查不到返回 None。
+
+    两级：精确（ts_code/简称/规范全称）→ 前缀/后缀规则
+    （"隆基绿能科技股份有限公司" = 简称"隆基绿能"+注册后缀 → ts_code）。
+    """
+    return subject_index.canonicalize(surface)
 
 
 # 标准维度 → 判定词。LLM 的 metric.name 是原文字面串（可能是
