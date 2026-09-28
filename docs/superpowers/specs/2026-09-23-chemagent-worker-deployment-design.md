@@ -321,3 +321,19 @@ YAML 工具 40 条目（含 3 个 disabled 的 neo4j_*，enabled=37）。
 3. metric_trend 在部分标的上无数值点（需配合 dimension=None 查全指标）。
 
 回填收尾状态：done 78.2 万 / pending ~1.5k / failed 26 / skipped 15.2 万。
+
+### 14.4 数据口径长尾收口（2026-09-28，报告 v2 同日）
+
+| 长尾 | 修法 | 存量规模 |
+|---|---|---|
+| rollup 占比碎片 | normalize 占比黑名单摘 parent（词保留） | 摘除 2,006 条 |
+| unit-type 混型 | enforce_unit 按标准维度分型（毛利率=ratio/营收/净利润=money）不落数值 | 摘 value 11,071 行 |
+| period 字面串 | canonicalize_period（FY/H1/Q1 标签）增量+存量 | 归一 337,540 行 |
+| hop2 中性词 | graph_walk stop-list（公司/证监会/债券/注册资本…） | hop2 只剩真主体（华为/比亚迪/英伟达） |
+
+subject 规范化三级规则（精确/前缀/后缀剥离，子公司保真），存量迁移 8,783 词
+/114k link（d040a61）。硅片实战全链路产出 v1/v2 两版报告（2e192c1 / f0314b6）。
+
+**运维提醒**：chemagent worker（systemd）自 2024-09-24 起未重启，2026-09-28
+11:41 重启加载新规则代码——增量入口已验证守住（占比词 0 错挂）。
+linklayer 规则改动后必须 `systemctl restart qingshui-worker.service`。
