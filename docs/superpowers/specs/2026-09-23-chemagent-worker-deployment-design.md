@@ -337,3 +337,16 @@ subject 规范化三级规则（精确/前缀/后缀剥离，子公司保真）�
 **运维提醒**：chemagent worker（systemd）自 2024-09-24 起未重启，2026-09-28
 11:41 重启加载新规则代码——增量入口已验证守住（占比词 0 错挂）。
 linklayer 规则改动后必须 `systemctl restart qingshui-worker.service`。
+### 14.5 增量链路冒烟验收（2026-09-28，worker 重启后）
+
+选最近 done 的互动易 evidence（EV:ba08c8cf…，定增前十大股东问答），四段验证：
+
+1. evidence 原文完整走 extract→link。
+2. ** subject 规范**：hint 形态落 ts_code（300252.SZ）；基金/资管/律所等非上市
+   主体按规则保留文字实体（不强行映射 ts_code）。
+3. **占比黑名单生效**：0 条占比类词错挂 parent。
+4. **unit/period 落库**：「股东总数=64,583 位（2026年6月30日）」正确存值行；
+   遗留观察项：日期型 period（X月X日）未细分（归入 FY/保留原串），占比碎片
+   仍可能从新词进入 scope 层（词保留合法），不影响主标尺。
+
+结论：增量链路按新规则运转——主标尺干净可接 AI 分析。
