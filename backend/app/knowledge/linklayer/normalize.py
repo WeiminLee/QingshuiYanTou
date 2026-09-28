@@ -119,12 +119,15 @@ _DIM_UNIT_TYPE: dict[str, str] = {
 
 
 def clean_metric_value(value: str | None) -> str | None:
-    """value 串去单位尾巴（LLM 常抓 "290亿元" 带"亿元"塞进 value）。"""
+    """value 串去单位尾巴（LLM 常抓 "290亿元" 带"亿元"塞进 value）；无数字 → None。
+
+    实例：'国内同行业首位' 无数字 → 摘（LLM 有时把定性表述当数值抓入）；
+    '80%以上' → '80'（数字可取时可量化）。"""
     if value is None:
         return None
     v = str(value).strip()
     m = re.search(r"-?\d[\d,.]*", v)
-    return m.group(0) if m else v
+    return m.group(0) if m else None
 
 
 def enforce_unit(dimension: str | None, unit: str | None) -> bool:
