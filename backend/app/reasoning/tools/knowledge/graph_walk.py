@@ -17,14 +17,25 @@ from typing import Annotated
 
 from langchain_core.tools import tool
 
-from app.reasoning.tools.knowledge.link_queries import run_async
-
 _LAYER_ZH = {
     "subject": "公司",
     "scope": "产品/主题",
     "dimension": "指标",
     "stage": "阶段",
 }
+
+# 通信面 stop-list：泛化主体/机构/融资文书等无信息量共现词。
+# 实战 [4] 中挤占 top（中国证监会 7230 / 公司 7187 / 可转换公司债券 6447）。
+# 机械子串匹配。
+_STOP_SUBSTRINGS: tuple[str, ...] = (
+    "公司", "证监会", "交易所", "投资者", "监管", "仲裁", "诉讼", "法院",
+    "债券", "股票", "优先股", "发行", "律师", "会计师", "银行", "证券",
+    "注册资本", "合计",
+)
+
+
+def _is_stopword(subject_name: str) -> bool:
+    return any(s in (subject_name or "") for s in _STOP_SUBSTRINGS)
 
 
 def _run_sync(coro):
@@ -85,7 +96,7 @@ def related_nodes(
     用于：某产品的相关公司有哪些、某公司的关联指标/主题是什么。
     """
     async def _run() -> dict:
-        from sqlalchemy import and_, func, select
+        from sqlalchemy import func, select
 
         from app.core.database import async_session
         from app.knowledge.linklayer.models import Keyword, Link
@@ -117,6 +128,7 @@ def related_nodes(
             if layer:
                 stmt = stmt.where(Keyword.layer == layer)
             rows = (await session.execute(stmt)).all()
+            rows = [r for r in rows if not _is_stopword(r[1])]
 
         return {
             "keyword": keyword,
@@ -187,6 +199,7 @@ def propagate_along(
 
             for hop in range(1, max_hops + 1):
                 nb = await neighbors(frontier, visited)
+                nb = [n for n in nb if not _is_stopword(n[2])]
                 if not nb:
                     break
                 visited.update(n[0] for n in nb)
