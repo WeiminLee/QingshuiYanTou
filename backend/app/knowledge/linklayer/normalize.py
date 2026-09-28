@@ -66,10 +66,78 @@ def canonicalize_dimension(surface: str, known_dimensions: set[str] | None = Non
     return max(hits, key=lambda x: x[1])[0]
 
 
-# 占比类判定词（机械规则）
+def canonicalize_period(surface: str | None) -> str:
+    """metric period surface → 规范期间标签（机械，报告分口径分组用）。
+
+    解析「2024年1-6月」→ H1 2024；「2025年度」→ FY 2025；「2025年一季度」→ Q1 2025；
+    无法解析 → 原样保留（"本报告期"/"报告期内"需结合 evidence 发布日期推断，
+    机械层不猜）。"""
+    s = (surface or "").strip()
+    if not s:
+        return ""
+    m = re.search(r"(\d{4})\s*年", s)
+    year = m.group(1) if m else None
+    if not year:
+        return s
+    if re.search(r"1[-—~至]\s*6|上半年|半年度", s):
+        return f"H1 {year}"
+    if re.search(r"7[-—~至]\s*12|下半年", s):
+        return f"H2 {year}"
+    m_q = re.search(r"[第]?\s*([一二三四1234])\s*季度", s)
+    if m_q:
+        q = {"一": "1", "二": "2", "三": "3", "四": "4"}.get(m_q.group(1), m_q.group(1))
+        return f"Q{q} {year}"
+    if re.search(r"1[-—~至]\s*3", s):
+        return f"Q1 {year}"
+    if re.search(r"1[-—~至]\s*9", s):
+        return f"Q1-Q3 {year}"
+    if re.search(r"年1\s*[-—~至]\s*1[012]", s):  # 1-11月等
+        return f"1-11M {year}"
+    return f"FY {year}"
+
+
+# 占比类判定词（机械规则）：出现在 metric surface = 该表述是"别的量对某
+# 维度的比值"而非该维度的构成细分，不挂标准维度 parent（词本身保留）。
 _DERIVED_MARKERS: tuple[str, ...] = (
     "占营业收入", "营业收入占比", "营收占比", "占比", "比重", "比例",
 )
+
+
+# ── 单位一致性（实战长尾：毛利率表混亿元行 / 营收表混 % 行） ─────────────────
+# 按标准维度 parent 分型，值/单位可疑的行只摘 value/unit（link 保留，不收缩）。
+_MONEY_UNITS = ("元", "万元", "亿元", "万", "亿", "人民币", "美元", "港元")
+_RATIO_UNITS = ("%", "个百分点", "pct", "百分点")
+
+# 标准维度 parent → 单位类型（未列出的维度不校验，开放词表不收缩）
+_DIM_UNIT_TYPE: dict[str, str] = {
+    "毛利率": "ratio",
+    "营收": "money",
+    "净利润": "money",
+}
+
+
+def clean_metric_value(value: str | None) -> str | None:
+    """value 串去单位尾巴（LLM 常抓 "290亿元" 带"亿元"塞进 value）。"""
+    if value is None:
+        return None
+    v = str(value).strip()
+    m = re.search(r"-?\d[\d,.]*", v)
+    return m.group(0) if m else v
+
+
+def enforce_unit(dimension: str | None, unit: str | None) -> bool:
+    """值行的 unit 与标准维度 parent 是否同型。未知维度恒 ok。"""
+    t = _DIM_UNIT_TYPE.get(dimension or "")
+    if not t:
+        return True
+    u = (unit or "").strip()
+    if not u:
+        return True  # 无 unit 不判违规（值句主语内常自带"亿元"被 clean 摘出）
+    if t == "ratio":
+        return any(k in u for k in _RATIO_UNITS)
+    if t == "money":
+        return not any(k in u for k in _RATIO_UNITS)  # 额型禁止 %
+    return True
 
 
 async def ensure_keyword(

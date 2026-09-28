@@ -16,7 +16,10 @@ from app.knowledge.linklayer.llm_extract import extract_keywords
 from app.knowledge.linklayer.models import Link
 from app.knowledge.linklayer.normalize import (
     canonicalize_dimension,
+    canonicalize_period,
     canonicalize_subject,
+    clean_metric_value,
+    enforce_unit,
     ensure_keyword,
 )
 
@@ -159,12 +162,20 @@ async def compute_link_actions(
             pos = _locate(name)
             if pos < 0:
                 continue  # 原文不含 → 丢弃
+            _parent = canonicalize_dimension(name, known_dimensions)
+            _value = clean_metric_value(str(m["value"]) if m.get("value") is not None else None)
+            _unit = m.get("unit")
+            if not enforce_unit(_parent, _unit):
+                # 单位型与标准维度不符（毛利率标尺下出现"亿元"等）：
+                # 值判定为准，此行不落数值（link 保留）。
+                _value = None
+                _unit = None
             actions.append(LinkAction(
                 "dimension", name, "llm", pos, pos + len(name), published,
-                parent=canonicalize_dimension(name, known_dimensions),
-                value=(str(m["value"]) if m.get("value") is not None else None),
-                unit=m.get("unit"),
-                period=m.get("period"),
+                parent=_parent,
+                value=_value,
+                unit=_unit,
+                period=canonicalize_period(m.get("period")),
             ))
 
     return actions, llm_used
