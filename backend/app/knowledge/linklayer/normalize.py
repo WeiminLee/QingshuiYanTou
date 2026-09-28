@@ -56,7 +56,20 @@ def canonicalize_dimension(surface: str, known_dimensions: set[str] | None = Non
                 hits.append((dim, len(marker)))
     if not hits:
         return None
+    # 衍生形态黑名单：占比类表述（"占营业收入比例"/"营收占比"/"某业务比重"）
+    # 是别的量对某维度的占比，不是该维度的构成细分；挂在标准维度 parent 下
+    # 会稀释 rollup children（实战 [3] top30 一半是占比碎片）。
+    # 注意只拦占比类：同比/增长率/合计等衍射维度按既有契约保留 parent
+    # （"归母净利润同比"仍归"净利润"，供上卷深挖）。
+    if _DERIVED_MARKERS and any(m in text for m in _DERIVED_MARKERS):
+        return None
     return max(hits, key=lambda x: x[1])[0]
+
+
+# 占比类判定词（机械规则）
+_DERIVED_MARKERS: tuple[str, ...] = (
+    "占营业收入", "营业收入占比", "营收占比", "占比", "比重", "比例",
+)
 
 
 async def ensure_keyword(
