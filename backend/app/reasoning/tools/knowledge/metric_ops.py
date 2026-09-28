@@ -21,23 +21,10 @@ from app.knowledge.linklayer.models import Keyword, Link
 from app.reasoning.tools.knowledge.link_queries import run_async
 
 
-async def _with_fresh_pool(coro):
-    """在隔离 loop 内执行；结束后归还连接池，避免跨 loop 复用。
-
-    全局 async engine 的连接池绑定创建它的 loop。工具的临时 loop 结束后，
-    池中残留的连接会在下一次调用（新 loop）里报
-    'got Future attached to a different loop'（实测 rollup_metric 踩坑）。
-    故每次用完显式 dispose，让下次重开干净连接池。
-    """
-    from app.core.database import engine
-    try:
-        return await coro
-    finally:
-        await engine.dispose()
-
-
 def _run_sync(coro):
-    return run_async(_with_fresh_pool(coro))
+    # run_async 已在执行窗口内注入 NullPool 隔离 engine（见 tools/_async_runner.py），
+    # 此处直接桥接即可，无需再包一层。
+    return run_async(coro)
 
 
 _NUM_RE = re.compile(r"-?\d+(?:\.\d+)?")
@@ -53,7 +40,7 @@ def _to_float(value: str | None) -> float | None:
 
 async def _collect_rows(dimension: str, scope: str | None, as_of: str | None, limit: int) -> list[dict]:
     """按标尺（dimension × scope）收集带数值的 link 行。"""
-    from sqlalchemy import and_, func, or_, select
+    from sqlalchemy import and_, or_, select
 
     from app.knowledge.linklayer.queries import _parse_cutoff, _scope_evidence_subquery
 
@@ -88,9 +75,14 @@ async def _collect_rows(dimension: str, scope: str | None, as_of: str | None, li
         # 仅按 evidence 命中会把横评归零）。修法：
         #   A) evidence 直接命中"硅片"scope；或
         #   B) 该行的 subject 曾出现在 scope 命中证据里（主体级归因）。
+        # scope 候选集算一次、MATERIALIZED 物化：未物化时 planner 会把它内联成
+        # per-row ILIKE 子查询（Nested Loop Semi Join，实测 42s）。
         from sqlalchemy.orm import aliased
 
-        ids_scope = _scope_evidence_subquery(scope)
+        scope_cte = (
+            _scope_evidence_subquery(scope).distinct().cte("scope_ev").prefix_with("MATERIALIZED")
+        )
+        ids_scope = select(scope_cte.c.evidence_id)
         LinkA = aliased(Link)
         KeywordA = aliased(Keyword)
         subject_ids_scope = (
@@ -102,7 +94,7 @@ async def _collect_rows(dimension: str, scope: str | None, as_of: str | None, li
                 LinkA.evidence_id.in_(ids_scope),
             )
         ).scalar_subquery()
-        stmt = stmt.where(
+        stmt = stmt.add_cte(scope_cte).where(
             or_(
                 Link.evidence_id.in_(ids_scope),
                 Link.keyword_id.in_(subject_ids_scope),
@@ -258,7 +250,7 @@ def metric_trend(
     无数值时也应结合 fetch_evidence 读取原文表述的变化。
     """
     async def _run() -> list[dict]:
-        from sqlalchemy import and_, select
+        from sqlalchemy import select
 
         async with async_session() as session:
             subj_kw = (

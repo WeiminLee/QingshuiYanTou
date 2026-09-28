@@ -7,7 +7,6 @@ source text stored in MongoDB's kg_evidence collection.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from typing import Annotated
 
@@ -36,22 +35,13 @@ def fetch_evidence(
     """
     try:
         from app.knowledge.evidence_service import EvidenceService
+        from app.reasoning.tools._async_runner import run_async
 
         svc = EvidenceService()
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            result = loop.run_until_complete(svc.get_evidence(evidence_id))
-            loop.close()
-            return _format_evidence(result)
-
-        import concurrent.futures
-
-        with concurrent.futures.ThreadPoolExecutor() as pool:
-            future = pool.submit(lambda: loop.run_until_complete(svc.get_evidence(evidence_id)))
-            result = future.result(timeout=10)
+        # 统一走 run_async（隔离 loop + NullPool engine / 一次性 mongo client）。
+        # 历史实现在已有 running loop 时复用主 loop 跑 coroutine，必报
+        # 'Task attached to a different loop'（agent 路径实测）。
+        result = run_async(svc.get_evidence(evidence_id))
         return _format_evidence(result)
     except Exception as e:
         logger.warning("fetch_evidence 失败 [%s]: %s", evidence_id, e)

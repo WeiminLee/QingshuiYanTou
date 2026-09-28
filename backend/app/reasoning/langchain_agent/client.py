@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import re
 import time
 import uuid
@@ -275,10 +276,18 @@ async def run_lead_agent(
                 "status": "clarification_requested",
             }
 
-        # 并行执行：Qdrant pre-search + Neo4j 图谱上下文查询
+        # 并行执行：Qdrant pre-search + 图谱上下文查询
         # 注意：图谱查询在 client.py 预处理阶段异步执行，不再阻塞 LangGraph 事件循环
         pre_search_task = asyncio.create_task(_pre_search(question, top_k=pre_search_top_k))
-        graph_ctx_task = asyncio.create_task(_fetch_graph_context_async(question, total_timeout=4.0))
+        # GraphContext 默认关闭（GRAPH_CONTEXT_ENABLED=1 可开）：link 层查询在
+        # 500 万行表上单条 6s+，4s 超时必然触发；图谱背景可由 agent 工具层
+        # （related_nodes / propagate_along）按需拉取，预处理注入是 legacy 路径。
+        if os.getenv("GRAPH_CONTEXT_ENABLED") == "1":
+            graph_ctx_task = asyncio.create_task(
+                _fetch_graph_context_async(question, total_timeout=3.0)
+            )
+        else:
+            graph_ctx_task = None
 
         # 等待 pre-search 完成
         try:
@@ -290,7 +299,8 @@ async def run_lead_agent(
         # 等待图谱上下文（失败不影响整体）
         graph_context = ""
         try:
-            graph_context = await graph_ctx_task
+            if graph_ctx_task is not None:
+                graph_context = await graph_ctx_task
         except Exception as e:
             logger.warning("graph context query failed, continuing without it: %s", e)
     else:
@@ -1156,20 +1166,62 @@ async def _fetch_graph_context_async(question: str, total_timeout: float = 4.0) 
 
 
 async def _fetch_entity_context(entity: str) -> str:
-    """查询单个实体的 1-hop 关系（带内部超时）。"""
-    try:
-        from app.reasoning.tools.knowledge.neo4j.neo4j import _atraverse_impl
+    """查询单个实体 1-hop 邻居（link 层共现）。
 
-        result = await asyncio.wait_for(
-            _atraverse_impl(entity, hops=1, rel_type="", query_mode="auto", min_weight=0.0),
-            timeout=2.0,
-        )
-        return result if result and "暂无记录" not in result else ""
+    历史此处走 Neo4j（已冻结，spec §4 联通铁律）——每次 agent 冒烟都在
+    [GraphContext] 批量查询超时浪费 4s。现走 PG link 层（related_nodes 同款）。"""
+    try:
+        from sqlalchemy import func, select
+
+        from app.core.database import async_session
+        from app.knowledge.linklayer.models import Keyword, Link
+
+        async with async_session() as s:
+            ids = [
+                r[0]
+                for r in (
+                    await s.execute(
+                        select(Keyword.keyword_id).where(
+                            Keyword.norm_text == entity
+                        )
+                    )
+                ).all()
+            ]
+            if not ids:
+                return ""
+            nb = (
+                await s.execute(
+                    # 泛化词/中性机构已在 graph_walk stop-list 处理，这里轻量过滤
+                    select(
+                        Keyword.layer,
+                        Keyword.norm_text,
+                        func.count(func.distinct(Link.evidence_id)),
+                    )
+                    .select_from(Link)
+                    .join(Keyword, Keyword.keyword_id == Link.keyword_id)
+                    .where(
+                        Link.evidence_id.in_(
+                            select(Link.evidence_id).where(
+                                Link.keyword_id.in_(ids)
+                            )
+                        ),
+                        Keyword.keyword_id.notin_(ids),
+                    )
+                    .group_by(Keyword.layer, Keyword.norm_text)
+                    .order_by(func.count(func.distinct(Link.evidence_id)).desc())
+                    .limit(8)
+                )
+            ).all()
+        if not nb:
+            return ""
+        lines = [f"{entity} 的图关联（link 共现）："]
+        lines += [f"  [{r[0]}] {r[1]}({r[2]})" for r in nb]
+        return "\n".join(lines)[:500]
     except TimeoutError:
-        logger.warning(f"[GraphContext] 查询超时: {entity}")
+        logger.warning(f"[GraphContext link] 查询超时: {entity}")
         return ""
-    except Exception as e:
-        logger.warning(f"[GraphContext] 查询失败: {entity} — {e}")
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"[GraphContext link] 查询失败: {entity} — {e}")
         return ""
 
 

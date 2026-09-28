@@ -6,7 +6,6 @@ from __future__ import annotations
 from datetime import datetime
 
 from sqlalchemy import and_, func, select
-from sqlalchemy.orm import aliased
 
 from app.core.database import async_session
 from app.knowledge.linklayer.dict_match import build_subject_index
@@ -188,9 +187,13 @@ def build_scan_dimension_sql(dimension: str, scope: str | None = None, as_of: st
         .group_by(Link.evidence_id)
     )
     if scope:
-        stmt = stmt.where(
-            Link.evidence_id.in_(_scope_evidence_subquery(scope))
+        # scope 过滤走 MATERIALIZED CTE：scope 候选集一次性算出（Hash Join），
+        # 否则 planner 会把 ILIKE 子查询下推为 per-evidence 的 Nested Loop
+        # Semi Join（实测 3.5 万 evidence × 逐条回查 keyword = 42s）。
+        scope_cte = (
+            _scope_evidence_subquery(scope).distinct().cte("scope_ev").prefix_with("MATERIALIZED")
         )
+        stmt = stmt.add_cte(scope_cte).where(Link.evidence_id.in_(select(scope_cte.c.evidence_id)))
     cutoff = _parse_cutoff(as_of)
     if cutoff is not None:
         stmt = stmt.having(func.max(Link.published_at) <= cutoff)

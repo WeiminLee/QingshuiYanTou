@@ -9,7 +9,7 @@ from typing import Any
 
 from sqlalchemy import text
 
-from app.core.database import engine
+from app.core.database import async_session
 
 logger = logging.getLogger(__name__)
 
@@ -37,8 +37,11 @@ class StockService:
         """
 
         try:
-            async with engine.connect() as conn:
-                result = await conn.execute(text(sql), {"ts_code": ts_code})
+            # async_session() 解析隔离 contextvar（工具跨 loop 时为 NullPool
+            # 临时 engine），直接用全局 engine 会在工具线程 loop 复用主 loop
+            # 连接 → asyncpg 'attached to a different loop'。
+            async with async_session() as session:
+                result = await session.execute(text(sql), {"ts_code": ts_code})
                 row = result.fetchone()
 
             if row is None:
@@ -84,8 +87,8 @@ class StockService:
         params["limit"] = limit
 
         try:
-            async with engine.connect() as conn:
-                result = await conn.execute(text(sql), params)
+            async with async_session() as session:
+                result = await session.execute(text(sql), params)
                 rows = result.fetchall()
 
             return [{"ts_code": row[0], "name": row[1], "industry": row[2]} for row in rows]

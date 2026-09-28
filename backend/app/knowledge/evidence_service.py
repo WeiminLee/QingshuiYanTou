@@ -43,10 +43,23 @@ class EvidenceService:
     """Async repository for Evidence and extraction jobs."""
 
     def __init__(self, db: Any | None = None):
-        self._db = db or get_mongo_db()
-        self._evidence = self._db[EVIDENCE_COLLECTION]
-        self._jobs = self._db[EXTRACTION_JOBS_COLLECTION]
+        # 不在此处绑定 db：agent 工具跨 loop 调用时 __init__ 发生在主 loop，
+        # 缓存该 client 后，在隔离 loop 里使用会报 'attached to a different
+        # loop'。改为惰性属性，每次访问时解析（尊重隔离窗口 contextvar）。
+        self._explicit_db = db
         self._indexes_ensured = False
+
+    @property
+    def _db(self):
+        return self._explicit_db or get_mongo_db()
+
+    @property
+    def _evidence(self):
+        return self._db[EVIDENCE_COLLECTION]
+
+    @property
+    def _jobs(self):
+        return self._db[EXTRACTION_JOBS_COLLECTION]
 
     async def ensure_indexes(self) -> None:
         if self._indexes_ensured:
