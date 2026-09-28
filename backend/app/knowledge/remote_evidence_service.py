@@ -13,6 +13,12 @@ class RemoteEvidenceService:
         async with httpx.AsyncClient(timeout=self.timeout) as c:
             r=await c.get(self.base+'/api/v1/knowledge/evidence/'+evidence_id,headers=self.headers); return r.json() if r.is_success else None
     async def mark_job_done(self,job_id,result): return await self._post('/api/v1/knowledge/evidence/jobs/%s/success'%job_id,{'worker_id':'remote','result_summary':result})
-    async def mark_job_failed(self,job_id,error): return await self._post('/api/v1/knowledge/evidence/jobs/%s/failure'%job_id,{'worker_id':'remote','error':error})
+    async def mark_job_failed(self, job_id, error):
+        # schema 约束：error 1..4000。LLM 栈超长会 422 拒收 → 租约失效循环。
+        msg = str(error or "unknown").strip()[:3500] or "unknown"
+        return await self._post(
+            "/api/v1/knowledge/evidence/jobs/%s/failure" % job_id,
+            {"worker_id": "remote", "error": msg},
+        )
     async def mark_job_skipped(self,job_id,reason): return await self.mark_job_failed(job_id,'skipped: '+reason)
     async def heartbeat_job(self,job_id,worker_id): return True
