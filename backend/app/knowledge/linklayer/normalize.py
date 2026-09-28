@@ -2,6 +2,8 @@
 """surface form → 规范键。铁律（spec 附录 A #3）：归一化永远机械，LLM 不参与。"""
 from __future__ import annotations
 
+import re
+
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
