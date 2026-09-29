@@ -100,7 +100,9 @@ NEWS_FETCH_HISTORY_DAYS = 7  # 首次全量拉取历史天数
 
 MAX_ATTEMPTS = 3  # Phase 31 E 修复：总执行次数（= 1 原始 + 2 次重试）
 RETRY_BASE_DELAY = 30  # 秒
-INGESTION_WORKER_DRAIN_LIMIT = 5
+# IRM 每晚 force_requeue ~1.6k 家；5×12×24=1440/天清不完会堆 pending。
+# 20≈5760/天，约数小时吃完当晚批次；ingestion 是外部采集，不入 GPU。
+INGESTION_WORKER_DRAIN_LIMIT = 20
 INGESTION_WORKER_TIMEOUT_SECONDS = 300
 # PDF 下载 drain：专用 worker（通用 ingestion worker 不处理 pdf_download，
 # 见 job_handlers.SUPPORTED_INGESTION_JOB_TYPES）。每轮上限小、周期短，
