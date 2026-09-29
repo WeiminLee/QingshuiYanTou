@@ -13,7 +13,7 @@ export NVM_DIR=/home/lwm/.nvm; . "$NVM_DIR/nvm.sh"; nvm use 24
 # env (gitignored): OPENAI_API_KEY, LLM_*, KNOWLEDGE_API_KEY or API_KEY from backend/.env
 set -a; source .env.dsh; set +a
 pnpm install
-cd dsh && CI=true pnpm_config_verify_deps_before_run=false pnpm install && pnpm run build:lib:host && cd ..
+cd dsh && CI=true pnpm_config_verify_deps_before_run=false pnpm install && pnpm run build:lib:host && pnpm run build:lib:client && pnpm run build:web && cd ..
 pnpm run build:plugin
 pnpm dsh plugin --profile headless add ./plugins/qingshui
 # May stop data-acquisition processes for test
