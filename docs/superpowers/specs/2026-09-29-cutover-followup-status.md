@@ -1,44 +1,46 @@
-# Cutover follow-up status for Reviewer (2026-09-29 night)
+# Cutover follow-up status for Reviewer (2026-09-29 night → 全切)
 
-Overnight 成稿 approved; **not** full cutover. Three follow-ups:
+Overnight 成稿 approved; this doc tracks **全切** remaining items.
 
-## (1) Skill mount — landed
+## (1) Skill mount — landed (597882b)
 
 **Root cause:** `plugins/qingshui/skills/divergence-mining/SKILL.md` frontmatter `description` ended with unquoted `EV:`, which YAML treats as a nested mapping. `dsh-skill-filesystem` logged and **ignored** the skill → session catalog miss → agent fell back to `read` on the repo path.
 
-**Fix:**
-- Quote `description` in SKILL.md
-- Harden Cordis mount (MatDiscovery pattern): `inject=['tools','skills']`, provider `qingshui-local`, `includeDefaultRoots:false`, `customSkillDirs`, mount logging
-- Gate: `node scripts/check-qingshui-skills.mjs`
+**Fix:** Quote `description`; MatDiscovery-style Cordis mount; `node scripts/check-qingshui-skills.mjs`.
 
-**Verify:** check script green; headless smoke that `skill("divergence-mining")` resolves (see commit message / CI notes).
+## (2) Unwrap LangChain from Knowledge HTTP — landed (597882b)
 
-## (2) Unwrap LangChain from Knowledge HTTP — landed
+Pure services `app/knowledge/agent_*_ops.py`; HTTP unchanged for `plugins/qingshui`.
 
-- New pure services: `app/knowledge/agent_metric_ops.py`, `app/knowledge/agent_graph_ops.py`
-- `app/knowledge/api/agent_metrics.py` calls those directly (no `ainvoke` / `@tool` / `reasoning.tools`)
-- `agent_search` was already vector-client direct
-- LangChain `@tool` wrappers in `reasoning/tools/knowledge/{metric_ops,graph_walk}.py` thinned to call the same pure services (rollback / residual shell only)
-- HTTP contracts unchanged for `plugins/qingshui`
-- Tests: `backend/tests/test_agent_metrics_api.py` (+ langchain-free guard)
+## (3) Retire old agent shell + archive — landed (this commit)
 
-## (3) Retire old agent shell (progress, not full delete) — landed
+| Action | Evidence |
+|---|---|
+| `frontend/` → `archive/frontend/` | Vue SPA out of default path; docker-compose frontend service commented |
+| `backend/app/reasoning/langchain_agent/` → `archive/langchain_agent/` | `run_lead_agent` not on default serving path |
+| `/api/v1/agent/*` | Slim 410 router only (no langchain imports) |
+| Knowledge / scheduler / chemagent | Untouched |
 
-- `/api/v1/agent/*` chat/invoke/stream/report/v2 → **410** `langchain_agent_retired`
-- Vue `/home` + `/spike-chat` → `AgentDeprecatedView` (dsh entry instructions)
-- `frontend/` tree **not** deleted; remaining pages listed in `2026-09-29-vue-remaining-pages.md`
-- Knowledge API / workers / ingest untouched
+See `archive/README.md`. Residual LangChain **docs/tests** may still mention old paths; they are not default process imports.
 
-## Left for 「全切」终验
+## (4) Prod dsh web + nginx basic auth — see deploy evidence
 
-- [ ] Remove or archive entire `frontend/` after dsh web auth + portfolio parity (or explicit drop)
-- [ ] Archive/remove `langchain_agent/` from default installs (keep git tag for rollback)
-- [ ] Production: dsh web on Knowledge host with nginx auth (deploy stubs exist)
-- [ ] Cloud headless regression: `skill("divergence-mining")` in catalog + full 硅片报告 without repo `read` fallback
-- [ ] Confirm no process still imports `run_lead_agent` on the default serving path
-- [ ] Reviewer checklist in cutover design §9
+Host `root@124.221.188.38:/home/lwm/code/QingShuiTouYan`. Stubs: `deploy/nginx/dsh-web.conf.example`, `deploy/dsh/qingshui-dsh.service.example`. Boyue via cloud `.env.dsh` (never print keys).
+
+## (5) Cloud headless regression — see deploy evidence
+
+Gate: `divergence-mining` **LOADED** from skill catalog (no repo `read` fallback); short prompt forces `skill()` + one metric tool + `fetch_evidence`.
+
+## 「全切」终验 checklist
+
+- [x] Archive `frontend/` + `langchain_agent/`
+- [ ] nginx basic auth live in front of dsh web `:3080`
+- [ ] Cloud catalog skill load (LOADED) with **no** repo read fallback
+- [x] No `run_lead_agent` import on default serving path (`backend/app/**`)
+- [ ] Reviewer 全切终验 (parent pings when green)
 
 ## Rollback
 
-- Revert this follow-up commit(s); Knowledge HTTP contracts stay stable either way
-- Evidence / PG / Qdrant not touched
+- `git mv archive/frontend frontend` + `git mv archive/langchain_agent backend/app/reasoning/langchain_agent`
+- Restore pre-archive `agent.py` / `main.py` HITL lifespan from git history
+- Knowledge HTTP contracts stay stable either way

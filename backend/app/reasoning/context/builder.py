@@ -24,9 +24,9 @@ async def _load_signal_detail(signal_id: str) -> dict | None:
 
 async def _load_readiness_context() -> dict[str, str]:
     try:
-        from app.reasoning.langchain_agent.freshness import load_freshness_context
-
-        text = await load_freshness_context()
+        # freshness lived under archive/langchain_agent/; readiness via Knowledge only now
+        raise ImportError("langchain_agent.freshness archived")
+        text = ""  # pragma: no cover
         return {
             "overall_status": _extract_line(text, "overall_status") or "unknown",
             "answer_boundary": _extract_line(text, "answer_boundary"),

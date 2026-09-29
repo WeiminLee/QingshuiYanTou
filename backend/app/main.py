@@ -127,12 +127,8 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"[降级] 同步状态表创建跳过: {e}")
 
-    from app.reasoning.api.agent import _periodic_hitl_cleanup
-    hitl_cleanup_task = asyncio.create_task(_periodic_hitl_cleanup())
-
+    # LangChain HITL cleanup retired with archive/langchain_agent/ (dsh cutover).
     yield
-
-    hitl_cleanup_task.cancel()
 
     if _data_scheduler is not None:
         _data_scheduler.stop()

@@ -7,12 +7,31 @@ from typing import Annotated
 
 from langchain_core.tools import tool
 
-from app.reasoning.langchain_agent.task_events import (
-    TaskEvent,
-    TaskEventType,
-    enqueue_task_event,
-)
+# task_events lived under archive/langchain_agent/; no-op shims for residual tool.
+from dataclasses import dataclass, field
+from enum import StrEnum
+
 from app.reasoning.subagents.executor import get_executor
+
+
+class TaskEventType(StrEnum):
+    TASK_STARTED = "task_started"
+    TASK_RUNNING = "task_running"
+    TASK_COMPLETED = "task_completed"
+    TASK_FAILED = "task_failed"
+    TASK_TIMED_OUT = "task_timed_out"
+
+
+@dataclass
+class TaskEvent:
+    type: TaskEventType
+    task_id: str
+    data: dict = field(default_factory=dict)
+
+
+def enqueue_task_event(event: TaskEvent) -> None:
+    return None
+
 from app.reasoning.tools.guardrails import validate_research_only
 
 

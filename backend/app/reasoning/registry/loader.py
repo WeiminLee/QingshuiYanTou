@@ -211,12 +211,9 @@ def _build_default_config() -> list[ToolConfig]:
             description="渲染交互式图表（ECharts）：K线图/板块热度/雷达图/桑基图",
         ),
         # ── agent ──────────────────────────────────
-        ToolConfig(
-            name="write_todos",
-            group=ToolGroup.AGENT,
-            use="app.reasoning.langchain_agent.tools.todo:write_todos",
-            description="更新待办列表状态（plan mode 下用于记录分析步骤进度）",
-        ),
+        # write_todos archived with langchain_agent (dsh cutover) — not on default path
+        # ToolConfig(name="write_todos", group=ToolGroup.AGENT,
+        #     use="archive/langchain_agent/tools/todo:write_todos", ...),
         # ── clarification ──────────────────────────
         ToolConfig(
             name="ask_clarification",

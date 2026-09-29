@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.reasoning.context.schemas import UserSnapshotDTO
-from app.reasoning.langchain_agent.memory.user_memory_provider import PREF_COLLECTION
+PREF_COLLECTION = "agent_preferences"  # was langchain_agent.memory; package archived
 
 
 async def _list_portfolio(user_id: str):

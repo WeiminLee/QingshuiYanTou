@@ -40,7 +40,7 @@ Backend API
 
 ### 组件分工
 
-- `frontend/`: Vue 3 前端，提供聊天、图谱、投研交互和可视化入口。
+- `archive/frontend/`: 原 Vue 3 前端（全切已归档）；产品壳为 dsh web。
 - `backend/app/main.py`: FastAPI 应用入口，注册数据、知识、Agent、日志等 API。
 - `backend/app/data_pipeline/`: 股票、行情、公告、研报、互动易等数据接入和调度。
 - `backend/app/knowledge/`: 知识构建、链接层与判断台账、Evidence-first 管线、图谱与向量检索。
@@ -215,7 +215,7 @@ L2 判断层    observation / finding / watermark（PostgreSQL）
 
 **默认投研对话入口：dsh**（`pnpm dsh --profile web` / `headless` + `plugins/qingshui`）。  
 Vue `/home` 聊天与 `/api/v1/agent/*` LangChain 路径已退役（410 / 弃用页）。Knowledge HTTP、采集、抽取、worker **保留**。  
-全切终验前 `frontend/` 非聊天页（登录/组合/个股等）仍可存在——见 `docs/superpowers/specs/2026-09-29-vue-remaining-pages.md`。
+`frontend/` 与 `langchain_agent/` 已迁入 `archive/`——见 `archive/README.md` 与 `docs/superpowers/specs/2026-09-29-cutover-followup-status.md`。
 
 ## Agent 与推理运行机制
 

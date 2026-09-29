@@ -254,19 +254,12 @@ services:
     networks:
       - qingshui-net
 
-  frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
-    container_name: qingshui_frontend
-    ports:
-      - "443:443"
-      - "80:80"
-    depends_on:
-      - backend
-    restart: unless-stopped
-    networks:
-      - qingshui-net
+  # frontend Vue SPA retired (dsh cutover). Tree: archive/frontend/
+  # Use deploy/nginx/dsh-web.conf.example + systemd qingshui-dsh for product shell.
+  # frontend:
+  #   build:
+  #     context: ./archive/frontend
+  #     dockerfile: Dockerfile
 
 networks:
   qingshui-net:

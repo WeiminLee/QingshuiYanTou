@@ -1,38 +1,13 @@
-# Vue `frontend/` remaining pages (cutover progress, 2026-09-29 night)
+# Vue `frontend/` — archived (2026-09-29 全切)
 
-Reviewer approved overnight 成稿 but **not** full cutover. This note tracks what still lives under `frontend/` after retiring default agent UX.
+`frontend/` moved to **`archive/frontend/`**. Product shell is **dsh web** (+ nginx basic auth on cloud).
 
-## Agent / chat entry (deprecated tonight)
+Non-chat pages (login / portfolio / stock / report) are **not** re-homed tonight; they live only under the archive tree for rollback. Rebuild via dsh later if needed.
 
-| Route | Status |
-|---|---|
-| `/home` | Renders `AgentDeprecatedView` — points to dsh |
-| `/spike-chat` | Same |
-| `/agent-deprecated` | Explicit notice page |
-
-Backend `/api/v1/agent/{chat,invoke,stream,report,v2/*…}` → **410 Gone** with `langchain_agent_retired`. Knowledge HTTP `/api/v1/knowledge/*` unchanged.
-
-## Must stay until 「全切」终验 (or dsh re-home)
-
-| Route / area | Why kept |
-|---|---|
-| `/login`, `/select-identity` | Account auth (not agent shell) |
-| `/portfolio` | Account portfolio UX |
-| `/stock/:tsCode` | Stock detail (non-chat) |
-| `/report` | Legacy report viewer (read-only; no new agent runs) |
-| `/tdesign-demo` | Design spike; non-product |
-
-## Explicitly not deleted tonight
-
-- Entire `frontend/` tree (Reviewer: no full cutover yet)
-- LangChain package code under `backend/app/reasoning/langchain_agent/` (rollback surface; default routes hard-stopped)
-
-## Documented agent entry
+Backend `/api/v1/agent/*` → **410** `langchain_agent_retired`. Knowledge HTTP unchanged.
 
 ```sh
 pnpm run build:plugin
-pnpm dsh plugin --profile web add ./plugins/qingshui   # or headless
+pnpm dsh plugin --profile web add ./plugins/qingshui
 pnpm dsh --profile web
-# headless smoke:
-pnpm dsh --profile headless "对硅片板块做预期差分析"
 ```

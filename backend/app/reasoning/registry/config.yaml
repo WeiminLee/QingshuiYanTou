@@ -217,7 +217,8 @@ tools:
 
   - name: write_todos
     group: agent
-    use: app.reasoning.langchain_agent.tools.todo:write_todos
+    # ARCHIVED dsh cutover — was app.reasoning.langchain_agent.tools.todo:write_todos
+    use: null
     description: 更新待办列表状态（plan mode 下用于记录分析步骤进度）
 
   # ── file (sandbox) ─────────────────────────────────────────────────────
