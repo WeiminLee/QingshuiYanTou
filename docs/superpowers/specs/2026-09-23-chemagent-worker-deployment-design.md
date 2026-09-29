@@ -350,3 +350,43 @@ linklayer 规则改动后必须 `systemctl restart qingshui-worker.service`。
    仍可能从新词进入 scope 层（词保留合法），不影响主标尺。
 
 结论：增量链路按新规则运转——主标尺干净可接 AI 分析。
+
+### 14.6 入库监控 + 采集断档修复（2026-09-29）
+
+**监控**：`backend/scripts/ingest_monitor.py` 部署云端，cron 每 5 分钟快照，
+日志 `/root/qingshui_monitor/ingest-monitor.log`（单行 JSON）。四层：
+evidence 入库（总量/1h/24h/按来源）、采集任务台账（`sync_task_status`）、
+抽取队列（`kg_extraction_jobs`）、采集队列（`ingestion_jobs`）、link 层产出。
+告警：`EVIDENCE_DRY / EXTRACT_STALLED / QUEUE_DEAD / QUEUE_STALLED /
+TASK_FAILED / TASK_RETRY_FAIL / MONITOR_*_ERROR`。
+
+**修复（三处静默失血）**：
+1. `kg_evidence.created_at` 建索引：`countDocuments` 由 31s→12ms（此前 90s
+   超时且监控静默，现监控自身失败也进 alerts）。
+2. legacy `combined` 抽取任务退役：1454 pending 经逐条核对 link+vector 均已
+   done/skipped（`scripts/retire_legacy_combined.py`），全量标 skipped。
+3. **公告采集断档 27 天**（根因）：通用 ingestion worker 无 pdf_download
+   处理器，把它判为 `unsupported job_type` → 203 dead → 191 条公告 PDF 永不
+   下载 → 公告 evidence 自 09-02 停流。修：`SUPPORTED_INGESTION_JOB_TYPES`
+   白名单（通用 worker 不领 pdf_download）+ `requeue_dead`
+   （`scripts/requeue_dead_ingestion.py` 回补）。
+
+### 14.7 P4：pdf_download_worker 迁 H 集群（2026-09-29）
+
+**形态**：`lwm-server-chemagent` 新增 `qingshui-pdf-worker.service`
+（systemd，enabled+active），运行
+`scripts/pdf_download_worker --daemon --interval 20 --concurrency 4`。
+- 云端通道：`KNOWLEDGE_API_URL=http://124.221.188.38:8080` 经实验室代理；
+  worker 经 `KnowledgeApiClient` claim 任务、upsert evidence、回报 success。
+- 持久化：PDF 落 `shared storage
+  /mnt/shared-storage-user/liweimin/qingshui/qingshui-pdfs/notices/{ts_code}/{YYYY-MM}/`
+  （`PDF_STORAGE_ROOT`，符合 §6 持久化铁律）。
+- 云端停过渡：`pdf_download_drain` 由 `ENABLE_PDF_DOWNLOAD_DRAIN` 控制，
+  默认关（H 不可用时置 true 回退），已验证无双跑。
+
+**验收**：claim→下载→落 shared storage→`/evidence/upsert`→`/jobs/success`
+全链路 200；队列 pending 196→0，success 39761→39924（失败 10 条为上游 404，
+benign）；公告 evidence 24h 由 0→408。
+
+遗留：云侧 `announcement_ingestion`（读 PG `minishare_announcements` 的
+Path B）已无实际消费者，可择机下线。

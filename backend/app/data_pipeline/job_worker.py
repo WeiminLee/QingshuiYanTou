@@ -7,7 +7,10 @@ import re
 import socket
 import uuid
 
-from app.data_pipeline.job_handlers import execute_ingestion_job
+from app.data_pipeline.job_handlers import (
+    SUPPORTED_INGESTION_JOB_TYPES,
+    execute_ingestion_job,
+)
 from app.data_pipeline.job_queue import (
     JOB_PARTIAL,
     JOB_SUCCESS,
@@ -39,7 +42,11 @@ class IngestionJobWorker:
 
     async def run_once(self, limit: int = 20) -> dict[str, int]:
         await self.queue.requeue_stale_running(older_than_minutes=60)
-        jobs = await self.queue.claim_jobs(self.worker_id, limit=limit)
+        jobs = await self.queue.claim_jobs(
+            self.worker_id,
+            limit=limit,
+            job_types=SUPPORTED_INGESTION_JOB_TYPES,
+        )
         counters = {
             "claimed": len(jobs),
             "success": 0,

@@ -102,6 +102,11 @@ MAX_ATTEMPTS = 3  # Phase 31 E 修复：总执行次数（= 1 原始 + 2 次重�
 RETRY_BASE_DELAY = 30  # 秒
 INGESTION_WORKER_DRAIN_LIMIT = 5
 INGESTION_WORKER_TIMEOUT_SECONDS = 300
+# PDF 下载 drain：专用 worker（通用 ingestion worker 不处理 pdf_download，
+# 见 job_handlers.SUPPORTED_INGESTION_JOB_TYPES）。每轮上限小、周期短，
+# 下载耗时通过 request_timeout 约束，避免长占调度线程。
+PDF_DOWNLOAD_DRAIN_LIMIT = 5
+PDF_DOWNLOAD_REQUEST_TIMEOUT_SECONDS = 90
 ENABLE_EVIDENCE_SCHEDULER_ENV = "ENABLE_EVIDENCE_SCHEDULER"
 
 
@@ -388,6 +393,22 @@ async def _run_ingestion_worker_job() -> None:
         job_timeout_seconds=INGESTION_WORKER_TIMEOUT_SECONDS,
     ).run_once(limit=INGESTION_WORKER_DRAIN_LIMIT)
     logger.info("[ingestion_worker] drain result: %s", result)
+
+
+async def _run_pdf_download_job() -> None:
+    """PDF 下载 drain（专用 worker）。
+
+    通用 ingestion worker 只处理 cninfo/irm（SUPPORTED_INGESTION_JOB_TYPES），
+    故 pdf_download 必须由本 job 处理；否则 191 条公告 PDF 永不被下载，公告
+    evidence 断流。过渡期落云侧（本地 storage），P4 迁移到 H 集群 shared storage。
+    """
+    from app.knowledge.pdf_download_service import PdfDownloadWorker
+
+    result = await PdfDownloadWorker(
+        request_timeout_seconds=PDF_DOWNLOAD_REQUEST_TIMEOUT_SECONDS,
+    ).run_once(limit=PDF_DOWNLOAD_DRAIN_LIMIT)
+    if result.get("claimed", 0) > 0:
+        logger.info("[pdf_download] drain result: %s", result)
 
 
 async def _run_news_job() -> None:
@@ -767,6 +788,19 @@ class Scheduler:
             max_instances=1,
             coalesce=True,
         )
+        # PDF 下载：P4 已迁 H 集群（qingshui-pdf-worker.service → shared storage）。
+        # 默认关闭云侧 drain 避免双跑；H 不可用时置 ENABLE_PDF_DOWNLOAD_DRAIN=true 回退。
+        if os.getenv("ENABLE_PDF_DOWNLOAD_DRAIN", "false").strip().lower() in {
+            "1", "true", "yes", "on"
+        }:
+            self._scheduler.add_job(
+                _run_pdf_download_job,
+                CronTrigger(minute="*/2", timezone=TIMEZONE),
+                id="pdf_download_drain",
+                replace_existing=True,
+                max_instances=1,
+                coalesce=True,
+            )
         self._scheduler.add_job(
             _run_announcement_ingestion_job,
             CronTrigger(minute="*/15", timezone=TIMEZONE),

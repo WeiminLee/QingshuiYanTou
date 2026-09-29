@@ -347,3 +347,38 @@ class IngestionJobQueue:
         async with engine.begin() as connection:
             result = await connection.execute(sql, {"cutoff": cutoff})
         return int(result.rowcount or 0)
+
+    async def requeue_dead(
+        self,
+        job_types: list[str] | tuple[str, ...] | None = None,
+        reset_attempts: bool = True,
+    ) -> int:
+        """把 dead 状态的 job 重新入队（默认清零 attempt_count）。
+
+        用途：处理器缺失/代码缺陷把 job 误判 dead 后，修复上线需把存量 dead
+        重新消费（如 pdf_download 被通用 worker 误判 dead）。
+        """
+        clause = ""
+        params: dict[str, Any] = {}
+        if job_types:
+            clause = "AND job_type = ANY(CAST(:job_types AS text[]))"
+            params["job_types"] = list(job_types)
+        sql = text(
+            f"""
+            UPDATE ingestion_jobs
+            SET
+                status = 'pending',
+                attempt_count = CASE WHEN :reset THEN 0 ELSE attempt_count END,
+                locked_at = NULL,
+                locked_by = NULL,
+                next_run_at = NOW(),
+                updated_at = NOW()
+            WHERE status = 'dead'
+              {clause}
+            """
+        )
+        async with engine.begin() as connection:
+            result = await connection.execute(
+                sql, {**params, "reset": reset_attempts}
+            )
+        return int(result.rowcount or 0)

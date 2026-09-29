@@ -286,7 +286,13 @@ def test_worker_marks_success(monkeypatch) -> None:
         "lost_lock": 0,
     }
     queue.requeue_stale_running.assert_awaited_once_with(older_than_minutes=60)
-    queue.claim_jobs.assert_awaited_once_with("test-worker", limit=5)
+    from app.data_pipeline.job_handlers import SUPPORTED_INGESTION_JOB_TYPES
+
+    queue.claim_jobs.assert_awaited_once_with(
+        "test-worker",
+        limit=5,
+        job_types=SUPPORTED_INGESTION_JOB_TYPES,
+    )
     queue.mark_success.assert_awaited_once_with(1, "test-worker", {"success": 1})
     queue.mark_partial.assert_not_awaited()
     queue.mark_failure.assert_not_awaited()

@@ -15,6 +15,12 @@ from app.data_pipeline.job_queue import (
 )
 from app.data_pipeline.pdf_download_contract import PdfDownloadJobPayload
 
+# 通用 ingestion worker 只处理这些 job_type。pdf_download 由专用
+# PdfDownloadWorker 处理（它有自己的 job 契约与落盘逻辑）；若通用 worker 也领，
+# execute_ingestion_job 会抛 "unsupported ingestion job_type"，把下载任务判死
+# （实战：203 个 pdf_download 被误判 dead，公告 evidence 断流 27 天）。
+SUPPORTED_INGESTION_JOB_TYPES = (JOB_CNINFO_ANNOUNCEMENT_DATE, JOB_IRM_COMPANY)
+
 
 @dataclass(frozen=True)
 class JobExecutionResult:
