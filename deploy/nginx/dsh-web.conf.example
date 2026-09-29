@@ -2,10 +2,14 @@
 # Place under /etc/nginx/conf.d/ after filling server_name (+ cert paths if TLS).
 # dsh listens 127.0.0.1:3080 only — do not expose 3080 publicly.
 #
-# Prefer TLS when certs exist. Until then, HTTP :80 with basic auth is acceptable
-# for private/VPN hosts (cutover 终验). Swap to the TLS server{} when ready.
+# SECURITY / CUTOVER DEBT
+# -----------------------
+# Current 全切 default: HTTP :80 + basic auth. This is acceptable ONLY on
+# private / VPN / intranet hosts. Do NOT put this config on a public edge
+# without TLS. When certs exist, enable the TLS server{} below (and ideally
+# redirect :80 → :443). Stub only — no real certs required to land cutover.
 
-# --- HTTP (basic auth) ---
+# --- HTTP (basic auth) — intranet / VPN only ---
 server {
     listen 80;
     server_name _;  # REPLACE with real host / IP
@@ -21,16 +25,19 @@ server {
         proxy_set_header Connection "upgrade";
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
         proxy_read_timeout 3600s;
     }
 }
 
-# --- TLS (enable when certs ready; comment out HTTP server or redirect) ---
+# --- TLS (enable when certs ready) ---
 # server {
 #     listen 443 ssl;
-#     server_name dsh.example.com;
-#     ssl_certificate     /etc/nginx/ssl/cert.pem;
-#     ssl_certificate_key /etc/nginx/ssl/key.pem;
+#     server_name dsh.example.com;  # REPLACE
+#     ssl_certificate     /etc/nginx/ssl/cert.pem;   # REPLACE
+#     ssl_certificate_key /etc/nginx/ssl/key.pem;    # REPLACE
+#     # Optional modern defaults:
+#     # ssl_protocols TLSv1.2 TLSv1.3;
 #     auth_basic "Qingshui dsh";
 #     auth_basic_user_file /etc/nginx/qingshui-dsh.htpasswd;
 #     location / {
@@ -39,6 +46,16 @@ server {
 #         proxy_set_header Host $host;
 #         proxy_set_header Upgrade $http_upgrade;
 #         proxy_set_header Connection "upgrade";
+#         proxy_set_header X-Real-IP $remote_addr;
+#         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+#         proxy_set_header X-Forwarded-Proto https;
 #         proxy_read_timeout 3600s;
 #     }
+# }
+#
+# --- Optional: redirect HTTP → HTTPS once TLS is live ---
+# server {
+#     listen 80;
+#     server_name dsh.example.com;
+#     return 301 https://$host$request_uri;
 # }

@@ -54,7 +54,42 @@ Short prompt (force `skill()` + metric + evidence; forbid repo read). Transcript
 - [x] nginx basic auth live in front of dsh web `:3080`
 - [x] Cloud catalog skill load with **no** repo read fallback (+ metric + `fetch_evidence`)
 - [x] No `run_lead_agent` on default serving path
+- [x] Reviewer nits: archive langchain tests + TLS/intranet note + tools/subagent debt
 - [ ] Reviewer 全切终验 — **parent pings** when this file is green
+
+
+
+## Reviewer nits (2026-09-29 Approve-with-nits) — landed
+
+### (N1) Archive langchain-dependent tests — MUST
+
+`backend/tests/reasoning/**` (and top-level tests) still imported archived
+`app.reasoning.langchain_agent` → would fail collection/CI.
+
+**Fix:** `git mv` those tests to `archive/langchain_agent/tests/` (+ `tests/reasoning/`).
+Mixed live-tool files trimmed in place (no import of archived package).
+Grep on live `backend/tests` + `backend/app`: **no** `from app.reasoning.langchain_agent` imports.
+
+### (N2) TLS / intranet for dsh nginx — documented
+
+**Current prod:** HTTP `:80` + basic auth in front of `127.0.0.1:3080`
+(see `deploy/nginx/dsh-web.conf.example`). Acceptable **only** on private/
+VPN/intranet hosts. Public Internet exposure **requires TLS** (and keep basic auth
+or replace with stronger SSO).
+
+TLS stub already in the example conf (commented `listen 443 ssl`). Real certs
+not blocking 全切 — track as debt until certs exist.
+
+### (N3) Debt: `reasoning/tools` langchain_core thin wrappers + subagent routes
+
+Not on the dsh chat main path, but still live under Knowledge / residual FastAPI:
+
+| Item | Notes | Priority |
+|---|---|---|
+| `backend/app/reasoning/tools/**` | Many tools still `@tool` / `BaseTool` from `langchain_core` as thin wrappers around Knowledge/HTTP ops | later unwrap → plain callables / dsh tool schema |
+| `backend/app/reasoning/subagents/` + `/api/v1/subagent/*` | Polling/submit routes for LangChain-era task tool; not used by dsh chat | later retire or rebind |
+| nginx TLS for dsh-web | HTTP+basic-auth intranet-only until certs; stub in `deploy/nginx/dsh-web.conf.example` | when certs ready |
+
 
 ## Rollback
 

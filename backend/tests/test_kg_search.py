@@ -10,7 +10,6 @@ Tests for:
 
 from __future__ import annotations
 
-import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -500,33 +499,3 @@ class TestToolRegistryIntegration:
 
         assert len(loaded) >= 1
         assert loaded[0].name == "neo4j_kg_search"
-
-
-# =============================================================================
-# Graph Context — client.py 预处理测试（GraphContextMiddleware 已移除）
-# =============================================================================
-
-
-class TestGraphContextPreprocess:
-    """测试 client.py 中的图谱上下文异步预查询"""
-
-    def test_extract_entities_from_question(self):
-        """测试 _extract_entities 能识别股票代码和产品关键词"""
-        from app.reasoning.langchain_agent.client import _extract_entities
-
-        # 股票代码
-        entities = _extract_entities("分析 300308.SZ 和 600519.SH 的走势")
-        assert any("300308" in e for e in entities), f"Expected 300308 in {entities}"
-        assert any("600519" in e for e in entities), f"Expected 600519 in {entities}"
-
-        # 产品关键词
-        entities2 = _extract_entities("光模块和光伏行业的前景如何")
-        assert "光模块" in entities2, f"Expected 光模块 in {entities2}"
-        assert "光伏" in entities2, f"Expected 光伏 in {entities2}"
-
-    def test_fetch_graph_context_returns_empty_for_no_entities(self):
-        """测试无实体时返回空字符串"""
-        from app.reasoning.langchain_agent.client import _fetch_graph_context_async
-
-        result = asyncio.run(_fetch_graph_context_async("你好，请问今天的天气如何？"))
-        assert result == ""
