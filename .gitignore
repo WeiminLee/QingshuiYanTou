@@ -115,3 +115,8 @@ backend/data/board_concept/
 # Agent/图表工具生成的运行产物
 backend/static/charts/*.html
 backend/eval/local_extract_*/
+.env.dsh.local
+
+# Keep Cordis plugin build artifact
+!plugins/qingshui/lib/
+!plugins/qingshui/lib/**

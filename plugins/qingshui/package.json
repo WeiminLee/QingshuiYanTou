@@ -1,0 +1,19 @@
+{
+  "name": "qingshui",
+  "version": "0.1.0",
+  "private": true,
+  "license": "UNLICENSED",
+  "type": "module",
+  "description": "清水投研 Cordis plugin: Knowledge HTTP tools + divergence-mining skill for dsh.",
+  "main": "lib/index.mjs",
+  "exports": {
+    ".": { "default": "./lib/index.mjs" },
+    "./package.json": "./package.json"
+  },
+  "files": ["lib/index.mjs", "cordis.patch.yml", "skills"],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

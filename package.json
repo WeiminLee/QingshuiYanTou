@@ -1,0 +1,19 @@
+{
+  "name": "qingshui-yantou",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "scripts": {
+    "build:plugin": "tsdown -c plugins/qingshui/tsdown.config.ts",
+    "dsh": "node scripts/dsh.mjs",
+    "test:plugin": "TSX_TSCONFIG_PATH=$PWD/dsh/tsconfig.base.json node --import tsx --test plugins/qingshui/src/*.test.ts"
+  },
+  "devDependencies": {
+    "tsx": "^4.22.4",
+    "tsdown": "^0.22.2",
+    "typescript": "^5.9.3",
+    "@types/node": "^22.10.0"
+  }
+}
