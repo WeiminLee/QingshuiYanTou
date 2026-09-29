@@ -41,6 +41,24 @@ BUILTIN_TOOLS: list[BaseTool] = [
 SUBAGENT_TOOLS: list[BaseTool] = [task_tool]
 
 
+def _drop_unconfigured_tools(tools: list[BaseTool]) -> list[BaseTool]:
+    """剔除未配置外部依赖的工具，避免其被调用后报错污染分析。
+
+    当前仅有 tavily_search：未配置 TAVILY_API_KEY 时调用必 401。虽然
+    client 已把可选外部工具失败降级为「不计入连续失败」，但直接不注册更干净
+    （LLM 也不会浪费一轮去调用它）。
+    """
+    from app.config import settings
+
+    result: list[BaseTool] = []
+    for tool in tools:
+        if tool.name == "tavily_search" and not (settings.tavily_api_key or "").strip():
+            logger.info("[Tools] 跳过 tavily_search：未配置 TAVILY_API_KEY")
+            continue
+        result.append(tool)
+    return result
+
+
 def get_available_tools(
     groups: list[str] | None = None,
     include_builtin: bool = True,
@@ -83,8 +101,8 @@ def get_available_tools(
             validate_tool_boundary(getattr(tool, "name", ""), getattr(tool, "description", ""))
 
     # 收集已加载的工具名称（用于去重）
+    loaded_tools = _drop_unconfigured_tools(loaded_tools)
     loaded_names = {t.name for t in loaded_tools}
-
     # 内置工具（排除已在注册表中的）
     builtin_tools: list[BaseTool] = []
     if include_builtin:

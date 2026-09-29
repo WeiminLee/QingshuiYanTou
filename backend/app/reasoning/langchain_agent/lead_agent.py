@@ -43,6 +43,23 @@ _tool_semaphore = asyncio.Semaphore(8)
 # 等工具与其他工具互斥执行，避免并发冲突。
 _never_parallel_lock = asyncio.Lock()
 
+# 单个工具输出的字符上限：兜底防止任一工具返回超大文本撑爆 LLM 上下文
+# （实测 fetch_evidence 曾倾倒 67 万字符 → prompt 破 1M token → 400 重试挂死）。
+_MAX_TOOL_OUTPUT_CHARS = 12000
+
+
+def _cap_tool_output(value) -> str:
+    """截断过长的工具输出（保留头部 + 明确提示）。"""
+    if not isinstance(value, str):
+        value = str(value)
+    if len(value) <= _MAX_TOOL_OUTPUT_CHARS:
+        return value
+    return (
+        value[:_MAX_TOOL_OUTPUT_CHARS]
+        + f"\n...[工具输出过长已截断：共 {len(value)} 字符，仅显示前 "
+        f"{_MAX_TOOL_OUTPUT_CHARS} 字符；可缩小查询范围获取更精确结果]"
+    )
+
 
 def _harden_tool(
     tool: BaseTool,
@@ -85,7 +102,7 @@ def _harden_tool(
                         tool.ainvoke(kwargs),
                         timeout=_timeout,
                     )
-            return await _retry.execute(_do_invoke)
+            return _cap_tool_output(await _retry.execute(_do_invoke))
         except asyncio.TimeoutError:
             logger.warning("[LeadAgent] tool %s timed out after %ss, degraded", tool.name, _timeout)
             return _fallback(TimeoutError(f"tool {tool.name} timed out after {_timeout}s"))
@@ -95,7 +112,7 @@ def _harden_tool(
 
     def _call(**kwargs):
         try:
-            return tool.invoke(kwargs)
+            return _cap_tool_output(tool.invoke(kwargs))
         except Exception as e:  # noqa: BLE001
             logger.warning("[LeadAgent] tool %s failed (sync), degraded: %s", tool.name, e)
             return _fallback(e)

@@ -470,15 +470,56 @@ async def run_lead_agent(
         # Bug #4: 工具调用计时（tool_called 时记录 start_time，tool_result 时计算 duration_ms）
         tool_start_times: dict[str, float] = {}
 
+        # ── 墙钟预算 ───────────────────────────────────────────────
+        # 「单轮海量工具扇出 + 多次模型往返」可让排序类问题跑 >900s。设预算后
+        # 到点即停止 ReAct 循环、返回已收集的 best-effort 结论，避免用户侧挂死。
+        from app.config import settings as _settings
+
+        _wall_budget = float(getattr(_settings, "agent_wall_timeout_seconds", 150.0) or 0)
+        _wall_deadline = (time.monotonic() + _wall_budget) if _wall_budget > 0 else None
+
+        def _append_wall_notice() -> None:
+            notice = (
+                f"\n\n> ⏱️ 本次分析已达时间预算（{_wall_budget:.0f}s），"
+                "已基于当前收集到的信息给出阶段性结论。如需更完整结果，"
+                "请缩小问题范围（例如指定具体公司或指标）再问。"
+            )
+            full_content.append(notice)
+            turn_context.full_content.append(notice)
+
         try:
             # stream_mode=["values", "messages"]：
             #   - "messages" 逐 token 推送 LLM 文本增量（真正的流式，逐字出现）
             #   - "values"   每个节点完成后的完整状态快照（工具调用/结果/澄清检测）
             # 文本的实时流式由 messages 分支负责；values 分支只累积 full_content
             # 作为最终报告的权威来源，不再重复 emit 整段文本。
-            async for stream_mode, chunk in agent.astream(
+            # 用显式迭代 + wait_for 包裹：既限制总墙钟，也限制单块等待
+            # （模型调用卡死时也能及时收尾）。
+            _stream_iter = agent.astream(
                 state, config=config, stream_mode=["values", "messages"]
-            ):
+            ).__aiter__()
+            while True:
+                if _wall_deadline is not None:
+                    _remaining = _wall_deadline - time.monotonic()
+                    if _remaining <= 0:
+                        logger.warning("[Agent] 墙钟预算 %.0fs 用尽，提前收尾", _wall_budget)
+                        recursion_truncated = True
+                        _append_wall_notice()
+                        break
+                else:
+                    _remaining = None
+                try:
+                    stream_mode, chunk = await asyncio.wait_for(
+                        _stream_iter.__anext__(), timeout=_remaining
+                    )
+                except StopAsyncIteration:
+                    break
+                except TimeoutError:
+                    logger.warning("[Agent] 墙钟预算 %.0fs 用尽（等待下一块超时），提前收尾", _wall_budget)
+                    recursion_truncated = True
+                    _append_wall_notice()
+                    break
+
                 if stream_mode == "messages":
                     msg_chunk, _meta = chunk
                     if isinstance(msg_chunk, AIMessageChunk):
@@ -596,9 +637,11 @@ async def run_lead_agent(
 
                         # 工具失败检测：LangChain ToolMessage.status='error' 或结果文本含错误标志
                         is_failure = getattr(msg, "status", None) == "error" or _looks_like_tool_failure(result_str)
-                        if is_failure:
+                        # 可选外部服务（如 tavily 401）失败降级为「该项数据缺失」：
+                        # 不计入连续失败（否则会拖垮整轮分析，实测），也不重置计数。
+                        if is_failure and tool_name not in _OPTIONAL_EXTERNAL_TOOLS:
                             consecutive_tool_failures += 1
-                        else:
+                        elif not is_failure:
                             consecutive_tool_failures = 0
                         turn_context.truncated = recursion_truncated
 
@@ -789,6 +832,10 @@ def _extract_text(content: str | list | None) -> str:
 
 
 # 工具结果失败标志（中英文兼容）— 用于驱动连续失败短路逻辑
+# 外部可选服务工具：失败视为「该项数据缺失」降级，不计入连续失败终止条件。
+# tavily 等外部 API 不可达/key 失效（401）时，不应拖垮基于知识层的分析。
+_OPTIONAL_EXTERNAL_TOOLS = frozenset({"tavily_search"})
+
 _TOOL_FAILURE_MARKERS = (
     "查询失败",
     "获取失败",

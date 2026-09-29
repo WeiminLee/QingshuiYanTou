@@ -131,12 +131,22 @@ class Settings(BaseSettings):
     agent_journal_max_events: int = 500
     tool_health_ttl_seconds: int = 60
     agent_sse_timeout: float = 1800.0  # SSE 流总超时（秒），默认 30 分钟
+    # Agent 单次请求的墙钟预算（秒）：超时即停止 ReAct 循环并返回已收集的
+    # best-effort 结论。防止「单轮海量工具扇出 + 多次模型往返」导致用户侧
+    # 长时间挂死（实测排序类问题 >900s 无响应）。
+    agent_wall_timeout_seconds: float = 150.0
 
     # Context compression
     compression_token_threshold: int = 40000  # 触发压缩的预估 token 阈值
     compression_protect_first_n: int = 3  # 头部保护消息条数
     compression_tail_budget_pct: float = 0.20  # 尾部 token 预算百分比
     compression_enabled: bool = True  # 是否启用上下文压缩
+    # 硬上限：预估 token 超过此值时**绕过 anti-thrashing** 强制压缩，防止
+    # '上次节省率低 → 永久跳过压缩' 导致的上下文无界增长（实测 prompt 破 1M
+    # token → 400 反复重试 → 请求挂死）。留足模型窗口（1M）余量。
+    compression_hard_token_ceiling: int = 150000
+    # 单条消息字符硬上限：无论位置（含尾部保护），超大消息一律截断。
+    compression_max_message_chars: int = 24000
 
     # Tavily（联网检索）
     tavily_api_key: str = ""

@@ -12,6 +12,9 @@ from typing import Annotated
 
 from langchain_core.tools import tool
 
+# 单条证据正文截断上限（字符）。见 _format_evidence 说明。
+_MAX_EVIDENCE_TEXT = 8000
+
 logger = logging.getLogger(__name__)
 
 
@@ -49,9 +52,22 @@ def fetch_evidence(
 
 
 def _format_evidence(doc: dict | None) -> str:
-    """格式化证据文档为 Agent 可读文本。"""
+    """格式化证据文档为 Agent 可读文本。
+
+    长文截断：单条 evidence 的 text_excerpt 最大可达 67 万字符（≈17 万 token，
+    实测年报/公告切片）。若不截断，多次 fetch_evidence 会撑爆 LLM 上下文
+    （>1M token 报 400 并被反复重试 → 请求挂死 15 分钟）。故截断 + 提示溯源。
+    """
     if not doc:
         return "未找到该证据记录（可能 evidence_id 无效或数据已过期）。"
+
+    text = doc.get("text_excerpt", "(无文本内容)") or "(无文本内容)"
+    if len(text) > _MAX_EVIDENCE_TEXT:
+        text = (
+            text[:_MAX_EVIDENCE_TEXT]
+            + f"\n...[原文过长已截断：共 {len(text)} 字符，仅显示前 "
+            f"{_MAX_EVIDENCE_TEXT} 字符；如需更多请用 backlinks 缩小范围或换成更精确的证据 ID]"
+        )
 
     lines = [
         f"证据 ID: {doc.get('evidence_id', 'N/A')}",
@@ -60,7 +76,7 @@ def _format_evidence(doc: dict | None) -> str:
         f"发布时间: {doc.get('publish_date', 'N/A')}",
         f"置信度: {doc.get('confidence', 'N/A')}",
         "--- 原始文本 ---",
-        doc.get("text_excerpt", "(无文本内容)"),
+        text,
     ]
 
     subject = doc.get("subject_hint") or {}

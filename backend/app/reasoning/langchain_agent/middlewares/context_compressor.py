@@ -101,6 +101,8 @@ class ContextCompressorMiddleware(AgentMiddleware):
         from app.config import settings
 
         self._token_threshold = token_threshold or settings.compression_token_threshold
+        self._hard_ceiling = settings.compression_hard_token_ceiling
+        self._max_message_chars = settings.compression_max_message_chars
         self._protect_first_n = protect_first_n or settings.compression_protect_first_n
         self._tail_budget_pct = tail_budget_pct if tail_budget_pct is not None else settings.compression_tail_budget_pct
         self._enabled = settings.compression_enabled
@@ -119,6 +121,12 @@ class ContextCompressorMiddleware(AgentMiddleware):
         """检查是否应跳过压缩。返回 None 或跳过原因。"""
         if not self._enabled:
             return "disabled"
+
+        # 硬上限：一旦逼近模型窗口，绕过一切 anti-thrashing 强制压缩。
+        # 否则 '上次节省率低' 会永久跳过压缩 → 上下文无界增长 → prompt 破
+        # 模型窗口（实测 1M token）→ 400 反复重试 → 请求挂死。
+        if estimated_tokens >= self._hard_ceiling:
+            return None
 
         # Anti-thrashing：节省率过低时跳过
         if self._last_savings_pct is not None and self._last_savings_pct < self._min_savings_ratio * 100:
@@ -169,10 +177,12 @@ class ContextCompressorMiddleware(AgentMiddleware):
         )
 
         compressed = self._compress(messages)
-        if len(compressed) >= len(messages):
+        # 注意：以 token 而非消息条数判断是否有效——单消息硬截断不改变条数，
+        # 若按 len 比较会误判为“无压缩”而丢弃截断结果。
+        compressed_tokens = count_messages_tokens(compressed, self._model_name)
+        if compressed_tokens >= estimated_tokens:
             return None
 
-        compressed_tokens = count_messages_tokens(compressed, self._model_name)
         self._record_compression(estimated_tokens, compressed_tokens)
         append_journal_event(
             "context_snapshot",
@@ -217,10 +227,11 @@ class ContextCompressorMiddleware(AgentMiddleware):
         )
 
         compressed = await self._acompress(messages)
-        if len(compressed) >= len(messages):
+        # 同 _compress_state：以 token 判断有效压缩（硬截断不改条数）。
+        compressed_tokens = count_messages_tokens(compressed, self._model_name)
+        if compressed_tokens >= estimated_tokens:
             return None
 
-        compressed_tokens = count_messages_tokens(compressed, self._model_name)
         self._record_compression(estimated_tokens, compressed_tokens)
         append_journal_event(
             "context_snapshot",
@@ -245,13 +256,13 @@ class ContextCompressorMiddleware(AgentMiddleware):
 
     def _compress(self, messages: list) -> list:
         """执行同步压缩：修剪 + 截断回退。"""
-        original_count = len(messages)
-        if original_count <= self._protect_first_n + 3:
-            return list(messages)
-
+        # 先做修剪/硬截断（含单消息硬截断），再判断是否还需要进一步摘要/截断。
         result = self._prune_tool_results(messages)
 
         if count_messages_tokens(result, self._model_name) < self._token_threshold:
+            return result
+
+        if len(result) <= self._protect_first_n + 3:
             return result
 
         head, middle, tail = self._split(result)
@@ -260,13 +271,12 @@ class ContextCompressorMiddleware(AgentMiddleware):
 
     async def _acompress(self, messages: list) -> list:
         """执行异步压缩：修剪 + LLM 增量总结。"""
-        original_count = len(messages)
-        if original_count <= self._protect_first_n + 3:
-            return list(messages)
-
         result = self._prune_tool_results(messages)
 
         if count_messages_tokens(result, self._model_name) < self._token_threshold:
+            return result
+
+        if len(result) <= self._protect_first_n + 3:
             return result
 
         head, middle, tail = self._split(result)
@@ -289,11 +299,24 @@ class ContextCompressorMiddleware(AgentMiddleware):
         return "\n---\n".join(parts)
 
     def _prune_tool_results(self, messages: list) -> list:
-        """Step 1: 修剪中间部分的长工具结果。
+        """Step 1: 修剪中间部分的长工具结果 + 全量单消息硬截断。
 
         结构感知：带有结构标记的消息不受修剪。
+        单消息硬截断对**所有位置**（含头部/尾部保护）生效——否则一条 17 万
+        token 的工具结果落在尾部保护里，压缩永远够不着它。
         """
         result = list(messages)
+
+        # 先做全量单消息硬截断（不受尾部/结构保护限制）
+        for i, msg in enumerate(result):
+            # 不截断 system prompt（截断会破坏指令语义）
+            if isinstance(msg, SystemMessage):
+                continue
+            content = getattr(msg, "content", None)
+            if not isinstance(content, str) or len(content) <= self._max_message_chars:
+                continue
+            result[i] = self._truncate_message(msg, content)
+
         tail_count = min(3, len(result) - 1)
         prune_start = self._protect_first_n
         prune_end = len(result) - tail_count
@@ -314,6 +337,23 @@ class ContextCompressorMiddleware(AgentMiddleware):
                     name=tool_name,
                 )
         return result
+
+    def _truncate_message(self, msg, content: str):
+        """按消息类型重建一条被硬截断的副本（保留 metadata）。"""
+        note = (
+            content[: self._max_message_chars]
+            + f"\n...[超长消息已截断：原 {len(content)} 字符]"
+        )
+        if isinstance(msg, ToolMessage):
+            return ToolMessage(
+                content=note,
+                tool_call_id=getattr(msg, "tool_call_id", ""),
+                name=getattr(msg, "name", "tool"),
+            )
+        try:
+            return msg.model_copy(update={"content": note})
+        except Exception:  # noqa: BLE001 — 兜底：类型不支持时保留原消息
+            return msg
 
     def _split(self, messages: list) -> tuple[list, list, list]:
         """Step 2: 拆分为 head / middle / tail。"""
