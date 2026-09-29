@@ -1,2 +1,7 @@
-# Per-checkout overlay. Composition lives in plugins/qingshui/cordis.patch.yml.
-[]
+# Per-checkout overlay for QingshuiYanTou.
+# Forces Boyue/qingshui default model even when ~/.dsh/settings.yaml still
+# points at another project's provider (e.g. matdiscovery).
+- id: agent-default-model
+  config:
+    provider: qingshui
+    model: deepseek-v4-flash

@@ -371,8 +371,15 @@ function installQingshuiTools(ctx, options) {
 //#endregion
 //#region src/index.ts
 const name = "qingshui";
-const inject = ["tools"];
+/** tools for defineTool; skills so nested skill-filesystem can register providers. */
+const inject = ["tools", "skills"];
+/** Package root = plugins/qingshui (parent of src/ or lib/). */
 const packageRoot = fileURLToPath(new URL("..", import.meta.url));
+function resolveSkillsDir() {
+	const candidates = [join(packageRoot, "skills"), join(packageRoot, "..", "skills")];
+	for (const dir of candidates) if (existsSync(join(dir, "divergence-mining", "SKILL.md"))) return dir;
+	for (const dir of candidates) if (existsSync(dir)) return dir;
+}
 function apply(ctx, config) {
 	let client;
 	const rebuild = () => {
@@ -390,12 +397,15 @@ function apply(ctx, config) {
 	};
 	rebuild();
 	installQingshuiTools(ctx, { client: () => client });
-	const skillsDir = join(packageRoot, "skills");
-	if (existsSync(skillsDir)) ctx.plugin(skillFilesystem, {
-		providerName: "qingshui-skills",
-		includeDefaultRoots: false,
-		customSkillDirs: [skillsDir]
-	});
+	const skillsDir = resolveSkillsDir();
+	if (skillsDir !== void 0) {
+		ctx.plugin(skillFilesystem, {
+			providerName: "qingshui-local",
+			includeDefaultRoots: false,
+			customSkillDirs: [skillsDir]
+		});
+		ctx.logger.info("qingshui: skill root mounted provider=qingshui-local dir=%c", skillsDir);
+	} else ctx.logger.warn("qingshui: skill root missing (expected skills/divergence-mining/SKILL.md under package)");
 	ctx.logger.info("qingshui: loaded tools=compare_metric,metric_trend,rollup_metric,fetch_evidence,semantic_search,related_nodes,propagate_along base=%c", config.knowledgeBaseUrl);
 }
 //#endregion

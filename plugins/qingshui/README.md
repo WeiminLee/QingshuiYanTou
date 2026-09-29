@@ -12,3 +12,21 @@ KNOWLEDGE_API_KEY=… pnpm dsh --profile headless "对硅片板块做预期差�
 ```
 
 LLM: Boyue `http://35.220.164.252:3888/v1` + `deepseek-v4-flash`（`OPENAI_API_KEY`）。
+
+## Skills
+
+`skills/divergence-mining` is mounted via nested `@deepseek-ai/dsh-skill-filesystem`
+(provider `qingshui-local`, MatDiscovery pattern). Frontmatter `description` must be
+YAML-safe (quote strings that contain `:`).
+
+```sh
+pnpm run check:skills
+```
+
+## Model overlay
+
+If `~/.dsh/settings.yaml` still pins another provider, pass the checkout overlay:
+
+```sh
+pnpm dsh --profile headless --patch patches/qingshui.yml "…"
+```

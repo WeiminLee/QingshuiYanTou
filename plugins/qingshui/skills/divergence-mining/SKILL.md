@@ -1,6 +1,6 @@
 ---
 name: divergence-mining
-description: 预期差挖掘——在证据时间线上识别状态演进（递进/变化/矛盾），判断须引用 EV:
+description: "预期差挖掘——在证据时间线上识别状态演进（递进/变化/矛盾），判断须引用 EV:"
 version: 3.0.0
 metadata:
   tags: [预期差, 状态演进, 信息差, 时间差]

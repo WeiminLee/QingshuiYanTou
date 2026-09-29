@@ -17,7 +17,8 @@ cd dsh && CI=true pnpm_config_verify_deps_before_run=false pnpm install && pnpm 
 pnpm run build:plugin
 pnpm dsh plugin --profile headless add ./plugins/qingshui
 # May stop data-acquisition processes for test
-pnpm dsh --profile headless "对硅片板块做预期差分析" | tee /tmp/silicon-wafer-divergence-dsh.md
+pnpm run check:skills
+pnpm dsh --profile headless --patch patches/qingshui.yml "对硅片板块做预期差分析" | tee /tmp/silicon-wafer-divergence-dsh.md
 ```
 
 Rollback: leave submodule/plugin in git; stop any dsh unit; Vue/LangChain untouched.

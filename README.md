@@ -211,6 +211,12 @@ L2 判断层    observation / finding / watermark（PostgreSQL）
 - **存储处置**：新结构全部入 PostgreSQL；Neo4j 冻结只读（`resolve`/`expand` 过渡期保留），Qdrant `kg_entities`/`kg_relations` 随三元组管线退役；`neo4j_kg_search` 已下线。
 - **后续迭代**：zhparser 全文检索、涌现聚类、embedding 概念层附着（见 `docs/superpowers/specs/2026-09-18-knowledge-layer-redesign-design.md`）。
 
+## Agent 入口（dsh 硬切进行中）
+
+**默认投研对话入口：dsh**（`pnpm dsh --profile web` / `headless` + `plugins/qingshui`）。  
+Vue `/home` 聊天与 `/api/v1/agent/*` LangChain 路径已退役（410 / 弃用页）。Knowledge HTTP、采集、抽取、worker **保留**。  
+全切终验前 `frontend/` 非聊天页（登录/组合/个股等）仍可存在——见 `docs/superpowers/specs/2026-09-29-vue-remaining-pages.md`。
+
 ## Agent 与推理运行机制
 
 Reasoning 子系统位于 `backend/app/reasoning/`。它把用户请求拆成可观测的运行过程：

@@ -1,9 +1,8 @@
 import { createRouter, createWebHistory } from "vue-router";
-import Home from "./views/Home.vue";
+import AgentDeprecatedView from "./views/AgentDeprecatedView.vue";
 import ReportView from "./views/ReportView.vue";
 import StockDetail from "./views/StockDetail.vue";
 import TDesignDemo from "./views/TDesignDemo.vue";
-import TDesignChatSpike from "./views/TDesignChatSpike.vue";
 import { whoami } from "@/api/account";
 
 const routes = [
@@ -14,7 +13,8 @@ const routes = [
   {
     path: "/home",
     name: "Home",
-    component: Home,
+    component: AgentDeprecatedView,
+    meta: { public: true },
   },
   {
     path: "/report",
@@ -34,7 +34,14 @@ const routes = [
   {
     path: "/spike-chat",
     name: "TDesignChatSpike",
-    component: TDesignChatSpike,
+    component: AgentDeprecatedView,
+    meta: { public: true },
+  },
+  {
+    path: "/agent-deprecated",
+    name: "AgentDeprecated",
+    component: AgentDeprecatedView,
+    meta: { public: true },
   },
   {
     path: "/login",

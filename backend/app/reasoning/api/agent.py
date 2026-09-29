@@ -1,7 +1,11 @@
 """
-Agent 分析 API
+Agent 分析 API — DEPRECATED (dsh cutover)
 
-清水 Layer 3 的 HTTP 接口（LangChain V2 引擎）：
+LangChain / Vue chat UX is retired for the default agent path.
+Use dsh web / headless + plugins/qingshui. Knowledge HTTP under
+/api/v1/knowledge/* is unaffected.
+
+Historical LangChain V2 surface (now 410 Gone):
 
 POST /api/v1/agent/chat
   Body: {"question": "分析中际旭创的投资价值"}
@@ -46,6 +50,22 @@ _RESUME_TIMEOUT_SECONDS = 600  # 10 min — matching hermes-agent; closes SSE if
 
 router = APIRouter(tags=["Agent分析"])
 logger = logging.getLogger(__name__)
+
+_AGENT_GONE = {
+    "error": "langchain_agent_retired",
+    "message": (
+        "Vue/LangChain agent UX is deprecated. "
+        "Use dsh (web or headless) with plugins/qingshui for 投研对话."
+    ),
+    "entry": "pnpm dsh --profile web  # or: pnpm dsh --profile headless \"…\"",
+    "docs": "docs/superpowers/specs/2026-09-29-dsh-agent-runtime-cutover-design.md",
+}
+
+
+def _langchain_agent_retired() -> None:
+    """FastAPI dependency: hard-stop default LangChain agent UX (cutover)."""
+    raise HTTPException(status_code=410, detail=_AGENT_GONE)
+
 
 # 任务清理节拍器：每创建 N 个任务触发一次过期任务清理（由 _task_manager._cleanup() 处理 TTL）
 _cleanup_counter: int = 0
@@ -221,16 +241,12 @@ async def _run_invoke_task(
 @router.post("/chat", response_model=ChatResponse)
 async def chat(
     request: ChatRequest,
+    _retired=Depends(_langchain_agent_retired),
     _=Depends(verify_api_key),
     user_id_cookie: str | None = Cookie(default=None, alias="user_id"),
 ):
-    """
-    直接返回分析结果（同步，V2 引擎）。
-
-    LangGraph agent.stream() 内部自动驱动多轮 tool loop（Agent loop），
-    真正实现 DeerFlow 式的反复调用工具直到完成。
-    """
-    from app.reasoning.langchain_agent.client import run_lead_agent
+    """DEPRECATED — returns 410. Use dsh web/headless + plugins/qingshui."""
+    from app.reasoning.langchain_agent.client import run_lead_agent  # noqa: F401
 
     thread_id = request.thread_id or str(uuid.uuid4())
     effective_user_id = _resolve_request_user_id(request.user_id, user_id_cookie)
@@ -257,6 +273,7 @@ async def chat(
 async def invoke(
     request: InvokeRequest,
     background_tasks: BackgroundTasks,
+    _retired=Depends(_langchain_agent_retired),
     _=Depends(verify_api_key),
     user_id_cookie: str | None = Cookie(default=None, alias="user_id"),
 ):
@@ -298,7 +315,11 @@ async def invoke(
 
 
 @router.get("/invoke/{task_id}/result", response_model=ResultResponse)
-async def get_result(task_id: str, _=Depends(verify_api_key)):
+async def get_result(
+    task_id: str,
+    _retired=Depends(_langchain_agent_retired),
+    _=Depends(verify_api_key),
+):
     """查询任务执行结果"""
     # 优先查 _task_manager（stream/report 使用）
     task = _task_manager.get_task(task_id)
@@ -320,7 +341,11 @@ async def get_result(task_id: str, _=Depends(verify_api_key)):
 
 
 @router.get("/invoke")
-async def list_tasks(limit: int = 20, _=Depends(verify_api_key)):
+async def list_tasks(
+    limit: int = 20,
+    _retired=Depends(_langchain_agent_retired),
+    _=Depends(verify_api_key),
+):
     """列出最近的任务"""
     safe_limit = max(1, min(int(limit or 20), 100))
     recent = _task_manager.list_recent_tasks(limit=safe_limit)
@@ -358,7 +383,11 @@ class AgentFeedbackResponse(BaseModel):
 
 
 @router.post("/feedback", response_model=AgentFeedbackResponse)
-async def submit_agent_feedback(request: AgentFeedbackRequest, _=Depends(verify_api_key)):
+async def submit_agent_feedback(
+    request: AgentFeedbackRequest,
+    _retired=Depends(_langchain_agent_retired),
+    _=Depends(verify_api_key),
+):
     """接收用户对 Agent 报告的点赞/点踩，写入 MongoDB agent_feedback。"""
     from app.reasoning.agent_feedback_service import record_agent_feedback
 
@@ -401,6 +430,7 @@ class ReportResponse(BaseModel):
 @router.post("/report", response_model=ReportResponse)
 async def generate_report(
     request: ReportRequest,
+    _retired=Depends(_langchain_agent_retired),
     _=Depends(verify_api_key),
     user_id_cookie: str | None = Cookie(default=None, alias="user_id"),
 ):
@@ -472,7 +502,11 @@ async def generate_report(
 
 
 @router.get("/stream/{task_id}")
-async def stream_events(task_id: str, _api_key: str = Depends(verify_api_key_query)):
+async def stream_events(
+    task_id: str,
+    _retired=Depends(_langchain_agent_retired),
+    _api_key: str = Depends(verify_api_key_query),
+):
     """
     SSE 事件流端点。
 
@@ -498,6 +532,7 @@ class StreamReportRequest(BaseModel):
 @router.post("/stream/report")
 async def stream_report(
     request: StreamReportRequest,
+    _retired=Depends(_langchain_agent_retired),
     _=Depends(verify_api_key),
     user_id_cookie: str | None = Cookie(default=None, alias="user_id"),
 ):
@@ -531,6 +566,7 @@ async def stream_report(
 async def resolve_clarification(
     task_id: str,
     body: ResolveClarificationRequest,
+    _retired=Depends(_langchain_agent_retired),
     _=Depends(verify_api_key),
 ):
     """Resume a paused agent run with user's clarification answer."""
@@ -820,6 +856,7 @@ class V2ChatRequest(BaseModel):
 @router.post("/v2/chat", response_model=ChatResponse)
 async def v2_chat(
     request: V2ChatRequest,
+    _retired=Depends(_langchain_agent_retired),
     _=Depends(verify_api_key),
     user_id_cookie: str | None = Cookie(default=None, alias="user_id"),
 ):
@@ -877,6 +914,7 @@ class V2StreamRequest(BaseModel):
 @router.post("/v2/stream")
 async def v2_stream(
     request: V2StreamRequest,
+    _retired=Depends(_langchain_agent_retired),
     api_key: str = Depends(verify_api_key_query),
     user_id_cookie: str | None = Cookie(default=None, alias="user_id"),
 ):

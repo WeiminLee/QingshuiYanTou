@@ -1,9 +1,7 @@
 """Agent-facing metric / graph-walk HTTP (dsh plugin boundary).
 
-Wraps existing LangChain tool implementations via .ainvoke so Knowledge HTTP
-stays the only DB-facing surface for the Cordis plugin. Tool names kept:
-compare_metric / metric_trend / rollup_metric (+ related_nodes / propagate_along
-for 传导面).
+Calls pure app.knowledge.* services — no LangChain @tool wrappers on this path.
+HTTP contracts stable for plugins/qingshui.
 """
 from __future__ import annotations
 
@@ -14,6 +12,7 @@ from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel, Field
 
 from app.knowledge.api._auth import require_api_key
+from app.knowledge import agent_graph_ops, agent_metric_ops
 
 logger = logging.getLogger(__name__)
 
@@ -52,11 +51,11 @@ class PropagateAlongRequest(BaseModel):
     top_k: int = Field(default=20, ge=1, le=100)
 
 
-async def _ainvoke(tool: Any, payload: dict[str, Any]) -> Any:
+async def _run(label: str, coro) -> Any:
     try:
-        return await tool.ainvoke(payload)
+        return await coro
     except Exception as exc:  # noqa: BLE001
-        logger.exception("agent tool %s failed", getattr(tool, "name", tool))
+        logger.exception("agent op %s failed", label)
         raise HTTPException(500, f"tool failed: {exc}") from exc
 
 
@@ -66,16 +65,14 @@ async def api_compare_metric(
     x_api_key: str | None = Header(default=None),
 ):
     require_api_key(x_api_key)
-    from app.reasoning.tools.knowledge.metric_ops import compare_metric
-
-    return await _ainvoke(
-        compare_metric,
-        {
-            "dimension": req.dimension,
-            "scope": req.scope,
-            "as_of": req.as_of,
-            "top_k": req.top_k,
-        },
+    return await _run(
+        "compare_metric",
+        agent_metric_ops.compare_metric(
+            dimension=req.dimension,
+            scope=req.scope,
+            as_of=req.as_of,
+            top_k=req.top_k,
+        ),
     )
 
 
@@ -85,15 +82,13 @@ async def api_metric_trend(
     x_api_key: str | None = Header(default=None),
 ):
     require_api_key(x_api_key)
-    from app.reasoning.tools.knowledge.metric_ops import metric_trend
-
-    return await _ainvoke(
-        metric_trend,
-        {
-            "subject": req.subject,
-            "dimension": req.dimension,
-            "limit": req.limit,
-        },
+    return await _run(
+        "metric_trend",
+        agent_metric_ops.metric_trend(
+            subject=req.subject,
+            dimension=req.dimension,
+            limit=req.limit,
+        ),
     )
 
 
@@ -103,15 +98,13 @@ async def api_rollup_metric(
     x_api_key: str | None = Header(default=None),
 ):
     require_api_key(x_api_key)
-    from app.reasoning.tools.knowledge.metric_ops import rollup_metric
-
-    return await _ainvoke(
-        rollup_metric,
-        {
-            "parent": req.parent,
-            "scope": req.scope,
-            "top_k": req.top_k,
-        },
+    return await _run(
+        "rollup_metric",
+        agent_metric_ops.rollup_metric(
+            parent=req.parent,
+            scope=req.scope,
+            top_k=req.top_k,
+        ),
     )
 
 
@@ -121,12 +114,14 @@ async def api_related_nodes(
     x_api_key: str | None = Header(default=None),
 ):
     require_api_key(x_api_key)
-    from app.reasoning.tools.knowledge.graph_walk import related_nodes
-
-    payload: dict[str, Any] = {"keyword": req.keyword, "top_k": req.top_k}
-    if req.layer:
-        payload["layer"] = req.layer
-    return await _ainvoke(related_nodes, payload)
+    return await _run(
+        "related_nodes",
+        agent_graph_ops.related_nodes(
+            keyword=req.keyword,
+            layer=req.layer,
+            top_k=req.top_k,
+        ),
+    )
 
 
 @router.post("/propagate_along")
@@ -135,14 +130,12 @@ async def api_propagate_along(
     x_api_key: str | None = Header(default=None),
 ):
     require_api_key(x_api_key)
-    from app.reasoning.tools.knowledge.graph_walk import propagate_along
-
-    return await _ainvoke(
-        propagate_along,
-        {
-            "start": req.start,
-            "max_hops": req.max_hops,
-            "min_cooccur": req.min_cooccur,
-            "top_k": req.top_k,
-        },
+    return await _run(
+        "propagate_along",
+        agent_graph_ops.propagate_along(
+            start=req.start,
+            max_hops=req.max_hops,
+            min_cooccur=req.min_cooccur,
+            top_k=req.top_k,
+        ),
     )

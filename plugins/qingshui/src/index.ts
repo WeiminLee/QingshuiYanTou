@@ -10,12 +10,29 @@ import type { KnowledgeClient } from './knowledge-client.ts'
 import { installQingshuiTools } from './tools.ts'
 
 export const name = 'qingshui'
-export const inject = ['tools']
+/** tools for defineTool; skills so nested skill-filesystem can register providers. */
+export const inject = ['tools', 'skills']
 
 export { Config }
 export type { QingshuiConfig }
 
+/** Package root = plugins/qingshui (parent of src/ or lib/). */
 const packageRoot = fileURLToPath(new URL('..', import.meta.url))
+
+function resolveSkillsDir(): string | undefined {
+  const candidates = [
+    join(packageRoot, 'skills'),
+    // Belt: if ever loaded from an unexpected bundle layout, prefer package-adjacent skills.
+    join(packageRoot, '..', 'skills'),
+  ]
+  for (const dir of candidates) {
+    if (existsSync(join(dir, 'divergence-mining', 'SKILL.md'))) return dir
+  }
+  for (const dir of candidates) {
+    if (existsSync(dir)) return dir
+  }
+  return undefined
+}
 
 export function apply(ctx: Context, config: QingshuiConfig): void {
   let client: KnowledgeClient | undefined
@@ -37,13 +54,18 @@ export function apply(ctx: Context, config: QingshuiConfig): void {
   rebuild()
   installQingshuiTools(ctx, { client: () => client })
 
-  const skillsDir = join(packageRoot, 'skills')
-  if (existsSync(skillsDir)) {
+  // MatDiscovery pattern: nested dsh-skill-filesystem with includeDefaultRoots=false
+  // and customSkillDirs pointing at the plugin's skills/ tree.
+  const skillsDir = resolveSkillsDir()
+  if (skillsDir !== undefined) {
     ctx.plugin(skillFilesystem, {
-      providerName: 'qingshui-skills',
+      providerName: 'qingshui-local',
       includeDefaultRoots: false,
       customSkillDirs: [skillsDir],
     })
+    ctx.logger.info('qingshui: skill root mounted provider=qingshui-local dir=%c', skillsDir)
+  } else {
+    ctx.logger.warn('qingshui: skill root missing (expected skills/divergence-mining/SKILL.md under package)')
   }
 
   ctx.logger.info(
