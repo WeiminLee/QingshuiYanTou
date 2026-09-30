@@ -55,14 +55,19 @@
   disabled: true
 
 
+
 # ── Public nginx Host trust (cloud http://124.221.188.38/) ──
 # Declare the public authority via CLI `--trusted-host` on qingshui-dsh
 # (see deploy/dsh/qingshui-dsh.service.example). That flows webStartup →
 # webRuntime → connection.trustedHosts. Keep nginx `Host $host` (do NOT
 # rewrite to 127.0.0.1 — that would unlock PRIVILEGED /api methods).
 #
-# Force native directory-picker so host.listDirectory/createDirectory are
-# unavailable on the public trust path (auto→browse would answer listings
-# for any trusted Host). pickDirectory stays loopback-only via dsh.
+# Pin directory-picker to native: cordis patches treat `name` as a match
+# guard (cannot rename auto→native), so disable auto and insert native.
+# Otherwise auto→browse answers host.listDirectory for any trusted Host.
 - id: directory-picker
-  name: '@deepseek-ai/dsh-host-directory-picker-native'
+  name: '@deepseek-ai/dsh-host-directory-picker-auto'
+  disabled: true
+- insert:
+    - id: directory-picker-native
+      name: '@deepseek-ai/dsh-host-directory-picker-native'

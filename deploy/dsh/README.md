@@ -42,10 +42,12 @@ but API/WS return **403**.
 proxied request look loopback and unlock PRIVILEGED methods (`host.pickDirectory`,
 settings/credentials plane, etc.). Keep `$host` + explicit `trustedHosts`.
 
-**Host FS:** `plugins/qingshui/cordis.patch.yml` forces `directory-picker` →
-**native** so `host.listDirectory` / `createDirectory` stay unavailable on the
-public trust path (auto→browse would list the host filesystem for any trusted
-Host). `host.pickDirectory` remains loopback-only regardless.
+**Host FS:** cordis patch `name` is a match-guard (cannot rename the row).
+`plugins/qingshui/cordis.patch.yml` therefore **disables** `directory-picker`
+(auto) and **inserts** native, so `host.listDirectory` / `createDirectory`
+return `directory-picker-unavailable` instead of listings. auto→browse would
+list the host filesystem for any trusted Host. `host.pickDirectory` /
+settings / credentials remain loopback-only via dsh PRIVILEGED_METHODS.
 
 After pull: `systemctl daemon-reload && systemctl restart qingshui-dsh`
 (nginx unchanged unless conf edited).
