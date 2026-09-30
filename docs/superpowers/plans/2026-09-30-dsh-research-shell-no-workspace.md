@@ -265,3 +265,20 @@ Cloud nginx→3080 / tunnel Playwright after Approach A deploy:
 
 **Stopped per Reviewer nit (2):** no silent `dsh/` ConversationRoot fork. Request separate Approve for (B) one-line upstream inert/chip change or (A′) plugin `conversation` slot shadow at priority `-1`.
 
+## A′ evidence (2026-09-30, `828f61a`)
+
+Plugin-local `conversation` shadow at priority **-1** (Cordis: lowest priority renders; default 0). The winner cannot redeclare child seats (`already declared`), so it grafts the shipped entry's `children` + `inject` and renders without the workspace chip. Inert gate is session presence only. No `dsh/` diff.
+
+Playwright (Chrome) via Mac tunnel `127.0.0.1:13080` → cloud `127.0.0.1:3080` (nginx upstream; public `:80` API stays 403 unless Host is loopback — `trustedHosts` does not include the public IP, and nginx `$host` strips a non-80 tunnel port):
+
+| Check | Result | Evidence |
+|-------|--------|----------|
+| A1 workspace chip | **PASS** | No「选择工作区」/「选择一个工作区开始」; `[data-qs-conversation=research]` |
+| A2 composer usable | **PASS** | `readOnly=false`, `disabled=false`; fill `ping` stuck; Enter → `data-phase=active` |
+| A3 zero listDirectory | **PASS** | No `listDirectory` / `pickDirectory` in HTTP or websocket frames |
+| A4 新建对话 | **PASS** | Sidebar rows 4 → 5; still zero directory API; composer stays editable |
+| A5 session sidebar | **PASS** | 「投研会话」+「新建对话」+ `.qs-shell-row` |
+| A6 tools/skills | **PASS** | `__DSH_BOOT__` includes qingshui; host patch unchanged |
+| dsh/ diff | **none** | shadow is plugin-local |
+
+Cloud checkout `feat/dsh-research-shell-no-workspace` @ `828f61a`; `systemctl restart qingshui-dsh` active, `dsh web: http://127.0.0.1:3080`.
