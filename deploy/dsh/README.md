@@ -13,6 +13,8 @@ export NVM_DIR=/home/lwm/.nvm; . "$NVM_DIR/nvm.sh"; nvm use 24
 # env (gitignored): OPENAI_API_KEY, LLM_*, KNOWLEDGE_API_KEY or API_KEY from backend/.env
 set -a; source .env.dsh; set +a
 pnpm install
+# dsh submodule pin stays at b150a551; apply Qingshui-local HTTP mintRpcId fix (not upstream)
+./deploy/dsh/apply-mint-rpc-id-patch.sh
 cd dsh && CI=true pnpm_config_verify_deps_before_run=false pnpm install && pnpm run build:lib:host && pnpm run build:lib:client && pnpm run build:web && cd ..
 pnpm run build:plugin
 pnpm dsh plugin --profile headless add ./plugins/qingshui
@@ -23,7 +25,28 @@ pnpm dsh --profile headless --patch patches/qingshui.yml "对硅片板块做预�
 
 Rollback: leave submodule/plugin in git; stop any dsh unit; Vue/LangChain untouched.
 
+## Durable dsh patch: insecure-HTTP `mintRpcId`
 
+Public web is served over **HTTP** (`http://124.221.188.38/`). Upstream
+`WebApiClient` uses `crypto.randomUUID()`, which browsers reject outside a
+secure context, so the composer never becomes editable.
+
+**Qingshui-local fix** (do **not** push to `deepseek-ai/deepseek-harness`):
+
+- Patch: `patches/dsh-web-api-mint-rpc-id.patch`
+- Overrides `WebApiClient.mintRpcId` to use `randomUuid()` from
+  `./random-uuid.ts` (`crypto.getRandomValues`, works on insecure origins).
+- Apply + rebuild after clean submodule checkout:
+
+```bash
+# from Qingshui repo root (gitlink pin remains b150a551)
+./deploy/dsh/apply-mint-rpc-id-patch.sh --rebuild
+# or: apply only, then follow the build:lib:client / build:web steps above
+systemctl restart qingshui-dsh
+```
+
+`lib/` under the connection package is gitignored — always rebuild after apply;
+do not vendor `packages/client/connection/lib/client.js` in Qingshui.
 
 ## Prod web + public Host trust
 
@@ -49,5 +72,6 @@ return `directory-picker-unavailable` instead of listings. auto→browse would
 list the host filesystem for any trusted Host. `host.pickDirectory` /
 settings / credentials remain loopback-only via dsh PRIVILEGED_METHODS.
 
-After pull: `systemctl daemon-reload && systemctl restart qingshui-dsh`
+After pull: apply mintRpcId patch if submodule was reset, then
+`systemctl daemon-reload && systemctl restart qingshui-dsh`
 (nginx unchanged unless conf edited).

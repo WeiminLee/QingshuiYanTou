@@ -1,0 +1,28 @@
+diff --git a/packages/client/connection/src/client/web-api-client.ts b/packages/client/connection/src/client/web-api-client.ts
+index a2c2d95b7b..09ddb60a16 100644
+--- a/packages/client/connection/src/client/web-api-client.ts
++++ b/packages/client/connection/src/client/web-api-client.ts
+@@ -2,9 +2,11 @@
+ 
+ import type { ApiProxy, HostFrame, MuxFrame, RpcRequest, ServerRequest } from './api.ts'
+ import { AbstractApiClient } from './api.ts'
++import { RpcId } from '@deepseek-ai/dsh-host-apiproxy/api'
+ import { hostFrameSchema, muxFrameSchema } from '@deepseek-ai/dsh-host-apiproxy/api/events.schema'
+ import { serverRequestSchema } from '@deepseek-ai/dsh-host-apiproxy/api/rpc.schema'
+ import { HOST_EVENTS_PATH, MUX_EVENTS_PATH } from '../api-path.ts'
++import { randomUuid } from './random-uuid.ts'
+ 
+ type SocketItem<F> = { kind: 'frame'; envelope: RpcRequest<F> } | { kind: 'end' }
+ type Parser<F> = { parse(value: unknown): F }
+@@ -15,6 +17,11 @@ export class WebApiClient extends AbstractApiClient {
+     return globalThis.fetch(input, init)
+   }
+ 
++  /** Prefer getRandomValues-backed UUIDs so HTTP (non-secure) origins can mint rpcIds. */
++  protected override mintRpcId(): RpcId {
++    return RpcId(randomUuid())
++  }
++
+   protected override openMux(
+     _payload: Parameters<ApiProxy['events']['mux']>[0]['payload'],
+     signal: AbortSignal,

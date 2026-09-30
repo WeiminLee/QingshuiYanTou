@@ -7,6 +7,7 @@
   },
   "scripts": {
     "build:plugin": "tsdown -c plugins/qingshui/tsdown.config.ts",
+    "apply:dsh-mint-rpc": "./deploy/dsh/apply-mint-rpc-id-patch.sh",
     "dsh": "node scripts/dsh.mjs",
     "test:plugin": "TSX_TSCONFIG_PATH=$PWD/dsh/tsconfig.base.json node --import tsx --test plugins/qingshui/src/*.test.ts plugins/qingshui/src/client/*.test.ts",
     "check:skills": "node scripts/check-qingshui-skills.mjs"
