@@ -20,6 +20,9 @@ server {
     location / {
         proxy_pass http://127.0.0.1:3080;
         proxy_http_version 1.1;
+        # Keep browser Host (public IP/name). Do NOT set to 127.0.0.1 —
+        # that would unlock dsh PRIVILEGED /api methods. Declare the public
+        # authority via trustedHosts instead (see deploy/dsh/README.md).
         proxy_set_header Host $host;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";

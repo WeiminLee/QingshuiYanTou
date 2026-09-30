@@ -9,7 +9,7 @@ WorkingDirectory=/home/lwm/code/QingShuiTouYan
 EnvironmentFile=/home/lwm/code/QingShuiTouYan/.env.dsh
 # Prefer nvm Node ≥22.19
 Environment=PATH=/home/lwm/.nvm/versions/node/v24.16.0/bin:/usr/bin:/bin
-ExecStart=/home/lwm/.nvm/versions/node/v24.16.0/bin/node /home/lwm/code/QingShuiTouYan/scripts/dsh.mjs --profile web --no-open
+ExecStart=/home/lwm/.nvm/versions/node/v24.16.0/bin/node /home/lwm/code/QingShuiTouYan/scripts/dsh.mjs --profile web --no-open --trusted-host 124.221.188.38
 Restart=on-failure
 RestartSec=5
 

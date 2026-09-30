@@ -22,3 +22,28 @@ pnpm dsh --profile headless --patch patches/qingshui.yml "对硅片板块做预�
 ```
 
 Rollback: leave submodule/plugin in git; stop any dsh unit; Vue/LangChain untouched.
+
+
+## Prod web + public Host trust
+
+Cloud nginx (`deploy/nginx/dsh-web.conf.example` → `/etc/nginx/conf.d/dsh-web.conf`)
+proxies `:80` → `127.0.0.1:3080` with basic auth and **`proxy_set_header Host $host`**.
+
+dsh refuses `/api` (and WS upgrades) unless `Host` is loopback or listed in
+`trustedHosts`. The public IP must be declared — otherwise the HTML shell loads
+but API/WS return **403**.
+
+**Intended knob (prefer):** `plugins/qingshui/cordis.patch.yml` appends
+`124.221.188.38` to `connection.trustedHosts` (plus CLI `--trusted-host` in
+`qingshui-dsh.service.example` as belt-and-suspenders).
+
+**Do not** rewrite nginx `Host` to `127.0.0.1:3080`. That would make every
+proxied request look loopback and unlock PRIVILEGED methods (`host.pickDirectory`,
+settings/credentials plane, etc.). Keep `$host` + explicit `trustedHosts`.
+
+**Host FS:** qingshui forces `directory-picker` → **native** so
+`host.listDirectory` / `createDirectory` stay unavailable on the public trust
+path (auto→browse would list the host filesystem for any trusted Host).
+`host.pickDirectory` remains loopback-only regardless.
+
+After pull: `systemctl restart qingshui-dsh` (nginx unchanged unless conf edited).
