@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Apply Qingshui's durable mintRpcId fix onto the dsh submodule (HTTP / non-secure origins).
+# Apply Qingshui's durable mintRpcId fix onto the dsh tree (HTTP / non-secure origins).
 # Does NOT modify upstream deepseek-harness remotes — local working-tree only.
 #
 # Usage (from Qingshui repo root):
@@ -31,8 +31,12 @@ if [[ ! -f "$PATCH" ]]; then
   echo "missing patch: $PATCH" >&2
   exit 1
 fi
-if [[ ! -d "$DSH/.git" && ! -f "$DSH/.git" ]]; then
-  echo "dsh submodule missing at $DSH" >&2
+if [[ ! -d "$DSH" ]]; then
+  echo "dsh tree missing at $DSH" >&2
+  exit 1
+fi
+if [[ ! -f "$DSH/$TARGET" ]]; then
+  echo "missing target: $DSH/$TARGET" >&2
   exit 1
 fi
 
@@ -42,21 +46,32 @@ cd "$DSH"
 if grep -q 'protected override mintRpcId' "$TARGET" 2>/dev/null; then
   echo "mintRpcId override already present in $TARGET"
 else
-  if git apply --check "$PATCH" 2>/dev/null; then
-    git apply "$PATCH"
-    echo "applied $PATCH"
-  else
+  applied=0
+  if git rev-parse --git-dir >/dev/null 2>&1; then
+    if git apply --check "$PATCH" 2>/dev/null; then
+      git apply "$PATCH"
+      applied=1
+    fi
+  fi
+  if [[ "$applied" -eq 0 ]]; then
+    # Cloud checkouts may materialize dsh without a nested .git (gitlink only).
+    if patch -p1 --dry-run < "$PATCH" >/dev/null 2>&1; then
+      patch -p1 < "$PATCH"
+      applied=1
+    fi
+  fi
+  if [[ "$applied" -eq 0 ]]; then
     echo "patch does not apply cleanly to current dsh tree (pin expected: b150a551)" >&2
-    echo "inspect: git -C dsh status; git -C dsh diff -- $TARGET" >&2
+    echo "inspect: $DSH/$TARGET" >&2
     exit 1
   fi
+  echo "applied $PATCH"
 fi
 
 if [[ "$REBUILD" -eq 1 ]]; then
   echo "rebuilding dsh client connection + web…"
   export CI=true
   export pnpm_config_verify_deps_before_run=false
-  # Prefer nvm node when available (cloud path)
   if [[ -s "${NVM_DIR:-$HOME/.nvm}/nvm.sh" ]]; then
     # shellcheck disable=SC1090
     . "${NVM_DIR:-$HOME/.nvm}/nvm.sh"
