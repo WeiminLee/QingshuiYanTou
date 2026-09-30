@@ -24,10 +24,10 @@
     model: deepseek-v4-flash
 
 # ── Research shell chrome (design §6): remove workspace entry + coding panels ──
-# Must disable — entry gate
+# Must disable — entry gate (UI). Keep host `directory-picker` ENABLED:
+# apiproxy injects/waits on service `directoryPicker`; disabling the host row
+# crash-loops boot. Entry safety = no ui-workspace (no picker UI / no browse calls).
 - id: ui-workspace
-  disabled: true
-- id: directory-picker
   disabled: true
 
 # Strong hide — coding chrome (non-research entry)

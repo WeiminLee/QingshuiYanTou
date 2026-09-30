@@ -89,7 +89,7 @@ EOF
 
 Must:
 - `ui-workspace`
-- `directory-picker`
+- ~~`directory-picker`~~ **KEEP ENABLED** — apiproxy waits on `directoryPicker` service; disable only `ui-workspace` for entry gate
 
 Strong hide (design §6):
 - `ui-goal`, `ui-plan`, `ui-jobs`, `ui-subagent`, `ui-workflow-run`, `ui-deliverables`, `ui-trajectory`
