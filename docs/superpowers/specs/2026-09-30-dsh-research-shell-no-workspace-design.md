@@ -1,7 +1,7 @@
 # Design: dsh 投研壳去工作区（entry + chrome）
 
 **Date:** 2026-09-30  
-**Status:** Draft — awaiting Reviewer Approve  
+**Status:** Approved  
 **Branch:** `feat/dsh-research-shell-no-workspace`  
 **Related:** `2026-09-29-dsh-agent-runtime-cutover-design.md`, `2026-06-15-qingshui-frontend-redesign.md`, `archive/frontend` (IA reference only)
 
