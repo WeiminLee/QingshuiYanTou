@@ -54,15 +54,15 @@
 - id: ui-attachment
   disabled: true
 
+
 # ── Public nginx Host trust (cloud http://124.221.188.38/) ──
-# dsh /api fence requires Host ∈ loopback ∪ trustedHosts. nginx keeps
-# `proxy_set_header Host $host` (do NOT rewrite to 127.0.0.1 — that would
-# make PRIVILEGED methods look loopback and unlock settings/credentials).
-# pickDirectory / settings / credentials stay loopback-only via dsh.
+# Declare the public authority via CLI `--trusted-host` on qingshui-dsh
+# (see deploy/dsh/qingshui-dsh.service.example). That flows webStartup →
+# webRuntime → connection.trustedHosts. Keep nginx `Host $host` (do NOT
+# rewrite to 127.0.0.1 — that would unlock PRIVILEGED /api methods).
+#
 # Force native directory-picker so host.listDirectory/createDirectory are
-# unavailable (auto→browse would answer listings for any trusted Host).
-- id: connection
-  config:
-    trustedHosts: !!js ['124.221.188.38', ...ctx.webRuntime.trustedHosts]
+# unavailable on the public trust path (auto→browse would answer listings
+# for any trusted Host). pickDirectory stays loopback-only via dsh.
 - id: directory-picker
   name: '@deepseek-ai/dsh-host-directory-picker-native'
