@@ -22,3 +22,34 @@
   config:
     provider: qingshui
     model: deepseek-v4-flash
+
+# ── Research shell chrome (design §6): remove workspace entry + coding panels ──
+# Must disable — entry gate
+- id: ui-workspace
+  disabled: true
+- id: directory-picker
+  disabled: true
+
+# Strong hide — coding chrome (non-research entry)
+- id: ui-goal
+  disabled: true
+- id: ui-plan
+  disabled: true
+- id: ui-jobs
+  disabled: true
+- id: ui-subagent
+  disabled: true
+- id: ui-workflow-run
+  disabled: true
+- id: ui-deliverables
+  disabled: true
+- id: ui-trajectory
+  disabled: true
+- id: ui-reference
+  disabled: true
+- id: file-reference-local
+  disabled: true
+- id: ui-agent-preset
+  disabled: true
+- id: ui-attachment
+  disabled: true

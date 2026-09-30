@@ -4,16 +4,31 @@
   "private": true,
   "license": "UNLICENSED",
   "type": "module",
-  "description": "清水投研 Cordis plugin: Knowledge HTTP tools + divergence-mining skill for dsh.",
+  "description": "清水投研 Cordis plugin: Knowledge HTTP tools + divergence-mining skill + research-shell client for dsh.",
   "main": "lib/index.mjs",
   "exports": {
     ".": { "default": "./lib/index.mjs" },
+    "./client": { "default": "./lib/client.js" },
     "./package.json": "./package.json"
   },
-  "files": ["lib/index.mjs", "cordis.patch.yml", "skills"],
+  "files": [
+    "lib/index.mjs",
+    "lib/client.js",
+    "lib/client.js.map",
+    "cordis.patch.yml",
+    "skills"
+  ],
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "dsh-client-runtime",
+        "dsh-client-locale",
+        "dsh-client-ui-sidebar"
+      ]
     }
   }
 }
