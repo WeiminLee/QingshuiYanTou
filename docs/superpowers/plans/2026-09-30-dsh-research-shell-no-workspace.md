@@ -246,3 +246,22 @@ systemctl restart qingshui-dsh
 | Cloud nginx→3080 | Task 5 |
 | Spec Approved | Task 0 |
 
+## Hard-stop evidence (2026-09-30 cloud smoke)
+
+Cloud nginx→3080 / tunnel Playwright after Approach A deploy:
+
+| Check | Result | Evidence |
+|-------|--------|----------|
+| A1 workspace chip | **FAIL** | Hero still shows「选择工作区」; placeholder「选择一个工作区开始」 |
+| A2 composer usable | **FAIL** | `textarea.readOnly=true`; fill("ping") no-op; `data-phase=hero` with session present |
+| A3 zero listDirectory | **PASS** | Network: no `host.listDirectory` / `pickDirectory` on cold open or 新建对话 |
+| A4 新建对话 | **PARTIAL** | `sessions.create` adds sidebar rows; still no directory API; composer remains blocked |
+| A5 session sidebar | **PASS** | `投研会话` + `新建对话` + `.qs-shell-row` list; qingshui client in `__DSH_BOOT__` |
+| A6 tools/skills | **PASS (host)** | Cordis patch only disables UI chrome; host `qingshui` tools insert unchanged |
+
+**Root cause:** `ConversationRoot` `inert = sessionId === undefined \|\| (hero && chipTitle === undefined)`. Blank session without owning workspace → `chipTitle` undefined after `workspaces.phase === 'ready'` → readOnly composer + workspace chip. Approach A “always have sessionId” is insufficient.
+
+**Ops note:** Do **not** disable host `directory-picker` — apiproxy waits on `directoryPicker` and crash-loops.
+
+**Stopped per Reviewer nit (2):** no silent `dsh/` ConversationRoot fork. Request separate Approve for (B) one-line upstream inert/chip change or (A′) plugin `conversation` slot shadow at priority `-1`.
+
