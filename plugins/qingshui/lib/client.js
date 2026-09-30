@@ -115,6 +115,27 @@ window.__ModuleLoader__.load({
 .qs-shell-rail { display: flex; flex-direction: column; align-items: center; gap: 8px; padding-top: 4px; }
 .qs-shell-rail-btn { width: 32px; height: 32px; border: none; border-radius: 8px; cursor: pointer; background: transparent; color: var(--dsw-alias-label-secondary); font: var(--dsw-font-xs-13); }
 .qs-shell-rail-btn:hover { background: var(--dsw-alias-interactive-bg-hover); }
+
+.qs-conv { display: flex; flex-direction: column; height: 100%; min-width: 0; background: var(--dsw-alias-bg-base);
+  --dsh-chat-content-width: 748px;
+  --dsh-composer-card-max-width: calc(var(--dsh-chat-content-width) + 32px);
+  --dsh-composer-side-clearance: 16px;
+  --dsh-composer-dock-inset: 8px;
+}
+.qs-conv-scroll { display: flex; flex: 1; flex-direction: column; min-height: 0; overflow-x: hidden; overflow-y: auto; scrollbar-gutter: stable; }
+.qs-conv[data-phase="hero"] .qs-conv-scroll { justify-content: center; }
+.qs-conv[data-phase="active"] { overflow: hidden; }
+.qs-conv[data-phase="active"] .qs-conv-seat {
+  position: sticky; bottom: 0; z-index: 7;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--dsw-alias-bg-base) 0%, transparent) 0px, var(--dsw-alias-bg-base) 36px);
+}
+.qs-conv[data-phase="settling"] .qs-conv-seat { visibility: hidden; }
+.qs-conv-seat { display: flex; flex: none; flex-direction: column; --dsh-composer-text-max-height: 336px; }
+.qs-conv-stack { display: flex; flex-direction: column; gap: 6px; }
+.qs-conv-stack-hero {
+  position: relative; align-self: center; gap: 8px; padding-bottom: 32px; z-index: 1;
+  width: min(calc(var(--dsh-composer-card-max-width) + 2 * var(--dsh-composer-side-clearance)), 100%);
+}
 `;
 		const TAG_ID = "qingshui-shell";
 		/** Idempotent style install; returns disposer. */
@@ -129,6 +150,188 @@ window.__ModuleLoader__.load({
 			}
 			return () => {
 				tag?.remove();
+			};
+		}
+		/**
+		* The shipped conversation entry: it owns the children table. Not our shadow.
+		* @param entries - raw ledger rows for `conversation`
+		* @param shadowComponent - the research root component identity
+		*/
+		function donorConversationEntry(entries, shadowComponent) {
+			return entries.find((entry) => entry.children !== void 0 && entry.component !== shadowComponent && (entry.options?.priority ?? 0) !== -1);
+		}
+		/**
+		* Point the shadow entry at the donor's seats and inject face.
+		* Mutates `entry` only. Caller must clear these before the shadow unloads,
+		* or SlotCore.releaseEntry would collapse donor-declared child slots.
+		* @param entry - the priority -1 registration
+		* @param donor - the shipped conversation registration
+		*/
+		function graftConversationShadow(entry, donor) {
+			entry.children = donor.children;
+			if (donor.inject !== void 0) entry.inject = donor.inject;
+		}
+		/**
+		* Drop grafted seats so shadow unload does not cascade-delete them.
+		* @param entry - the priority -1 registration
+		*/
+		function ungraftConversationShadow(entry) {
+			entry.children = void 0;
+			entry.inject = void 0;
+		}
+		/**
+		* Owner share for `conversation.composer.bar` in the research shell.
+		* Session presence is the only inert gate. Never passes workspace recovery
+		* props: those render「选择工作区」and lock the textarea readOnly.
+		* @param opts.sessionId - current session, if any
+		* @param opts.hero - blank-session centered composer
+		* @param opts.composerBlock - plugin block (model route), if raised
+		* @param opts.t - conversation-namespace translator
+		*/
+		function researchComposerOwner(opts) {
+			const { sessionId, hero, composerBlock, t } = opts;
+			const inert = sessionId === void 0;
+			return {
+				variant: hero ? "hero" : "composer",
+				...inert ? {
+					disabled: true,
+					placeholder: t("placeholder.hero")
+				} : !inert && composerBlock !== void 0 ? {
+					blocked: composerBlock,
+					placeholder: composerBlock.reason
+				} : hero ? { placeholder: t("placeholder.hero") } : {}
+			};
+		}
+		//#endregion
+		//#region src/client/ResearchConversation.tsx
+		/**
+		* Research-shell occupant of the `conversation` slot (priority -1).
+		* Same seat tree as ConversationRoot, minus the workspace chip and the
+		* `hero && chipTitle === undefined` inert gate. Styles are plugin-local;
+		* child slots (chat, input bar) keep their own shipped CSS.
+		*/
+		/** Resident conversation column for a workspace-less research session. */
+		function ResearchConversationRoot(props) {
+			const { sessionId, useSession, useSessions, useInput, useComposerBlock, renderSlot, renderSlotChain, t } = props;
+			if (typeof renderSlot !== "function" || typeof renderSlotChain !== "function") throw new Error("qingshui: conversation shadow missing renderSlot (donor children were not grafted)");
+			const openState = useSession((s) => s.openState);
+			const composerPhase = useSession((s) => s.composerPhase);
+			const pending = useSession((s) => s.pending) ?? [];
+			const session = useSession((s) => s);
+			const inputState = useInput((s) => s);
+			const summaryBlank = useSessions((s) => sessionId === void 0 ? void 0 : s.byId[sessionId]?.blank);
+			const composerBlock = useComposerBlock((block) => block);
+			const seatObserver = (0, react.useRef)(null);
+			const seatResizeRef = (0, react.useCallback)((seat) => {
+				seatObserver.current?.disconnect();
+				seatObserver.current = null;
+				const scroller = seat?.parentElement ?? null;
+				if (seat === null || scroller === null) return;
+				seatObserver.current = new ResizeObserver(() => {
+					scroller.style.setProperty("--dsh-composer-height", `${seat.offsetHeight}px`);
+				});
+				seatObserver.current.observe(seat);
+			}, []);
+			const settling = sessionId !== void 0 && composerPhase === "blank" && openState === "loading" && summaryBlank !== true;
+			const hero = sessionId === void 0 || composerPhase === "blank" && (openState === "open" || summaryBlank === true);
+			const zone = session === void 0 || inputState === void 0 ? void 0 : {
+				session,
+				input: inputState
+			};
+			const inputBar = renderSlot("conversation.composer.bar", {
+				...researchComposerOwner({
+					sessionId,
+					hero,
+					composerBlock,
+					t
+				}),
+				overlay: renderSlot("conversation.input.overlay", {}),
+				leftItems: zone === void 0 ? null : renderSlot("conversation.input.left", zone),
+				rightItems: zone === void 0 ? null : renderSlot("conversation.input.right", zone),
+				footer: !hero && zone !== void 0 ? renderSlot("conversation.composer.dock", zone) : null
+			});
+			const composerBar = /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+				className: hero ? "qs-conv-stack qs-conv-stack-hero" : "qs-conv-stack",
+				children: [zone !== void 0 && renderSlot("conversation.input.dock", zone), inputBar]
+			});
+			const phase = settling ? "settling" : hero ? "hero" : "active";
+			const composer = renderSlotChain("conversation.composer", {
+				interactions: pending,
+				session
+			}, {
+				fallback: composerBar,
+				overlay: true
+			});
+			return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+				className: "qs-conv",
+				"data-phase": phase,
+				"data-qs-conversation": "research",
+				children: [renderSlot("conversation.session.header", {}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+					className: "qs-conv-scroll",
+					"data-conversation-scroll": "",
+					children: [renderSlot("conversation.session", {}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+						ref: seatResizeRef,
+						className: "qs-conv-seat",
+						"data-composer-seat": "",
+						children: composer
+					})]
+				})]
+			});
+		}
+		//#endregion
+		//#region src/client/conversation-shadow.ts
+		/**
+		* Occupy `conversation` at priority -1 once ui-conversation has registered
+		* the shipped root. Lowest priority wins; children are grafted, not redeclared.
+		*/
+		/**
+		* Install the research conversation shadow for the life of this fiber.
+		* @param ctx - client root context
+		* @returns disposer
+		*/
+		function installConversationShadow(ctx) {
+			let shadow;
+			let installing = false;
+			let disposeReg;
+			const install = () => {
+				if (shadow !== void 0 || installing) return shadow !== void 0;
+				const donor = donorConversationEntry(ctx.slots.entries("conversation"), ResearchConversationRoot);
+				if (donor?.children === void 0) return false;
+				installing = true;
+				try {
+					disposeReg = ctx.slots.register({
+						name: "conversation",
+						priority: -1,
+						locale: "conversation"
+					}, ResearchConversationRoot);
+					shadow = ctx.slots.entries("conversation").find((entry) => entry.options?.priority === -1);
+					if (shadow === void 0) {
+						console.warn("qingshui: conversation shadow entry missing after register");
+						return false;
+					}
+					graftConversationShadow(shadow, donor);
+					return true;
+				} catch (error) {
+					console.warn("qingshui: conversation shadow failed", error);
+					return false;
+				} finally {
+					installing = false;
+				}
+			};
+			const offEvent = ctx.on?.("slots/changed", (key) => {
+				if (key === "conversation") install();
+			});
+			const offSub = ctx.slots.subscribe("conversation", () => {
+				install();
+			});
+			install();
+			return () => {
+				offEvent?.();
+				offSub();
+				if (shadow !== void 0) ungraftConversationShadow(shadow);
+				disposeReg?.();
+				shadow = void 0;
+				disposeReg = void 0;
 			};
 		}
 		//#endregion
@@ -198,6 +401,7 @@ window.__ModuleLoader__.load({
 					maybeBootstrap();
 				});
 			}, "qingshui: cold-open bootstrap");
+			ctx.effect(() => installConversationShadow(ctx), "qingshui: conversation shadow");
 		}
 		//#endregion
 		exports.apply = apply;

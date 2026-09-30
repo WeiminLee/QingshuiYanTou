@@ -6,6 +6,7 @@ import { createAndOpenSession } from './session-actions.ts'
 import { SessionBrowser } from './SessionBrowser.tsx'
 import { en, zh, type QingshuiShellKey } from './locales.ts'
 import { installClientStyles } from './theme.ts'
+import { installConversationShadow } from './conversation-shadow.ts'
 
 export type { QingshuiShellKey }
 
@@ -71,4 +72,8 @@ export function apply(ctx: any): void {
     maybeBootstrap()
     return ctx.sessions.list.subscribe(() => { maybeBootstrap() })
   }, 'qingshui: cold-open bootstrap')
+
+  // Shadow ConversationRoot (priority -1). The shipped root stays registered
+  // so it keeps declaring child seats; we graft those seats onto the winner.
+  ctx.effect(() => installConversationShadow(ctx), 'qingshui: conversation shadow')
 }
