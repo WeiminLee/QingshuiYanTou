@@ -1,0 +1,19 @@
+[Unit]
+Description=Qingshui YanTou read-only Data MCP
+After=network.target
+# Prefer after Knowledge/API if co-located:
+# After=qingshui-backend.service
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/QingshuiYanTou/backend
+Environment=KNOWLEDGE_API_KEY=REPLACE_ME
+Environment=KNOWLEDGE_BASE_URL=http://127.0.0.1:8000
+# Bind loopback only unless nginx terminates TLS + auth in front.
+ExecStart=/opt/QingshuiYanTou/backend/.venv/bin/python -m app.mcp_data.server --transport streamable-http --host 127.0.0.1 --port 8100
+Restart=on-failure
+RestartSec=5
+# Do not set User=root in production copies.
+
+[Install]
+WantedBy=multi-user.target

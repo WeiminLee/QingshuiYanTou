@@ -557,7 +557,7 @@ git commit -am "feat(mcp_data): read-only Data MCP server for P0 tools"
 **Interfaces:**
 - Produces: 用户可按 README 在云上起 MCP；profile=`prod` vs `dev-eval` 写清
 
-- [ ] **Step 1: 写 README 验收清单（可执行命令）**
+- [x] **Step 1: 写 README 验收清单（可执行命令）**
 
 ```bash
 # on cloud (user applies)
@@ -565,9 +565,9 @@ cd backend && .venv/bin/python -m app.mcp_data.server --transport streamable-htt
 curl -s -H "X-API-Key: $KNOWLEDGE_API_KEY" http://127.0.0.1:8100/health
 ```
 
-- [ ] **Step 2: systemd example**（`WorkingDirectory=…/backend`，`Environment=KNOWLEDGE_API_KEY=…`，禁止 `0.0.0.0` 除非另有 nginx 鉴权）
+- [x] **Step 2: systemd example**（`WorkingDirectory=…/backend`，`Environment=KNOWLEDGE_API_KEY=…`，禁止 `0.0.0.0` 除非另有 nginx 鉴权）
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add deploy/mcp plugins/qingshui/src/config.ts
