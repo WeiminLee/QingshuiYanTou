@@ -129,7 +129,7 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"[降级] 同步状态表创建跳过: {e}")
 
-    # LangChain HITL cleanup retired with archive/langchain_agent/ (dsh cutover).
+    # LangChain HITL / agent HTTP removed (dsh + Data MCP only).
     yield
 
     if _data_scheduler is not None:
