@@ -1,6 +1,12 @@
 - insert:
     - id: qingshui
       name: qingshui
+      config:
+        # Loopback MCP on same host as Knowledge (cloud prod / local side-by-side).
+        # For Mac harness talking to cloud MCP, override via patches/qingshui.yml —
+        # never put a Mac SSH tunnel URL in this default prod patch.
+        mcpBaseUrl: http://127.0.0.1:8100/mcp
+        knowledgeApiKeyRef: KNOWLEDGE_API_KEY
 - id: llm-pi-ai
   name: '@deepseek-ai/dsh-llm-pi-ai'
   config:

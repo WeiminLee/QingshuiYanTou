@@ -8,7 +8,9 @@ import { defineTool } from "@deepseek-ai/dsh-tools";
 const Config = z.object({
 	knowledgeBaseUrl: z.string().default("http://127.0.0.1:8080"),
 	knowledgeApiKeyRef: z.string().default("KNOWLEDGE_API_KEY"),
-	requestTimeoutMs: z.number().default(12e4)
+	mcpBaseUrl: z.string().default("http://127.0.0.1:8100/mcp"),
+	requestTimeoutMs: z.number().default(12e4),
+	toolCallTimeoutMs: z.number().default(12e4)
 });
 //#endregion
 //#region src/knowledge-client.ts
@@ -369,6 +371,57 @@ function installQingshuiTools(ctx, options) {
 	});
 }
 //#endregion
+//#region src/mcp-mount.ts
+function validateMcpMountConfig(config, options = {}) {
+	const mode = options.mode ?? "remote";
+	if (mode === "off") return { ok: true };
+	const url = (config.mcpBaseUrl ?? "").trim();
+	if (!url) return {
+		ok: false,
+		reason: "mcpBaseUrl is required when MCP mount mode is remote/local"
+	};
+	if (mode === "remote" && /localhost|127\.0\.0\.1/.test(url)) {}
+	try {
+		new URL(url);
+	} catch {
+		return {
+			ok: false,
+			reason: `mcpBaseUrl is not a valid URL: ${url}`
+		};
+	}
+	return { ok: true };
+}
+function buildMcpClientConfig(config) {
+	const apiKey = resolveApiKey(config.knowledgeApiKeyRef);
+	return {
+		transport: "streamable-http",
+		serverName: "qingshui_data",
+		url: config.mcpBaseUrl.trim(),
+		headers: apiKey ? { "X-API-Key": apiKey } : {},
+		toolCallTimeoutMs: config.toolCallTimeoutMs ?? config.requestTimeoutMs ?? 12e4,
+		failOnStartupError: false
+	};
+}
+/**
+* Mount read-only Data MCP alongside existing Knowledge HTTP tools (dual-track).
+* Failures are logged; plugin activation continues (failOnStartupError=false).
+*/
+async function mountQingshuiDataMcp(ctx, config) {
+	const check = validateMcpMountConfig(config, { mode: "remote" });
+	if (!check.ok) {
+		ctx.logger.warn("qingshui: skip Data MCP mount — %c", check.reason);
+		return;
+	}
+	const mcpConfig = buildMcpClientConfig(config);
+	try {
+		const mcpClient = await import("@deepseek-ai/dsh-mcp-client");
+		await ctx.plugin(mcpClient, mcpConfig);
+		ctx.logger.info("qingshui: Data MCP mounted server=%c url=%c", mcpConfig.serverName, mcpConfig.url);
+	} catch (err) {
+		ctx.logger.warn("qingshui: Data MCP mount failed (HTTP tools still available): %c", err instanceof Error ? err.message : String(err));
+	}
+}
+//#endregion
 //#region src/index.ts
 const name = "qingshui";
 /** tools for defineTool; skills so nested skill-filesystem can register providers. */
@@ -397,6 +450,7 @@ function apply(ctx, config) {
 	};
 	rebuild();
 	installQingshuiTools(ctx, { client: () => client });
+	mountQingshuiDataMcp(ctx, config);
 	const skillsDir = resolveSkillsDir();
 	if (skillsDir !== void 0) {
 		ctx.plugin(skillFilesystem, {
@@ -406,7 +460,7 @@ function apply(ctx, config) {
 		});
 		ctx.logger.info("qingshui: skill root mounted provider=qingshui-local dir=%c", skillsDir);
 	} else ctx.logger.warn("qingshui: skill root missing (expected skills/divergence-mining/SKILL.md under package)");
-	ctx.logger.info("qingshui: loaded tools=compare_metric,metric_trend,rollup_metric,fetch_evidence,semantic_search,related_nodes,propagate_along base=%c", config.knowledgeBaseUrl);
+	ctx.logger.info("qingshui: loaded HTTP tools + Data MCP mount base=%c mcp=%c", config.knowledgeBaseUrl, config.mcpBaseUrl);
 }
 //#endregion
 export { Config, apply, inject, name };

@@ -587,7 +587,7 @@ git commit -m "docs(deploy): Data MCP systemd example and health notes"
 - Consumes: `@deepseek-ai/dsh-mcp-client`（随 dsh workspace）；Task 7 server
 - Produces: harness 会话中可见 MCP 工具（名称可能带 `mcp__qingshui_data__` 前缀——评测用 bare name 归一，参考 MatDiscovery `bareToolName`）
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```ts
 test('mcp mount config requires non-empty mcpBaseUrl for remote profile', () => {
@@ -595,7 +595,7 @@ test('mcp mount config requires non-empty mcpBaseUrl for remote profile', () => 
 })
 ```
 
-- [ ] **Step 2: FAIL → 实现 mount**
+- [x] **Step 2: FAIL → 实现 mount**
 
 参考 MatDiscovery remote MCP（**只抄挂载形态**）：
 
@@ -615,9 +615,9 @@ ctx.plugin(mcpClient, {
 
 本机 `dev-eval`：`mcpBaseUrl` 指向云端 HTTPS MCP（经 nginx + API Key）；**不得**在默认 prod patch 写 Mac localhost 隧道。
 
-- [ ] **Step 3: `pnpm build:plugin && pnpm test:plugin` PASS**
+- [x] **Step 3: `pnpm build:plugin && pnpm test:plugin` PASS**
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git commit -am "feat(qingshui): mount read-only Data MCP client"
