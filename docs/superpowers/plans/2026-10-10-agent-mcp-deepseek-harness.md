@@ -482,6 +482,8 @@ git commit -am "feat(knowledge): read-only HTTP for kline and stock_profile"
 
 ### Task 7: Data MCP Server（只读 P0 tools）
 
+> **Note:** Pinned `mcp>=1.9,<2` (FastMCP). mcp 2.x breaks FastAPI 0.115 via starlette 1.x.
+
 **Files:**
 - Create: `backend/app/mcp_data/{__init__,server,tools_readonly,auth,truncation}.py`
 - Create: `backend/tests/test_mcp_data_tools.py`
@@ -492,7 +494,7 @@ git commit -am "feat(knowledge): read-only HTTP for kline and stock_profile"
 - Produces: MCP tools 名：`fetch_evidence`, `semantic_search`, `compare_metric`, `pull_history`, `lookup_players`, `lookup_products`, `get_kline`, `get_stock_profile`, `data_readiness`
 - Transport: **stdio**（本机调试）+ **Streamable HTTP**（默认 `127.0.0.1:8100/mcp`，仅云内/本机隧道到云）
 
-- [ ] **Step 1: 写失败测试（tool registry + 截断）**
+- [x] **Step 1: 写失败测试（tool registry + 截断）**
 
 ```python
 import pytest
@@ -513,9 +515,9 @@ def test_evidence_truncation_8k():
     assert "截断" in out or "truncated" in out.lower() or len(out) <= 8000 + 80
 ```
 
-- [ ] **Step 2: pytest → FAIL**
+- [x] **Step 2: pytest → FAIL**
 
-- [ ] **Step 3: 实现 MCP server**
+- [x] **Step 3: 实现 MCP server**
 
 要点：
 
@@ -531,13 +533,13 @@ def test_evidence_truncation_8k():
 4. HTTP transport 校验 `X-API-Key`（与 Knowledge 同源设置）。
 5. **拒绝**注册任何 write 工具；加测试 `test_no_write_tools_registered`。
 
-- [ ] **Step 4: pytest PASS**
+- [x] **Step 4: pytest PASS**
 
 ```bash
 .venv/bin/python -m pytest tests/test_mcp_data_tools.py -v
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git commit -am "feat(mcp_data): read-only Data MCP server for P0 tools"
