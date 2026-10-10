@@ -635,7 +635,7 @@ git commit -am "feat(qingshui): mount read-only Data MCP client"
 **Interfaces:**
 - Produces: 至少 3 条 case（硅片毛利横比、中晶相关、degraded-readiness 弱结论）；skill 指示优先 `compare_metric` → `pull_history` → `fetch_evidence`
 
-- [ ] **Step 1: 写入金标 JSON**
+- [x] **Step 1: 写入金标 JSON**
 
 ```json
 [
@@ -664,11 +664,11 @@ git commit -am "feat(qingshui): mount read-only Data MCP client"
 ]
 ```
 
-- [ ] **Step 2: skill 文档**写明工具顺序与「禁止无工具空喊预期差」。
+- [x] **Step 2: skill 文档**写明工具顺序与「禁止无工具空喊预期差」。
 
-- [ ] **Step 3: 轨迹**：若 dsh 已有 transcript API，写 `scripts/export_dsh_trace.mjs` 导出 JSONL（model/tool/name/args/result_excerpt/latency_ms/error）。若无稳定 API，第一期允许评测 runner 抓 stdout + tool 事件日志，并在 README 标明缺口。
+- [x] **Step 3: 轨迹**：若 dsh 已有 transcript API，写 `scripts/export_dsh_trace.mjs` 导出 JSONL（model/tool/name/args/result_excerpt/latency_ms/error）。若无稳定 API，第一期允许评测 runner 抓 stdout + tool 事件日志，并在 README 标明缺口。
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add plugins/qingshui/skills backend/eval/expected_gap_cases_v1.json
