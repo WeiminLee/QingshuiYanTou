@@ -75,3 +75,7 @@ settings / credentials remain loopback-only via dsh PRIVILEGED_METHODS.
 After pull: apply mintRpcId patch if submodule was reset, then
 `systemctl daemon-reload && systemctl restart qingshui-dsh`
 (nginx unchanged unless conf edited).
+
+## Data MCP（双轨）
+
+插件默认 `mcpBaseUrl=http://127.0.0.1:8100/mcp`（见 `plugins/qingshui/cordis.patch.yml`）。云上先起 `python -m app.mcp_data.server --transport streamable-http`；本机评测连云端 MCP，细则 `deploy/mcp/DUAL_TRACK_RUNBOOK.md`。

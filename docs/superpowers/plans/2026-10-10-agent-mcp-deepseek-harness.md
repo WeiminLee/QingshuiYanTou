@@ -743,7 +743,7 @@ git commit -am "feat(eval): dual-track expected-gap judge and runner"
 **Interfaces:**
 - Produces: 用户按 runbook 在云上起 MCP、本机/云 harness 连同一 MCP；旧入口保持默认
 
-- [ ] **Step 1: 写 `scripts/smoke_mcp_p0.sh`**
+- [x] **Step 1: 写 `scripts/smoke_mcp_p0.sh`**
 
 ```bash
 #!/usr/bin/env bash
@@ -762,7 +762,7 @@ curl -fsS -H "X-API-Key: $KEY" "$BASE/api/v1/readiness/" | head -c 400
 echo
 ```
 
-- [ ] **Step 2: Runbook 章节**
+- [x] **Step 2: Runbook 章节**
 
 1. 起 Data MCP（Task 8）  
 2. 本机 harness：`MCP_BASE_URL=https://<cloud>/mcp` + API Key  
@@ -770,7 +770,7 @@ echo
 4. 跑 `eval_dual_track.py --mode both`  
 5. **未达标前默认流量仍走旧 `stream/report`**  
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add scripts/smoke_mcp_p0.sh deploy/mcp/DUAL_TRACK_RUNBOOK.md

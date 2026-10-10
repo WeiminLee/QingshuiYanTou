@@ -52,3 +52,7 @@
 | scheduler / API backend | 云端 | ✅ 属于编排面，留云 |
 | sensecore pod（lwm-server-d） | sensecore | ❌ 作废，待下线 |
 | Mac 持隧道 / 回填会话 | 本地 | ❌ 作废，禁止再依赖 |
+
+## Agent 双轨（2026-10-10）
+
+Data MCP + DeepSeek harness 旁路见 `docs/superpowers/specs/2026-10-10-agent-mcp-deepseek-harness-design.md` 与 `deploy/mcp/DUAL_TRACK_RUNBOOK.md`；**未达标前不切默认流量**。
