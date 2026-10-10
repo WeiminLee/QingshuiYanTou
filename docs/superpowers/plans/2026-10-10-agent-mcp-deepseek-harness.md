@@ -679,6 +679,8 @@ git commit -m "feat(eval): expected-gap cases and qingshui skill stub"
 
 ### Task 11: 双轨评测 runner（旧 Agent API vs 新 harness）
 
+> **Note:** `origin/main` returns 410 for `/api/v1/agent/*` (LangChain retired). Runner records `old_unavailable_410` and supports `--old-answer-file` / `--mode judge-files` until dual-track restore of old agent is decided.
+
 **Files:**
 - Create: `backend/scripts/eval_dual_track.py`
 - Create: `backend/tests/test_eval_dual_track_unit.py`（纯函数：断言通过逻辑，不打真 LLM）
@@ -687,7 +689,7 @@ git commit -m "feat(eval): expected-gap cases and qingshui skill stub"
 - Consumes: `expected_gap_cases_v1.json`；旧轨 `POST /api/v1/agent/stream` 或 report 接口（按现 `agent.py` 实测路径）；新轨 CLI/`pnpm dsh` 非交互跑案（若仅 web，则用 dsh 提供的 headless/agent API——查阅 pin 版 dsh 文档；若无 headless，runner 先支持 **MCP-only tool oracle** + **人工粘贴新轨正文** 双模式，但必须自动跑旧轨）
 - Produces: `backend/eval/out/dual_track_report.json`：每案 `{case_id, old_pass, new_pass, old_tools, new_tools, reasons}`
 
-- [ ] **Step 1: 写单元测试（断言器）**
+- [x] **Step 1: 写单元测试（断言器）**
 
 ```python
 from scripts.eval_dual_track import judge_case
@@ -702,7 +704,7 @@ def test_judge_requires_tool_and_phrase():
     assert not judge_case(case, answer="存在预期差：毛利率", tools_called=["semantic_search"])
 ```
 
-- [ ] **Step 2: FAIL → 实现 `judge_case` + CLI**
+- [x] **Step 2: FAIL → 实现 `judge_case` + CLI**
 
 ```bash
 cd backend && .venv/bin/python scripts/eval_dual_track.py \
@@ -713,7 +715,7 @@ cd backend && .venv/bin/python scripts/eval_dual_track.py \
 
 `old-only` 必须先绿（本地/云有后端时）；`both` 在 MCP+harness 就绪后启用。
 
-- [ ] **Step 3: 文档化切流门禁引用**
+- [x] **Step 3: 文档化切流门禁引用**
 
 在脚本 `--help` / 模块 docstring 写死：
 
@@ -723,7 +725,7 @@ cd backend && .venv/bin/python scripts/eval_dual_track.py \
 4. embedding 无 Mac 隧道  
 5. 连续 **N≥3** 次定时评测无回退  
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git commit -am "feat(eval): dual-track expected-gap judge and runner"
