@@ -448,7 +448,7 @@ git commit -am "feat(knowledge): read-only HTTP for compare_metric and link quer
 - Consumes: `KlineService.get_stock_kline`, `StockService.get_stock_profile`
 - Produces: JSON（优先结构化；可同时提供 `text` 字段对齐旧 tool 字符串，便于评测）
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```python
 def test_kline_requires_ts_code_and_auth():
@@ -460,7 +460,7 @@ def test_stock_profile_ok(monkeypatch):
     ...
 ```
 
-- [ ] **Step 2: FAIL → 实现 → PASS**
+- [x] **Step 2: FAIL → 实现 → PASS**
 
 ```python
 @router.get("/kline")
@@ -472,7 +472,7 @@ async def get_stock_profile(ts_code: str, _: None = Depends(require_api_key)):
     ...
 ```
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git commit -am "feat(knowledge): read-only HTTP for kline and stock_profile"
