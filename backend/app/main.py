@@ -25,7 +25,8 @@ from app.knowledge.api.knowledge_package import router as knowledge_package_rout
 from app.knowledge.api.worker_jobs import router as worker_jobs_router, evidence_router
 from app.knowledge.api.worker_writes import router as worker_writes_router
 from app.knowledge.api.agent_search import router as agent_search_router
-from app.knowledge.api.agent_metrics import router as agent_metrics_router
+from app.knowledge.api.agent_metrics import router as agent_metrics_router, metrics_compare_router
+from app.knowledge.api.agent_links import router as agent_links_router
 from app.readiness.api import router as readiness_router
 from app.reasoning.api import agent_router, stats_router
 from app.reasoning.subagents.polling import router as subagent_router
@@ -203,6 +204,8 @@ app.include_router(evidence_router)
 app.include_router(worker_writes_router)
 app.include_router(agent_search_router)
 app.include_router(agent_metrics_router)
+app.include_router(metrics_compare_router)
+app.include_router(agent_links_router)
 app.include_router(
     information_router,
     prefix="/api/v1/information",

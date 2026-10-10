@@ -175,6 +175,8 @@ git commit -m "docs: lock dual-track MCP/dsh plan decisions"
 
 ### Task 2: dsh submodule + 根 launcher（承接 VS Task 1）
 
+> **Note:** Already on `origin/main` (dsh pin b150a551, package.json, scripts/dsh.mjs, patches/). Submodule initialized in this worktree; no new commit.
+
 **Files:**
 - Create: `.gitmodules`, `package.json`, `pnpm-workspace.yaml`, `scripts/dsh.mjs`, `patches/qingshui.yml`, `patches/README.md`
 
@@ -182,7 +184,7 @@ git commit -m "docs: lock dual-track MCP/dsh plan decisions"
 - Consumes: none
 - Produces: `pnpm dsh` 可调用 dsh CLI（插件尚空）
 
-- [ ] **Step 1: 写失败冒烟（脚本断言 submodule 缺失）**
+- [x] **Step 1: 写失败冒烟（脚本断言 submodule 缺失）**
 
 ```bash
 test ! -d dsh && echo "NEED_SUBMODULE"
@@ -190,7 +192,7 @@ test ! -d dsh && echo "NEED_SUBMODULE"
 
 Expected: 打印 `NEED_SUBMODULE`（当前仓无 dsh）。
 
-- [ ] **Step 2: 添加 pin 的 submodule**
+- [x] **Step 2: 添加 pin 的 submodule**
 
 ```bash
 git submodule add https://github.com/deepseek-ai/deepseek-harness.git dsh
@@ -200,11 +202,11 @@ git submodule status
 
 Expected: `b150a551… dsh`。
 
-- [ ] **Step 3: 写入根 `package.json` / `pnpm-workspace.yaml` / `scripts/dsh.mjs`**
+- [x] **Step 3: 写入根 `package.json` / `pnpm-workspace.yaml` / `scripts/dsh.mjs`**
 
 内容对齐 `docs/superpowers/plans/2026-09-29-dsh-vertical-slice.md` Task 1 Steps 3–5（`qingshui-yantou`、`build:plugin`、`dsh`、`test:plugin`、`$REPO_ROOT` patch rewrite）。**逐字复用 VS 计划中的 `scripts/dsh.mjs` 实现**，勿发明第二套 launcher。
 
-- [ ] **Step 4: 写空 overlay**
+- [x] **Step 4: 写空 overlay**
 
 `patches/qingshui.yml`:
 
@@ -214,7 +216,7 @@ Expected: `b150a551… dsh`。
 
 `patches/README.md`：说明云端/本机用 overlay 改 `MCP_BASE_URL`，生产 profile 不得写 Mac 隧道。
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add .gitmodules dsh package.json pnpm-workspace.yaml scripts/dsh.mjs patches/
@@ -225,6 +227,8 @@ git commit -m "chore: add dsh submodule pin and root launcher"
 
 ### Task 3: 空壳 `plugins/qingshui`（承接 VS Task 2）
 
+> **Note:** Already on `origin/main` — `plugins/qingshui` is beyond empty shell (Knowledge HTTP tools + research client). Dual-track keeps it; MCP client comes in Task 9.
+
 **Files:**
 - Create: `plugins/qingshui/package.json`, `cordis.patch.yml`, `tsconfig.json`, `tsdown.config.ts`, `src/index.ts`, `src/config.ts`
 
@@ -232,7 +236,7 @@ git commit -m "chore: add dsh submodule pin and root launcher"
 - Consumes: Task 2 launcher
 - Produces: `pnpm build:plugin` 产出 `lib/index.mjs`；dsh web 可加载空插件
 
-- [ ] **Step 1: 写失败测试（插件入口导出 apply）**
+- [x] **Step 1: 写失败测试（插件入口导出 apply）**
 
 `plugins/qingshui/src/index.test.ts`:
 
@@ -246,7 +250,7 @@ test('qingshui plugin module exports apply', async () => {
 })
 ```
 
-- [ ] **Step 2: Run → 预期 FAIL（文件不存在）**
+- [x] **Step 2: Run → 预期 FAIL（文件不存在）**
 
 ```bash
 pnpm install
@@ -255,7 +259,7 @@ pnpm test:plugin
 
 Expected: FAIL cannot find module / apply。
 
-- [ ] **Step 3: 最小实现**
+- [x] **Step 3: 最小实现**
 
 按 VS Task 2：`package.json`（`dsh.bundle` name=`qingshui`）、`cordis.patch.yml`（插入插件 + LiteLLM provider：`baseURL: http://127.0.0.1:4000/v1`，`apiKeyEnv: LLM_API_KEY`，model `MiniMax-M2.7-highspeed`）、`src/config.ts`（Schemastery：`knowledgeBaseUrl`, `mcpBaseUrl`, `knowledgeApiKeyRef`, `toolCallTimeoutMs` 默认 120000）、`src/index.ts`：
 
@@ -267,13 +271,13 @@ export function apply(ctx: any, config: any) {
 }
 ```
 
-- [ ] **Step 4: Build + test PASS**
+- [x] **Step 4: Build + test PASS**
 
 ```bash
 pnpm build:plugin && pnpm test:plugin
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add plugins/qingshui
@@ -284,6 +288,8 @@ git commit -m "feat(qingshui): empty cordis plugin bundle"
 
 ### Task 4: Knowledge HTTP — `POST /api/v1/knowledge/search/semantic`
 
+> **Note:** Already on `origin/main` (`agent_search.py` + tests). Verified pytest 4/4 PASS this session.
+
 **Files:**
 - Create: `backend/app/knowledge/api/agent_search.py`
 - Create: `backend/tests/test_agent_search_api.py`
@@ -293,7 +299,7 @@ git commit -m "feat(qingshui): empty cordis plugin bundle"
 - Consumes: `app.knowledge.vector_client.semantic_search_entities/chunks`；`require_api_key`
 - Produces: HTTP body 形状与 LangChain `semantic_search` 返回对齐
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```python
 # backend/tests/test_agent_search_api.py
@@ -335,7 +341,7 @@ def test_semantic_search_entities_shape(monkeypatch):
 
 （实现时用 FastAPI `dependency_overrides` 覆盖 `require_api_key`，与现有 knowledge 测试一致。）
 
-- [ ] **Step 2: Run → FAIL**
+- [x] **Step 2: Run → FAIL**
 
 ```bash
 cd backend && .venv/bin/python -m pytest tests/test_agent_search_api.py -v
@@ -343,7 +349,7 @@ cd backend && .venv/bin/python -m pytest tests/test_agent_search_api.py -v
 
 Expected: import/404 fail。
 
-- [ ] **Step 3: 实现 router**
+- [x] **Step 3: 实现 router**
 
 ```python
 # backend/app/knowledge/api/agent_search.py
@@ -368,9 +374,9 @@ async def semantic_search(body: SemanticSearchIn, _: None = Depends(require_api_
 
 在 `main.py` `include_router(agent_search.router)`。
 
-- [ ] **Step 4: pytest PASS**
+- [x] **Step 4: pytest PASS**
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git commit -am "feat(knowledge): POST /search/semantic for agent/MCP"
@@ -379,6 +385,8 @@ git commit -am "feat(knowledge): POST /search/semantic for agent/MCP"
 ---
 
 ### Task 5: Knowledge HTTP — `compare_metric` + `pull_history` + `lookup_*`
+
+> **Note:** `compare_metric` already existed at `POST /api/v1/knowledge/agent/compare_metric`; added plan-path alias `POST /api/v1/knowledge/metrics/compare`. New: `agent_links.py` for history/lookup_*. Pre-existing `test_link_tools_resolve_and_register` fail (`write_todos.use: null`) is unrelated.
 
 **Files:**
 - Create: `backend/app/knowledge/api/agent_metrics.py`, `agent_links.py`
@@ -393,7 +401,7 @@ git commit -am "feat(knowledge): POST /search/semantic for agent/MCP"
   - `POST /api/v1/knowledge/links/history` → pull_history dict
   - `POST /api/v1/knowledge/links/lookup_players` / `lookup_products`
 
-- [ ] **Step 1: 写失败测试（compare）**
+- [x] **Step 1: 写失败测试（compare）**
 
 ```python
 def test_compare_metric_http_shape(monkeypatch):
@@ -408,20 +416,20 @@ def test_compare_metric_http_shape(monkeypatch):
 
 `pull_history` / `lookup_players` 同理：断言 status 200 + 关键字段（`events`/`items` 以现 `queries.py` 返回为准）。
 
-- [ ] **Step 2: pytest → FAIL**
+- [x] **Step 2: pytest → FAIL**
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 - 从 `metric_ops.compare_metric` **抽出**异步/同步可测的核心函数到 `app.knowledge.linklayer.metrics.compare_metric(...)`；LangChain `@tool` 改为调用该函数；HTTP 也调用它。
 - `agent_links.py` 直接 `await pull_history(...)` 等。
 
-- [ ] **Step 4: pytest PASS**（含既有 `tests/test_linklayer_*.py` 无回归）
+- [x] **Step 4: pytest PASS**（含既有 `tests/test_linklayer_*.py` 无回归）
 
 ```bash
 .venv/bin/python -m pytest tests/test_agent_metrics_api.py tests/test_agent_links_api.py tests/test_linklayer_queries.py tests/test_linklayer_tools.py -v
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git commit -am "feat(knowledge): read-only HTTP for compare_metric and link queries"
