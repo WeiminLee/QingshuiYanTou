@@ -23,7 +23,7 @@ pnpm run check:skills
 pnpm dsh --profile headless --patch patches/qingshui.yml "对硅片板块做预期差分析" | tee /tmp/silicon-wafer-divergence-dsh.md
 ```
 
-Rollback: leave submodule/plugin in git; stop any dsh unit; Vue/LangChain untouched.
+Rollback: leave submodule/plugin in git; stop any dsh unit. LangChain `/api/v1/agent/*` is removed — no agent HTTP rollback.
 
 ## Durable dsh patch: insecure-HTTP `mintRpcId`
 
@@ -76,6 +76,6 @@ After pull: apply mintRpcId patch if submodule was reset, then
 `systemctl daemon-reload && systemctl restart qingshui-dsh`
 (nginx unchanged unless conf edited).
 
-## Data MCP（双轨）
+## Data MCP（harness 唯一运行时）
 
 插件默认 `mcpBaseUrl=http://127.0.0.1:8100/mcp`（见 `plugins/qingshui/cordis.patch.yml`）。云上先起 `python -m app.mcp_data.server --transport streamable-http`；本机评测连云端 MCP，细则 `deploy/mcp/DUAL_TRACK_RUNBOOK.md`。

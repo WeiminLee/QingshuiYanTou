@@ -17,8 +17,8 @@
 
 第一期**无**稳定的公开 transcript 导出 API 可被评测 runner 依赖。因此：
 
-1. **旧轨**：`eval_dual_track.py` 从 Agent stream/report 事件收集 tool 名与终稿正文。
-2. **新轨**：优先解析 dsh headless stdout / tool 事件日志；若不可用，支持 `--new-answer-file` 人工粘贴正文 + `--new-tools` 列表（过渡）。
+1. **harness**：优先解析 dsh headless stdout / tool 事件日志；评测用 `--answer-file` 提供 `{answer, tools}`。
+2. **无旧轨**：LangChain `/api/v1/agent/*` 已删除，不再对照 stream/report。
 3. 缺口关闭条件：上游 dsh 提供 session transcript 导出后，补 `scripts/export_dsh_trace.mjs`。
 
 切流门禁仍以金标 `judge_case` 为准，不以轨迹完整性阻断第一期。

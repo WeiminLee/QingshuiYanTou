@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 在云端落地只读 **Data MCP**（P0：evidence / semantic_search / compare_metric / pull_history / lookup_* / get_kline / get_stock_profile / data_readiness），并用同一套 **DeepSeek harness（dsh）+ `plugins/qingshui`** 在本机与云端旁路接入；旧 `stream/report` LangChain Agent **原样保留**，直到预期差金标评测对齐后再切默认流量。
+**Goal:** 在云端落地只读 **Data MCP**（P0：evidence / semantic_search / compare_metric / pull_history / lookup_* / get_kline / get_stock_profile / data_readiness），并用同一套 **DeepSeek harness（dsh）+ `plugins/qingshui`** 在本机与云端旁路接入；**修订（2026-10-10）**：旧 LangChain `/api/v1/agent/*` **已删除**；唯一运行时 = Data MCP + dsh harness。
 
 **Architecture:** 先补齐 Knowledge 薄只读 HTTP（semantic / compare_metric / pull_history 等今日缺口），再在同仓用 Python MCP Server 薄包装这些查询（部署在云端，与 Knowledge API 同机）。`plugins/qingshui` 经 `@deepseek-ai/dsh-mcp-client` 连 Data MCP（远程 Streamable HTTP；本机调试可用 stdio）。旧 Agent 继续进程内直连 DB，互不打断。查询逻辑优先下沉 `app.knowledge` / HTTP，禁止在 Node 插件复制 SQL。
 
@@ -13,7 +13,7 @@
 
 ## Global Constraints
 
-- **Approach C 双轨**：不删 `frontend/`、不归档 `langchain_agent/**`、不下线 `/api/v1/agent/*`，直到 §切流门禁达标且另开 cutover plan。
+- **运行时（已修订）**：LangChain `/api/v1/agent/*` 与 `archive/langchain_agent` **已删除**；`frontend/` 归档策略另议。默认对话走 dsh + MCP。
 - **Data MCP 第一期只读**：禁止包装 write / job claim / vector|link upsert / scheduler 触发。
 - **生产联通铁律（AGENTS.md）**：只云端 + chemagent；**禁止**生产依赖本机 Mac 隧道；本机 harness 仅 `dev-eval`。
 - **插件不直连 DB**：Node 只打 MCP 或 Knowledge HTTP；MCP server 部署在云端同仓，可调用 Python 查询层。
@@ -679,7 +679,7 @@ git commit -m "feat(eval): expected-gap cases and qingshui skill stub"
 
 ### Task 11: 双轨评测 runner（旧 Agent API vs 新 harness）
 
-> **Note:** `origin/main` returns 410 for `/api/v1/agent/*` (LangChain retired). Runner records `old_unavailable_410` and supports `--old-answer-file` / `--mode judge-files` until dual-track restore of old agent is decided.
+> **Note (2026-10-10):** LangChain `/api/v1/agent/*` **removed**. `eval_dual_track.py` is harness-only (`--mode harness-files` + `--answer-file`).
 
 **Files:**
 - Create: `backend/scripts/eval_dual_track.py`
@@ -803,7 +803,7 @@ git commit -m "docs: dual-track smoke and observe runbook"
 4. `semantic_search` embedding = chemagent 稳定地址；无 Mac 隧道  
 5. 连续 ≥3 次（或覆盖 ≥1 个交易日）定时评测无回退  
 
-未达标：**默认流量仍旧轨**。
+未达标：继续修 harness/MCP；**无旧轨可回退**（已删除）。
 
 ---
 

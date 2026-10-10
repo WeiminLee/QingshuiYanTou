@@ -53,6 +53,7 @@
 | sensecore pod（lwm-server-d） | sensecore | ❌ 作废，待下线 |
 | Mac 持隧道 / 回填会话 | 本地 | ❌ 作废，禁止再依赖 |
 
-## Agent 双轨（2026-10-10）
+## Agent 运行时（2026-10-10）
 
-Data MCP + DeepSeek harness 旁路见 `docs/superpowers/specs/2026-10-10-agent-mcp-deepseek-harness-design.md` 与 `deploy/mcp/DUAL_TRACK_RUNBOOK.md`；**未达标前不切默认流量**。
+**唯一**投研 Agent 入口：DeepSeek harness（dsh）+ `plugins/qingshui` + 只读 Data MCP。  
+旧 LangChain `/api/v1/agent/*` 已删除。见 `docs/superpowers/specs/2026-10-10-agent-mcp-deepseek-harness-design.md` 与 `deploy/mcp/DUAL_TRACK_RUNBOOK.md`。

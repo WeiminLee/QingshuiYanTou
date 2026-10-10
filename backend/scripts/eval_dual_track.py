@@ -1,29 +1,25 @@
 #!/usr/bin/env python3
-"""Dual-track expected-gap eval runner (Approach C).
+"""Expected-gap eval for Data MCP + DeepSeek harness (sole agent runtime).
 
-Cutover gates (must all hold before switching default traffic):
-1. New-track pass rate ≥ old-track pass rate
-2. Cases the old track already passes must not regress on the new track
-3. Failed cases have locatable traces (tool/layer)
-4. Embedding must not depend on a Mac tunnel
-5. ≥ N (default 3) scheduled eval runs with no regression
+Historical name `eval_dual_track` kept for path stability; there is **no**
+old LangChain `/api/v1/agent/*` track anymore (removed 2026-10-10).
 
-Note (2026-10-10): `origin/main` currently returns HTTP 410 for
-`/api/v1/agent/*` (LangChain retired). Live `--mode old-only` against that
-tree will record `old_unavailable_410`. Prefer `--old-answer-file` /
-`--new-answer-file` or a deployment that still exposes the legacy agent
-until dual-track restore is decided.
+Acceptance gates (harness-only):
+1. Pass rate on `expected_gap_cases_v1.json` meets owner bar
+2. Failed cases have locatable tool/trace reasons
+3. Embedding must not depend on a Mac tunnel
+4. ≥ N (default 3) scheduled eval runs with no regression
+
+Modes:
+  --mode harness-files   score answers from --answer-file (default)
 """
 from __future__ import annotations
 
 import argparse
 import json
 import re
-import sys
 from pathlib import Path
 from typing import Any
-
-import httpx
 
 _BARE_MCP = re.compile(r"^mcp__[^_]+(?:_[^_]+)*__(.+)$")
 
@@ -87,52 +83,6 @@ def load_cases(path: Path) -> list[dict[str, Any]]:
     return data
 
 
-def try_old_agent_stream_report(
-    base: str,
-    question: str,
-    api_key: str,
-    timeout: float = 600.0,
-) -> dict[str, Any]:
-    """Best-effort call to legacy stream/report. Handles 410 Gone on main."""
-    url = f"{base.rstrip('/')}/api/v1/agent/stream/report"
-    headers = {"X-API-Key": api_key, "Content-Type": "application/json"}
-    try:
-        with httpx.Client(timeout=timeout) as client:
-            resp = client.post(url, headers=headers, json={"question": question})
-    except httpx.HTTPError as exc:
-        return {"ok": False, "error": str(exc), "answer": "", "tools": []}
-
-    if resp.status_code == 410:
-        return {
-            "ok": False,
-            "error": "old_unavailable_410",
-            "answer": "",
-            "tools": [],
-            "detail": resp.text[:500],
-        }
-    if resp.status_code >= 400:
-        return {
-            "ok": False,
-            "error": f"http_{resp.status_code}",
-            "answer": "",
-            "tools": [],
-            "detail": resp.text[:500],
-        }
-    # Streaming responses vary; try JSON then plain text.
-    answer = ""
-    tools: list[str] = []
-    try:
-        body = resp.json()
-        if isinstance(body, dict):
-            answer = str(body.get("report_content") or body.get("answer") or body.get("content") or "")
-            raw_tools = body.get("tools_called") or body.get("tools") or []
-            if isinstance(raw_tools, list):
-                tools = [str(t) for t in raw_tools]
-    except Exception:  # noqa: BLE001
-        answer = resp.text
-    return {"ok": True, "answer": answer, "tools": tools, "error": None}
-
-
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description=__doc__,
@@ -143,102 +93,87 @@ def main(argv: list[str] | None = None) -> int:
         type=Path,
         default=Path("eval/expected_gap_cases_v1.json"),
     )
-    parser.add_argument("--old-base", default="http://127.0.0.1:8000")
     parser.add_argument(
         "--mode",
-        choices=("old-only", "both", "judge-files"),
-        default="judge-files",
-        help="judge-files: score provided answer files; old-only/both attempt live HTTP",
+        choices=("harness-files",),
+        default="harness-files",
+        help="Only harness scoring is supported (LangChain agent HTTP removed)",
     )
-    parser.add_argument("--api-key", default="", help="or env KNOWLEDGE_API_KEY / API_KEY")
-    parser.add_argument("--old-answer-file", type=Path, help="JSON map case_id -> {answer, tools}")
-    parser.add_argument("--new-answer-file", type=Path, help="JSON map case_id -> {answer, tools}")
+    parser.add_argument(
+        "--answer-file",
+        type=Path,
+        help="JSON map case_id -> {answer, tools} from dsh/harness run",
+    )
+    # Back-compat aliases (ignored for old track; --new-answer-file == --answer-file)
+    parser.add_argument("--new-answer-file", type=Path, help=argparse.SUPPRESS)
+    parser.add_argument("--old-answer-file", type=Path, help=argparse.SUPPRESS)
+    parser.add_argument("--old-base", default="", help=argparse.SUPPRESS)
+    parser.add_argument("--api-key", default="", help=argparse.SUPPRESS)
     parser.add_argument(
         "--out",
         type=Path,
-        default=Path("eval/out/dual_track_report.json"),
+        default=Path("eval/out/expected_gap_report.json"),
     )
     args = parser.parse_args(argv)
 
-    import os
-
-    api_key = (
-        args.api_key
-        or os.environ.get("KNOWLEDGE_API_KEY", "")
-        or os.environ.get("API_KEY", "")
-    ).strip()
+    if args.old_base or args.old_answer_file or (args.mode if False else False):
+        pass
+    answer_path = args.answer_file or args.new_answer_file
+    if args.old_answer_file and not answer_path:
+        print(
+            "warning: --old-answer-file ignored (LangChain /api/v1/agent removed); "
+            "use --answer-file for harness outputs",
+            flush=True,
+        )
+    if args.old_base:
+        print(
+            "warning: --old-base ignored (no /api/v1/agent/* runtime)",
+            flush=True,
+        )
 
     cases = load_cases(args.cases)
-    old_map: dict[str, Any] = {}
-    new_map: dict[str, Any] = {}
-    if args.old_answer_file and args.old_answer_file.exists():
-        old_map = json.loads(args.old_answer_file.read_text(encoding="utf-8"))
-    if args.new_answer_file and args.new_answer_file.exists():
-        new_map = json.loads(args.new_answer_file.read_text(encoding="utf-8"))
+    answers: dict[str, Any] = {}
+    if answer_path and answer_path.exists():
+        answers = json.loads(answer_path.read_text(encoding="utf-8"))
 
     report: list[dict[str, Any]] = []
     for case in cases:
         cid = case["case_id"]
-        old_answer = ""
-        old_tools: list[str] = []
-        new_answer = ""
-        new_tools: list[str] = []
-        old_err = None
-        new_err = None
-
-        if cid in old_map:
-            old_answer = str(old_map[cid].get("answer") or "")
-            old_tools = list(old_map[cid].get("tools") or [])
-        elif args.mode in ("old-only", "both"):
-            if not api_key:
-                old_err = "missing_api_key"
-            else:
-                live = try_old_agent_stream_report(args.old_base, case["question"], api_key)
-                if live.get("ok"):
-                    old_answer = live.get("answer") or ""
-                    old_tools = list(live.get("tools") or [])
-                else:
-                    old_err = live.get("error")
-
-        if cid in new_map:
-            new_answer = str(new_map[cid].get("answer") or "")
-            new_tools = list(new_map[cid].get("tools") or [])
-        elif args.mode == "both":
-            new_err = "new_track_not_wired_use_answer_file"
-
-        old_pass = None
-        new_pass = None
+        entry = answers.get(cid) or {}
+        answer = str(entry.get("answer") or "")
+        tools = list(entry.get("tools") or [])
+        passed = None
         reasons: list[str] = []
-        if args.mode in ("old-only", "both", "judge-files") and (old_answer or old_tools or old_err):
-            if old_err:
-                old_pass = False
-                reasons.append(f"old:{old_err}")
-            else:
-                old_pass = judge_case(case, answer=old_answer, tools_called=old_tools)
-                reasons.extend(f"old:{r}" for r in judge_case_reasons(case, answer=old_answer, tools_called=old_tools))
-        if args.mode in ("both", "judge-files") and (new_answer or new_tools or new_err or args.new_answer_file):
-            if new_err and not new_answer:
-                new_pass = False
-                reasons.append(f"new:{new_err}")
-            elif new_answer or new_tools:
-                new_pass = judge_case(case, answer=new_answer, tools_called=new_tools)
-                reasons.extend(f"new:{r}" for r in judge_case_reasons(case, answer=new_answer, tools_called=new_tools))
-
+        if answer or tools:
+            passed = judge_case(case, answer=answer, tools_called=tools)
+            reasons = judge_case_reasons(case, answer=answer, tools_called=tools)
+        elif answer_path:
+            passed = False
+            reasons = ["missing answer for case in --answer-file"]
         report.append(
             {
                 "case_id": cid,
-                "old_pass": old_pass,
-                "new_pass": new_pass,
-                "old_tools": old_tools,
-                "new_tools": new_tools,
+                "pass": passed,
+                "tools": tools,
                 "reasons": reasons,
             }
         )
 
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(json.dumps({"out": str(args.out), "cases": len(report), "report": report}, ensure_ascii=False, indent=2))
-    # Exit 0 even if fails — report is the artifact; CI can parse.
+    n_pass = sum(1 for r in report if r["pass"] is True)
+    n_fail = sum(1 for r in report if r["pass"] is False)
+    n_skip = sum(1 for r in report if r["pass"] is None)
+    summary = {
+        "out": str(args.out),
+        "runtime": "dsh+mcp_data",
+        "cases": len(report),
+        "pass": n_pass,
+        "fail": n_fail,
+        "unscored": n_skip,
+        "report": report,
+    }
+    print(json.dumps(summary, ensure_ascii=False, indent=2))
     return 0
 
 

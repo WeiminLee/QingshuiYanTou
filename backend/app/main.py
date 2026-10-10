@@ -29,7 +29,7 @@ from app.knowledge.api.agent_metrics import router as agent_metrics_router, metr
 from app.knowledge.api.agent_links import router as agent_links_router
 from app.knowledge.api.agent_market import router as agent_market_router
 from app.readiness.api import router as readiness_router
-from app.reasoning.api import agent_router, stats_router
+from app.reasoning.api import stats_router
 from app.reasoning.subagents.polling import router as subagent_router
 from app.signals.api import router as signals_router
 from app.utils.auth import verify_api_key, verify_api_key_optional
@@ -175,7 +175,7 @@ app.include_router(relations_router, tags=["知识构建"], dependencies=[Depend
 app.include_router(kg_extraction_router, tags=["知识构建"], dependencies=[Depends(verify_api_key)])
 app.include_router(feedback_router, dependencies=[Depends(verify_api_key)])
 # 读操作路由（已有自身Depends，不重复叠加）
-app.include_router(agent_router, prefix="/api/v1/agent")  # 自带Depends
+# /api/v1/agent/* removed — Data MCP + dsh harness only (2026-10-10)
 app.include_router(
     data_router,
     prefix="/api/v1/data",
