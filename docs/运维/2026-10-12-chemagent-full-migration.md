@@ -65,20 +65,20 @@
 - readiness 仍显示 degraded：`research_report` 硬门禁已在 10-09 修复中放宽，
   当前残留为 Mongo announcement 最新日查询偶发 `MaxTimeMSExpired`（缺索引，监控精度问题，不阻塞）。
 
-## 已知缺口 / 后续
+## 已知缺口 / 后续（2026-10-12 晚 owner 决策后）
 
-1. **Neo4j 未部署**：backend env 残留 `NEO4J_URL=bolt://localhost:7687`；
+1. **Agent 交互层 = 本地 Mac（第一版已定）**：dsh web + plugins/qingshui 跑本机，
+   经 SSH 转发访问 chemagent Data MCP/后端；chemagent 只做数据构建层。**待搭建**。
+2. **Neo4j 未部署**：backend env 残留 `NEO4J_URL=bolt://localhost:7687`；
    若图功能已弃用应摘 env，否则需补容器。
-2. **灾备 dump 未自动化**：`/data` 随工作空间销毁，mongo/pg/qdrant 定期导出待做。
-3. **对外入口未定**：chemagent 无公网，dsh web / 用户访问方案待定（云端 dsh/data-mcp
-   现仅作只读快照短暂保留）。
-4. **worker venv / PDF 暂存仍在 shared storage**，按 10-12 铁律待迁 `/data`。
-5. **`/root/code/QingShuiYanTou` 为非 git 代码副本**，后续更新需建立同步机制
+3. **灾备 dump：owner 决策暂缓**；注意 `/data` 随工作空间销毁，回收机器前必须
+   手工 `mongodump`/`pg_dump`/qdrant 快照导出。
+4. **云端下线时机：待 chemagent 侧全部验证结束后**再停容器、最终 dump 归档、释放机器。
+5. **worker venv / PDF 暂存仍在 shared storage**，按 10-12 铁律待迁 `/data`。
+6. **`/root/code/QingShuiYanTou` 为非 git 代码副本**，后续更新需建立同步机制
    （建议 git clone + checkout 分支，compose build context 随之切换）。
-6. **Mongo announcement 最新日查询偶发 MaxTimeMSExpired**（readiness 监控精度，
+7. **Mongo announcement 最新日查询偶发 MaxTimeMSExpired**（readiness 监控精度，
    需补索引）。
-7. 云端下线前最后一步：确认无外部依赖（用户书签、监控 webhook）后停容器、
-   最终 dump 归档，再释放机器。
 
 ## 关键操作回滚
 
