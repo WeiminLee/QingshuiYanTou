@@ -1,0 +1,7 @@
+# 本地/通用覆盖：cordis patch 的 config 是整体替换语义——三个键必须写全。
+# 8001/8100 两端约定一致：chemagent 本机服务端口，或 Mac 经 scripts/tunnel_chemagent.sh 转发。
+- id: qingshui
+  config:
+    knowledgeBaseUrl: http://127.0.0.1:8001
+    mcpBaseUrl: http://127.0.0.1:8100/mcp
+    knowledgeApiKeyRef: KNOWLEDGE_API_KEY
