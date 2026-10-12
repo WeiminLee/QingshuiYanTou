@@ -55,7 +55,7 @@ class TestLoadToolsFromConfig:
         names = {c.name for c in configs}
 
         # 注：neo4j_traverse/neo4j_entity_info 已在 config.yaml 标记 enabled:false（被 resolve+expand 取代），
-        # 不再计入默认加载集合。
+        # 不再计入默认加载集合。write_todos 随 langchain_agent 退役删除（dsh cutover）。
         expected = {
             "get_kline",
             "get_concept_hot",
@@ -66,7 +66,6 @@ class TestLoadToolsFromConfig:
             "get_stock_profile",
             "get_irm",
             "present_chart",
-            "write_todos",
         }
         missing = expected - names
         assert not missing, f"以下默认工具未加载: {missing}"
