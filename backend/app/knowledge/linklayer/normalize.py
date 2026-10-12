@@ -72,6 +72,7 @@ def canonicalize_period(surface: str | None) -> str:
     """metric period surface → 规范期间标签（机械，报告分口径分组用）。
 
     解析「2024年1-6月」→ H1 2024；「2025年度」→ FY 2025；「2025年一季度」→ Q1 2025；
+    「2025年3月15日」→ 2025-03-15（日期型不再坍缩为 FY，保留月/日粒度）；
     无法解析 → 原样保留（"本报告期"/"报告期内"需结合 evidence 发布日期推断，
     机械层不猜）。"""
     s = (surface or "").strip()
@@ -95,6 +96,14 @@ def canonicalize_period(surface: str | None) -> str:
         return f"Q1-Q3 {year}"
     if re.search(r"年1\s*[-—~至]\s*1[012]", s):  # 1-11月等
         return f"1-11M {year}"
+    # 日期型（已排除上面的区间/季度形态）：保留粒度，避免「X月X日」全部坍缩成 FY。
+    # 例：「截至2025年3月15日」→ 2025-03-15；「2025年3月」→ 2025-03。
+    m_day = re.search(r"(\d{1,2})\s*月\s*(\d{1,2})\s*日", s)
+    if m_day:
+        return f"{year}-{int(m_day.group(1)):02d}-{int(m_day.group(2)):02d}"
+    m_month = re.search(r"(\d{1,2})\s*月", s)
+    if m_month:
+        return f"{year}-{int(m_month.group(1)):02d}"
     return f"FY {year}"
 
 
