@@ -1,0 +1,23 @@
+# 本地备选：LLM 切 chemagent H200 自营 vLLM（避开 pjlab 网关集群限流）。
+# 用法：--patch patches/local-gpu-llm.yml（放在 patches/qingshui.yml 之后；
+# cordis patch config 为整体替换语义，providers/qingshui 三个键须写全）。
+# 前置：ssh -N -L 23457:100.103.242.214:23457 -L 23456:100.103.242.214:23456 lwm-server-chemagent
+- id: llm-pi-ai
+  config:
+    providers:
+      qingshui:
+        displayName: chemagent H200 Qwen3.6
+        apiKeyEnv: OPENAI_API_KEY
+        api: openai-completions
+        baseURL: http://127.0.0.1:23457/v1
+        compat:
+          thinkingFormat: deepseek
+        models:
+          - id: Qwen3.6-35B-A3B
+            name: Qwen3.6 35B A3B (H200 自营)
+            contextWindow: 32768
+            maxTokens: 8192
+- id: agent-default-model
+  config:
+    provider: qingshui
+    model: Qwen3.6-35B-A3B

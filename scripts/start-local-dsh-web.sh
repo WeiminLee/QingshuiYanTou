@@ -18,15 +18,23 @@ for p in 8100 8001; do
   fi
 done
 
-ENV_FILE="scripts/local-dsh-env.sh"
-if [ ! -f "$ENV_FILE" ]; then
-  echo "✗ 缺 $ENV_FILE——从 scripts/local-dsh-env.example.sh 复制并填入两个 key" >&2
-  exit 1
+# KNOWLEDGE_API_KEY 兜底：从仓内已提交的 deploy/chemagent/worker_supervisor.py 提取
+# （该值本来就在 git 里；env 文件方式优先）
+if [ -z "${KNOWLEDGE_API_KEY:-}" ]; then
+  KNOWLEDGE_API_KEY="$(grep -m1 '^KNOWLEDGE_API_KEY=' deploy/chemagent/worker_supervisor.py | cut -d= -f2)"
+  export KNOWLEDGE_API_KEY
 fi
-# shellcheck disable=SC1090
-source "$ENV_FILE"
-: "${KNOWLEDGE_API_KEY:?KNOWLEDGE_API_KEY 未设置}"
-: "${OPENAI_API_KEY:?OPENAI_API_KEY 未设置}"
+
+ENV_FILE="scripts/local-dsh-env.sh"
+if [ -f "$ENV_FILE" ]; then
+  # shellcheck disable=SC1090
+  source "$ENV_FILE"
+fi
+: "${KNOWLEDGE_API_KEY:?KNOWLEDGE_API_KEY 未设置（仓内兜底提取也失败）}"
+# OPENAI_API_KEY 可缺省：dsh ~/.dsh/.credentials.yaml 里已有 pjlab 网关凭据
+if [ -z "${OPENAI_API_KEY:-}" ]; then
+  echo "· OPENAI_API_KEY 未设置，使用 dsh 凭据库（~/.dsh/.credentials.yaml）"
+fi
 
 PATCH_ARGS=(--patch patches/qingshui.yml)
 # 本机覆盖（可选，勿提交）：如 patches/local-mac.yml 覆盖 knowledgeBaseUrl 等
