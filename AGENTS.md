@@ -2,6 +2,7 @@
 
 > 形态细节见 `docs/superpowers/specs/2026-09-23-chemagent-worker-deployment-design.md`。
 > 本节替代 2026-09-19 版（d 集群 sensecore pod + Mac 持隧道）。
+> **2026-10-12 owner 更新**：持久化层改为 `/data` 数据盘，不再使用 shared storage（见条目 6）。
 
 ## 角色分工（铁律，任何改动不得违背）
 
@@ -32,13 +33,15 @@
    - **H 集群**
      - GPU 推理：`rjob` + `--auto-restart`（平台托管自愈），**禁止 nohup/setsid 游离进程**。
      - 开发机常驻：docker 容器 + restart 策略。
-     - 依赖安装只取最小集合；装包走内网源或预置到 shared storage。
+     - 依赖安装只取最小集合；装包走内网源或预置到 `/data`。
    - **sensecore（存量过渡，逐步下线）**
      - 常驻进程前台 + 由外部持有会话，禁止 nohup/setsid 存活。
      - **禁止在 pod venv 全量安装 requirements.txt**（会覆盖 MetaX torch / numpy）。
-6. **持久化铁律**：模型权重、PDF 等**不可重建**数据一律落
-   `shared storage（/mnt/shared-storage-user/liweimin）`；工作空间级 `/`、`/data`
-   只放可重建内容。
+6. **持久化铁律（2026-10-12 owner 更新）**：模型权重、PDF、evidence 库等
+   **不可重建**数据一律落 **`/data`（500Gi 数据盘 `lwm-server-chemagent-data`）**，
+   **不再使用 shared storage（`/mnt/shared-storage-user/liweimin`）**。
+   ⚠️ `/data` 为工作空间级卷，随工作空间销毁而消失：机器/工作空间回收前必须先
+   `mongodump` / `pg_dump` 导出迁出；日常保持定期 dump 习惯作为灾备。
 7. **新增 evidence 处理需求的默认落位**：H 集群 chemagent worker 池；云侧只加队列与存储。
 
 ## 现状对照（2026-09-23）
@@ -48,7 +51,7 @@
 | bge-m3 embedding 服务 | H 集群 H200（rjob） | ⚠️ P1 待部署（旧 sensecore pod 形态作废） |
 | Qwen 抽取服务 | H 集群 H200（vLLM） | ⚠️ P1 待部署 |
 | knowledge_worker（link/vector/signal） | H 集群开发机 | ⚠️ P3 待接入（需云侧 API 端点，P2） |
-| pdf_download_worker | H 集群开发机 | ⚠️ P4 待迁移（PDF 落 shared storage） |
+| pdf_download_worker | H 集群开发机 | ⚠️ P4 待迁移（PDF 落 `/data`） |
 | scheduler / API backend | 云端 | ✅ 属于编排面，留云 |
 | sensecore pod（lwm-server-d） | sensecore | ❌ 作废，待下线 |
 | Mac 持隧道 / 回填会话 | 本地 | ❌ 作废，禁止再依赖 |
