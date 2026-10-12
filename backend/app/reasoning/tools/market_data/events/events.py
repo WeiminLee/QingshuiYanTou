@@ -6,7 +6,7 @@ from typing import Annotated
 from langchain_core.tools import tool
 from sqlalchemy import text
 
-from app.core.database import engine
+from app.core.database import async_session
 from app.reasoning.tools._async_runner import run_async
 
 logger = logging.getLogger(__name__)
@@ -77,8 +77,8 @@ async def _find_events(
     """
     params["top_n"] = top_n
 
-    async with engine.connect() as conn:
-        result = await conn.execute(text(sql), params)
+    async with async_session() as session:
+        result = await session.execute(text(sql), params)
         rows = result.fetchall()
 
     if not rows:
@@ -118,8 +118,8 @@ def get_event_detail(
 
 
 async def _get_event_detail(event_id: str) -> str:
-    async with engine.connect() as conn:
-        result = await conn.execute(
+    async with async_session() as session:
+        result = await session.execute(
             text("SELECT event_id, title, content, source, publish_at FROM events WHERE event_id = :eid"),
             {"eid": event_id},
         )

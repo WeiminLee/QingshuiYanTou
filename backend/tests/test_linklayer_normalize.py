@@ -112,6 +112,39 @@ async def test_ensure_keyword_merged_redirects_to_target(monkeypatch):
     assert got == make_keyword_id("scope", "硅片"), got
 
 
+@pytest.mark.parametrize(
+    "surface,expected",
+    [
+        ("2024年1-6月", "H1 2024"),
+        ("2025年1-6月", "H1 2025"),
+        ("2025年度", "FY 2025"),
+        ("2024年报", "FY 2024"),
+        ("2025年一季度", "Q1 2025"),
+        ("2025年第三季度", "Q3 2025"),
+        ("2025年1-3月", "Q1 2025"),
+        ("2025年1-9月", "Q1-Q3 2025"),
+        # 日期型：保留月/日粒度，不坍缩为 FY
+        ("2025年3月15日", "2025-03-15"),
+        ("截至2025年3月15日", "2025-03-15"),
+        ("2025年3月", "2025-03"),
+        ("2025年12月", "2025-12"),
+        # 无年份 / 空串：原样保留
+        ("本报告期", "本报告期"),
+        ("3月15日", "3月15日"),
+        ("", ""),
+        # 幂等：规范标签再次归一不变
+        ("FY 2025", "FY 2025"),
+        ("H1 2025", "H1 2025"),
+        ("2025-03-15", "2025-03-15"),
+        ("2025-03", "2025-03"),
+    ],
+)
+def test_canonicalize_period(surface, expected):
+    from app.knowledge.linklayer.normalize import canonicalize_period
+
+    assert canonicalize_period(surface) == expected
+
+
 def test_canonicalize_dimension_maps_long_surface_to_standard():
     """metric 的长句 surface 必须归一到标准维度（防 dimension 层脏词）。"""
     from app.knowledge.linklayer.normalize import canonicalize_dimension
