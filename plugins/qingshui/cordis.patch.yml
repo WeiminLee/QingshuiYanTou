@@ -12,10 +12,10 @@
   config:
     providers:
       qingshui:
-        displayName: Boyue Gateway
+        displayName: pjlab Gateway
         apiKeyEnv: OPENAI_API_KEY
         api: openai-completions
-        baseURL: http://35.220.164.252:3888/v1
+        baseURL: https://token.pjlab.org.cn/v1
         compat:
           thinkingFormat: deepseek
         models:

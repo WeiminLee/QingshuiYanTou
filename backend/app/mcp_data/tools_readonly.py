@@ -164,7 +164,7 @@ async def get_stock_profile(ts_code: str) -> dict[str, Any]:
 
 
 async def data_readiness() -> dict[str, Any]:
-    return await knowledge_get("/api/v1/readiness/")
+    return await knowledge_get("/api/v1/readiness")
 
 
 def _json_result(payload: Any) -> str:
