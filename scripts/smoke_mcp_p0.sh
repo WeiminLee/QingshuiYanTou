@@ -7,9 +7,12 @@ MCP_HEALTH="${MCP_HEALTH_URL:-http://127.0.0.1:8100/health}"
 # 摘要函数：截断避免大响应刷屏；curl 写管道被截断不视为失败
 snip() { head -c 400; echo; }
 probe() {
-  # $@ = curl 参数；成功(2xx)即输出截断 body，网络/HTTP 错误返回非零
+  # $@ = curl 参数；成功(2xx)即输出截断 body
+  # head 截断会让 curl 收到 SIGPIPE(141)，body 已到手就不算失败
   local body
-  body=$(curl -fsS "$@" 2>/dev/null | head -c 400) || { echo "FAILED"; return 1; }
+  body=$(curl -fsS "$@" 2>/dev/null | head -c 400; echo "PIPE_OK")
+  body=${body%PIPE_OK}
+  [ -n "$body" ] || { echo "FAILED"; return 1; }
   printf '%s\n' "$body"
 }
 
