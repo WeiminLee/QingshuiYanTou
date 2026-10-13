@@ -115,6 +115,8 @@ backend/data/board_concept/
 # Agent/图表工具生成的运行产物
 backend/static/charts/*.html
 backend/eval/local_extract_*/
+# 金标评测 raw 过程产物（answers/报告另行提交）
+backend/eval/out/raw/
 .env.dsh.local
 
 # Keep Cordis plugin build artifact
