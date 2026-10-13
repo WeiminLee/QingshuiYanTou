@@ -1,8 +1,19 @@
 #!/usr/bin/env python3
 """Collect one golden-eval round: per case, attribute the dsh headless session
-created after the case's marker file, extract called tool names from
+born inside that case's marker time window, extract called tool names from
 `session.jsonl.zstd`, and assemble the `{case_id: {answer, tools}}` map that
 `eval_dual_track.py --mode harness-files` consumes.
+
+  Session attribution (deterministic):
+  - Raw dir holds one `<case_id>.marker` per case, touched right before its headless run.
+  - Marker files sorted by mtime define consecutive windows; a session belongs
+    to the case whose window contains the session's *birth* time (st_birthtime,
+    falling back to st_mtime). A re-run case's marker becomes the newest, so
+    its window extends to +inf — reruns stay correctly attributed.
+  - Multiple sessions in one window: the **earliest-born** wins. The window
+    owner's marker is touched immediately before its own run, so its session
+    is by construction born first in the window; any later-born session there
+    is an orphan from a failed/superseded run of another case.
 
 Usage:
   eval_collect_harness_round.py --cases eval/expected_gap_cases_v1.json \
@@ -23,13 +34,15 @@ import sys
 from pathlib import Path
 
 
-def session_files_since(dsh_home: Path, marker: Path) -> list[Path]:
-    root = dsh_home / "sessions"
+def _birthtime(path: Path) -> float:
+    st = path.stat()
+    return getattr(st, "st_birthtime", None) or st.st_mtime
+
+
+def session_files(root: Path) -> list[Path]:
     if not root.is_dir():
         return []
-    since = marker.stat().st_mtime
-    hits = [p for p in root.glob("*/session-*/session.jsonl.zstd") if p.stat().st_mtime >= since]
-    return sorted(hits, key=lambda p: p.stat().st_mtime)
+    return list(root.glob("*/session-*/session.jsonl.zstd"))
 
 
 def extract_tools(session_file: Path) -> list[str]:
@@ -60,21 +73,43 @@ def main() -> int:
     args = ap.parse_args()
 
     cases = json.loads(args.cases.read_text(encoding="utf-8"))
+    sessions_root = args.dsh_home / "sessions"
+    sessions = [(p, _birthtime(p)) for p in session_files(sessions_root)]
+
     answers: dict[str, dict] = {}
     problems: list[str] = []
+
+    # marker mtime ordering defines attribution windows; newest marker ⇒ open-ended window
+    marker_times: dict[str, float] = {}
     for case in cases:
         cid = case["case_id"]
         marker = args.raw_dir / f"{cid}.marker"
+        marker_times[cid] = marker.stat().st_mtime if marker.exists() else float("inf")
+    ordered = sorted(marker_times.items(), key=lambda kv: kv[1])
+
+    for case in cases:
+        cid = case["case_id"]
         answer_path = args.raw_dir / f"{cid}.answer.txt"
         answer = answer_path.read_text(encoding="utf-8", errors="replace").strip() if answer_path.exists() else ""
+
         tools: list[str] = []
-        sessions = session_files_since(args.dsh_home, marker) if marker.exists() else []
-        if sessions:
-            tools = extract_tools(sessions[-1])
-            if len(sessions) > 1:
-                problems.append(f"{cid}: {len(sessions)} sessions after marker, used newest {sessions[-1].parent.name}")
+        start = marker_times.get(cid, float("inf"))
+        if start == float("inf"):
+            problems.append(f"{cid}: marker missing; tools=[]")
         else:
-            problems.append(f"{cid}: no session found after marker; tools=[]")
+            pos = next(i for i, (c, _) in enumerate(ordered) if c == cid)
+            end = ordered[pos + 1][1] if pos + 1 < len(ordered) else float("inf")
+            in_window = [p for p, born in sessions if start < born <= end]
+            if in_window:
+                session = min(in_window, key=_birthtime)
+                tools = extract_tools(session)
+                if len(in_window) > 1:
+                    problems.append(
+                        f"{cid}: {len(in_window)} sessions in window, used earliest-born {session.parent.name} (later ones are superseded orphans)"
+                    )
+            else:
+                problems.append(f"{cid}: no session born in window; tools=[]")
+
         answers[cid] = {"answer": answer, "tools": tools}
         exit_note = ""
         exit_file = args.raw_dir / f"{cid}.exit"

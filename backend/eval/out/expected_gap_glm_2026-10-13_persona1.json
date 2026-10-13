@@ -1,0 +1,62 @@
+[
+  {
+    "case_id": "gap-wafer-margin-001",
+    "pass": true,
+    "tools": [
+      "skill",
+      "mcp__qingshui_data__data_readiness",
+      "mcp__qingshui_data__compare_metric",
+      "mcp__qingshui_data__lookup_players",
+      "mcp__qingshui_data__semantic_search",
+      "mcp__qingshui_data__get_stock_profile",
+      "metric_trend",
+      "mcp__qingshui_data__pull_history",
+      "mcp__qingshui_data__fetch_evidence",
+      "related_nodes",
+      "propagate_along",
+      "mcp__qingshui_data__get_kline"
+    ],
+    "reasons": []
+  },
+  {
+    "case_id": "gap-zj-margin-001",
+    "pass": true,
+    "tools": [
+      "skill",
+      "mcp__qingshui_data__data_readiness",
+      "mcp__qingshui_data__get_stock_profile",
+      "mcp__qingshui_data__lookup_products",
+      "mcp__qingshui_data__semantic_search",
+      "mcp__qingshui_data__lookup_players",
+      "mcp__qingshui_data__pull_history",
+      "mcp__qingshui_data__compare_metric",
+      "grep",
+      "metric_trend",
+      "compare_metric",
+      "fetch_evidence",
+      "mcp__qingshui_data__fetch_evidence",
+      "mcp__qingshui_data__get_kline",
+      "semantic_search"
+    ],
+    "reasons": []
+  },
+  {
+    "case_id": "gap-degraded-ok-001",
+    "pass": true,
+    "tools": [
+      "skill",
+      "todo_write",
+      "mcp__qingshui_data__data_readiness",
+      "compare_metric",
+      "rollup_metric",
+      "propagate_along",
+      "mcp__qingshui_data__compare_metric",
+      "mcp__qingshui_data__lookup_players",
+      "mcp__qingshui_data__pull_history",
+      "mcp__qingshui_data__fetch_evidence",
+      "grep",
+      "mcp__qingshui_data__get_kline"
+    ],
+    "reasons": []
+  }
+]

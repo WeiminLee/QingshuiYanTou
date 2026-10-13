@@ -5,12 +5,13 @@
 # 组装 harness_answers_<tag>.json → eval_dual_track.py 判分出报告。
 # 串行执行（约 5min/案），保证 session 归因无歧义。
 #
-# 用法: bash scripts/run-golden-eval.sh [tag]     # 默认 tag=glm_$(date +%F)
+# 用法: bash scripts/run-golden-eval.sh [tag] [case_id]   # 默认 tag=glm_$(date +%F)
+#        指定 case_id 时只重跑该案（marker 刷新后窗口归因自动正确）
 # 前置:
 #   1. 隧道：bash scripts/tunnel_chemagent.sh（8100/8001 转发到 chemagent）
 #   2. LLM 凭据：~/.dsh-qingshui/.credentials.yaml（或 scripts/local-dsh-env.sh 里 OPENAI_API_KEY）
 # 产物:
-#   backend/eval/out/raw/<tag>/<case_id>.{answer.txt,stderr.log,exit}
+#   backend/eval/out/raw/<tag>/<case_id>.{answer.txt,stderr.log,exit,marker}
 #   backend/eval/out/harness_answers_<tag>.json
 #   backend/eval/out/expected_gap_<tag>.json
 set -uo pipefail
@@ -18,6 +19,7 @@ cd "$(dirname "$0")/.."
 export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 
 TAG="${1:-glm_$(date +%F)}"
+RUN_ONLY="${2:-}"
 export DSH_HOME="${DSH_HOME:-$HOME/.dsh-qingshui}"
 CASES="backend/eval/expected_gap_cases_v1.json"
 OUTDIR="backend/eval/out"
@@ -39,10 +41,14 @@ fi
 
 echo "== 金标一轮 tag=$TAG DSH_HOME=$DSH_HOME =="
 
-# 逐案 headless（串行，保证 session 归因唯一）
-python3 - "$CASES" <<'PY' | while IFS=$'\t' read -r CID QUESTION; do
+# 逐案 headless（串行，保证 session 归因唯一；RUN_ONLY 指定时只跑该案）
+python3 - "$CASES" "$RUN_ONLY" <<'PY' | while IFS=$'\t' read -r CID QUESTION; do
 import json, sys
-for c in json.load(open(sys.argv[1], encoding="utf-8")):
+cases = json.load(open(sys.argv[1], encoding="utf-8"))
+only = sys.argv[2]
+for c in cases:
+    if only and c["case_id"] != only:
+        continue
     print(f"{c['case_id']}\t{c['question']}")
 PY
   echo "── [$CID] $QUESTION"
@@ -64,7 +70,7 @@ python3 backend/scripts/eval_dual_track.py \
   --answer-file "$OUTDIR/harness_answers_$TAG.json" \
   --out "$OUTDIR/expected_gap_$TAG.json" || exit 1
 
-echo "== 判分结果（$TAG）=="
+echo "== 判分结果（${TAG}）=="
 python3 - "$OUTDIR/expected_gap_$TAG.json" <<'PY'
 import json, sys
 report = json.load(open(sys.argv[1], encoding="utf-8"))
