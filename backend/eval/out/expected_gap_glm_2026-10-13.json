@@ -1,0 +1,74 @@
+[
+  {
+    "case_id": "gap-wafer-margin-001",
+    "pass": true,
+    "tools": [
+      "compare_metric",
+      "fetch_evidence",
+      "grep",
+      "lookup_players",
+      "mcp__qingshui_data__compare_metric",
+      "mcp__qingshui_data__data_readiness",
+      "mcp__qingshui_data__get_stock_profile",
+      "mcp__qingshui_data__lookup_players",
+      "mcp__qingshui_data__lookup_products",
+      "mcp__qingshui_data__pull_history",
+      "mcp__qingshui_data__semantic_search",
+      "metric_trend",
+      "propagate_along",
+      "related_nodes",
+      "rollup_metric",
+      "semantic_search",
+      "skill"
+    ],
+    "reasons": []
+  },
+  {
+    "case_id": "gap-zj-margin-001",
+    "pass": true,
+    "tools": [
+      "bash",
+      "compare_metric",
+      "fetch_evidence",
+      "grep",
+      "mcp__qingshui_data__compare_metric",
+      "mcp__qingshui_data__data_readiness",
+      "mcp__qingshui_data__fetch_evidence",
+      "mcp__qingshui_data__get_kline",
+      "mcp__qingshui_data__get_stock_profile",
+      "mcp__qingshui_data__lookup_players",
+      "mcp__qingshui_data__lookup_products",
+      "mcp__qingshui_data__pull_history",
+      "mcp__qingshui_data__semantic_search",
+      "metric_trend",
+      "pull_history",
+      "related_nodes",
+      "semantic_search",
+      "skill",
+      "web_search",
+      "write"
+    ],
+    "reasons": []
+  },
+  {
+    "case_id": "gap-degraded-ok-001",
+    "pass": true,
+    "tools": [
+      "glob",
+      "grep",
+      "mcp__qingshui_data__compare_metric",
+      "mcp__qingshui_data__data_readiness",
+      "mcp__qingshui_data__fetch_evidence",
+      "mcp__qingshui_data__get_stock_profile",
+      "mcp__qingshui_data__lookup_players",
+      "mcp__qingshui_data__lookup_products",
+      "mcp__qingshui_data__pull_history",
+      "mcp__qingshui_data__semantic_search",
+      "metric_trend",
+      "read",
+      "related_nodes",
+      "skill"
+    ],
+    "reasons": []
+  }
+]
