@@ -23,7 +23,14 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from langchain_core.messages import AIMessage, AIMessageChunk, BaseMessage, HumanMessage, ToolMessage
+from langchain_core.messages import (
+    AIMessage,
+    AIMessageChunk,
+    BaseMessage,
+    HumanMessage,
+    SystemMessage,
+    ToolMessage,
+)
 from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
 from langgraph.errors import GraphRecursionError
@@ -742,6 +749,26 @@ async def run_lead_agent(
             full_content.append(recursion_notice)
             turn_context.full_content.append(recursion_notice)
 
+        # ── 截断后收尾合成 ─────────────────────────────────────────
+        # 墙钟/递归截断时，full_content 往往停在「还在核实…」的中间态。此时用
+        # 一次禁用工具的模型调用，把已收集的工具数据综合成可用结论（best-effort）。
+        if recursion_truncated and tool_results_record and not is_clarified:
+            from app.config import settings as _final_settings
+
+            _synth_timeout = float(
+                getattr(_final_settings, "agent_synthesis_timeout_seconds", 40.0) or 0
+            )
+            if _synth_timeout > 0:
+                synth = await _synthesize_final_answer(
+                    model,
+                    all_messages,
+                    _synth_timeout,
+                    tool_results=tool_results_record,
+                )
+                if synth:
+                    full_content.append("\n\n" + synth)
+                    turn_context.full_content.append("\n\n" + synth)
+
         # ── 发射 stream_end ────────────────────────────────────────
         if is_clarified:
             if harness is not None:
@@ -811,6 +838,110 @@ async def run_lead_agent(
 
 
 # ── 辅助函数 ──────────────────────────────────────────────────────────
+
+
+_FINISH_SYSTEM_PROMPT = (
+    "你是清水投研的投资分析师。上一轮分析因时间/深度预算用尽而被截断。"
+    "请**立即基于对话中已经获得的工具数据**给出最终结论："
+    "能确认的结论直接给出（含数值/期间/主体），无法确认的明确标注数据缺口，"
+    "不得再调用任何工具，不得编造未获取的数据。用户要的是可用的阶段性答案，"
+    "而不是「我还在核实」的中间态。结论务必精炼（不超过 300 字）。"
+)
+
+
+def _sanitize_messages_for_final_answer(messages: list[BaseMessage]) -> list[BaseMessage]:
+    """为收尾合成构造合法的消息序列。
+
+    截断可能停在「AIMessage 发出 tool_calls 但对应 ToolMessage 尚未回来」处；
+    直接把它喂给模型会违反 OpenAI 的 tool_call↔tool 配对契约而报错。此处把
+    未兑现的 tool_calls 从该条 AIMessage 上剥离（仅保留其文本），其余原样保留。
+    """
+    fulfilled = {getattr(m, "tool_call_id", None) for m in messages if isinstance(m, ToolMessage)}
+    out: list[BaseMessage] = []
+    for m in messages:
+        if isinstance(m, AIMessage) and getattr(m, "tool_calls", None):
+            if any((tc or {}).get("id") not in fulfilled for tc in m.tool_calls):
+                text = _extract_text(m.content)
+                if text:
+                    out.append(AIMessage(content=text))
+                continue
+        out.append(m)
+    return out
+
+
+async def _synthesize_final_answer(
+    model,
+    messages: list[BaseMessage],
+    timeout: float,
+    tool_results: list[dict] | None = None,
+) -> str:
+    """预算用尽后的收尾合成：禁用工具、只基于已得数据出结论。
+
+    优先用**压缩后的工具结果摘要**喂模型（全量 messages 过长会导致合成超时）；
+    模型仍超时则回退为确定性工具结果摘录，避免用户只看到墙钟提示。
+    """
+    compact = _compact_tool_results_for_synthesis(tool_results or [])
+    try:
+        finish_messages = [
+            SystemMessage(content=_FINISH_SYSTEM_PROMPT),
+            HumanMessage(
+                content=(
+                    "以下是本轮已成功/已返回的工具数据摘要，请据此给出可验证的预期差/"
+                    "对比结论（含公司、指标、期间、数值）；缺口请明示。\n\n"
+                    f"{compact or '（无可用工具数据）'}"
+                )
+            ),
+            HumanMessage(content="请立即输出最终结论（不要再调用工具）。"),
+        ]
+        resp = await asyncio.wait_for(model.ainvoke(finish_messages), timeout=timeout)
+        text = _extract_text(getattr(resp, "content", resp)).strip()
+        if text:
+            return text
+    except Exception as exc:  # noqa: BLE001 — 收尾是 best-effort
+        logger.warning("[Agent] 收尾合成失败: %r", exc, exc_info=True)
+
+    # 确定性兜底：至少把工具结果摊给用户，避免空结论
+    if compact:
+        return (
+            "**（收尾合成超时，以下为已收集工具数据的原文摘要，供人工判断）**\n\n"
+            + compact
+        )
+    return ""
+
+
+def _compact_tool_results_for_synthesis(tool_results: list[dict], *, max_chars: int = 12000) -> str:
+    """把 tool_results_record 压成短摘要，优先保留 compare_metric / metric_trend 等。"""
+    if not tool_results:
+        return ""
+    priority = {
+        "compare_metric": 0,
+        "metric_trend": 1,
+        "rollup_metric": 2,
+        "lookup_players": 3,
+        "find_events": 4,
+        "pull_history": 5,
+    }
+    ordered = sorted(
+        tool_results,
+        key=lambda r: (priority.get(str(r.get("name") or r.get("tool") or ""), 50),),
+    )
+    chunks: list[str] = []
+    used = 0
+    for item in ordered:
+        name = item.get("name") or item.get("tool") or "tool"
+        preview = item.get("preview") or item.get("result") or item.get("content") or ""
+        if isinstance(preview, (dict, list)):
+            preview = str(preview)
+        preview = str(preview).strip()
+        if not preview:
+            continue
+        # 单条最多 2500 字，防某一个工具结果撑爆
+        piece = f"### {name}\n{preview[:2500]}"
+        if used + len(piece) > max_chars:
+            break
+        chunks.append(piece)
+        used += len(piece)
+    return "\n\n".join(chunks)
 
 
 def _extract_text(content: str | list | None) -> str:

@@ -195,9 +195,9 @@ async def persist_link_actions(session, evidence_id: str, actions: list[LinkActi
             span_end=action.span_end,
             published_at=action.published_at,
             source=action.source,
-            metric_value=action.value,
-            metric_unit=action.unit,
-            metric_period=action.period,
+            metric_value=(None if action.value is None else str(action.value)[:512]),
+            metric_unit=(None if action.unit is None else str(action.unit)[:32]),
+            metric_period=(None if action.period is None else str(action.period)[:64]),
         )
         if action.source == "hint":
             stmt = base.on_conflict_do_update(

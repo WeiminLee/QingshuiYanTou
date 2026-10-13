@@ -60,7 +60,9 @@ SOURCE_SPECS: dict[str, SourceSpec] = {
         3,
         ThresholdKind.NATURAL_DAY,
         "unknown",
-        True,
+        # 研报依赖外部 token/回补；未接入时不得把整链 conclusion_policy 打成 blocked。
+        # 有数据后仍会进入 sources 列表供 Agent 声明边界，但不作硬门禁。
+        False,
     ),
 }
 
@@ -383,6 +385,7 @@ class SqlReadinessRepository:
     async def get_latest_data_date(self, source: str) -> date | None:
         sql_by_source = {
             "kline": "SELECT MAX(trade_date) FROM daily_data",
+            # 巨潮正式公告（排除互动易）。disclosure 等类型与历史 null 一并计入。
             "announcement": (
                 "SELECT MAX(ann_date) FROM announcements "
                 "WHERE announcement_type IS NULL OR announcement_type NOT LIKE 'irm:%%'"
@@ -398,8 +401,70 @@ class SqlReadinessRepository:
             result = await conn.execute(text(sql))
             value = result.scalar()
         if isinstance(value, datetime):
-            return value.date()
+            value = value.date()
+        # 公告主存储已迁 Mongo kg_evidence：PG announcements 可能停更，
+        # 用 evidence 池最新 published_at 校正，避免 readiness 误报 stale → blocked。
+        if source == "announcement":
+            mongo_date = await self._mongo_announcement_latest_date()
+            if mongo_date and (value is None or mongo_date > value):
+                return mongo_date
         return value
+
+    async def _mongo_announcement_latest_date(self) -> date | None:
+        """公告证据主池在 Mongo；PG announcements 停更时用此校正。
+
+        查询必须有上限：全表 sort 无索引时会拖垮 /readiness。
+        """
+        # 1) 同步任务成功时间（轻量，优先）
+        try:
+            async with engine.connect() as conn:
+                result = await conn.execute(
+                    text(
+                        "SELECT MAX(completed_at) FROM sync_task_status "
+                        "WHERE task_name IN ('cninfo', 'cninfo_enqueue') "
+                        "AND status = 'success'"
+                    )
+                )
+                sync_at = result.scalar()
+            if isinstance(sync_at, datetime):
+                sync_day = _as_shanghai(sync_at).date()
+            else:
+                sync_day = None
+        except Exception as exc:
+            logger.warning("[Readiness] cninfo sync latest lookup failed: %s", exc)
+            sync_day = None
+
+        # 2) Mongo kg_evidence：限时 + 限 source，避免扫全表
+        mongo_day = None
+        try:
+            from app.core.mongodb import get_mongo_db
+            from app.knowledge.evidence import EVIDENCE_COLLECTION
+
+            db = get_mongo_db()
+            cursor = (
+                db[EVIDENCE_COLLECTION]
+                .find(
+                    {"source": {"$in": ["cninfo", "announcement", "disclosure", "minishare_ann"]}},
+                    projection={"published_at": 1},
+                )
+                .sort("published_at", -1)
+                .limit(1)
+                .max_time_ms(1500)
+            )
+            docs = await cursor.to_list(1)
+            raw = (docs[0] if docs else {}).get("published_at")
+            if isinstance(raw, datetime):
+                mongo_day = _as_shanghai(raw).date()
+            elif isinstance(raw, date):
+                mongo_day = raw
+            elif raw is not None:
+                mongo_day = date.fromisoformat(str(raw)[:10])
+        except Exception as exc:
+            logger.warning("[Readiness] mongo announcement latest lookup failed: %s", exc)
+
+        candidates = [d for d in (sync_day, mongo_day) if d is not None]
+        return max(candidates) if candidates else None
+
 
     async def get_sync_snapshot(self, source: str) -> SourceSyncSnapshot:
         snapshots = []

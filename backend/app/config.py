@@ -134,7 +134,10 @@ class Settings(BaseSettings):
     # Agent 单次请求的墙钟预算（秒）：超时即停止 ReAct 循环并返回已收集的
     # best-effort 结论。防止「单轮海量工具扇出 + 多次模型往返」导致用户侧
     # 长时间挂死（实测排序类问题 >900s 无响应）。
-    agent_wall_timeout_seconds: float = 150.0
+    agent_wall_timeout_seconds: float = 450.0
+    # 墙钟/递归截断后，追加一次「禁用工具」的收尾模型调用，把已收集的工具数据
+    # 综合成完整结论（否则用户只会拿到被截断到一半的思考）。超时即放弃收尾。
+    agent_synthesis_timeout_seconds: float = 180.0
 
     # Context compression
     compression_token_threshold: int = 40000  # 触发压缩的预估 token 阈值

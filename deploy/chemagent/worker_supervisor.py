@@ -57,7 +57,7 @@ def gpu_alive(node: str) -> bool:
 
 def write_env(node: str) -> None:
     ENV_FILE.write_text(
-        f"""KNOWLEDGE_API_URL=http://124.221.188.38:8080
+        f"""KNOWLEDGE_API_URL=http://127.0.0.1:8001
 KNOWLEDGE_API_KEY=sk-V-ZNidHIYdGK4rOXpPCsPw
 EMBEDDING_BASE_URL=http://{node}:23456/v1
 EMBEDDING_API_KEY=dummy
