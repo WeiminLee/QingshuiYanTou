@@ -56,7 +56,7 @@ PY
   echo "── [$CID] $QUESTION"
   touch "$RAW/$CID.marker"
   node scripts/dsh.mjs --profile headless \
-    --patch patches/qingshui.yml --patch patches/local-pjlab-retry.yml \
+    --patch patches/qingshui.yml --patch patches/local-pjlab-retry.yml --patch patches/local-mac.yml \
     "$QUESTION" > "$RAW/$CID.answer.txt" 2> "$RAW/$CID.stderr.log"
   echo "$?" > "$RAW/$CID.exit"
   echo "   exit=$(cat "$RAW/$CID.exit") answer=$(wc -c < "$RAW/$CID.answer.txt" | tr -d ' ')B"
