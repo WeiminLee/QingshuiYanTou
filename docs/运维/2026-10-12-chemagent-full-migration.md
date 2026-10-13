@@ -68,17 +68,31 @@
 ## 已知缺口 / 后续（2026-10-12 晚 owner 决策后）
 
 1. **Agent 交互层 = 本地 Mac（第一版已定）**：dsh web + plugins/qingshui 跑本机，
-   经 SSH 转发访问 chemagent Data MCP/后端；chemagent 只做数据构建层。**待搭建**。
+   经 SSH 转发访问 chemagent Data MCP/后端；chemagent 只做数据构建层。**已搭建** ✅
+   （2026-10-13：`scripts/start-local-dsh-web.sh`，`DSH_HOME=~/.dsh-qingshui`
+   与 MatDiscovery 完全解耦——独立会话/配置/凭据，端口 8399）。
 2. **Neo4j 未部署**：backend env 残留 `NEO4J_URL=bolt://localhost:7687`；
    若图功能已弃用应摘 env，否则需补容器。
 3. **灾备 dump：owner 决策暂缓**；注意 `/data` 随工作空间销毁，回收机器前必须
    手工 `mongodump`/`pg_dump`/qdrant 快照导出。
 4. **云端下线时机：待 chemagent 侧全部验证结束后**再停容器、最终 dump 归档、释放机器。
+   （2026-10-13：过夜采集验证已通过——news/irm 今日均本机自采成功。）
 5. **worker venv / PDF 暂存仍在 shared storage**，按 10-12 铁律待迁 `/data`。
-6. **`/root/code/QingShuiYanTou` 为非 git 代码副本**，后续更新需建立同步机制
-   （建议 git clone + checkout 分支，compose build context 随之切换）。
-7. **Mongo announcement 最新日查询偶发 MaxTimeMSExpired**（readiness 监控精度，
-   需补索引）。
+6. **`/root/code/QingShuiYanTou` 为非 git 代码副本**；2026-10-13 起热修方式 =
+   worktree 改码 → scp 到 chemagent → `docker cp` 进容器 + 重启（已用于
+   drain limit 5→20 与 readiness 修复）。后续建议 git clone 正规化。
+7. ~~Mongo announcement 最新日查询偶发 MaxTimeMSExpired~~ 与 readiness 误报
+   → 2026-10-13 已修（见下"10-13 追加"）。
+
+## 10-13 追加（迁移次日）
+
+- **dsh 完全解耦**：`DSH_HOME=~/.dsh-qingshui`；启动脚本自举装插件；验证无
+  MatDiscovery 会话/品牌残留（双轨分支 `509563a`）。
+- **ingestion drain 提速**：drain limit 5→20 补丁 cherry-pick 到双轨分支
+  （`0450c3c`）并热部到 scheduler 容器；积压 1004 → 回落中。
+- **readiness 误报修复**（`8c54683`）：merge 的 latest_failure 不再计历史失败
+  （只认最近成功之后的失败）；删除 9-24 残留的一条 irm all_market 失败 checkpoint
+  与 100 条 Mac 时代 reports 失败记录。readiness 现 **overall: fresh**。
 
 ## 关键操作回滚
 
