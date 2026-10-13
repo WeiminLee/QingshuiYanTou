@@ -76,7 +76,7 @@ window.__ModuleLoader__.load({
 						},
 						children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 							className: "qs-shell-row-title",
-							children: row.displayTitle || row.title || t("sessions.untitled")
+							children: row.blank ? t("sessions.untitled") : row.displayTitle || row.title || t("sessions.untitled")
 						})
 					}, row.id))
 				})]
