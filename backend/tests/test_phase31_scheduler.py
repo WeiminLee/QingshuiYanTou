@@ -221,6 +221,7 @@ def test_fire_all_once_uses_running_loop(monkeypatch):
     monkeypatch.setattr(sched, "_run_ingestion_worker_job", fake_job)
     monkeypatch.setattr(sched, "_run_sync_stocks_job", fake_job)
     monkeypatch.setattr(sched, "_run_news_job", fake_job)
+    monkeypatch.setattr(sched, "_run_announcement_ingestion_job", fake_job)
 
     async def run_case():
         nonlocal created_count
@@ -247,8 +248,8 @@ def test_fire_all_once_uses_running_loop(monkeypatch):
 
     asyncio.run(run_case())
 
-    # _fire_all_once 启动补漏任务数：report/concept/kline/irm/cninfo/ingestion/sync_stocks/news = 8
-    assert created_count == 8
+    # _fire_all_once 启动补漏任务数：report/concept/kline/irm/cninfo/ingestion/sync_stocks/news/announcement = 9
+    assert created_count == 9
     assert "evidence_worker_startup" not in created_names
 
 
@@ -311,7 +312,7 @@ def test_ingestion_worker_job_drains_once(monkeypatch):
 
     asyncio.run(scheduler_mod._run_ingestion_worker_job())
 
-    assert calls == {"job_timeout_seconds": 300, "limit": 5}
+    assert calls == {"job_timeout_seconds": 300, "limit": 20}
 
 
 def test_scheduler_registers_ingestion_worker_drain(monkeypatch):

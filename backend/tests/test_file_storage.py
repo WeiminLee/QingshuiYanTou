@@ -41,7 +41,7 @@ class TestResolvePdfUrl:
         url = "https://www.cninfo.com.cn/finalpage/2024-01-01/12345678.pdf"
         assert FileStorage._resolve_pdf_url(url) == url
 
-    @patch("app.data_pipeline.file_storage.requests.post")
+    @patch("requests.post")
     def test_detail_page_url(self, mock_post):
         """详情页 URL 用 mock 调 bulletin_detail API 返回 fileUrl"""
         mock_post.return_value.ok = True
@@ -58,14 +58,14 @@ class TestResolvePdfUrl:
         url = "http://www.cninfo.com.cn/new/disclosure/detail?orgId=abc"
         assert FileStorage._resolve_pdf_url(url) is None
 
-    @patch("app.data_pipeline.file_storage.requests.post")
+    @patch("requests.post")
     def test_detail_page_api_fails(self, mock_post):
         """API 调用失败返回 None"""
         mock_post.return_value.ok = False
         url = "http://www.cninfo.com.cn/new/disclosure/detail?announcementId=123456&announceTime=2024-01-01"
         assert FileStorage._resolve_pdf_url(url) is None
 
-    @patch("app.data_pipeline.file_storage.requests.post")
+    @patch("requests.post")
     def test_detail_page_api_no_fileurl(self, mock_post):
         """API 返回缺失 fileUrl 返回 None"""
         mock_post.return_value.ok = True

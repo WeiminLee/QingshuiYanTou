@@ -49,6 +49,8 @@ async def client(monkeypatch):
             await s.commit()
         yield c
     fastapi_app.dependency_overrides.clear()
+    # aiosqlite 的连接工作线程是非守护线程：不 dispose 会随机把 pytest 收尾挂死
+    await engine.dispose()
 
 
 async def _login_and_switch(client, user_id: str) -> None:

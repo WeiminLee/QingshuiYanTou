@@ -70,8 +70,8 @@ def test_fetcher_announcement_save_enqueues_pdf_job_not_direct_download(monkeypa
     call = fetcher.job_queue.enqueue_job.await_args
     assert call is not None
     assert call.args[0] == JOB_PDF_DOWNLOAD
-    assert call.args[3] == 25
-    assert call.args[4] == 8
+    assert call.kwargs["priority"] == 25
+    assert call.kwargs["max_attempts"] == 8
     payload = call.args[2]
     assert payload["source_url"] == rec["url"]
     assert payload["source_type"] == "minishare_announcements"

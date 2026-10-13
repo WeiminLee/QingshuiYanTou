@@ -35,8 +35,8 @@ def test_evidence_signals_prefer_kg_propagation_when_paths_exist():
     assert propagations
     assert propagations[0]["target_name"] == "光芯片"
     assert propagations[0]["target_type"] == "concept"
-    assert propagations[0]["metadata"]["secondary_type"] == "supply_chain_validation"
-    assert propagations[0]["metadata"]["path_nodes"] == ["中际旭创", "800G光模块", "光芯片"]
+    assert propagations[0]["metadata_"]["secondary_type"] == "supply_chain_validation"
+    assert propagations[0]["metadata_"]["path_nodes"] == ["中际旭创", "800G光模块", "光芯片"]
 
 
 def test_evidence_signals_fall_back_to_lightweight_propagation_when_no_kg_paths():
@@ -45,7 +45,7 @@ def test_evidence_signals_fall_back_to_lightweight_propagation_when_no_kg_paths(
     assert signals
     assert propagations
     assert propagations[0]["relation_path"]
-    assert "secondary_type" not in propagations[0]["metadata"]
+    assert "secondary_type" not in propagations[0]["metadata_"]
 
 
 @pytest.mark.asyncio

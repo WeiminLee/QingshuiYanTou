@@ -30,6 +30,25 @@ def pytest_configure(config):
     config.addinivalue_line("markers", "integration: integration tests (require external services)")
 
 
+def pytest_sessionfinish(session, exitstatus):
+    """诊断探针：套件结束时仍存活的非守护线程会在解释器收尾阶段阻塞进程退出。
+
+    历史上出现过 suite 全绿但 pytest 因泄漏的 ThreadPoolExecutor 工作者挂死；
+    此处打印存活线程及其 target，便于定位泄漏来源（干净时无输出）。
+    """
+    import sys
+    import threading
+
+    for t in threading.enumerate():
+        if t.daemon or t is threading.main_thread():
+            continue
+        print(
+            f"[sessionfinish] non-daemon thread alive: name={t.name!r} target={getattr(t, '_target', None)!r}",
+            file=sys.stderr,
+            flush=True,
+        )
+
+
 def pytest_collection_modifyitems(config, items):
     skip_integration = pytest.mark.skip(
         reason="integration tests skipped by default; run with -m integration to include"

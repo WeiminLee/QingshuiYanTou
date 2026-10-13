@@ -45,8 +45,8 @@ def test_v13_prompt_has_3_entity_types():
 def test_v13_prompt_has_stmt_type():
     """Unified prompt must include stmt_type (Fact/Claim/Estimate)."""
     prompt = EXTRACTION_PROMPT
-    assert "陈述类型" in prompt
-    assert "Fact" in prompt
+    assert "stmt_type" in prompt
+    assert "Fact=客观事实" in prompt
     assert "Claim" in prompt
     assert "Estimate" in prompt
 
@@ -63,13 +63,14 @@ def test_v13_prompt_has_relates_format():
     prompt = EXTRACTION_PROMPT
     assert "relations" in prompt
     assert "stmt_type" in prompt
-    assert "陈述类型" in prompt
+    assert "stmt_type：Fact=客观事实" in prompt
 
 
 def test_v13_prompt_has_noise_rules():
     """Unified prompt must include noise prohibition rules."""
     prompt = EXTRACTION_PROMPT
-    assert "禁止行为" in prompt
+    assert "绝对禁止" in prompt
+    assert "泛称" in prompt
 
 
 def test_get_extraction_prompt_returns_v13_for_all_source_types():

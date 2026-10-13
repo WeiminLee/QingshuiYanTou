@@ -15,8 +15,8 @@ def test_build_concept_board_fixture_records_generates_kg_secondary_signal():
     assert propagations
     assert any(signal["signal_type"] == "mass_production" for signal in signals)
     assert any(prop["target_name"] == "光芯片" for prop in propagations)
-    assert propagations[0]["metadata"]["path_hops"] <= 2
-    assert propagations[0]["metadata"]["path_nodes"]
+    assert propagations[0]["metadata_"]["path_hops"] <= 2
+    assert propagations[0]["metadata_"]["path_nodes"]
 
 
 @pytest.mark.asyncio
