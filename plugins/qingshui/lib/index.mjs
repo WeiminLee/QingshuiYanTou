@@ -539,6 +539,16 @@ function installQingshuiTools(ctx, options) {
 			async execute(args) {
 				const c = needClient(options);
 				if ("error" in c) return c;
+				const toJson = (v) => {
+					if (typeof v !== "string") return v ?? null;
+					const sv = v.trim();
+					if (!sv) return null;
+					try {
+						return JSON.parse(sv);
+					} catch {
+						return v;
+					}
+				};
 				return await c.writeObservation({
 					subject_ts_code: String(args.subject_ts_code ?? ""),
 					dimension: String(args.dimension ?? ""),
@@ -550,7 +560,7 @@ function installQingshuiTools(ctx, options) {
 					dimension_scope: args.dimension_scope ? String(args.dimension_scope) : null,
 					event_date: args.event_date ? String(args.event_date) : null,
 					published_at: args.published_at ? String(args.published_at) : null,
-					metric_value: args.metric_value ?? null
+					metric_value: toJson(args.metric_value)
 				});
 			}
 		}));
@@ -619,9 +629,20 @@ function installQingshuiTools(ctx, options) {
 			async execute(args) {
 				const c = needClient(options);
 				if ("error" in c) return c;
+				const toJson = (v) => {
+					if (typeof v !== "string") return v ?? null;
+					const sv = v.trim();
+					if (!sv) return null;
+					try {
+						return JSON.parse(sv);
+					} catch {
+						return v;
+					}
+				};
 				const toCors = (list) => {
-					if (!Array.isArray(list)) return [];
-					return list.map((s) => {
+					const parsed = toJson(list);
+					if (!Array.isArray(parsed)) return [];
+					return parsed.map((s) => {
 						const sup = s ?? {};
 						return {
 							evidence_id: String(sup.evidence_id ?? ""),
@@ -638,9 +659,9 @@ function installQingshuiTools(ctx, options) {
 					judgment: String(args.judgment ?? ""),
 					supports: toCors(args.supports),
 					dimension_scope: args.dimension_scope ? String(args.dimension_scope) : null,
-					from_state: args.from_state ?? null,
-					to_state: args.to_state ?? null,
-					delta: args.delta ?? null,
+					from_state: toJson(args.from_state),
+					to_state: toJson(args.to_state),
+					delta: toJson(args.delta),
 					contradicts: toCors(args.contradicts),
 					confidence: args.confidence != null ? Number(args.confidence) : null,
 					supersedes: args.supersedes ? String(args.supersedes) : null

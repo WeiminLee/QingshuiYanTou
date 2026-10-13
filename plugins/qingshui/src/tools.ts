@@ -278,6 +278,12 @@ export function installQingshuiTools(ctx: Context, options: ToolInstallOptions):
       async execute(args) {
         const c = needClient(options)
         if ('error' in c) return c as unknown as JsonValue
+        const toJson = (v: unknown): unknown => {
+          if (typeof v !== 'string') return v ?? null
+          const sv = v.trim()
+          if (!sv) return null
+          try { return JSON.parse(sv) } catch { return v }
+        }
         return await c.writeObservation({
           subject_ts_code: String(args.subject_ts_code ?? ''),
           dimension: String(args.dimension ?? ''),
@@ -289,7 +295,7 @@ export function installQingshuiTools(ctx: Context, options: ToolInstallOptions):
           dimension_scope: args.dimension_scope ? String(args.dimension_scope) : null,
           event_date: args.event_date ? String(args.event_date) : null,
           published_at: args.published_at ? String(args.published_at) : null,
-          metric_value: (args.metric_value as Record<string, unknown> | undefined) ?? null,
+          metric_value: toJson(args.metric_value) as Record<string, unknown> | null,
         }) as unknown as JsonValue
       },
     }))
@@ -327,9 +333,16 @@ export function installQingshuiTools(ctx: Context, options: ToolInstallOptions):
       async execute(args) {
         const c = needClient(options)
         if ('error' in c) return c as unknown as JsonValue
+        const toJson = (v: unknown): unknown => {
+          if (typeof v !== 'string') return v ?? null
+          const sv = v.trim()
+          if (!sv) return null
+          try { return JSON.parse(sv) } catch { return v }
+        }
         const toCors = (list: unknown): Array<{ evidence_id: string; span_start: number; span_end: number; obs_id?: string | null }> => {
-          if (!Array.isArray(list)) return []
-          return list.map((s) => {
+          const parsed = toJson(list)
+          if (!Array.isArray(parsed)) return []
+          return parsed.map((s) => {
             const sup = (s ?? {}) as Record<string, unknown>
             return {
               evidence_id: String(sup.evidence_id ?? ''),
@@ -346,9 +359,9 @@ export function installQingshuiTools(ctx: Context, options: ToolInstallOptions):
           judgment: String(args.judgment ?? ''),
           supports: toCors(args.supports),
           dimension_scope: args.dimension_scope ? String(args.dimension_scope) : null,
-          from_state: (args.from_state as Record<string, unknown> | undefined) ?? null,
-          to_state: (args.to_state as Record<string, unknown> | undefined) ?? null,
-          delta: (args.delta as Record<string, unknown> | undefined) ?? null,
+          from_state: toJson(args.from_state) as Record<string, unknown> | null,
+          to_state: toJson(args.to_state) as Record<string, unknown> | null,
+          delta: toJson(args.delta) as Record<string, unknown> | null,
           contradicts: toCors(args.contradicts),
           confidence: args.confidence != null ? Number(args.confidence) : null,
           supersedes: args.supersedes ? String(args.supersedes) : null,
