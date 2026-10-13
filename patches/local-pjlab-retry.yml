@@ -1,0 +1,33 @@
+# 本地：pjlab 网关限流耐心版（cordis patch config 为整体替换语义，providers.qingshui 写全）。
+# 与 patches/local-gpu-llm.yml 二选一使用。
+- id: llm-pi-ai
+  config:
+    providers:
+      qingshui:
+        displayName: pjlab Gateway
+        apiKeyEnv: OPENAI_API_KEY
+        api: openai-completions
+        baseURL: https://token.pjlab.org.cn/v1
+        compat:
+          thinkingFormat: deepseek
+        retryPolicy:
+          mode: normal
+          maxRetries: 40
+          retryableCodes: [EMPTY_RESPONSE, RATE_LIMIT, SERVER, TIMEOUT, TRANSPORT]
+          backoff:
+            initialDelayMs: 2000
+            maxDelayMs: 30000
+            jitterRatio: 0.2
+        models:
+          - id: glm-5.3
+            name: GLM 5.3
+            contextWindow: 131072
+            maxTokens: 32768
+          - id: deepseek-v4-flash
+            name: DeepSeek V4 Flash
+            contextWindow: 131072
+            maxTokens: 8192
+- id: agent-default-model
+  config:
+    provider: qingshui
+    model: glm-5.3

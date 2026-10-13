@@ -1,0 +1,68 @@
+{
+  "gap-wafer-margin-001": {
+    "answer": "# 8英寸抛光硅片生产商毛利率横比 — 预期差判断\n\n## 结论：**存在预期差**（结构性分化型 + 趋势背离型），依据强度中等（数据 readiness=degraded，后述）\n\n**预期差定义说明**：库内无卖方一致预期数据源（research_report 源缺失），本文预期差取\"结构分化与信息缺口 vs 市场单一叙事\"，非\"实际值−一致预期\"口径。\n\n---\n\n## 一、横比主证据（compare_metric + fetch_evidence 清洗后）\n\n`compare_metric(dimension=\"毛利率\", scope=\"8英寸抛光硅片\")` 与 `scope=\"抛光硅片\"` 直接口径均为 **0 条**——没有任何公司按该细项披露毛利率。用 `scope=\"8英寸\"`（8条）和 `scope=\"硅片\"`（18条）拉出后，需先清洗噪声：\n\n| 主体 | 口径 | 期间 | 毛利率 | 证据 |\n|---|---|---|---|---|\n| **沪硅产业 688126.SH** | **200mm(8英寸)及以下·抛光片细分**（Okmetic 为主要生产主体） | FY2024 / FY2025 | **-4.66% → -20.77%**（细项占比15.16%/13.60%） | EV:efc98d18...3b4（2025年报问询函回复，2026-07-29） |\n| **中晶科技 003026.SZ** | 综合毛利率（单晶硅棒/研磨片/化腐片/抛光片+功率芯片器件） | FY2025 | **40.02%** | EV:69d9cd...3d2（可比公司毛利率表，引各司定期报告） |\n| 中晶科技（母公司·单晶硅片细项） | 硅片业务（功率分立器件用） | H1 2023 / H1 2024 | **10.23% → 22.23%**（77,049,722.24 / 59,922,947.24） | EV:4b93244...a21（2025年报+2024半年报合并块） |\n| **TCL中环 002129.SZ**（中环领先） | 半导体材料业务：FY2025 收入57亿，公司口径\"报告期内**未盈利**\"；投资者引述毛利率\"近19%\"、出货1200MSI（公司未确认） | FY2025 | 净利为负；19%为未确认引述口径 | EV:00dca52...f09（IRM 2026-08-12）、EV:c3a46f...faf |\n| **立昂微 605358.SH** | 不披露分尺寸毛利率；投资者质疑\"硅片进入涨价期，为何二季度毛利率比一季度还低\"，公司仅披露 H1 2026 12英寸硅片收入61,259.10万元 | 2026 H1 | 分尺寸数值缺失 | EV:209734...a19（IRM 2026-09-21） |\n\n**噪声剔除**（横比榜单里的陷阱）：600962.SH \"8英寸硅片项目 16.75%/大尺寸集成电路项目 12.13%\" 实为工程建设方（电子院）的项目毛利率而非硅片生产商口径（EV:bdf5df...725）；003031.SZ 中瓷电子 30.55%（Q1 2026）系电子陶瓷/SiC（EV:d4c4ae...554）；688596.SH 的 41.36%–47.68% 为评估预测口径。直接用榜单排名会得出错误结论。\n\n## 二、纵向递进（趋势背离）\n\n- **沪硅产业全线恶化**（FY2024→FY2025）：综合 -8.98%→**-17.06%**；300mm -9.80%→-14.99%（ASP -8.83%）；200mm及以下 -15.32%→**-27.21%**，其中抛光片 -4.66%→**-20.77%**——恶化11.9pct，主因 200mm特色硅片扩产项目 2025Q2 通线爬坡抬升单位成本 + 外延片价格降18%（EV:efc98d18）。\n- **中晶科技反向改善**：母公司单晶硅片 H1 2023 10.23%→H1 2024 22.23%；FY2025 公司确认\"毛利率提升\"（募投产能释放+产能利用率上行）、产品价格\"稳中有升\"（EV:46bda1...590，投关记录 2026-05-18）；FY2025 归母净利 43.08M（**+89.16%**，FY2023 为 -34.07M），加权 ROE -4.80%→**6.56%**（EV:4b93244）。其《高端分立器件和超大规模集成电路用单晶硅片项目》（中晶新材料实施主体）的抛光硅片正处\"产线扩增、产量提升和客户批量认证\"阶段。\n\n## 三、预期差三层判断\n\n1. **结构性分化**：同为\"8英寸抛光硅片\"，FY2025 中晶科技综合毛利率 +40.02% vs 沪硅 200mm抛光细项 **-20.77%**，跨度约60pct。同名产品实为两种生意：分立器件用重掺研磨/抛光片（成本加成、国产替代、价稳）vs IC级特色硅片（价格战+爬坡折旧）。市场若按\"半导体硅片=标准化周期品\"统一定价，系统性忽略应用结构。\n2. **趋势背离**：\"硅片全行业筑底巨亏\"叙事（沪硅归母 -9.71亿→-15.08亿；TCL中环半导体\"未盈利\"、四年股价跌超80%、高盛终止覆盖目标价3.2元）与分立器件硅片厂商扭亏为盈、毛利率逐季抬升同时发生——2026年硅片涨价周期中，8英寸及以下占比高的功率硅片资产的盈利弹性易被低配。\n3. **披露缺口**（预期差得以存续的基础）：『8英寸抛光硅片』细项全市场零披露；沪硅的分尺寸×工艺毛利率是被问询函逼出的唯一细项数据；TCL中环 19% 系投资者引述未经公司确认；立昂微出现\"涨价但Q2毛利率环比降\"的传导疑点却无分尺寸数据可验证。\n\n## 四、口径与风险警示\n\n- **period 不可直接排名**：中晶 40.02% 是 FY2025 综合口径（含器件芯片），22.23% 是 H1 2024 母公司硅片口径；沪硅 -20.77% 是 FY2025 细项口径——上表分列呈现、不做混排。\n- 反向风险：中晶新材料抛光硅片尚在**客户批量认证**阶段，放量节奏若低于预期则上述毛利改善斜率不可线性外推；沪硅 Okmetic 爬坡期结束后200mm细项存在修复选项。\n- **依据强度**：数据 readiness=degraded（IRM 同步 500、研报源缺失），互动易口径占比高，结论为中等强度；数据截至 2026-10-13。\n\n**主要证据**：EV:efc98d18c8dae3e2dd31628366e9d85849f94d0a8a63a4c706a5f93605b8b3b4、EV:69d9cd3862627138ade5213cbdd0e8cc906cbf3ab6079bb7e393b4545e94b3d2、EV:4b9324417a4d9a88504fb7a33affd849d384761357ab37f9dede58569fb4ba21、EV:46bda1e29dfdf696e7e32fbcd2334b7434711685630b97e2d959ed31981d5790、EV:00dca525de9a1587e357d6b3b56c6693656277dab3a29c98d0b290dac5161f09、EV:c3a46f8337c9c6660f9bb4a51ecb9e220b3411c1ac29625d93c1abb400183faf、EV:209734c4e0ca24a676a5e5775438adb97b337bfbf3a1baefb65c746321316a19（污染项：EV:bdf5df8b...725、EV:d4c4aeb8...554）。",
+    "tools": [
+      "compare_metric",
+      "fetch_evidence",
+      "grep",
+      "lookup_players",
+      "mcp__qingshui_data__compare_metric",
+      "mcp__qingshui_data__data_readiness",
+      "mcp__qingshui_data__get_stock_profile",
+      "mcp__qingshui_data__lookup_players",
+      "mcp__qingshui_data__lookup_products",
+      "mcp__qingshui_data__pull_history",
+      "mcp__qingshui_data__semantic_search",
+      "metric_trend",
+      "propagate_along",
+      "related_nodes",
+      "rollup_metric",
+      "semantic_search",
+      "skill"
+    ]
+  },
+  "gap-zj-margin-001": {
+    "answer": "/Users/lwm/code/MatDiscovery/.venv/lib/python3.12/site-packages/pydantic_settings/sources/utils.py:47: IncompleteFieldDefinitionWarning: Field 'lifespan' has an incomplete definition: its annotation contains an unresolved forward reference, so settings sources may fail to correctly resolve its value. Call `model_rebuild()` on the model where the field is defined, once all the referenced types are defined.\n  warnings.warn(\n/Users/lwm/code/MatDiscovery/.venv/lib/python3.12/site-packages/pydantic_settings/sources/utils.py:47: IncompleteFieldDefinitionWarning: Field 'lifespan' has an incomplete definition: its annotation contains an unresolved forward reference, so settings sources may fail to correctly resolve its value. Call `model_rebuild()` on the model where the field is defined, once all the referenced types are defined.\n  warnings.warn(\n/Users/lwm/code/MatDiscovery/.venv/lib/python3.12/site-packages/pydantic_settings/sources/utils.py:47: IncompleteFieldDefinitionWarning: Field 'lifespan' has an incomplete definition: its annotation contains an unresolved forward reference, so settings sources may fail to correctly resolve its value. Call `model_rebuild()` on the model where the field is defined, once all the referenced types are defined.\n  warnings.warn(\nProcessing request of type ListToolsRequest\nProcessing request of type ListToolsRequest\nProcessing request of type ListToolsRequest\n/Users/lwm/code/MatDiscovery/.venv/lib/python3.12/site-packages/pydantic_settings/sources/utils.py:47: IncompleteFieldDefinitionWarning: Field 'lifespan' has an incomplete definition: its annotation contains an unresolved forward reference, so settings sources may fail to correctly resolve its value. Call `model_rebuild()` on the model where the field is defined, once all the referenced types are defined.\n  warnings.warn(\n/Users/lwm/code/MatDiscovery/.venv/lib/python3.12/site-packages/pydantic_settings/sources/utils.py:47: IncompleteFieldDefinitionWarning: Field 'lifespan' has an incomplete definition: its annotation contains an unresolved forward reference, so settings sources may fail to correctly resolve its value. Call `model_rebuild()` on the model where the field is defined, once all the referenced types are defined.\n  warnings.warn(\nProcessing request of type ListToolsRequest\nProcessing request of type ListToolsRequest\n/Users/lwm/code/MatDiscovery/.venv/lib/python3.12/site-packages/pydantic_settings/sources/utils.py:47: IncompleteFieldDefinitionWarning: Field 'lifespan' has an incomplete definition: its annotation contains an unresolved forward reference, so settings sources may fail to correctly resolve its value. Call `model_rebuild()` on the model where the field is defined, once all the referenced types are defined.\n  warnings.warn(\nProcessing request of type ListToolsRequest\n# 中晶科技（003026.SZ）毛利率横比与预期差结论\n\n**主体确认**：浙江中晶科技股份有限公司，主营业务为半导体硅材料（晶棒、研磨片、化腐片、抛光片）及功率芯片器件；身份经隆基绿能 2026 半年报证券投资表交叉验证（EV:15bc9199…）。其并非 688295（中复神鹰）。\n\n---\n\n## 一、结论（先行）\n\n**存在正向预期差**（基本面状态向好 vs 2026 年 7–9 月初股价大幅下跌的背离），但性质是\"业绩加速度与定价的背离\"，而非\"绝对低估\"；同时存在一项重要的反方证据（存货减值持续侵蚀盈利质量）制约预期差幅度。\n\n依据：2026-07-15 业绩预告归母净利 +55.4%~74.9%（EV:524214de…），叠加订单充足、部分产品涨价（EV:f51acc56…），而股价从 7 月初 44.0 元跌至 7 月 20 日 26.59 元（-40%，get_kline 日线），预告发布后仍连跌；9 月 15–18 日三日反弹约 +30% 至 37.2 元，预期差已部分收敛。\n\n## 二、毛利率横比\n\n### 1. compare_metric 原始返回的口径审计（不可直接排名）\n\n对 `compare_metric(毛利率, scope=半导体硅片)` 及 `scope=硅片` 返回的数值逐条还原证据后，确认**期间、单位、业务口径混杂，不能直接排名**：\n\n| 图谱原始值 | 证据还原后的真实口径 | 处理 |\n|---|---|---|\n| 688206 45.78%（FY2024） | 锐成芯微 IP授权/芯片定制业务模拟合并毛利率（EV:54aa8469…） | 剔除，非硅片 |\n| 300567 45.75%（FY2024） | 精测电子**半导体检测设备**分部毛利率（EV:f8235f70…） | 剔除，非硅片 |\n| 603260 29.48% | 合盛硅业**工业硅**毛利率（2025，报告期各期 29.48/26.10/16.48%）（EV:e47429d9…） | 仅参考，非半导体硅片 |\n| 688126 \"5.19个百分点\" | 沪硅产业 300mm 硅片毛利率**降幅**（FY2025）；其综合毛利率水平值为 -17.06% | 单位不符，还原为水平值 |\n| 002129 -12.9% | TCL中环 **2025 光伏业务**毛利率（EV:c3a46f83…），分部口径非综合 | 保留但注明口径 |\n\n### 2. 同期同口径横比（FY2025 综合毛利率）\n\n| 主体 | 毛利率 | 口径 | 证据 |\n|---|---|---|---|\n| 联瑞新材 | 40.66% | FY2025 综合毛利率 | EV:283b2642… |\n| **中晶科技** | **40.02%** | FY2025 综合毛利率 | EV:283b2642…、EV:69d9cd38… |\n| 中瓷电子 | 37.18% | FY2025 综合毛利率 | EV:283b2642… |\n| 雅克科技 | 30.96% | FY2025 综合毛利率 | EV:283b2642… |\n| 沪硅产业 | **-17.06%**（FY2024 为 -8.98%） | FY2025 综合毛利率 | EV:efc98d18… |\n| TCL中环 | -12.9%（2025 光伏业务） | 分部口径；半导体材料板块约 19% 为投资者引述、公司未确认 | EV:c3a46f83… |\n\n**横比要点**：① 中晶科技 40.02% 在半导体材料可比名单中列第 2/4（EV:283b2642…），为第三方（阿石创募集文件）汇编口径；② 与主流大硅片厂方向性反差极大——沪硅产业 FY2025 综合毛利率 -17.06%、归母净亏 15.08 亿（EV:efc98d18…），中晶科技约为 40% 的毛利率与两家大厂约 50 个百分点的差距，本质是**利基差异**：中晶在分立器件用硅研磨片细分领域占据领先地位（EV:97b62bfe…），避开 12 英寸 IC 硅片重资产价格战。\n\n### 3. 纵向时间线（中晶科技）\n\n| 期间 | 营收 | 归母净利 | 备注 | 证据 |\n|---|---|---|---|---|\n| FY2023 | 3.485 亿 | -3406.6 万 | 亏损 | EV:97b62bfe… |\n| FY2024 | 4.226 亿（+21.25%） | 2277.2 万 | 扭亏，ROE 3.39% | EV:97b62bfe… |\n| FY2025 | 4.289 亿（+1.50%） | 4307.6 万（+89.16%） | 综合毛利率 40.02%（第三方汇编），ROE 6.56% | EV:4b932441…、EV:69d9cd38… |\n| 2026H1E | — | 4000~4500 万（+55.4%~74.9%） | 已含减值影响；扣非 +59.3%~80.3% | EV:524214de… |\n| 2026Q2 | — | 计提减值 892.63 万→少 741.82 万 | 年初至 6/30 存货减值累计 2518.62 万 | EV:d1f450d6… |\n\n## 三、预期差论证（基本面 vs 定价）\n\n**基本面侧（向好）**\n- 盈利连续加速：FY2024 扭亏 → FY2025 +89% → 2026H1E +55~75%（EV:524214de…）；\n- 订单与价格：公司口径\"生产任务紧张、订单充足、部分产品交付延期\"\"部分产品价格稳中有升\"（EV:f51acc56…、EV:27c07cc2…）；行业侧（互动易投资者口径，公司未量化否认）：8 英寸晶圆涨价约 30%、MOS 管进入涨价周期（EV:ba5a33255900e…、EV:d4add8e4…）；\n- 横比高分位：投资者称其为\"赛道中为数不多持续盈利的标的\"（EV:d4add8e4…），与沪硅产业/中环的亏损形成反差；\n- 成长向量：募投 6–8 英寸抛光硅片批量交付、江苏皋鑫芯片项目客户认证推进中（EV:f51acc56…）。\n\n**定价侧（背离）**\n- get_kline 日线（003026.SZ）：7/1 收 44.0 → 7/20 收 26.59（-40%），**业绩预告（7/15）发布后仍连跌**；9/11 收 27.21，较 7/1 仍 -38%；9/15–17 连续三日涨停（30.58→37.0），9/18 收 37.2，较 7/1 仍低约 16%。互动易 8–9 月多问\"股价跌跌不休\"，公司仅归因市场因素（EV:27c07cc2…）。\n\n**反方证据（制约预期差幅度）**\n1. **存货减值**：期末存货成本 1.98 亿 vs 可变现净值 1.31 亿（折价 33.8%），H1 减值 2518.62 万≈预告净利的 56%~63%（EV:d1f450d6…），盈利含金量受损（剔除后经营性利润更高，但连续计提的必要性需跟踪）；\n2. **绝对估值不低**：按预告 EPS 反推股本约 1.29 亿股，9/18 市值约 48 亿，对应 FY2025 PE 约 110 倍、TTM 约 80 倍；即便 7/20 低点对应 FY2025 PE 亦约 80 倍——\"低估\"仅是投资者口径，工具数据无法证实；\n3. FY2025 营收仅 +1.5%，利润高增靠利润率而非收入扩张；6 月股价本身先涨约 45%（31→44），7 月暴跌部分是回吐。\n\n## 四、数据缺口声明\n\n以下数据工具库中不可得，相应判断受限于：① 无卖方一致预期源（research_report 缺失），本\"预期差\"指\"基本面 vs 市场定价\"而非\"实际 vs 一致预期\"；② 中晶科技自披露的 FY2024 综合毛利率及分产品毛利率表未在可取证据文本内（年报正文截断）；③ 2026 半年报正文（收入与分部毛利率）尚未入库，H1 仅有预告口径；④ \"涨价约 30%\"\"8 英寸功率硅片龙头\"为互动易投资者口径，公司确认口径仅为\"价格稳中有升\"。",
+    "tools": [
+      "bash",
+      "compare_metric",
+      "fetch_evidence",
+      "grep",
+      "mcp__qingshui_data__compare_metric",
+      "mcp__qingshui_data__data_readiness",
+      "mcp__qingshui_data__fetch_evidence",
+      "mcp__qingshui_data__get_kline",
+      "mcp__qingshui_data__get_stock_profile",
+      "mcp__qingshui_data__lookup_players",
+      "mcp__qingshui_data__lookup_products",
+      "mcp__qingshui_data__pull_history",
+      "mcp__qingshui_data__semantic_search",
+      "metric_trend",
+      "pull_history",
+      "related_nodes",
+      "semantic_search",
+      "skill",
+      "web_search",
+      "write"
+    ]
+  },
+  "gap-degraded-ok-001": {
+    "answer": "## 预期差弱结论（依据强度：低 / 数据 readiness = degraded）\n\n### 0. 数据状态声明（先声明再下结论）\n\n`data_readiness`（as_of 2026-10-13）整体 **degraded**：kline / announcement / news 为 fresh，但 **IRM 互动问答 stale**（最近一次同步 500 失败），**research_report 完全缺失**（无卖方预期可对照）。按规则可出结论，但只能给**弱结论**，且结论不支持作为可交易依据。\n\n### 1. 横比证据：compare_metric（营业收入 × 硅片，30 条命中）\n\n返回值期间/单位混杂（FY2023–FY2026、H1/Q1、万元/元/亿元），按铁律**不做跨期排名**，仅在同期同单位组内比较：\n\n**H1 2026 / 万元 组**（数值已抽验证据原文）：\n\n| 主体 | 数值 | 期间 | 证据 |\n|---|---|---|---|\n| 600962.SH（标的·电子院口径） | 343,339.41 万元，同比 -6.56% | H1 2026 | EV:18afcf9b…f7 |\n| 605358.SH | 92,267.94 万元 | H1 2026 | EV:1591bb34…31 |\n| 688432.SH | 66,480.69 万元 | H1 2026 | EV:3795091d…87 |\n| 688584.SH（上海合晶） | 59,303.87 万元，同比 -5.13% | H1 2026 | EV:6fe8d1b8…ff |\n| 301717.SZ | 27,000–29,000 万元（区间） | H1 2026 | EV:bc8e5e86…c5 |\n\n**FY 2025 / 万元 组**：688347.SH 标的口径 510,114.63 万元（EV:3ca6b098…3c）＞ 688499.SH 307,734.94 万元（EV:8731e49d…c9）＞ 688223.SH 235,043.61 万元（EV:bcc166ed…79），头部约为第二名 1.66×。\n\n### 2. 弱结论\n\n**存在方向偏负的弱预期差线索（低置信）**：H1 2026 同期组内可比主体收入普遍同比下滑（上海合晶 -5.13%、电子院 -6.56%），且利润端降幅显著大于收入端（上海合晶归母净利 -55.22%，EV:6fe8d1b8；电子院归母 -31.72%，EV:18afcf9b）——与公告文本中\"行业景气度持续攀升\"\"市场空间广阔\"的乐观叙事形成张力。纵向递进上唯一偏正面的是 688347.SH 标的：FY2025 净利润 77,326.52 万元（FY2024 为 52,152.40 万元）、综合毛利率 16.51%→23.69%（EV:3ca6b098…3c）。\n\n### 3. 为什么只能给弱结论（依据强度声明）\n\n1. **口径噪音大**：横比头部两条数值均为重组报告书**标的公司**口径，非上市公司合并报表——如 600962.SH 自身 H1 2026 营收仅 8.83 亿元（约 -12.4%，售价下行所致，EV:5c5f744d…c2），688347.SH 上市公司口径 FY2025 营收为 172.9 亿元（EV:2fd8104a…17）；\n2. **无法对照预期**：research_report 缺失、IRM stale，\"实际 vs 预期\"的预期端无从校验；\n3. **样本薄**：同期可比组仅 4–5 家，个别为区间值（301717.SZ），且 605358/688432 未做原文抽验。\n\n**升级路径**：待 IRM 恢复同步、research_report 入库后，以\"上市公司合并口径\"重新拉取 compare_metric 并对照卖方一致预期，方可将本结论升级为常规强度。",
+    "tools": [
+      "glob",
+      "grep",
+      "mcp__qingshui_data__compare_metric",
+      "mcp__qingshui_data__data_readiness",
+      "mcp__qingshui_data__fetch_evidence",
+      "mcp__qingshui_data__get_stock_profile",
+      "mcp__qingshui_data__lookup_players",
+      "mcp__qingshui_data__lookup_products",
+      "mcp__qingshui_data__pull_history",
+      "mcp__qingshui_data__semantic_search",
+      "metric_trend",
+      "read",
+      "related_nodes",
+      "skill"
+    ]
+  }
+}

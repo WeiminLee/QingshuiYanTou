@@ -7,7 +7,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.config import settings
-from app.knowledge.api.agent_metrics import router as agent_metrics_router
+from app.knowledge.api.agent_metrics import router as agent_metrics_router, metrics_compare_router
 
 HEADERS = {"X-API-Key": "test-key"}
 
@@ -22,6 +22,7 @@ def _api_key(monkeypatch):
 def client():
     app = FastAPI()
     app.include_router(agent_metrics_router)
+    app.include_router(metrics_compare_router)
     return TestClient(app)
 
 
@@ -121,3 +122,26 @@ def test_http_path_has_no_langchain_ainvoke():
     assert "agent_metric_ops" in body
     assert "agent_graph_ops" in body
     assert ".ainvoke" not in body
+
+
+def test_metrics_compare_plan_path_alias(client):
+    """Plan path POST /api/v1/knowledge/metrics/compare aliases agent/compare_metric."""
+    result = {
+        "dimension": "毛利率",
+        "scope": "硅片",
+        "count": 1,
+        "items": [{"subject": "300861.SZ", "value": "90%"}],
+    }
+    with patch(
+        "app.knowledge.agent_metric_ops.compare_metric",
+        new=AsyncMock(return_value=result),
+    ):
+        r = client.post(
+            "/api/v1/knowledge/metrics/compare",
+            headers=HEADERS,
+            json={"dimension": "毛利率", "scope": "硅片", "top_k": 10},
+        )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["dimension"] == "毛利率"
+    assert "items" in body and "count" in body

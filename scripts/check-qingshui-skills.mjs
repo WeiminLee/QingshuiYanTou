@@ -11,7 +11,7 @@ import { fileURLToPath } from 'node:url'
 const here = dirname(fileURLToPath(import.meta.url))
 const packageRoot = join(here, '..', 'plugins', 'qingshui')
 const skillsRoot = join(packageRoot, 'skills')
-const EXPECTED = ['divergence-mining']
+const EXPECTED = ['divergence-mining', 'expected-gap']
 const NAME_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 
 const require = createRequire(join(here, '..', 'dsh', 'packages', 'skill', 'skill-filesystem', 'package.json'))

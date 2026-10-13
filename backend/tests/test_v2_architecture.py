@@ -74,12 +74,12 @@ class TestLiveArchitectureImports:
         assert scan_content is not None
 
     def test_api_endpoints_importable(self):
-        """API 端点可导入（410 slim router after cutover）"""
-        from app.reasoning.api import agent
+        """API 端点可导入（dsh cutover 后：LangChain agent API 已删除，MCP 数据面在位）"""
+        import app.reasoning.api  # noqa: F401
 
-        assert hasattr(agent, "stream_report")
-        assert hasattr(agent, "chat")
-        assert hasattr(agent, "invoke")
+        assert not hasattr(app.reasoning.api, "agent"), "LangChain /api/v1/agent 已随 cutover 删除"
+
+        from app.mcp_data.server import build_http_app, build_mcp  # noqa: F401
 
 
 class TestToolRegistry:
@@ -206,14 +206,14 @@ class TestDeadCodeRemoved:
         assert not os.path.exists(v1_path), f"V1 middlewares/ directory still exists at {v1_path}"
 
     def test_langchain_agent_not_on_default_path(self):
-        """live app path must not contain langchain_agent (archived)"""
+        """live app path must not contain langchain_agent (deleted in dsh cutover)"""
         backend_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         live = os.path.join(backend_root, "app", "reasoning", "langchain_agent")
         assert not os.path.exists(live), f"langchain_agent still under app/: {live}"
         archived = os.path.normpath(
             os.path.join(backend_root, "..", "archive", "langchain_agent")
         )
-        assert os.path.isdir(archived), f"expected archive at {archived}"
+        assert not os.path.exists(archived), f"langchain_agent archive should be removed: {archived}"
 
     def test_harness_dead_files_removed(self):
         backend_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

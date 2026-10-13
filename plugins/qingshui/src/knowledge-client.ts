@@ -33,6 +33,13 @@ export interface KnowledgeClient {
     min_cooccur?: number
     top_k?: number
   }): Promise<Record<string, unknown>>
+  getKline(input: {
+    ts_code: string
+    start_date?: string | null
+    end_date?: string | null
+    freq?: string | null
+  }): Promise<Record<string, unknown>>
+  getStockProfile(tsCode: string): Promise<Record<string, unknown>>
 }
 
 export function createKnowledgeClient(options: {
@@ -69,6 +76,11 @@ export function createKnowledgeClient(options: {
 
   const post = (path: string, body: unknown) =>
     request(path, { method: 'POST', body: JSON.stringify(body) }) as Promise<Record<string, unknown>>
+
+  const get = (path: string, params?: Record<string, string>) => {
+    const query = params === undefined ? '' : `?${new URLSearchParams(params).toString()}`
+    return request(`${path}${query}`, { method: 'GET' }) as Promise<Record<string, unknown>>
+  }
 
   return {
     semanticSearch(input) {
@@ -120,6 +132,17 @@ export function createKnowledgeClient(options: {
         min_cooccur: input.min_cooccur ?? 5,
         top_k: input.top_k ?? 20,
       })
+    },
+    getKline(input) {
+      return get('/api/v1/knowledge/market/kline', {
+        ts_code: input.ts_code,
+        start_date: input.start_date ?? '',
+        end_date: input.end_date ?? '',
+        freq: input.freq ?? 'D',
+      })
+    },
+    getStockProfile(tsCode) {
+      return get('/api/v1/knowledge/market/stock_profile', { ts_code: tsCode })
     },
   }
 }

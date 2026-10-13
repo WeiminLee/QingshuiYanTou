@@ -1,7 +1,7 @@
 # Per-checkout overlay for QingshuiYanTou.
-# Forces Boyue/qingshui default model even when ~/.dsh/settings.yaml still
-# points at another project's provider (e.g. matdiscovery).
+# Forces qingshui provider default model even when the harness home settings
+# still pin another project's provider (e.g. matdiscovery).
 - id: agent-default-model
   config:
     provider: qingshui
-    model: deepseek-v4-flash
+    model: glm-5.3

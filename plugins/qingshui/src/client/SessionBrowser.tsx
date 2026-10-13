@@ -77,7 +77,7 @@ export function SessionBrowser(props: SessionBrowserProps) {
             onClick={() => { openSession(row.id) }}
           >
             <span className="qs-shell-row-title">
-              {row.displayTitle || row.title || t('sessions.untitled')}
+              {row.blank ? t('sessions.untitled') : (row.displayTitle || row.title || t('sessions.untitled'))}
             </span>
           </button>
         ))}

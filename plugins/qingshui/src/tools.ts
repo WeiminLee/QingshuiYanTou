@@ -38,6 +38,14 @@ function needClient(options: ToolInstallOptions): KnowledgeClient | { error: str
   return client
 }
 
+/** Model-facing text for the fetch_evidence canonical value (raw doc or {error}). */
+function renderEvidenceValue(value: unknown): string {
+  if (typeof value === 'object' && value !== null && 'error' in value) {
+    return String((value as { error: unknown }).error)
+  }
+  return formatEvidenceText(value as Record<string, unknown> | null | undefined)
+}
+
 export function installQingshuiTools(ctx: Context, options: ToolInstallOptions): void {
   ctx.inject(['tools'], (tctx) => {
     tctx.tools.register(defineTool({
@@ -115,17 +123,17 @@ export function installQingshuiTools(ctx: Context, options: ToolInstallOptions):
         evidence_id: { type: 'string', required: true, description: '证据 ID，格式 EV:…' },
       },
       output: {
-        schema: { type: 'string' },
-        render: (_a, v) => [{ type: 'text', text: String(v) }],
+        schema: { type: 'json' },
+        render: (_a, v) => [{ type: 'text', text: renderEvidenceValue(v) }],
+        presentationMeta: (_a, v) => v,
       },
       async execute(args) {
         const c = needClient(options)
-        if ('error' in c) return c.error
+        if ('error' in c) return { error: c.error } as unknown as JsonValue
         try {
-          const doc = await c.fetchEvidence(String(args.evidence_id ?? ''))
-          return formatEvidenceText(doc)
+          return await c.fetchEvidence(String(args.evidence_id ?? '')) as unknown as JsonValue
         } catch (e) {
-          return `证据查询失败: ${e instanceof Error ? e.message : String(e)}`
+          return { error: `证据查询失败: ${e instanceof Error ? e.message : String(e)}` } as unknown as JsonValue
         }
       },
     }))
@@ -141,7 +149,11 @@ export function installQingshuiTools(ctx: Context, options: ToolInstallOptions):
         ts_code: { type: 'string', description: '可选股票代码' },
         top_k: { type: 'json', description: '每类条数，默认 5' },
       },
-      output: { schema: { type: 'json' }, render: (_a, v) => renderJson(v) },
+      output: {
+        schema: { type: 'json' },
+        render: (_a, v) => renderJson(v),
+        presentationMeta: (_a, v) => v,
+      },
       async execute(args) {
         const c = needClient(options)
         if ('error' in c) return c as unknown as JsonValue
@@ -193,6 +205,51 @@ export function installQingshuiTools(ctx: Context, options: ToolInstallOptions):
           min_cooccur: typeof args.min_cooccur === 'number' ? args.min_cooccur : 5,
           top_k: typeof args.top_k === 'number' ? args.top_k : 20,
         }) as unknown as JsonValue
+      },
+    }))
+
+    tctx.tools.register(defineTool({
+      name: 'get_kline',
+      description:
+        '行情 K 线：个股 OHLCV 时间序列（本地行情库）。返回 count 与 items' +
+        '（trade_date/open/high/low/close/pre_close/volume/amount/pct_chg/turnover_rate）及摘要 text。' +
+        '例：get_kline(ts_code="300308.SZ", start_date="20250901", end_date="20251013")。',
+      parameters: {
+        ts_code: { type: 'string', required: true, description: '股票代码，如 300308.SZ' },
+        start_date: { type: 'string', description: '起始日 YYYYMMDD；缺省为 end_date 前 180 天' },
+        end_date: { type: 'string', description: '截止日 YYYYMMDD；缺省为今天' },
+        freq: { type: 'string', description: '周期 D|W|M，默认 D' },
+      },
+      output: {
+        schema: { type: 'json' },
+        render: (_a, v) => renderJson(v),
+        presentationMeta: (_a, v) => v,
+      },
+      async execute(args) {
+        const c = needClient(options)
+        if ('error' in c) return c as unknown as JsonValue
+        return await c.getKline({
+          ts_code: String(args.ts_code ?? ''),
+          start_date: args.start_date ? String(args.start_date) : null,
+          end_date: args.end_date ? String(args.end_date) : null,
+          freq: args.freq ? String(args.freq) : null,
+        }) as unknown as JsonValue
+      },
+    }))
+
+    tctx.tools.register(defineTool({
+      name: 'get_stock_profile',
+      description:
+        '公司概况：主营业务与经营范围（本地股票库）。返回 main_business/business_scope 与摘要 text。' +
+        '例：get_stock_profile(ts_code="300308.SZ")。',
+      parameters: {
+        ts_code: { type: 'string', required: true, description: '股票代码，如 300308.SZ' },
+      },
+      output: { schema: { type: 'json' }, render: (_a, v) => renderJson(v) },
+      async execute(args) {
+        const c = needClient(options)
+        if ('error' in c) return c as unknown as JsonValue
+        return await c.getStockProfile(String(args.ts_code ?? '')) as unknown as JsonValue
       },
     }))
   })

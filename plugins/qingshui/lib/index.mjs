@@ -8,7 +8,9 @@ import { defineTool } from "@deepseek-ai/dsh-tools";
 const Config = z.object({
 	knowledgeBaseUrl: z.string().default("http://127.0.0.1:8080"),
 	knowledgeApiKeyRef: z.string().default("KNOWLEDGE_API_KEY"),
-	requestTimeoutMs: z.number().default(12e4)
+	mcpBaseUrl: z.string().default("http://127.0.0.1:8100/mcp"),
+	requestTimeoutMs: z.number().default(12e4),
+	toolCallTimeoutMs: z.number().default(12e4)
 });
 //#endregion
 //#region src/knowledge-client.ts
@@ -41,6 +43,9 @@ function createKnowledgeClient(options) {
 		method: "POST",
 		body: JSON.stringify(body)
 	});
+	const get = (path, params) => {
+		return request(`${path}${params === void 0 ? "" : `?${new URLSearchParams(params).toString()}`}`, { method: "GET" });
+	};
 	return {
 		semanticSearch(input) {
 			return post("/api/v1/knowledge/search/semantic", {
@@ -89,6 +94,17 @@ function createKnowledgeClient(options) {
 				min_cooccur: input.min_cooccur ?? 5,
 				top_k: input.top_k ?? 20
 			});
+		},
+		getKline(input) {
+			return get("/api/v1/knowledge/market/kline", {
+				ts_code: input.ts_code,
+				start_date: input.start_date ?? "",
+				end_date: input.end_date ?? "",
+				freq: input.freq ?? "D"
+			});
+		},
+		getStockProfile(tsCode) {
+			return get("/api/v1/knowledge/market/stock_profile", { ts_code: tsCode });
 		}
 	};
 }
@@ -131,6 +147,11 @@ function needClient(options) {
 	const client = options.client();
 	if (!client) return { error: "Knowledge client not configured (set knowledgeBaseUrl + KNOWLEDGE_API_KEY/API_KEY)" };
 	return client;
+}
+/** Model-facing text for the fetch_evidence canonical value (raw doc or {error}). */
+function renderEvidenceValue(value) {
+	if (typeof value === "object" && value !== null && "error" in value) return String(value.error);
+	return formatEvidenceText(value);
 }
 function installQingshuiTools(ctx, options) {
 	ctx.inject(["tools"], (tctx) => {
@@ -244,19 +265,20 @@ function installQingshuiTools(ctx, options) {
 				description: "证据 ID，格式 EV:…"
 			} },
 			output: {
-				schema: { type: "string" },
+				schema: { type: "json" },
 				render: (_a, v) => [{
 					type: "text",
-					text: String(v)
-				}]
+					text: renderEvidenceValue(v)
+				}],
+				presentationMeta: (_a, v) => v
 			},
 			async execute(args) {
 				const c = needClient(options);
-				if ("error" in c) return c.error;
+				if ("error" in c) return { error: c.error };
 				try {
-					return formatEvidenceText(await c.fetchEvidence(String(args.evidence_id ?? "")));
+					return await c.fetchEvidence(String(args.evidence_id ?? ""));
 				} catch (e) {
-					return `证据查询失败: ${e instanceof Error ? e.message : String(e)}`;
+					return { error: `证据查询失败: ${e instanceof Error ? e.message : String(e)}` };
 				}
 			}
 		}));
@@ -284,7 +306,8 @@ function installQingshuiTools(ctx, options) {
 			},
 			output: {
 				schema: { type: "json" },
-				render: (_a, v) => renderJson(v)
+				render: (_a, v) => renderJson(v),
+				presentationMeta: (_a, v) => v
 			},
 			async execute(args) {
 				const c = needClient(options);
@@ -366,7 +389,114 @@ function installQingshuiTools(ctx, options) {
 				});
 			}
 		}));
+		tctx.tools.register(defineTool({
+			name: "get_kline",
+			description: "行情 K 线：个股 OHLCV 时间序列（本地行情库）。返回 count 与 items（trade_date/open/high/low/close/pre_close/volume/amount/pct_chg/turnover_rate）及摘要 text。例：get_kline(ts_code=\"300308.SZ\", start_date=\"20250901\", end_date=\"20251013\")。",
+			parameters: {
+				ts_code: {
+					type: "string",
+					required: true,
+					description: "股票代码，如 300308.SZ"
+				},
+				start_date: {
+					type: "string",
+					description: "起始日 YYYYMMDD；缺省为 end_date 前 180 天"
+				},
+				end_date: {
+					type: "string",
+					description: "截止日 YYYYMMDD；缺省为今天"
+				},
+				freq: {
+					type: "string",
+					description: "周期 D|W|M，默认 D"
+				}
+			},
+			output: {
+				schema: { type: "json" },
+				render: (_a, v) => renderJson(v),
+				presentationMeta: (_a, v) => v
+			},
+			async execute(args) {
+				const c = needClient(options);
+				if ("error" in c) return c;
+				return await c.getKline({
+					ts_code: String(args.ts_code ?? ""),
+					start_date: args.start_date ? String(args.start_date) : null,
+					end_date: args.end_date ? String(args.end_date) : null,
+					freq: args.freq ? String(args.freq) : null
+				});
+			}
+		}));
+		tctx.tools.register(defineTool({
+			name: "get_stock_profile",
+			description: "公司概况：主营业务与经营范围（本地股票库）。返回 main_business/business_scope 与摘要 text。例：get_stock_profile(ts_code=\"300308.SZ\")。",
+			parameters: { ts_code: {
+				type: "string",
+				required: true,
+				description: "股票代码，如 300308.SZ"
+			} },
+			output: {
+				schema: { type: "json" },
+				render: (_a, v) => renderJson(v)
+			},
+			async execute(args) {
+				const c = needClient(options);
+				if ("error" in c) return c;
+				return await c.getStockProfile(String(args.ts_code ?? ""));
+			}
+		}));
 	});
+}
+//#endregion
+//#region src/mcp-mount.ts
+function validateMcpMountConfig(config, options = {}) {
+	const mode = options.mode ?? "remote";
+	if (mode === "off") return { ok: true };
+	const url = (config.mcpBaseUrl ?? "").trim();
+	if (!url) return {
+		ok: false,
+		reason: "mcpBaseUrl is required when MCP mount mode is remote/local"
+	};
+	if (mode === "remote" && /localhost|127\.0\.0\.1/.test(url)) {}
+	try {
+		new URL(url);
+	} catch {
+		return {
+			ok: false,
+			reason: `mcpBaseUrl is not a valid URL: ${url}`
+		};
+	}
+	return { ok: true };
+}
+function buildMcpClientConfig(config) {
+	const apiKey = resolveApiKey(config.knowledgeApiKeyRef);
+	return {
+		transport: "streamable-http",
+		serverName: "qingshui_data",
+		url: config.mcpBaseUrl.trim(),
+		headers: apiKey ? { "X-API-Key": apiKey } : {},
+		toolCallTimeoutMs: config.toolCallTimeoutMs ?? config.requestTimeoutMs ?? 12e4,
+		failOnStartupError: false
+	};
+}
+/**
+* Mount read-only Data MCP alongside existing Knowledge HTTP tools (dual-track).
+* Failures are logged; plugin activation continues (failOnStartupError=false).
+*/
+async function mountQingshuiDataMcp(ctx, config) {
+	const check = validateMcpMountConfig(config, { mode: "remote" });
+	if (!check.ok) {
+		ctx.logger.warn("qingshui: skip Data MCP mount — %c", check.reason);
+		return;
+	}
+	const mcpConfig = buildMcpClientConfig(config);
+	try {
+		const mcpClient = await import("@deepseek-ai/dsh-mcp-client");
+		await ctx.plugin(mcpClient, mcpConfig);
+		ctx.logger.info("qingshui: Data MCP mounted server=%c url=%c", mcpConfig.serverName, mcpConfig.url);
+	} catch (err) {
+		ctx.logger.warn("qingshui: Data MCP mount failed (HTTP tools still available): %c", err instanceof Error ? err.message : String(err));
+	}
 }
 //#endregion
 //#region src/index.ts
@@ -397,6 +527,7 @@ function apply(ctx, config) {
 	};
 	rebuild();
 	installQingshuiTools(ctx, { client: () => client });
+	mountQingshuiDataMcp(ctx, config);
 	const skillsDir = resolveSkillsDir();
 	if (skillsDir !== void 0) {
 		ctx.plugin(skillFilesystem, {
@@ -406,7 +537,7 @@ function apply(ctx, config) {
 		});
 		ctx.logger.info("qingshui: skill root mounted provider=qingshui-local dir=%c", skillsDir);
 	} else ctx.logger.warn("qingshui: skill root missing (expected skills/divergence-mining/SKILL.md under package)");
-	ctx.logger.info("qingshui: loaded tools=compare_metric,metric_trend,rollup_metric,fetch_evidence,semantic_search,related_nodes,propagate_along base=%c", config.knowledgeBaseUrl);
+	ctx.logger.info("qingshui: loaded HTTP tools + Data MCP mount base=%c mcp=%c", config.knowledgeBaseUrl, config.mcpBaseUrl);
 }
 //#endregion
 export { Config, apply, inject, name };

@@ -1,6 +1,5 @@
-"""reasoning API routes"""
+"""reasoning API routes — LangChain /api/v1/agent removed; stats only."""
 
-from .agent import router as agent_router
 from .stats import router as stats_router
 
-__all__ = ["agent_router", "stats_router"]
+__all__ = ["stats_router"]

@@ -139,3 +139,25 @@ async def api_propagate_along(
             top_k=req.top_k,
         ),
     )
+
+
+# Plan-locked path alias (MCP / dual-track docs): POST /api/v1/knowledge/metrics/compare
+# Existing plugins keep using /api/v1/knowledge/agent/compare_metric.
+metrics_compare_router = APIRouter(prefix="/api/v1/knowledge/metrics", tags=["知识 Agent 预期差"])
+
+
+@metrics_compare_router.post("/compare")
+async def api_metrics_compare(
+    req: CompareMetricRequest,
+    x_api_key: str | None = Header(default=None),
+):
+    require_api_key(x_api_key)
+    return await _run(
+        "compare_metric",
+        agent_metric_ops.compare_metric(
+            dimension=req.dimension,
+            scope=req.scope,
+            as_of=req.as_of,
+            top_k=req.top_k,
+        ),
+    )

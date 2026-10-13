@@ -7,6 +7,7 @@ KlineService - K线查询服务
 
 import logging
 from collections import OrderedDict
+from datetime import date
 from typing import Any
 
 from sqlalchemy import text
@@ -16,11 +17,14 @@ from app.core.database import engine
 logger = logging.getLogger(__name__)
 
 
-def _parse_yyyymmdd(value: str) -> str | None:
-    """YYYYMMDD → YYYY-MM-DD，无效输入返回 None"""
+def _parse_yyyymmdd(value: str) -> date | None:
+    """YYYYMMDD → date，无效输入返回 None（asyncpg 的 Date 列不接受字符串参数）"""
     if not value or len(value) < 8 or not value[:8].isdigit():
         return None
-    return f"{value[:4]}-{value[4:6]}-{value[6:8]}"
+    try:
+        return date(int(value[:4]), int(value[4:6]), int(value[6:8]))
+    except ValueError:
+        return None
 
 
 def _compute_period_pct_chg(

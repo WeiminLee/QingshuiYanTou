@@ -8,6 +8,7 @@ import type { Config as QingshuiConfig } from './config.ts'
 import { createKnowledgeClient, resolveApiKey } from './knowledge-client.ts'
 import type { KnowledgeClient } from './knowledge-client.ts'
 import { installQingshuiTools } from './tools.ts'
+import { mountQingshuiDataMcp } from './mcp-mount.ts'
 
 export const name = 'qingshui'
 /** tools for defineTool; skills so nested skill-filesystem can register providers. */
@@ -54,6 +55,9 @@ export function apply(ctx: Context, config: QingshuiConfig): void {
   rebuild()
   installQingshuiTools(ctx, { client: () => client })
 
+  // Dual-track: keep Knowledge HTTP tools; also mount Data MCP when mcpBaseUrl set.
+  void mountQingshuiDataMcp(ctx, config)
+
   // MatDiscovery pattern: nested dsh-skill-filesystem with includeDefaultRoots=false
   // and customSkillDirs pointing at the plugin's skills/ tree.
   const skillsDir = resolveSkillsDir()
@@ -69,7 +73,8 @@ export function apply(ctx: Context, config: QingshuiConfig): void {
   }
 
   ctx.logger.info(
-    'qingshui: loaded tools=compare_metric,metric_trend,rollup_metric,fetch_evidence,semantic_search,related_nodes,propagate_along base=%c',
+    'qingshui: loaded HTTP tools + Data MCP mount base=%c mcp=%c',
     config.knowledgeBaseUrl,
+    config.mcpBaseUrl,
   )
 }

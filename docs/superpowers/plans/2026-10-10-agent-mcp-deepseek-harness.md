@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 在云端落地只读 **Data MCP**（P0：evidence / semantic_search / compare_metric / pull_history / lookup_* / get_kline / get_stock_profile / data_readiness），并用同一套 **DeepSeek harness（dsh）+ `plugins/qingshui`** 在本机与云端旁路接入；旧 `stream/report` LangChain Agent **原样保留**，直到预期差金标评测对齐后再切默认流量。
+**Goal:** 在云端落地只读 **Data MCP**（P0：evidence / semantic_search / compare_metric / pull_history / lookup_* / get_kline / get_stock_profile / data_readiness），并用同一套 **DeepSeek harness（dsh）+ `plugins/qingshui`** 在本机与云端旁路接入；**修订（2026-10-10）**：旧 LangChain `/api/v1/agent/*` **已删除**；唯一运行时 = Data MCP + dsh harness。
 
 **Architecture:** 先补齐 Knowledge 薄只读 HTTP（semantic / compare_metric / pull_history 等今日缺口），再在同仓用 Python MCP Server 薄包装这些查询（部署在云端，与 Knowledge API 同机）。`plugins/qingshui` 经 `@deepseek-ai/dsh-mcp-client` 连 Data MCP（远程 Streamable HTTP；本机调试可用 stdio）。旧 Agent 继续进程内直连 DB，互不打断。查询逻辑优先下沉 `app.knowledge` / HTTP，禁止在 Node 插件复制 SQL。
 
@@ -13,7 +13,7 @@
 
 ## Global Constraints
 
-- **Approach C 双轨**：不删 `frontend/`、不归档 `langchain_agent/**`、不下线 `/api/v1/agent/*`，直到 §切流门禁达标且另开 cutover plan。
+- **运行时（已修订）**：LangChain `/api/v1/agent/*` 与 `archive/langchain_agent` **已删除**；`frontend/` 归档策略另议。默认对话走 dsh + MCP。
 - **Data MCP 第一期只读**：禁止包装 write / job claim / vector|link upsert / scheduler 触发。
 - **生产联通铁律（AGENTS.md）**：只云端 + chemagent；**禁止**生产依赖本机 Mac 隧道；本机 harness 仅 `dev-eval`。
 - **插件不直连 DB**：Node 只打 MCP 或 Knowledge HTTP；MCP server 部署在云端同仓，可调用 Python 查询层。
@@ -142,7 +142,7 @@
 - Consumes: approved design
 - Produces: clean branch for all later tasks
 
-- [ ] **Step 1: 建 worktree / 分支**
+- [x] **Step 1: 建 worktree / 分支**
 
 ```bash
 cd /Users/lwm/code/QingshuiYanTou
@@ -153,7 +153,7 @@ cd /Users/lwm/code/QingshuiYanTou.worktrees/agent-mcp-dsh
 
 Expected: 干净分支；勿夹带无关 WIP。
 
-- [ ] **Step 2: 在 design §12 末追加锁定表引用**
+- [x] **Step 2: 在 design §12 末追加锁定表引用**
 
 追加一段：
 
@@ -163,7 +163,7 @@ Expected: 干净分支；勿夹带无关 WIP。
 See `docs/superpowers/plans/2026-10-10-agent-mcp-deepseek-harness.md` §Locked decisions.
 ```
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add docs/superpowers/specs/2026-10-10-agent-mcp-deepseek-harness-design.md
@@ -175,6 +175,8 @@ git commit -m "docs: lock dual-track MCP/dsh plan decisions"
 
 ### Task 2: dsh submodule + 根 launcher（承接 VS Task 1）
 
+> **Note:** Already on `origin/main` (dsh pin b150a551, package.json, scripts/dsh.mjs, patches/). Submodule initialized in this worktree; no new commit.
+
 **Files:**
 - Create: `.gitmodules`, `package.json`, `pnpm-workspace.yaml`, `scripts/dsh.mjs`, `patches/qingshui.yml`, `patches/README.md`
 
@@ -182,7 +184,7 @@ git commit -m "docs: lock dual-track MCP/dsh plan decisions"
 - Consumes: none
 - Produces: `pnpm dsh` 可调用 dsh CLI（插件尚空）
 
-- [ ] **Step 1: 写失败冒烟（脚本断言 submodule 缺失）**
+- [x] **Step 1: 写失败冒烟（脚本断言 submodule 缺失）**
 
 ```bash
 test ! -d dsh && echo "NEED_SUBMODULE"
@@ -190,7 +192,7 @@ test ! -d dsh && echo "NEED_SUBMODULE"
 
 Expected: 打印 `NEED_SUBMODULE`（当前仓无 dsh）。
 
-- [ ] **Step 2: 添加 pin 的 submodule**
+- [x] **Step 2: 添加 pin 的 submodule**
 
 ```bash
 git submodule add https://github.com/deepseek-ai/deepseek-harness.git dsh
@@ -200,11 +202,11 @@ git submodule status
 
 Expected: `b150a551… dsh`。
 
-- [ ] **Step 3: 写入根 `package.json` / `pnpm-workspace.yaml` / `scripts/dsh.mjs`**
+- [x] **Step 3: 写入根 `package.json` / `pnpm-workspace.yaml` / `scripts/dsh.mjs`**
 
 内容对齐 `docs/superpowers/plans/2026-09-29-dsh-vertical-slice.md` Task 1 Steps 3–5（`qingshui-yantou`、`build:plugin`、`dsh`、`test:plugin`、`$REPO_ROOT` patch rewrite）。**逐字复用 VS 计划中的 `scripts/dsh.mjs` 实现**，勿发明第二套 launcher。
 
-- [ ] **Step 4: 写空 overlay**
+- [x] **Step 4: 写空 overlay**
 
 `patches/qingshui.yml`:
 
@@ -214,7 +216,7 @@ Expected: `b150a551… dsh`。
 
 `patches/README.md`：说明云端/本机用 overlay 改 `MCP_BASE_URL`，生产 profile 不得写 Mac 隧道。
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add .gitmodules dsh package.json pnpm-workspace.yaml scripts/dsh.mjs patches/
@@ -225,6 +227,8 @@ git commit -m "chore: add dsh submodule pin and root launcher"
 
 ### Task 3: 空壳 `plugins/qingshui`（承接 VS Task 2）
 
+> **Note:** Already on `origin/main` — `plugins/qingshui` is beyond empty shell (Knowledge HTTP tools + research client). Dual-track keeps it; MCP client comes in Task 9.
+
 **Files:**
 - Create: `plugins/qingshui/package.json`, `cordis.patch.yml`, `tsconfig.json`, `tsdown.config.ts`, `src/index.ts`, `src/config.ts`
 
@@ -232,7 +236,7 @@ git commit -m "chore: add dsh submodule pin and root launcher"
 - Consumes: Task 2 launcher
 - Produces: `pnpm build:plugin` 产出 `lib/index.mjs`；dsh web 可加载空插件
 
-- [ ] **Step 1: 写失败测试（插件入口导出 apply）**
+- [x] **Step 1: 写失败测试（插件入口导出 apply）**
 
 `plugins/qingshui/src/index.test.ts`:
 
@@ -246,7 +250,7 @@ test('qingshui plugin module exports apply', async () => {
 })
 ```
 
-- [ ] **Step 2: Run → 预期 FAIL（文件不存在）**
+- [x] **Step 2: Run → 预期 FAIL（文件不存在）**
 
 ```bash
 pnpm install
@@ -255,7 +259,7 @@ pnpm test:plugin
 
 Expected: FAIL cannot find module / apply。
 
-- [ ] **Step 3: 最小实现**
+- [x] **Step 3: 最小实现**
 
 按 VS Task 2：`package.json`（`dsh.bundle` name=`qingshui`）、`cordis.patch.yml`（插入插件 + LiteLLM provider：`baseURL: http://127.0.0.1:4000/v1`，`apiKeyEnv: LLM_API_KEY`，model `MiniMax-M2.7-highspeed`）、`src/config.ts`（Schemastery：`knowledgeBaseUrl`, `mcpBaseUrl`, `knowledgeApiKeyRef`, `toolCallTimeoutMs` 默认 120000）、`src/index.ts`：
 
@@ -267,13 +271,13 @@ export function apply(ctx: any, config: any) {
 }
 ```
 
-- [ ] **Step 4: Build + test PASS**
+- [x] **Step 4: Build + test PASS**
 
 ```bash
 pnpm build:plugin && pnpm test:plugin
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add plugins/qingshui
@@ -284,6 +288,8 @@ git commit -m "feat(qingshui): empty cordis plugin bundle"
 
 ### Task 4: Knowledge HTTP — `POST /api/v1/knowledge/search/semantic`
 
+> **Note:** Already on `origin/main` (`agent_search.py` + tests). Verified pytest 4/4 PASS this session.
+
 **Files:**
 - Create: `backend/app/knowledge/api/agent_search.py`
 - Create: `backend/tests/test_agent_search_api.py`
@@ -293,7 +299,7 @@ git commit -m "feat(qingshui): empty cordis plugin bundle"
 - Consumes: `app.knowledge.vector_client.semantic_search_entities/chunks`；`require_api_key`
 - Produces: HTTP body 形状与 LangChain `semantic_search` 返回对齐
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```python
 # backend/tests/test_agent_search_api.py
@@ -335,7 +341,7 @@ def test_semantic_search_entities_shape(monkeypatch):
 
 （实现时用 FastAPI `dependency_overrides` 覆盖 `require_api_key`，与现有 knowledge 测试一致。）
 
-- [ ] **Step 2: Run → FAIL**
+- [x] **Step 2: Run → FAIL**
 
 ```bash
 cd backend && .venv/bin/python -m pytest tests/test_agent_search_api.py -v
@@ -343,7 +349,7 @@ cd backend && .venv/bin/python -m pytest tests/test_agent_search_api.py -v
 
 Expected: import/404 fail。
 
-- [ ] **Step 3: 实现 router**
+- [x] **Step 3: 实现 router**
 
 ```python
 # backend/app/knowledge/api/agent_search.py
@@ -368,9 +374,9 @@ async def semantic_search(body: SemanticSearchIn, _: None = Depends(require_api_
 
 在 `main.py` `include_router(agent_search.router)`。
 
-- [ ] **Step 4: pytest PASS**
+- [x] **Step 4: pytest PASS**
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git commit -am "feat(knowledge): POST /search/semantic for agent/MCP"
@@ -379,6 +385,8 @@ git commit -am "feat(knowledge): POST /search/semantic for agent/MCP"
 ---
 
 ### Task 5: Knowledge HTTP — `compare_metric` + `pull_history` + `lookup_*`
+
+> **Note:** `compare_metric` already existed at `POST /api/v1/knowledge/agent/compare_metric`; added plan-path alias `POST /api/v1/knowledge/metrics/compare`. New: `agent_links.py` for history/lookup_*. Pre-existing `test_link_tools_resolve_and_register` fail (`write_todos.use: null`) is unrelated.
 
 **Files:**
 - Create: `backend/app/knowledge/api/agent_metrics.py`, `agent_links.py`
@@ -393,7 +401,7 @@ git commit -am "feat(knowledge): POST /search/semantic for agent/MCP"
   - `POST /api/v1/knowledge/links/history` → pull_history dict
   - `POST /api/v1/knowledge/links/lookup_players` / `lookup_products`
 
-- [ ] **Step 1: 写失败测试（compare）**
+- [x] **Step 1: 写失败测试（compare）**
 
 ```python
 def test_compare_metric_http_shape(monkeypatch):
@@ -408,20 +416,20 @@ def test_compare_metric_http_shape(monkeypatch):
 
 `pull_history` / `lookup_players` 同理：断言 status 200 + 关键字段（`events`/`items` 以现 `queries.py` 返回为准）。
 
-- [ ] **Step 2: pytest → FAIL**
+- [x] **Step 2: pytest → FAIL**
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 - 从 `metric_ops.compare_metric` **抽出**异步/同步可测的核心函数到 `app.knowledge.linklayer.metrics.compare_metric(...)`；LangChain `@tool` 改为调用该函数；HTTP 也调用它。
 - `agent_links.py` 直接 `await pull_history(...)` 等。
 
-- [ ] **Step 4: pytest PASS**（含既有 `tests/test_linklayer_*.py` 无回归）
+- [x] **Step 4: pytest PASS**（含既有 `tests/test_linklayer_*.py` 无回归）
 
 ```bash
 .venv/bin/python -m pytest tests/test_agent_metrics_api.py tests/test_agent_links_api.py tests/test_linklayer_queries.py tests/test_linklayer_tools.py -v
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git commit -am "feat(knowledge): read-only HTTP for compare_metric and link queries"
@@ -440,7 +448,7 @@ git commit -am "feat(knowledge): read-only HTTP for compare_metric and link quer
 - Consumes: `KlineService.get_stock_kline`, `StockService.get_stock_profile`
 - Produces: JSON（优先结构化；可同时提供 `text` 字段对齐旧 tool 字符串，便于评测）
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```python
 def test_kline_requires_ts_code_and_auth():
@@ -452,7 +460,7 @@ def test_stock_profile_ok(monkeypatch):
     ...
 ```
 
-- [ ] **Step 2: FAIL → 实现 → PASS**
+- [x] **Step 2: FAIL → 实现 → PASS**
 
 ```python
 @router.get("/kline")
@@ -464,7 +472,7 @@ async def get_stock_profile(ts_code: str, _: None = Depends(require_api_key)):
     ...
 ```
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git commit -am "feat(knowledge): read-only HTTP for kline and stock_profile"
@@ -473,6 +481,8 @@ git commit -am "feat(knowledge): read-only HTTP for kline and stock_profile"
 ---
 
 ### Task 7: Data MCP Server（只读 P0 tools）
+
+> **Note:** Pinned `mcp>=1.9,<2` (FastMCP). mcp 2.x breaks FastAPI 0.115 via starlette 1.x.
 
 **Files:**
 - Create: `backend/app/mcp_data/{__init__,server,tools_readonly,auth,truncation}.py`
@@ -484,7 +494,7 @@ git commit -am "feat(knowledge): read-only HTTP for kline and stock_profile"
 - Produces: MCP tools 名：`fetch_evidence`, `semantic_search`, `compare_metric`, `pull_history`, `lookup_players`, `lookup_products`, `get_kline`, `get_stock_profile`, `data_readiness`
 - Transport: **stdio**（本机调试）+ **Streamable HTTP**（默认 `127.0.0.1:8100/mcp`，仅云内/本机隧道到云）
 
-- [ ] **Step 1: 写失败测试（tool registry + 截断）**
+- [x] **Step 1: 写失败测试（tool registry + 截断）**
 
 ```python
 import pytest
@@ -505,9 +515,9 @@ def test_evidence_truncation_8k():
     assert "截断" in out or "truncated" in out.lower() or len(out) <= 8000 + 80
 ```
 
-- [ ] **Step 2: pytest → FAIL**
+- [x] **Step 2: pytest → FAIL**
 
-- [ ] **Step 3: 实现 MCP server**
+- [x] **Step 3: 实现 MCP server**
 
 要点：
 
@@ -523,13 +533,13 @@ def test_evidence_truncation_8k():
 4. HTTP transport 校验 `X-API-Key`（与 Knowledge 同源设置）。
 5. **拒绝**注册任何 write 工具；加测试 `test_no_write_tools_registered`。
 
-- [ ] **Step 4: pytest PASS**
+- [x] **Step 4: pytest PASS**
 
 ```bash
 .venv/bin/python -m pytest tests/test_mcp_data_tools.py -v
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git commit -am "feat(mcp_data): read-only Data MCP server for P0 tools"
@@ -547,7 +557,7 @@ git commit -am "feat(mcp_data): read-only Data MCP server for P0 tools"
 **Interfaces:**
 - Produces: 用户可按 README 在云上起 MCP；profile=`prod` vs `dev-eval` 写清
 
-- [ ] **Step 1: 写 README 验收清单（可执行命令）**
+- [x] **Step 1: 写 README 验收清单（可执行命令）**
 
 ```bash
 # on cloud (user applies)
@@ -555,9 +565,9 @@ cd backend && .venv/bin/python -m app.mcp_data.server --transport streamable-htt
 curl -s -H "X-API-Key: $KNOWLEDGE_API_KEY" http://127.0.0.1:8100/health
 ```
 
-- [ ] **Step 2: systemd example**（`WorkingDirectory=…/backend`，`Environment=KNOWLEDGE_API_KEY=…`，禁止 `0.0.0.0` 除非另有 nginx 鉴权）
+- [x] **Step 2: systemd example**（`WorkingDirectory=…/backend`，`Environment=KNOWLEDGE_API_KEY=…`，禁止 `0.0.0.0` 除非另有 nginx 鉴权）
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add deploy/mcp plugins/qingshui/src/config.ts
@@ -577,7 +587,7 @@ git commit -m "docs(deploy): Data MCP systemd example and health notes"
 - Consumes: `@deepseek-ai/dsh-mcp-client`（随 dsh workspace）；Task 7 server
 - Produces: harness 会话中可见 MCP 工具（名称可能带 `mcp__qingshui_data__` 前缀——评测用 bare name 归一，参考 MatDiscovery `bareToolName`）
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```ts
 test('mcp mount config requires non-empty mcpBaseUrl for remote profile', () => {
@@ -585,7 +595,7 @@ test('mcp mount config requires non-empty mcpBaseUrl for remote profile', () => 
 })
 ```
 
-- [ ] **Step 2: FAIL → 实现 mount**
+- [x] **Step 2: FAIL → 实现 mount**
 
 参考 MatDiscovery remote MCP（**只抄挂载形态**）：
 
@@ -605,9 +615,9 @@ ctx.plugin(mcpClient, {
 
 本机 `dev-eval`：`mcpBaseUrl` 指向云端 HTTPS MCP（经 nginx + API Key）；**不得**在默认 prod patch 写 Mac localhost 隧道。
 
-- [ ] **Step 3: `pnpm build:plugin && pnpm test:plugin` PASS**
+- [x] **Step 3: `pnpm build:plugin && pnpm test:plugin` PASS**
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git commit -am "feat(qingshui): mount read-only Data MCP client"
@@ -625,7 +635,7 @@ git commit -am "feat(qingshui): mount read-only Data MCP client"
 **Interfaces:**
 - Produces: 至少 3 条 case（硅片毛利横比、中晶相关、degraded-readiness 弱结论）；skill 指示优先 `compare_metric` → `pull_history` → `fetch_evidence`
 
-- [ ] **Step 1: 写入金标 JSON**
+- [x] **Step 1: 写入金标 JSON**
 
 ```json
 [
@@ -654,11 +664,11 @@ git commit -am "feat(qingshui): mount read-only Data MCP client"
 ]
 ```
 
-- [ ] **Step 2: skill 文档**写明工具顺序与「禁止无工具空喊预期差」。
+- [x] **Step 2: skill 文档**写明工具顺序与「禁止无工具空喊预期差」。
 
-- [ ] **Step 3: 轨迹**：若 dsh 已有 transcript API，写 `scripts/export_dsh_trace.mjs` 导出 JSONL（model/tool/name/args/result_excerpt/latency_ms/error）。若无稳定 API，第一期允许评测 runner 抓 stdout + tool 事件日志，并在 README 标明缺口。
+- [x] **Step 3: 轨迹**：若 dsh 已有 transcript API，写 `scripts/export_dsh_trace.mjs` 导出 JSONL（model/tool/name/args/result_excerpt/latency_ms/error）。若无稳定 API，第一期允许评测 runner 抓 stdout + tool 事件日志，并在 README 标明缺口。
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add plugins/qingshui/skills backend/eval/expected_gap_cases_v1.json
@@ -669,6 +679,8 @@ git commit -m "feat(eval): expected-gap cases and qingshui skill stub"
 
 ### Task 11: 双轨评测 runner（旧 Agent API vs 新 harness）
 
+> **Note (2026-10-10):** LangChain `/api/v1/agent/*` **removed**. `eval_dual_track.py` is harness-only (`--mode harness-files` + `--answer-file`).
+
 **Files:**
 - Create: `backend/scripts/eval_dual_track.py`
 - Create: `backend/tests/test_eval_dual_track_unit.py`（纯函数：断言通过逻辑，不打真 LLM）
@@ -677,7 +689,7 @@ git commit -m "feat(eval): expected-gap cases and qingshui skill stub"
 - Consumes: `expected_gap_cases_v1.json`；旧轨 `POST /api/v1/agent/stream` 或 report 接口（按现 `agent.py` 实测路径）；新轨 CLI/`pnpm dsh` 非交互跑案（若仅 web，则用 dsh 提供的 headless/agent API——查阅 pin 版 dsh 文档；若无 headless，runner 先支持 **MCP-only tool oracle** + **人工粘贴新轨正文** 双模式，但必须自动跑旧轨）
 - Produces: `backend/eval/out/dual_track_report.json`：每案 `{case_id, old_pass, new_pass, old_tools, new_tools, reasons}`
 
-- [ ] **Step 1: 写单元测试（断言器）**
+- [x] **Step 1: 写单元测试（断言器）**
 
 ```python
 from scripts.eval_dual_track import judge_case
@@ -692,7 +704,7 @@ def test_judge_requires_tool_and_phrase():
     assert not judge_case(case, answer="存在预期差：毛利率", tools_called=["semantic_search"])
 ```
 
-- [ ] **Step 2: FAIL → 实现 `judge_case` + CLI**
+- [x] **Step 2: FAIL → 实现 `judge_case` + CLI**
 
 ```bash
 cd backend && .venv/bin/python scripts/eval_dual_track.py \
@@ -703,7 +715,7 @@ cd backend && .venv/bin/python scripts/eval_dual_track.py \
 
 `old-only` 必须先绿（本地/云有后端时）；`both` 在 MCP+harness 就绪后启用。
 
-- [ ] **Step 3: 文档化切流门禁引用**
+- [x] **Step 3: 文档化切流门禁引用**
 
 在脚本 `--help` / 模块 docstring 写死：
 
@@ -713,7 +725,7 @@ cd backend && .venv/bin/python scripts/eval_dual_track.py \
 4. embedding 无 Mac 隧道  
 5. 连续 **N≥3** 次定时评测无回退  
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git commit -am "feat(eval): dual-track expected-gap judge and runner"
@@ -731,7 +743,7 @@ git commit -am "feat(eval): dual-track expected-gap judge and runner"
 **Interfaces:**
 - Produces: 用户按 runbook 在云上起 MCP、本机/云 harness 连同一 MCP；旧入口保持默认
 
-- [ ] **Step 1: 写 `scripts/smoke_mcp_p0.sh`**
+- [x] **Step 1: 写 `scripts/smoke_mcp_p0.sh`**
 
 ```bash
 #!/usr/bin/env bash
@@ -750,7 +762,7 @@ curl -fsS -H "X-API-Key: $KEY" "$BASE/api/v1/readiness/" | head -c 400
 echo
 ```
 
-- [ ] **Step 2: Runbook 章节**
+- [x] **Step 2: Runbook 章节**
 
 1. 起 Data MCP（Task 8）  
 2. 本机 harness：`MCP_BASE_URL=https://<cloud>/mcp` + API Key  
@@ -758,7 +770,7 @@ echo
 4. 跑 `eval_dual_track.py --mode both`  
 5. **未达标前默认流量仍走旧 `stream/report`**  
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add scripts/smoke_mcp_p0.sh deploy/mcp/DUAL_TRACK_RUNBOOK.md
@@ -791,7 +803,7 @@ git commit -m "docs: dual-track smoke and observe runbook"
 4. `semantic_search` embedding = chemagent 稳定地址；无 Mac 隧道  
 5. 连续 ≥3 次（或覆盖 ≥1 个交易日）定时评测无回退  
 
-未达标：**默认流量仍旧轨**。
+未达标：继续修 harness/MCP；**无旧轨可回退**（已删除）。
 
 ---
 

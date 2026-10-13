@@ -27,7 +27,8 @@
    - 本条是 Mac 常驻通道的**唯一豁免**（Mac 是用户终端而非生产中转）。
    - **与 MatDiscovery 的 dsh 完全解耦（owner 2026-10-13）**：独立 `DSH_HOME=~/.dsh-qingshui`
      （会话/配置/凭据互不可见）、各自 worktree 独立 dsh submodule pin、固定端口 **8399**；
-     禁止共享 `~/.dsh`。LLM 凭据在 `~/.dsh-qingshui/.env` 落 `OPENAI_API_KEY`（一次性手工）。
+     禁止共享 `~/.dsh`。LLM 凭据经 `~/.dsh-qingshui/.credentials.yaml` 软链复用
+     `~/.dsh` 凭据库（免手工配 key）。
 3. **云服务器（124.221.188.38）= 只读存量快照，待下线**
    - 2026-10-12 起云端不再接收任何写入（worker 已切本机、云端 scheduler/cron 已停）。
    - 云侧 data-mcp / dsh web 仅作只读快照保留，**待 chemagent 侧全部验证结束后整体下线**
@@ -68,3 +69,8 @@
 | Neo4j | 未迁移 | ⚠️ chemagent 未部署；backend env 残留 NEO4J_URL 待清理或补装 |
 | 云端整套栈 | 124.221.188.38 | ❄️ 只读冻结，chemagent 验证结束后下线 |
 | sensecore pod / 生产链路经 Mac | — | ❌ 已退出关键路径 |
+
+## Agent 运行时（2026-10-10）
+
+**唯一**投研 Agent 入口：DeepSeek harness（dsh）+ `plugins/qingshui` + 只读 Data MCP。  
+旧 LangChain `/api/v1/agent/*` 已删除。见 `docs/superpowers/specs/2026-10-10-agent-mcp-deepseek-harness-design.md` 与 `deploy/mcp/DUAL_TRACK_RUNBOOK.md`。

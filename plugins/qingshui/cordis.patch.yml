@@ -1,18 +1,30 @@
 - insert:
     - id: qingshui
       name: qingshui
+      config:
+        # Loopback MCP on same host as Knowledge (cloud prod / local side-by-side).
+        # For Mac harness talking to cloud MCP, override via patches/qingshui.yml —
+        # never put a Mac SSH tunnel URL in this default prod patch.
+        mcpBaseUrl: http://127.0.0.1:8100/mcp
+        knowledgeApiKeyRef: KNOWLEDGE_API_KEY
 - id: llm-pi-ai
   name: '@deepseek-ai/dsh-llm-pi-ai'
   config:
     providers:
       qingshui:
-        displayName: Boyue Gateway
+        displayName: pjlab Gateway
         apiKeyEnv: OPENAI_API_KEY
         api: openai-completions
-        baseURL: http://35.220.164.252:3888/v1
+        baseURL: https://token.pjlab.org.cn/v1
         compat:
           thinkingFormat: deepseek
         models:
+          - id: glm-5.3
+            name: GLM 5.3
+            contextWindow: 131072
+            # 金标 case1 实证：glm 长调查 + 8192 maxTokens 会 max-tokens 断尾
+            # （59 步后收尾正文没出来）。32k 才够"调查+成文"全链路。
+            maxTokens: 32768
           - id: deepseek-v4-flash
             name: DeepSeek V4 Flash
             contextWindow: 131072
@@ -21,13 +33,20 @@
   name: '@deepseek-ai/dsh-agent-default-model'
   config:
     provider: qingshui
-    model: deepseek-v4-flash
+    model: glm-5.3
 
 # ── Research shell chrome (design §6): remove workspace entry + coding panels ──
 # Must disable — entry gate (UI). Keep host `directory-picker` ENABLED:
 # apiproxy injects/waits on service `directoryPicker`; disabling the host row
 # crash-loops boot. Entry safety = no ui-workspace (no picker UI / no browse calls).
 - id: ui-workspace
+  disabled: true
+
+# 研究壳禁用 bash 工具：glm 会绕过 MCP 工具自写 bash+mcp_call.py 脚本调数据，
+# 轨迹不可归因、判分 missing must_call_tools（2026-10-13 case1-glm 实测）。
+# 注意：只能禁工具面；bash-sandbox 是 shell 服务的实现方（permission-presets
+# 依赖它），shell-env 同理，禁了会启动失败（实测 boot 报 waiting for service: shell）。
+- id: tool-bash
   disabled: true
 
 # Strong hide — coding chrome (non-research entry)

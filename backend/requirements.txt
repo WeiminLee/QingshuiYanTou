@@ -56,3 +56,6 @@ langgraph>=1.0.6
 
 # Dev / Lint
 ruff>=0.15
+
+# Data MCP (read-only agent tools)
+mcp>=1.9,<2  # 1.x FastMCP; mcp 2.x pulls starlette 1.x and breaks FastAPI 0.115

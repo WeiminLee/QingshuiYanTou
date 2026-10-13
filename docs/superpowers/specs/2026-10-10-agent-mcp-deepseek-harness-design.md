@@ -1,7 +1,7 @@
 # 清水投研 · Agent / 数据 MCP / DeepSeek Harness 解耦设计（双轨）
 
 - 日期：2026-10-10
-- 状态：**已批准（用户锁定 Approach C）** → 可进入 `writing-plans`
+- 状态：**已批准**；2026-10-10 **修订**：删除旧 LangChain Agent，仅保留 Data MCP + dsh harness
 - 仓库：`QingshuiYanTou`
 - 关联：
   - `docs/superpowers/specs/2026-09-29-dsh-agent-runtime-cutover-design.md`（dsh 硬切总纲；本文件在**切流策略**上改为双轨，其余边界对齐）
@@ -285,6 +285,11 @@ Harness 必须落盘（或可导出）：
 6. **旧轨热修（degraded readiness、超时、embedding）是否回灌主仓镜像**：与新轨并行，避免双轨期间旧入口回退。  
 7. **第二期是否把网搜类工具放进 MCP 还是 harness 本地**：保持数据 MCP「只读事实层」纯度更有利于边界清晰。
 
+
+### Plan lock (2026-10-10)
+
+See `docs/superpowers/plans/2026-10-10-agent-mcp-deepseek-harness.md` §Locked decisions.
+
 ---
 
 ## 13. 验收清单（本 design 完成态）
@@ -315,3 +320,4 @@ Harness 必须落盘（或可导出）：
 | 2026-10-10 | 第一期 MCP **只读**：evidence、语义检索、`compare_metric`、行情等查询 |
 | 2026-10-10 | 不做：MCP 写/入队、删旧 Agent、改数据构建拓扑 |
 | 2026-10-10 | 与 09-29 dsh design / vertical slice **对齐并修订切流策略**；doc 13 维持作废 |
+| 2026-10-10 | **修订**：删除旧 LangChain Agent（`/api/v1/agent/*` + `archive/langchain_agent`）；Data MCP + DeepSeek harness 为**唯一** Agent 运行时；评测不再对照旧轨 |
