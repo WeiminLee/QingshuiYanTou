@@ -9,6 +9,7 @@ import logging
 from typing import Any
 
 from fastapi import APIRouter, Header, HTTPException, Query
+from pydantic import BaseModel, Field
 
 from app.data_pipeline.services.kline_service import get_kline_service
 from app.data_pipeline.services.stock_service import get_stock_service
@@ -93,3 +94,62 @@ async def api_get_stock_profile(
         "text": _format_profile_text(ts_code, data or {}),
     }
     return payload
+
+
+class ConceptTopRequest(BaseModel):
+    days: int = Field(default=5, ge=2, le=20)
+    top_n: int = Field(default=10, ge=1, le=30)
+
+
+@router.post("/concept_top")
+async def api_concept_top(
+    req: ConceptTopRequest,
+    x_api_key: str | None = Header(default=None),
+):
+    """最近 N 个交易日最强概念（指数衰减 + 涨停加成；concept_limit 表）。"""
+    from app.core.database import async_session
+    from app.knowledge.api import concept as concept_api
+
+    require_api_key(x_api_key)
+    days, top_n = req.days, req.top_n
+    async with async_session() as db:
+        return await concept_api.get_top_concepts(days=days, top_n=top_n, db=db)
+
+
+class ConceptStocksRequest(BaseModel):
+    concept_code: str = Field(min_length=1, max_length=64)
+    sort_by: str = Field(default="volume", max_length=16)
+    limit: int = Field(default=30, ge=1, le=100)
+
+
+@router.post("/concept_stocks")
+async def api_concept_stocks(
+    req: ConceptStocksRequest,
+    x_api_key: str | None = Header(default=None),
+):
+    """概念成分股（支持 TI 代码或概念名，如 885806.TI / CPO）。"""
+    from app.core.database import async_session
+    from app.knowledge.api import concept as concept_api
+
+    require_api_key(x_api_key)
+    sort_by = req.sort_by if req.sort_by in ("volume", "turnover", "pct_chg") else "volume"
+    async with async_session() as db:
+        return await concept_api.get_concept_stocks(req.concept_code, sort_by=sort_by, limit=req.limit, db=db)
+
+
+class StockConceptsRequest(BaseModel):
+    ts_code: str = Field(min_length=1, max_length=32)
+
+
+@router.post("/stock_concepts")
+async def api_stock_concepts(
+    req: StockConceptsRequest,
+    x_api_key: str | None = Header(default=None),
+):
+    """个股所属概念清单（ths_concept_members）。"""
+    from app.core.database import async_session
+    from app.knowledge.api import concept as concept_api
+
+    require_api_key(x_api_key)
+    async with async_session() as db:
+        return await concept_api.get_stock_concepts(req.ts_code, db=db)

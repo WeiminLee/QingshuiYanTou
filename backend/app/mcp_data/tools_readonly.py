@@ -22,6 +22,19 @@ TOOL_NAMES: tuple[str, ...] = (
     "get_kline",
     "get_stock_profile",
     "data_readiness",
+    # P0.5（2026-10-13）
+    "get_announcement",
+    "get_irm",
+    "find_events",
+    "get_event_detail",
+    "scan_dimension",
+    "backlinks",
+    "get_top_concepts",
+    "get_concept_stocks",
+    "get_stock_concepts",
+    "history_findings",
+    "search_findings",
+    "watermark",
 )
 
 # Names that must never appear in TOOL_NAMES (guardrail).
@@ -33,6 +46,8 @@ WRITE_TOOL_NAMES: frozenset[str] = frozenset(
         "enqueue",
         "vector_upsert",
         "link_upsert",
+        "write_observation",
+        "write_finding",
     }
 )
 
@@ -167,6 +182,147 @@ async def data_readiness() -> dict[str, Any]:
     return await knowledge_get("/api/v1/readiness")
 
 
+async def get_announcement(
+    ts_code: str | None = None,
+    keyword: str | None = None,
+    start_date: str | None = None,
+    end_date: str | None = None,
+    page_size: int = 10,
+) -> dict[str, Any]:
+    return await knowledge_post(
+        "/api/v1/knowledge/sources/announcement",
+        {
+            "ts_code": ts_code,
+            "keyword": keyword,
+            "start_date": start_date,
+            "end_date": end_date,
+            "page_size": page_size,
+        },
+    )
+
+
+async def get_irm(
+    ts_code: str | None = None,
+    keyword: str | None = None,
+    start_date: str | None = None,
+    end_date: str | None = None,
+    page_size: int = 20,
+) -> dict[str, Any]:
+    return await knowledge_post(
+        "/api/v1/knowledge/sources/irm",
+        {
+            "ts_code": ts_code,
+            "keyword": keyword,
+            "start_date": start_date,
+            "end_date": end_date,
+            "page_size": page_size,
+        },
+    )
+
+
+async def find_events(
+    query: str | None = None,
+    tags: list[str] | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    top_n: int = 10,
+) -> dict[str, Any]:
+    return await knowledge_post(
+        "/api/v1/knowledge/sources/events",
+        {
+            "query": query,
+            "tags": tags,
+            "date_from": date_from,
+            "date_to": date_to,
+            "top_n": top_n,
+        },
+    )
+
+
+async def get_event_detail(event_id: str) -> dict[str, Any]:
+    return await knowledge_post("/api/v1/knowledge/sources/event_detail", {"event_id": event_id})
+
+
+async def scan_dimension(
+    dimension: str,
+    scope: str | None = None,
+    as_of: str | None = None,
+    limit: int = 50,
+) -> dict[str, Any]:
+    return await knowledge_post(
+        "/api/v1/knowledge/links/scan_dimension",
+        {"dimension": dimension, "scope": scope, "as_of": as_of, "limit": limit},
+    )
+
+
+async def backlinks(evidence_id: str) -> dict[str, Any]:
+    return await knowledge_post("/api/v1/knowledge/links/backlinks", {"evidence_id": evidence_id})
+
+
+async def get_top_concepts(days: int = 5, top_n: int = 10) -> dict[str, Any]:
+    return await knowledge_post("/api/v1/knowledge/market/concept_top", {"days": days, "top_n": top_n})
+
+
+async def get_concept_stocks(concept_code: str, sort_by: str = "volume", limit: int = 30) -> dict[str, Any]:
+    return await knowledge_post(
+        "/api/v1/knowledge/market/concept_stocks",
+        {"concept_code": concept_code, "sort_by": sort_by, "limit": limit},
+    )
+
+
+async def get_stock_concepts(ts_code: str) -> dict[str, Any]:
+    return await knowledge_post("/api/v1/knowledge/market/stock_concepts", {"ts_code": ts_code})
+
+
+async def history_findings(
+    subject: str,
+    dimension: str | None = None,
+    scope: str | None = None,
+    before: str | None = None,
+    limit: int = 50,
+) -> dict[str, Any]:
+    return await knowledge_post(
+        "/api/v1/knowledge/ledger/history",
+        {
+            "subject": subject,
+            "dimension": dimension,
+            "scope": scope,
+            "before": before,
+            "limit": limit,
+        },
+    )
+
+
+async def search_findings(
+    dimension: str | None = None,
+    kind: str | None = None,
+    status: str | None = None,
+    since: str | None = None,
+    limit: int = 50,
+) -> dict[str, Any]:
+    return await knowledge_post(
+        "/api/v1/knowledge/ledger/search",
+        {
+            "dimension": dimension,
+            "kind": kind,
+            "status": status,
+            "since": since,
+            "limit": limit,
+        },
+    )
+
+
+async def watermark(
+    subject_ts_code: str,
+    dimension: str,
+    dimension_scope: str | None = None,
+) -> dict[str, Any]:
+    return await knowledge_post(
+        "/api/v1/knowledge/ledger/watermark",
+        {"subject_ts_code": subject_ts_code, "dimension": dimension, "dimension_scope": dimension_scope},
+    )
+
+
 def _json_result(payload: Any) -> str:
     return json.dumps(payload, ensure_ascii=False, default=str)
 
@@ -251,3 +407,148 @@ def register_tools(mcp: Any) -> None:
     async def _data_readiness() -> str:
         """Freshness / readiness summary for data sources."""
         return _json_result(await data_readiness())
+
+    # ── P0.5（2026-10-13）：源材料 / 维度扫描 / 概念面 / 台账读 ──────────────
+
+    @mcp.tool(name="get_announcement")
+    async def _get_announcement(
+        ts_code: str | None = None,
+        keyword: str | None = None,
+        start_date: str | None = None,
+        end_date: str | None = None,
+        page_size: int = 10,
+    ) -> str:
+        """Search listed-company announcements (title-level; fetch_evidence for text)."""
+        return _json_result(
+            await get_announcement(
+                ts_code=ts_code,
+                keyword=keyword,
+                start_date=start_date,
+                end_date=end_date,
+                page_size=page_size,
+            )
+        )
+
+    @mcp.tool(name="get_irm")
+    async def _get_irm(
+        ts_code: str | None = None,
+        keyword: str | None = None,
+        start_date: str | None = None,
+        end_date: str | None = None,
+        page_size: int = 20,
+    ) -> str:
+        """Search 互动易 Q&A (investor-relations answers from listed companies)."""
+        return _json_result(
+            await get_irm(
+                ts_code=ts_code,
+                keyword=keyword,
+                start_date=start_date,
+                end_date=end_date,
+                page_size=page_size,
+            )
+        )
+
+    @mcp.tool(name="find_events")
+    async def _find_events(
+        query: str | None = None,
+        tags: list[str] | None = None,
+        date_from: str | None = None,
+        date_to: str | None = None,
+        top_n: int = 10,
+    ) -> str:
+        """Search industry news events (CLS/tushare); use get_event_detail for full text."""
+        return _json_result(
+            await find_events(query=query, tags=tags, date_from=date_from, date_to=date_to, top_n=top_n)
+        )
+
+    @mcp.tool(name="get_event_detail")
+    async def _get_event_detail(event_id: str) -> str:
+        """Fetch full text of a news event by id."""
+        return _json_result(await get_event_detail(event_id))
+
+    @mcp.tool(name="scan_dimension")
+    async def _scan_dimension(
+        dimension: str,
+        scope: str | None = None,
+        as_of: str | None = None,
+        limit: int = 50,
+    ) -> str:
+        """Cross-subject scan of one dimension (latest value per subject)."""
+        return _json_result(
+            await scan_dimension(dimension=dimension, scope=scope, as_of=as_of, limit=limit)
+        )
+
+    @mcp.tool(name="backlinks")
+    async def _backlinks(evidence_id: str) -> str:
+        """All keywords on an evidence and co-occurring evidence per keyword."""
+        return _json_result(await backlinks(evidence_id))
+
+    @mcp.tool(name="get_top_concepts")
+    async def _get_top_concepts(days: int = 5, top_n: int = 10) -> str:
+        """Hottest THS concepts over recent trade days (decayed score)."""
+        return _json_result(await get_top_concepts(days=days, top_n=top_n))
+
+    @mcp.tool(name="get_concept_stocks")
+    async def _get_concept_stocks(concept_code: str, sort_by: str = "volume", limit: int = 30) -> str:
+        """Constituent stocks of a concept (TI code or name, e.g. 885806.TI / CPO)."""
+        return _json_result(
+            await get_concept_stocks(concept_code=concept_code, sort_by=sort_by, limit=limit)
+        )
+
+    @mcp.tool(name="get_stock_concepts")
+    async def _get_stock_concepts(ts_code: str) -> str:
+        """All concepts a stock belongs to."""
+        return _json_result(await get_stock_concepts(ts_code))
+
+    @mcp.tool(name="history_findings")
+    async def _history_findings(
+        subject: str,
+        dimension: str | None = None,
+        scope: str | None = None,
+        before: str | None = None,
+        limit: int = 50,
+    ) -> str:
+        """Ledger timeline for a subject×dimension: observations + findings + watermark."""
+        return _json_result(
+            await history_findings(
+                subject=subject,
+                dimension=dimension,
+                scope=scope,
+                before=before,
+                limit=limit,
+            )
+        )
+
+    @mcp.tool(name="search_findings")
+    async def _search_findings(
+        dimension: str | None = None,
+        kind: str | None = None,
+        status: str | None = None,
+        since: str | None = None,
+        limit: int = 50,
+    ) -> str:
+        """Cross-subject findings scan (kind: progression/regression/new_event/association/divergence)."""
+        return _json_result(
+            await search_findings(
+                dimension=dimension,
+                kind=kind,
+                status=status,
+                since=since,
+                limit=limit,
+            )
+        )
+
+    @mcp.tool(name="watermark")
+    async def _watermark(
+        subject_ts_code: str,
+        dimension: str,
+        dimension_scope: str | None = None,
+    ) -> str:
+        """Read (subject×dimension) watermark: historical max stage level."""
+        return _json_result(
+            await watermark(
+                subject_ts_code=subject_ts_code,
+                dimension=dimension,
+                dimension_scope=dimension_scope,
+            )
+        )

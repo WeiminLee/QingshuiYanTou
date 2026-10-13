@@ -239,3 +239,99 @@ def get_news_service() -> NewsService:
     if _news_service is None:
         _news_service = NewsService()
     return _news_service
+
+
+# ── 事件检索（agent 工具面；SQL 取自旧 find_events/get_event_detail 工具） ──────
+
+
+async def search_events(
+    query: str | None = None,
+    tags: list[str] | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    top_n: int = 10,
+) -> dict:
+    """按关键词/概念标签/日期检索财联社·tushare 事件库。
+
+    query 按空格拆词 AND ILIKE title；tags 走 metadata @> JSONB 包含（OR）；
+    date_from/date_to 为 YYYYMMDD。query 与 tags 至少其一。
+    """
+    from sqlalchemy import text
+
+    from app.core.database import async_session
+
+    top_n = min(max(top_n, 1), 30)
+    if not query and not tags:
+        return {"items": [], "count": 0, "note": "请至少提供搜索关键词(query)或板块标签(tags)"}
+
+    conditions: list[str] = []
+    params: dict = {}
+    if tags:
+        tag_conditions = []
+        for i, tag in enumerate(tags):
+            key = f"tag_{i}"
+            tag_conditions.append("metadata @> :%s" % key)
+            params[key] = json.dumps({"tags": [tag]}, ensure_ascii=False)
+        conditions.append(f"({' OR '.join(tag_conditions)})")
+    if query:
+        keywords = [kw.strip() for kw in query.split() if kw.strip()]
+        kw_conditions = []
+        for i, kw in enumerate(keywords):
+            key = f"kw_{i}"
+            kw_conditions.append(f"title ILIKE :{key}")
+            params[key] = f"%{kw}%"
+        conditions.append(f"({' AND '.join(kw_conditions)})")
+    if date_from:
+        conditions.append("publish_at >= :date_from")
+        params["date_from"] = date_from
+    if date_to:
+        conditions.append("publish_at <= :date_to")
+        params["date_to"] = date_to
+
+    sql = f"""
+        SELECT event_id, title, summary, source, publish_at
+        FROM events
+        WHERE {' AND '.join(conditions)}
+        ORDER BY publish_at DESC
+        LIMIT :top_n
+    """
+    params["top_n"] = top_n
+    async with async_session() as session:
+        rows = (await session.execute(text(sql), params)).fetchall()
+    items = [
+        {
+            "event_id": r[0],
+            "title": r[1],
+            "summary": (r[2] or "")[:200],
+            "source": r[3],
+            "publish_at": str(r[4]) if r[4] else "",
+        }
+        for r in rows
+    ]
+    return {"items": items, "count": len(items), "query": query, "tags": tags}
+
+
+async def get_event_detail(event_id: str) -> dict:
+    """事件全文。find_events 拿到 event_id 后回这里取原始内容。"""
+    from sqlalchemy import text
+
+    from app.core.database import async_session
+
+    async with async_session() as session:
+        row = (
+            await session.execute(
+                text("SELECT event_id, title, content, source, publish_at, metadata FROM events WHERE event_id = :eid"),
+                {"eid": event_id},
+            )
+        ).fetchone()
+    if not row:
+        return {"found": False, "event_id": event_id}
+    return {
+        "found": True,
+        "event_id": row[0],
+        "title": row[1],
+        "content": row[2] or "",
+        "source": row[3],
+        "publish_at": str(row[4]) if row[4] else "",
+        "tags": (row[5] or {}).get("tags", []),
+    }

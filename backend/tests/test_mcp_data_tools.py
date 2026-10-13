@@ -60,3 +60,61 @@ def test_fastmcp_registers_p0_tools():
     names = {t.name for t in mcp._tool_manager.list_tools()}
     assert set(TOOL_NAMES) <= names
     assert names.isdisjoint({"claim_job", "upsert_evidence", "write_todos"})
+
+
+def test_p05_tool_names_locked():
+    assert set(TOOL_NAMES) >= {
+        "get_announcement",
+        "get_irm",
+        "find_events",
+        "get_event_detail",
+        "scan_dimension",
+        "backlinks",
+        "get_top_concepts",
+        "get_concept_stocks",
+        "get_stock_concepts",
+        "history_findings",
+        "search_findings",
+        "watermark",
+    }
+    # 台账写面只走 Knowledge HTTP（插件直连），MCP 第一期不注册任何写工具
+    assert "write_observation" in WRITE_TOOL_NAMES
+    assert "write_finding" in WRITE_TOOL_NAMES
+
+
+@pytest.mark.asyncio
+async def test_ledger_read_tools_post_to_knowledge_http(monkeypatch):
+    from app.mcp_data import tools_readonly as mod
+
+    calls: list[tuple[str, dict]] = []
+
+    async def fake_post(path: str, body: dict, **kwargs):
+        calls.append((path, body))
+        return {"ok": True}
+
+    monkeypatch.setattr(mod, "knowledge_post", fake_post)
+    assert (await mod.history_findings(subject="中晶科技", dimension="产线进展"))["ok"] is True
+    assert (await mod.search_findings(kind="progression"))["ok"] is True
+    assert (await mod.watermark("003026.SZ", "产线进展"))["ok"] is True
+    assert calls[0][0] == "/api/v1/knowledge/ledger/history"
+    assert calls[1][0] == "/api/v1/knowledge/ledger/search"
+    assert calls[2][0] == "/api/v1/knowledge/ledger/watermark"
+
+
+@pytest.mark.asyncio
+async def test_find_events_passes_body(monkeypatch):
+    from app.mcp_data import tools_readonly as mod
+
+    captured: dict = {}
+
+    async def fake_post(path: str, body: dict, **kwargs):
+        captured["path"] = path
+        captured["body"] = body
+        return {"items": [], "count": 0}
+
+    monkeypatch.setattr(mod, "knowledge_post", fake_post)
+    out = await mod.find_events(query="光模块 涨价", tags=["CPO"], top_n=5)
+    assert out["count"] == 0
+    assert captured["path"] == "/api/v1/knowledge/sources/events"
+    assert captured["body"]["tags"] == ["CPO"]
+    assert captured["body"]["top_n"] == 5

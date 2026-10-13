@@ -36,6 +36,17 @@ class LookupProductsRequest(BaseModel):
     top_k: int = Field(default=20, ge=1, le=100)
 
 
+class ScanDimensionRequest(BaseModel):
+    dimension: str = Field(min_length=1, max_length=200)
+    scope: str | None = Field(default=None, max_length=200)
+    as_of: str | None = Field(default=None, max_length=64)
+    limit: int = Field(default=50, ge=1, le=200)
+
+
+class BacklinksRequest(BaseModel):
+    evidence_id: str = Field(min_length=3, max_length=128)
+
+
 async def _run(label: str, coro) -> Any:
     try:
         return await coro
@@ -92,3 +103,32 @@ async def api_lookup_products(
         ),
     )
     return {"items": rows, "count": len(rows)}
+
+
+@router.post("/scan_dimension")
+async def api_scan_dimension(
+    req: ScanDimensionRequest,
+    x_api_key: str | None = Header(default=None),
+):
+    require_api_key(x_api_key)
+    return await _run(
+        "scan_dimension",
+        link_queries.scan_dimension(
+            dimension=req.dimension,
+            scope=req.scope,
+            as_of=req.as_of,
+            limit=req.limit,
+        ),
+    )
+
+
+@router.post("/backlinks")
+async def api_backlinks(
+    req: BacklinksRequest,
+    x_api_key: str | None = Header(default=None),
+):
+    require_api_key(x_api_key)
+    return await _run(
+        "backlinks",
+        link_queries.backlinks(req.evidence_id),
+    )

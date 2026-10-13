@@ -21,12 +21,6 @@ importers:
         specifier: ^5.9.3
         version: 5.9.3
 
-  plugins/qingshui:
-    dependencies:
-      echarts:
-        specifier: ^6.1.0
-        version: 6.1.0
-
 packages:
 
   '@esbuild/aix-ppc64@0.28.2':
@@ -448,9 +442,6 @@ packages:
       oxc-resolver:
         optional: true
 
-  echarts@6.1.0:
-    resolution: {integrity: sha512-q0yaFPggC9FUdsWH4blavRWFmxdrIodbkoKNAjJudAI6CA9gNPxHtV2RcZNEepZVlk4yvBYkOkbk6HIVpIyHZA==}
-
   empathic@2.1.0:
     resolution: {integrity: sha512-AnfC1ATldl49/cvZdLPDjBfrRNwbDO05aibiOtzQu3qtlbJtomNLhF30HEtn/7iBz50dlMECqATo3fG0LrdEgw==}
     engines: {node: '>=14'}
@@ -569,9 +560,6 @@ packages:
       unrun:
         optional: true
 
-  tslib@2.3.0:
-    resolution: {integrity: sha512-N82ooyxVNm6h1riLCoyS9e3fuJ3AMG2zIZs2Gd1ATcSFjSA23Q0fzjjZeh0jbJvWVDZ0cJT8yaNNaaXHzueNjg==}
-
   tsx@4.23.15:
     resolution: {integrity: sha512-Yiex1Ovn8z2xPpOWckIiysV1SSyRMY9BkLF++q0yKiDxCqRhosKfMg3janKkiLBwZ5c/YryloKwGZcrEmtwxKw==}
     engines: {node: '>=18.0.0'}
@@ -600,9 +588,6 @@ packages:
 
   yuku-parser@0.8.7:
     resolution: {integrity: sha512-vRD9nwt4L3aYpxNqeSC4WqLv58xrXef0Ong1Mc45CTXTIpvLafx7JO05sczmQZwdLEZvywrLOGdNC5+Rp5N1BQ==}
-
-  zrender@6.1.0:
-    resolution: {integrity: sha512-oEGMDB6pOP2S6OwRR4PdVv610zrjnA3Bh+JnSG12fYJlBKjtNAoEb5fSUoCOOINlH96I2fU38/A2UpRKs67xYQ==}
 
 snapshots:
 
@@ -823,11 +808,6 @@ snapshots:
 
   dts-resolver@3.0.0: {}
 
-  echarts@6.1.0:
-    dependencies:
-      tslib: 2.3.0
-      zrender: 6.1.0
-
   empathic@2.1.0: {}
 
   esbuild@0.28.2:
@@ -952,8 +932,6 @@ snapshots:
       - oxc-resolver
       - vue-tsc
 
-  tslib@2.3.0: {}
-
   tsx@4.23.15:
     dependencies:
       esbuild: 0.28.2
@@ -1009,7 +987,3 @@ snapshots:
       '@yuku-parser/binding-linux-x64-musl': 0.8.7
       '@yuku-parser/binding-win32-arm64': 0.8.7
       '@yuku-parser/binding-win32-x64': 0.8.7
-
-  zrender@6.1.0:
-    dependencies:
-      tslib: 2.3.0

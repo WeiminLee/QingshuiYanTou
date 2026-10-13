@@ -40,6 +40,35 @@ export interface KnowledgeClient {
     freq?: string | null
   }): Promise<Record<string, unknown>>
   getStockProfile(tsCode: string): Promise<Record<string, unknown>>
+  writeObservation(input: {
+    subject_ts_code: string
+    dimension: string
+    evidence_id: string
+    span_start: number
+    span_end: number
+    stage_raw?: string | null
+    stage_level?: number | null
+    dimension_scope?: string | null
+    subject_name?: string | null
+    event_date?: string | null
+    published_at?: string | null
+    metric_value?: Record<string, unknown> | null
+  }): Promise<Record<string, unknown>>
+  writeFinding(input: {
+    subject_ts_code: string
+    dimension: string
+    kind: string
+    judgment: string
+    supports: Array<{ evidence_id: string; span_start: number; span_end: number; obs_id?: string | null }>
+    dimension_scope?: string | null
+    from_state?: Record<string, unknown> | null
+    to_state?: Record<string, unknown> | null
+    delta?: Record<string, unknown> | null
+    contradicts?: Array<{ evidence_id: string; span_start: number; span_end: number; obs_id?: string | null }> | null
+    confidence?: number | null
+    supersedes?: string | null
+    created_by?: Record<string, unknown> | null
+  }): Promise<Record<string, unknown>>
 }
 
 export function createKnowledgeClient(options: {
@@ -143,6 +172,39 @@ export function createKnowledgeClient(options: {
     },
     getStockProfile(tsCode) {
       return get('/api/v1/knowledge/market/stock_profile', { ts_code: tsCode })
+    },
+    writeObservation(input) {
+      return post('/api/v1/knowledge/ledger/observation', {
+        subject_ts_code: input.subject_ts_code,
+        dimension: input.dimension,
+        evidence_id: input.evidence_id,
+        span_start: input.span_start,
+        span_end: input.span_end,
+        stage_raw: input.stage_raw ?? null,
+        stage_level: input.stage_level ?? null,
+        dimension_scope: input.dimension_scope ?? null,
+        subject_name: input.subject_name ?? null,
+        event_date: input.event_date ?? null,
+        published_at: input.published_at ?? null,
+        metric_value: input.metric_value ?? null,
+      })
+    },
+    writeFinding(input) {
+      return post('/api/v1/knowledge/ledger/finding', {
+        subject_ts_code: input.subject_ts_code,
+        dimension: input.dimension,
+        kind: input.kind,
+        judgment: input.judgment,
+        supports: input.supports,
+        dimension_scope: input.dimension_scope ?? null,
+        from_state: input.from_state ?? null,
+        to_state: input.to_state ?? null,
+        delta: input.delta ?? null,
+        contradicts: input.contradicts ?? [],
+        confidence: input.confidence ?? null,
+        supersedes: input.supersedes ?? null,
+        created_by: input.created_by ?? null,
+      })
     },
   }
 }

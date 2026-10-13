@@ -105,6 +105,39 @@ function createKnowledgeClient(options) {
 		},
 		getStockProfile(tsCode) {
 			return get("/api/v1/knowledge/market/stock_profile", { ts_code: tsCode });
+		},
+		writeObservation(input) {
+			return post("/api/v1/knowledge/ledger/observation", {
+				subject_ts_code: input.subject_ts_code,
+				dimension: input.dimension,
+				evidence_id: input.evidence_id,
+				span_start: input.span_start,
+				span_end: input.span_end,
+				stage_raw: input.stage_raw ?? null,
+				stage_level: input.stage_level ?? null,
+				dimension_scope: input.dimension_scope ?? null,
+				subject_name: input.subject_name ?? null,
+				event_date: input.event_date ?? null,
+				published_at: input.published_at ?? null,
+				metric_value: input.metric_value ?? null
+			});
+		},
+		writeFinding(input) {
+			return post("/api/v1/knowledge/ledger/finding", {
+				subject_ts_code: input.subject_ts_code,
+				dimension: input.dimension,
+				kind: input.kind,
+				judgment: input.judgment,
+				supports: input.supports,
+				dimension_scope: input.dimension_scope ?? null,
+				from_state: input.from_state ?? null,
+				to_state: input.to_state ?? null,
+				delta: input.delta ?? null,
+				contradicts: input.contradicts ?? [],
+				confidence: input.confidence ?? null,
+				supersedes: input.supersedes ?? null,
+				created_by: input.created_by ?? null
+			});
 		}
 	};
 }
@@ -443,6 +476,175 @@ function installQingshuiTools(ctx, options) {
 				const c = needClient(options);
 				if ("error" in c) return c;
 				return await c.getStockProfile(String(args.ts_code ?? ""));
+			}
+		}));
+		tctx.tools.register(defineTool({
+			name: "write_observation",
+			description: "沉淀一条观察到判断台账（observation 层）：主体在某维度的原始表述/指标点，句级锚定 EV。写入即推进水位线；返回 is_new_level 表示是否首次站上新台阶（新台阶=预期差信号）。硬闸门：evidence 必须真实存在且 span 落在原文内，否则拒写。",
+			parameters: {
+				subject_ts_code: {
+					type: "string",
+					required: true,
+					description: "主体 ts_code，如 003026.SZ"
+				},
+				dimension: {
+					type: "string",
+					required: true,
+					description: "维度：产线进展/客户认证/毛利率/订单/产能…"
+				},
+				evidence_id: {
+					type: "string",
+					required: true,
+					description: "证据 ID（EV:…）"
+				},
+				span_start: {
+					type: "json",
+					required: true,
+					description: "句级锚点起始偏移（含）"
+				},
+				span_end: {
+					type: "json",
+					required: true,
+					description: "句级锚点结束偏移（不含）"
+				},
+				stage_raw: {
+					type: "string",
+					description: "阶梯原始措辞（verbatim），如 增产上量"
+				},
+				stage_level: {
+					type: "json",
+					description: "阶梯归一化 level（1 起）"
+				},
+				dimension_scope: {
+					type: "string",
+					description: "细化范围，如 8英寸抛光硅片；可空"
+				},
+				event_date: {
+					type: "string",
+					description: "事件日期 YYYY-MM-DD；可空"
+				},
+				published_at: {
+					type: "string",
+					description: "披露时间 ISO；可空"
+				},
+				metric_value: {
+					type: "json",
+					description: "数值型观察：{num, unit, period, metric}"
+				}
+			},
+			output: {
+				schema: { type: "json" },
+				render: (_a, v) => renderJson(v)
+			},
+			async execute(args) {
+				const c = needClient(options);
+				if ("error" in c) return c;
+				return await c.writeObservation({
+					subject_ts_code: String(args.subject_ts_code ?? ""),
+					dimension: String(args.dimension ?? ""),
+					evidence_id: String(args.evidence_id ?? ""),
+					span_start: Number(args.span_start ?? 0),
+					span_end: Number(args.span_end ?? 0),
+					stage_raw: args.stage_raw ? String(args.stage_raw) : null,
+					stage_level: args.stage_level != null ? Number(args.stage_level) : null,
+					dimension_scope: args.dimension_scope ? String(args.dimension_scope) : null,
+					event_date: args.event_date ? String(args.event_date) : null,
+					published_at: args.published_at ? String(args.published_at) : null,
+					metric_value: args.metric_value ?? null
+				});
+			}
+		}));
+		tctx.tools.register(defineTool({
+			name: "write_finding",
+			description: "沉淀一条判断到判断台账（finding 层）：递进/恶化/新增事件/关联传导/矛盾五类之一，supports 必须句级锚定至少一条真实证据（同前 fetch_evidence 的 EV）。判断可持续累积（跨任务复用）：下次先查 history_findings，水位线内不重复断言。幂等：同 (主体,维度,to_level,支撑集) 重写自动合并。",
+			parameters: {
+				subject_ts_code: {
+					type: "string",
+					required: true,
+					description: "主体 ts_code，如 003026.SZ"
+				},
+				dimension: {
+					type: "string",
+					required: true,
+					description: "维度名"
+				},
+				kind: {
+					type: "string",
+					required: true,
+					description: "progression(递进)|regression(恶化)|new_event(新增事件)|association(关联传导)|divergence(矛盾)"
+				},
+				judgment: {
+					type: "string",
+					required: true,
+					description: "结论文字（自然语言）"
+				},
+				supports: {
+					type: "json",
+					required: true,
+					description: "支撑锚点列表：[{evidence_id, span_start, span_end, obs_id?}]，每一项都必须句级锚定"
+				},
+				dimension_scope: {
+					type: "string",
+					description: "细化范围；可空"
+				},
+				from_state: {
+					type: "json",
+					description: "状态 from：{level, stage, date?, obs_id?}"
+				},
+				to_state: {
+					type: "json",
+					description: "状态 to：{level, stage, date?, obs_id?}"
+				},
+				delta: {
+					type: "json",
+					description: "变化量：{stage_delta, value_delta, pct?}"
+				},
+				contradicts: {
+					type: "json",
+					description: "反方证据锚点列表，同 supports 结构"
+				},
+				confidence: {
+					type: "json",
+					description: "0-1"
+				},
+				supersedes: {
+					type: "string",
+					description: "被本判断取代的 finding_id；可空"
+				}
+			},
+			output: {
+				schema: { type: "json" },
+				render: (_a, v) => renderJson(v)
+			},
+			async execute(args) {
+				const c = needClient(options);
+				if ("error" in c) return c;
+				const toCors = (list) => {
+					if (!Array.isArray(list)) return [];
+					return list.map((s) => {
+						const sup = s ?? {};
+						return {
+							evidence_id: String(sup.evidence_id ?? ""),
+							span_start: Number(sup.span_start ?? 0),
+							span_end: Number(sup.span_end ?? 0),
+							obs_id: sup.obs_id != null ? String(sup.obs_id) : null
+						};
+					});
+				};
+				return await c.writeFinding({
+					subject_ts_code: String(args.subject_ts_code ?? ""),
+					dimension: String(args.dimension ?? ""),
+					kind: String(args.kind ?? ""),
+					judgment: String(args.judgment ?? ""),
+					supports: toCors(args.supports),
+					dimension_scope: args.dimension_scope ? String(args.dimension_scope) : null,
+					from_state: args.from_state ?? null,
+					to_state: args.to_state ?? null,
+					delta: args.delta ?? null,
+					contradicts: toCors(args.contradicts),
+					confidence: args.confidence != null ? Number(args.confidence) : null,
+					supersedes: args.supersedes ? String(args.supersedes) : null
+				});
 			}
 		}));
 	});
