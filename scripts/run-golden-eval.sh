@@ -20,8 +20,10 @@ export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 
 TAG="${1:-glm_$(date +%F)}"
 RUN_ONLY="${2:-}"
+# 金标案集：默认 v2（v1 三案 + 台账/源材料/概念/补涨七新案）；回退用 CASES=... 覆盖
+CASES="${CASES:-backend/eval/expected_gap_cases_v2.json}"; export CASES
+GATE="${GATE:-0.8}"
 export DSH_HOME="${DSH_HOME:-$HOME/.dsh-qingshui}"
-CASES="backend/eval/expected_gap_cases_v1.json"
 OUTDIR="backend/eval/out"
 RAW="$OUTDIR/raw/$TAG"
 mkdir -p "$RAW"
@@ -68,7 +70,9 @@ python3 backend/scripts/eval_collect_harness_round.py \
 python3 backend/scripts/eval_dual_track.py \
   --cases "$CASES" --mode harness-files \
   --answer-file "$OUTDIR/harness_answers_$TAG.json" \
-  --out "$OUTDIR/expected_gap_$TAG.json" || exit 1
+  --out "$OUTDIR/expected_gap_$TAG.json" \
+  --history "$OUTDIR/gate_history.jsonl" \
+  --gate "$GATE" || FAIL_GATE=1
 
 echo "== 判分结果（${TAG}）=="
 python3 - "$OUTDIR/expected_gap_$TAG.json" <<'PY'
@@ -80,3 +84,6 @@ for r in report:
     print(f"  [{mark}] {r['case_id']}  reasons={r.get('reasons')}")
 print(f"  {passed}/{len(report)} 通过")
 PY
+
+# 门禁失败以非零退出（launchd/cron 以此判红）；判分产物已落盘
+exit "${FAIL_GATE:-0}"

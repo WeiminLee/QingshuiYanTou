@@ -117,6 +117,8 @@ backend/static/charts/*.html
 backend/eval/local_extract_*/
 # 金标评测 raw 过程产物（answers/报告另行提交）
 backend/eval/out/raw/
+# 门禁轮次历史（机器本地状态）
+backend/eval/out/gate_history.jsonl
 .env.dsh.local
 
 # Keep Cordis plugin build artifact

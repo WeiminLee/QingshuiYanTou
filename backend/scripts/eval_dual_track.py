@@ -16,6 +16,7 @@ Modes:
 from __future__ import annotations
 
 import argparse
+from datetime import datetime
 import json
 import re
 from pathlib import Path
@@ -114,6 +115,20 @@ def main(argv: list[str] | None = None) -> int:
         type=Path,
         default=Path("eval/out/expected_gap_report.json"),
     )
+    parser.add_argument(
+        "--history",
+        type=Path,
+        default=Path("eval/out/gate_history.jsonl"),
+        help="Gate round history (JSONL append); enables regression detection across rounds",
+    )
+    parser.add_argument(
+        "--gate",
+        type=float,
+        default=0.80,
+        help="Pass-rate gate threshold (default 0.80); with --history a passing round "
+        "fails the gate if any previously-passing case regressed. Gate = PASS only when "
+        "rate >= threshold, zero regression vs last round, and last 3 rounds all met this",
+    )
     args = parser.parse_args(argv)
 
     if args.old_base or args.old_answer_file or (args.mode if False else False):
@@ -174,7 +189,52 @@ def main(argv: list[str] | None = None) -> int:
         "report": report,
     }
     print(json.dumps(summary, ensure_ascii=False, indent=2))
-    return 0
+
+    # ── Gate（切流门禁，设计 §9.2：通过率 + 无回归 + 连续 N 轮稳定） ─────────
+    last_round: dict[str, Any] | None = None
+    if args.history.exists():
+        for line in args.history.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if line:
+                last_round = json.loads(line)
+    rate = (n_pass / len(report)) if report else 0.0
+    regressions: list[str] = []
+    if last_round:
+        prev_pass = {
+            r["case_id"] for r in last_round.get("report", []) if r.get("pass") is True
+        }
+        regressions = sorted(
+            r["case_id"] for r in report if r["pass"] is False and r["case_id"] in prev_pass
+        )
+    round_entry = {
+        "date": datetime.now().isoformat(timespec="seconds"),
+        "out": str(args.out),
+        "cases_file": str(args.cases),
+        "pass": n_pass,
+        "fail": n_fail,
+        "unscored": n_skip,
+        "rate": round(rate, 4),
+        "regressions": regressions,
+    }
+    if args.history:
+        args.history.parent.mkdir(parents=True, exist_ok=True)
+        with args.history.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(round_entry, ensure_ascii=False) + "\n")
+
+    recent: list[dict[str, Any]] = []
+    if args.history.exists():
+        recent = [json.loads(l) for l in args.history.read_text(encoding="utf-8").splitlines() if l.strip()][-3:]
+    gate_pass = rate >= args.gate and not regressions
+    stable = len(recent) >= 3 and all(
+        r.get("rate", 0) >= args.gate and not r.get("regressions") for r in recent
+    )
+    print(
+        f"GATE: {'PASS' if gate_pass else 'FAIL'}  rate={rate:.2%} (>= {args.gate:.0%}?)  "
+        f"regressions={regressions or '[]'}  consecutive_ok={len(recent)}/3  "
+        f"{'[GATE-STABLE-3] 连续 3 轮达标零回归，可进入切流判定' if stable else ''}",
+        flush=True,
+    )
+    return 0 if gate_pass else 1
 
 
 if __name__ == "__main__":

@@ -32,3 +32,6 @@ metadata:
 
 ## 与双轨评测
 金标见 `backend/eval/expected_gap_cases_v1.json`。工具名以 bare name 断言（`mcp__qingshui_data__compare_metric` → `compare_metric`）。
+
+## 判断沉淀
+与 `divergence-mining` 的沉淀段对齐：结论产生后 `write_finding`，分析前先 `history_findings` 对照水位线——不复读旧闻、不重复沉淀等价判断。

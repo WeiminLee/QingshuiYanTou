@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  清水投研 · 金标定时评测（每日一轮，建议每个交易日一次）
+
+  用法（用户手动 load；按需改 repo 路径与启动时段）：
+    cp deploy/eval/qingshui-golden-eval.plist.example ~/Library/LaunchAgents/com.qingshui.golden-eval.plist
+    # 编辑 repo 路径后：
+    launchctl load ~/Library/LaunchAgents/com.qingshui.golden-eval.plist
+    launchctl list | grep qingshui   # 查看与手动触发：launchctl start com.qingshui.golden-eval
+
+  成本提示：每轮 = 金标案数 × glm 长查询（当前 v2 十案约 2-3 小时、pjlab token 一笔可观开销）。
+  门禁语义见 backend/scripts/eval_dual_track.py --help：连续 3 轮 rate≥0.8 且零回归才提示达标。
+  前置：scripts/tunnel_chemagent.sh 隧道在线、~/.dsh-qingshui 凭据可用（launchd 用户态即可）。
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.qingshui.golden-eval</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>-lc</string>
+    <string>cd /Users/lwm/code/QingshuiYanTou &amp;&amp; bash scripts/run-golden-eval.sh golden-auto >> backend/eval/out/golden-auto.log 2>&amp;1</string>
+  </array>
+
+  <!-- 每日 08:37（刻意避开整点） -->
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key>
+    <integer>8</integer>
+    <key>Minute</key>
+    <integer>37</integer>
+  </dict>
+
+  <key>StandardOutPath</key>
+  <string>/Users/lwm/Library/Logs/qingshui-golden-eval.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/lwm/Library/Logs/qingshui-golden-eval.err.log</string>
+
+  <!-- 评测重叠没有意义：上一轮未结束则本轮跳过 -->
+  <key>DisableOnConflict</key>
+  <true/>
+</dict>
+</plist>

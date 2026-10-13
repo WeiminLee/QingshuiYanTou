@@ -221,9 +221,11 @@ Knowledge HTTP、采集、抽取、worker **保留**。旧前端见 `archive/REA
 
 - **Harness**：DeepSeek harness（dsh，submodule pin）+ Cordis 插件 `plugins/qingshui`；投研身份由
   部署 persona（`plugins/qingshui/cordis.patch.yml`）注入系统提示词。
-- **工具面**：只读 Data MCP（`backend/app/mcp_data/`，:8100）+ Knowledge HTTP
-  （`/api/v1/knowledge/{search/semantic, metrics/compare, agent/*, links/*, market/*}`），
-  工具名与评测金标对齐。
+- **工具面**：只读 Data MCP（`backend/app/mcp_data/`，:8100，21 个只读工具）+ Knowledge HTTP
+  （`/api/v1/knowledge/{search/semantic, metrics/compare, agent/*, links/*, market/*, sources/*, ledger/*}`），
+
+  工具名与评测金标对齐（v2 十案）；**判断沉淀**（write_observation/write_finding）只经
+  HTTP+插件写面（MCP 不注册写工具），语义见 `docs/开发文档/15_findings台账工具面落地.md`。
 - **数据面**：knowledge 构建管线（evidence/链接层/图谱/向量）+ scheduler + worker 不变。
 - **评测**：`scripts/run-golden-eval.sh` 跑 `backend/eval/expected_gap_cases_v1.json` 金标
   （headless 逐案 + session 工具归因 + `eval_dual_track.py` 判分）。
