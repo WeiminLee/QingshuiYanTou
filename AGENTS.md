@@ -70,7 +70,13 @@
 | 云端整套栈 | 124.221.188.38 | ❄️ 只读冻结，chemagent 验证结束后下线 |
 | sensecore pod / 生产链路经 Mac | — | ❌ 已退出关键路径 |
 
-## Agent 运行时（2026-10-10）
+## Agent 运行时（2026-10-13）
 
 **唯一**投研 Agent 入口：DeepSeek harness（dsh）+ `plugins/qingshui` + 只读 Data MCP。  
 旧 LangChain `/api/v1/agent/*` 与 `backend/app/reasoning/**` 旧运行时已删除（2026-10-13）。见 `docs/superpowers/specs/2026-10-10-agent-mcp-deepseek-harness-design.md` 与 `deploy/mcp/DUAL_TRACK_RUNBOOK.md`。
+
+- **工具面**：只读 Data MCP 21 工具 + Knowledge HTTP（`knowledge/{search,metrics,agent,links,market,sources,ledger}`）。
+  **判断沉淀**：write_observation/write_finding 只经 HTTP+插件写面（MCP 不注册写工具），
+  见 `docs/开发文档/15_findings台账工具面落地.md`。
+- **金标与门禁**：`backend/eval/expected_gap_cases_v2.json`（十案）+ `eval_dual_track.py --gate/--history`
+  （连续 3 轮达标零回归 = GATE-STABLE-3，才具备切流/上新判定条件）。
