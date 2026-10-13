@@ -114,15 +114,6 @@ def test_irm_checkpoint_write_failure_logs_warning(caplog):
     assert "mongo down" in caplog.text
 
 
-def test_infer_period_supports_all_quarters():
-    from app.knowledge.kg_extractor import _infer_period_from_announcement
-
-    assert _infer_period_from_announcement("", "2025年第一季度报告") == ("2025Q1", "quarterly")
-    assert _infer_period_from_announcement("", "2025年第二季度报告") == ("2025Q2", "quarterly")
-    assert _infer_period_from_announcement("", "2025年第三季度报告") == ("2025Q3", "quarterly")
-    assert _infer_period_from_announcement("", "2025年第四季度报告") == ("2025Q4", "quarterly")
-
-
 def test_rag_entity_type_vote_ignores_blank_values():
     from app.knowledge.extraction.rag_extractor import RAGExtractor
 
@@ -149,17 +140,6 @@ def test_safe_float_rejects_nan_and_infinity():
     assert _safe_float("inf") is None
     assert _safe_float("-inf") is None
     assert _safe_float("12.5") == 12.5
-
-
-def test_relation_weight_normalization_handles_bad_values():
-    from app.knowledge.kg_extractor import _normalize_relation_weight
-
-    # 无效 / 缺失权重回退到默认置信度（Prompt 定义 0.7=LLM推断，与生产 default 同步）
-    assert _normalize_relation_weight("bad") == 0.7
-    assert _normalize_relation_weight(None) == 0.7
-    assert _normalize_relation_weight(float("nan")) == 0.7
-    assert _normalize_relation_weight(8) == 0.8
-    assert _normalize_relation_weight(0.7) == 0.7
 
 
 def test_rate_limiter_singletons_are_thread_safe():

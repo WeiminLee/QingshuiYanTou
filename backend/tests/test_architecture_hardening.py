@@ -35,7 +35,6 @@ def test_knowledge_runtime_uses_timezone_aware_utc() -> None:
     modules = [
         "app/knowledge/evidence_builders.py",
         "app/knowledge/evidence_service.py",
-        "app/knowledge/structured_fact_service.py",
         "app/knowledge/file_indexer.py",
         "app/knowledge/pdf_rotator.py",
         "app/knowledge/irm_extractor.py",
@@ -121,11 +120,3 @@ def test_runtime_models_do_not_hardcode_parser_version_defaults() -> None:
     source = (BACKEND_ROOT / "app/models/models.py").read_text(encoding="utf-8")
     assert 'server_default="v1.0"' not in source
     assert "CURRENT_PARSER_VERSION" in source
-
-
-def test_structured_fact_upsert_uses_single_write_transaction() -> None:
-    import app.knowledge.structured_fact_service as service
-
-    source = inspect.getsource(service.upsert_structured_fact)
-    assert "write_transaction()" in source
-    assert "run_write(" not in source

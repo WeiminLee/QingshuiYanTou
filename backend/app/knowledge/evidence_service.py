@@ -14,7 +14,6 @@ from app.knowledge.evidence import (
     EVIDENCE_COLLECTION,
     EXTRACTION_JOBS_COLLECTION,
     EXTRACTOR_VERSION,
-    JOB_COMBINED,
     JOB_LINK,
     JOB_SIGNAL,
     JOB_VECTOR,
@@ -114,7 +113,6 @@ class EvidenceService:
         set_on_insert = {
             "created_at": now,
             "extraction_status": {
-                JOB_COMBINED: STATUS_PENDING,
                 JOB_VECTOR: STATUS_PENDING,
                 JOB_SIGNAL: STATUS_PENDING,
                 "last_extracted_at": None,
@@ -168,8 +166,6 @@ class EvidenceService:
 
     async def enqueue_default_jobs(self, evidence_id: str) -> list[dict[str, Any]]:
         jobs = []
-        if settings.enable_kg_extraction:
-            jobs.append(await self.enqueue_job(evidence_id, JOB_COMBINED))
         jobs.append(await self.enqueue_job(evidence_id, JOB_VECTOR))
         jobs.append(await self.enqueue_job(evidence_id, JOB_LINK))
         return jobs
@@ -212,7 +208,6 @@ class EvidenceService:
             set_on_insert = {
                 "created_at": now,
                 "extraction_status": {
-                    JOB_COMBINED: STATUS_PENDING,
                     JOB_VECTOR: STATUS_PENDING,
                     "last_extracted_at": None,
                     "extractor_version": EXTRACTOR_VERSION,
@@ -237,8 +232,6 @@ class EvidenceService:
         await self.ensure_indexes()
         now = _utc_now()
         job_types = [JOB_VECTOR, JOB_LINK]
-        if settings.enable_kg_extraction:
-            job_types.insert(0, JOB_COMBINED)
         operations = []
         for evidence_id in evidence_ids:
             for job_type in job_types:

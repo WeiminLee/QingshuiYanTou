@@ -9,7 +9,6 @@ from typing import Any
 
 from app.config import settings
 from app.knowledge.evidence import (
-    JOB_COMBINED,
     JOB_LINK,
     JOB_VECTOR,
     STATUS_DONE,
@@ -189,7 +188,7 @@ def _input(text: str = "hello") -> EvidenceInput:
 
 def test_stable_ids_are_deterministic() -> None:
     assert stable_evidence_id("irm", "1", 0, "hello") == stable_evidence_id("irm", "1", 0, "hello")
-    assert stable_job_id("EV:x", JOB_COMBINED, "v1") == stable_job_id("EV:x", JOB_COMBINED, "v1")
+    assert stable_job_id("EV:x", JOB_VECTOR, "v1") == stable_job_id("EV:x", JOB_VECTOR, "v1")
 
 
 def test_upsert_evidence_is_idempotent() -> None:
@@ -205,53 +204,44 @@ def test_upsert_evidence_is_idempotent() -> None:
 
 
 def test_upsert_evidence_auto_enqueues_default_jobs(monkeypatch) -> None:
-    # 开关开启（默认）时，upsert 自动入队完整默认 job 集合
-    monkeypatch.setattr(settings, "enable_kg_extraction", True)
-
     async def main():
         svc = _service()
         ev = await svc.upsert_evidence(_input(), chunk_index=0)
 
-        assert await svc._jobs.count_documents({}) == 3
+        assert await svc._jobs.count_documents({}) == 2
         jobs = svc._jobs.docs
-        assert {job["job_type"] for job in jobs} == {JOB_COMBINED, JOB_VECTOR, JOB_LINK}
+        assert {job["job_type"] for job in jobs} == {JOB_VECTOR, JOB_LINK}
         assert all(job["evidence_id"] == ev["evidence_id"] for job in jobs)
 
     asyncio.run(main())
 
 
 def test_enqueue_default_jobs_is_idempotent(monkeypatch) -> None:
-    # 开关开启（默认）时，默认 job 集合为 {combined, vector, link}
-    monkeypatch.setattr(settings, "enable_kg_extraction", True)
-
     async def main():
         svc = _service()
         ev = await svc.upsert_evidence(_input())
         jobs1 = await svc.enqueue_default_jobs(ev["evidence_id"])
         jobs2 = await svc.enqueue_default_jobs(ev["evidence_id"])
-        assert {j["job_type"] for j in jobs1} == {JOB_COMBINED, JOB_VECTOR, JOB_LINK}
+        assert {j["job_type"] for j in jobs1} == {JOB_VECTOR, JOB_LINK}
         assert [j["job_id"] for j in jobs1] == [j["job_id"] for j in jobs2]
-        assert await svc._jobs.count_documents({}) == 3
+        assert await svc._jobs.count_documents({}) == 2
 
     asyncio.run(main())
 
 
 def test_bulk_enqueue_jobs_includes_link_and_is_idempotent(monkeypatch) -> None:
-    # 开关开启（默认）时，批量入队包含 combined，共 3 job/evidence
-    monkeypatch.setattr(settings, "enable_kg_extraction", True)
-
     async def main():
         svc = _service()
         upserted = await svc.bulk_enqueue_jobs(["EV:a", "EV:b"])
-        assert upserted == 6
+        assert upserted == 4
         jobs = svc._jobs.docs
-        assert {job["job_type"] for job in jobs} == {JOB_COMBINED, JOB_VECTOR, JOB_LINK}
+        assert {job["job_type"] for job in jobs} == {JOB_VECTOR, JOB_LINK}
         assert all(job["status"] == STATUS_PENDING for job in jobs)
         assert all(job["evidence_id"] in {"EV:a", "EV:b"} for job in jobs)
         # 幂等：重复入队不新增
         upserted_again = await svc.bulk_enqueue_jobs(["EV:a", "EV:b"])
         assert upserted_again == 0
-        assert await svc._jobs.count_documents({}) == 6
+        assert await svc._jobs.count_documents({}) == 4
 
     asyncio.run(main())
 
@@ -260,11 +250,11 @@ def test_claim_next_job_marks_running_once() -> None:
     async def main():
         svc = _service()
         ev = await svc.upsert_evidence(_input())
-        await svc.enqueue_job(ev["evidence_id"], JOB_COMBINED)
-        claimed = await svc.claim_next_job(JOB_COMBINED, worker_id="w1")
+        await svc.enqueue_job(ev["evidence_id"], JOB_VECTOR)
+        claimed = await svc.claim_next_job(JOB_VECTOR, worker_id="w1")
         assert claimed and claimed["status"] == STATUS_RUNNING
         assert svc._jobs.find_one_and_update_called
-        assert await svc.claim_next_job(JOB_COMBINED, worker_id="w2") is None
+        assert await svc.claim_next_job(JOB_VECTOR, worker_id="w2") is None
 
     asyncio.run(main())
 
@@ -273,12 +263,12 @@ def test_mark_done_updates_job_and_evidence_status() -> None:
     async def main():
         svc = _service()
         ev = await svc.upsert_evidence(_input())
-        job = await svc.enqueue_job(ev["evidence_id"], JOB_COMBINED)
+        job = await svc.enqueue_job(ev["evidence_id"], JOB_VECTOR)
         await svc.mark_job_done(job["job_id"], {"ok": True})
         saved_job = await svc._jobs.find_one({"job_id": job["job_id"]})
         saved_ev = await svc.get_evidence(ev["evidence_id"])
         assert saved_job["status"] == STATUS_DONE
-        assert saved_ev["extraction_status"][JOB_COMBINED] == STATUS_DONE
+        assert saved_ev["extraction_status"][JOB_VECTOR] == STATUS_DONE
 
     asyncio.run(main())
 
@@ -287,7 +277,7 @@ def test_mark_failed_retries_then_fails_and_keeps_evidence() -> None:
     async def main():
         svc = _service()
         ev = await svc.upsert_evidence(_input())
-        job = await svc.enqueue_job(ev["evidence_id"], JOB_COMBINED)
+        job = await svc.enqueue_job(ev["evidence_id"], JOB_VECTOR)
         await svc.mark_job_failed(job["job_id"], "boom", max_retries=2)
         retry_job = await svc._jobs.find_one({"job_id": job["job_id"]})
         assert retry_job["status"] == STATUS_PENDING
@@ -296,6 +286,6 @@ def test_mark_failed_retries_then_fails_and_keeps_evidence() -> None:
         saved_ev = await svc.get_evidence(ev["evidence_id"])
         assert failed_job["status"] == STATUS_FAILED
         assert saved_ev["text_excerpt"] == "hello"
-        assert saved_ev["extraction_status"][JOB_COMBINED] == STATUS_FAILED
+        assert saved_ev["extraction_status"][JOB_VECTOR] == STATUS_FAILED
 
     asyncio.run(main())

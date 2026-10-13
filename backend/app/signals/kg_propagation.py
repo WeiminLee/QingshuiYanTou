@@ -31,71 +31,10 @@ class KGPathProvider(Protocol):
         """Fetch KG paths from entity with at most max_hops edges."""
 
 
-class Neo4jKGPathProvider:
-    async def fetch_paths(self, entity: str, *, max_hops: int = 2) -> list[KGPath]:
-        if not entity or max_hops < 1:
-            return []
-        max_hops = min(max_hops, 2)
-        try:
-            from app.core.neo4j_client import get_async_driver
-
-            driver = await get_async_driver()
-            async with driver.session() as session:
-                records = await session.run(
-                    """
-                    MATCH p = (a)-[rels:RELATES*1..2]->(b)
-                    WHERE toLower(a.name) CONTAINS toLower($entity)
-                    WITH p, rels, reduce(score = 0.0, r IN rels | score + coalesce(r.weight, 1.0)) AS score
-                    RETURN [node IN nodes(p) | node.name] AS path_nodes,
-                           [idx IN range(0, size(rels)-1) | {
-                             src: startNode(rels[idx]).name,
-                             tgt: endNode(rels[idx]).name,
-                             type: type(rels[idx]),
-                             text: coalesce(rels[idx].text, rels[idx].description, type(rels[idx])),
-                             weight: coalesce(rels[idx].weight, 1.0),
-                             target_labels: labels(endNode(rels[idx]))
-                           }] AS edges,
-                           length(p) AS hops
-                    ORDER BY score DESC
-                    LIMIT 20
-                    """,
-                    entity=entity,
-                )
-                return neo4j_rows_to_paths(await records.data())
-        except Exception as exc:
-            logger.warning("[SignalKG] fetch_paths failed for %s: %s", entity, exc)
-            return []
-
-
 _UPSTREAM_RELS = {"UPSTREAM", "SUPPLIES", "SUPPLIES_TO", "COMPONENT_OF", "MATERIAL_FOR"}
 _DOWNSTREAM_RELS = {"DOWNSTREAM", "CUSTOMER", "USED_BY", "APPLICATION", "APPLIES_TO"}
 _COMPETITIVE_RELS = {"COMPETES_WITH", "PEER", "SAME_INDUSTRY", "SIMILAR_TO"}
 _RISK_SIGNALS = {"risk"}
-
-
-def neo4j_rows_to_paths(rows: list[dict]) -> list[KGPath]:
-    paths: list[KGPath] = []
-    for row in rows:
-        nodes = [str(node) for node in row.get("path_nodes", []) if node]
-        raw_edges = row.get("edges", []) or []
-        edges: list[KGEdge] = []
-        for raw in raw_edges:
-            if not isinstance(raw, dict):
-                continue
-            edges.append(
-                KGEdge(
-                    src=str(raw.get("src") or ""),
-                    rel_type=str(raw.get("type") or raw.get("rel_type") or "RELATES"),
-                    tgt=str(raw.get("tgt") or ""),
-                    weight=float(raw.get("weight") if raw.get("weight") is not None else 1.0),
-                    text=str(raw.get("text") or ""),
-                    target_type=_labels_to_target_type(raw.get("target_labels") or raw.get("labels") or []),
-                )
-            )
-        path = KGPath(nodes=nodes, edges=edges)
-        if _is_supported_path(path):
-            paths.append(path)
-    return paths
 
 
 def build_kg_propagations(candidate: SignalCandidate, paths: list[KGPath]) -> list[PropagationCandidate]:

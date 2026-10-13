@@ -399,7 +399,7 @@ async def retry_failed_vectors(
         for attempt in range(1, max_retries + 1):
             try:
                 # 由于 failed_vectors 只有 content_snippet，无法完全重建
-                # 仅记录需要补偿，实际补偿需从 MongoDB Evidence 或 Neo4j 重新获取内容
+                # 仅记录需要补偿，实际补偿需从 MongoDB Evidence 重新获取内容
                 client = get_vector_client()
                 embedder = get_embedding_model()
 

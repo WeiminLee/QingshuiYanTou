@@ -97,14 +97,6 @@ def test_no_announcement_v4_source_type():
     assert "Category（分类）" not in prompt
 
 
-def test_relation_service_no_v4_function_names():
-    """relation_service must not have upsert_relates_v4."""
-    from app.knowledge import relation_service
-
-    assert not hasattr(relation_service, "upsert_relates_v4")
-    assert hasattr(relation_service, "upsert_relates")
-
-
 def test_rag_extractor_no_v4_function_names():
     """rag_extractor must not have _v4 suffixed function names."""
     from app.knowledge.extraction import rag_extractor

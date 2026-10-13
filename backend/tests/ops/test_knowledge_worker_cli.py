@@ -24,4 +24,4 @@ def test_default_rotation_drains_link(monkeypatch):
     monkeypatch.setattr("app.knowledge.evidence_worker.EvidenceExtractionWorker", FakeWorker)
 
     assert main(["--role", "evidence-extraction", "--once"]) == 0
-    assert set(claimed) == {"combined", "vector", "signal", "link"}
+    assert set(claimed) == {"vector", "signal", "link"}

@@ -31,11 +31,10 @@ Backend API
       |      Parser -> Chunker -> Evidence -> Extraction Jobs
       |      -> Link Layer (keyword / link) + Judgment Ledger -> Vector Index
       |
-      +--> Reasoning Runtime
-      |      Agent / Tool Registry / Middleware / Subagents / Memory / Journal
+      +--> Agent Runtime（dsh + plugins/qingshui + Data MCP）
       |
       +--> Storage Layer
-             PostgreSQL / MongoDB / Neo4j / Qdrant / Redis
+             PostgreSQL / MongoDB / Qdrant / Redis
 ```
 
 ### 组件分工
@@ -60,8 +59,7 @@ Raw Source
 -> Chunker
 -> Evidence
 -> async Extraction Jobs
--> Entity / Relation / StructuredFact
--> Vector Index
+-> Link Layer + Judgment Ledger + Vector Index
 ```
 
 ### 事实和判断分离
@@ -88,7 +86,8 @@ Raw Source
 
 - Evidence: `EV:` + SHA256
 - Extraction Job: `JOB:` + SHA256
-- StructuredFact: `SF:` + SHA256
+- Observation: `OB:` + SHA256（判断台账）
+- Finding: `FD:` + SHA256（判断台账）
 
 重复导入同一原文片段会 upsert 到同一 Evidence。抽取失败只影响 job 状态，不删除 Evidence。
 
@@ -96,10 +95,9 @@ Raw Source
 
 不同类型的数据进入不同存储系统：
 
-- PostgreSQL: 股票、行情、公告索引、业务表和结构化数据。
+- PostgreSQL: 股票、行情、公告索引、业务表、链接层与判断台账。
 - MongoDB: Evidence 原文片段、source_ref、异步抽取 job 状态。
-- Neo4j: Entity、Relation、StructuredFact 以及可遍历图谱关系。
-- Qdrant: Evidence chunk、实体描述、关系描述等向量索引。
+- Qdrant: Evidence chunk 向量索引（`kg_entities`/`kg_relations` 为三元组时代冻结集合，仅 `search/semantic` entities scope 只读）。
 - Redis: 缓存、运行时状态和队列类能力。
 
 ## 知识构建层
@@ -149,7 +147,6 @@ updated_at
 
 Evidence 入库后会生成 extraction jobs。当前 job 类型：
 
-- `combined`: Evidence -> entities + relations + structured_facts（退役中：由 `ENABLE_KG_EXTRACTION` 开关控制，关闭后不再入队）
 - `vector`: Evidence chunk -> Qdrant vector
 - `link`: Evidence -> LLM 浅提取 + 词典匹配 -> 链接层（`link_keywords` / `link_links`）
 
@@ -157,38 +154,11 @@ worker 入口：
 
 ```bash
 python backend/scripts/evidence_extraction_worker.py --once --limit 10
-python backend/scripts/evidence_extraction_worker.py --daemon --interval 30 --job-type combined
+python backend/scripts/evidence_extraction_worker.py --daemon --interval 30 --job-type link
 python backend/scripts/evidence_extraction_worker.py --daemon --interval 30 --job-type vector
 ```
 
-worker 会 claim pending job，执行抽取，写入 Neo4j/Qdrant，并把状态回写到 MongoDB。
-
-### 结构化事实
-
-StructuredFact 用于表达从 Evidence 中抽取出的状态事实：
-
-```text
-subject_id
-subject_type
-dimension
-state_value
-observed_at
-valid_from
-valid_to
-evidence_id
-evidence_text
-confidence
-metadata
-```
-
-示例：
-
-- `production / mass_production_started`
-- `customer / customer_introduction`
-- `order / order_scheduled`
-- `financial / earnings_below_expectation`
-
-`StructuredFact` 会引用 `evidence_id`，保证每个结构化状态可以追溯到原文。
+worker 会 claim pending job，执行抽取，写入 Qdrant/链接层，并把状态回写到 MongoDB。
 
 ### 链接层与判断台账（2026-09 重构）
 
@@ -208,7 +178,7 @@ L2 判断层    observation / finding / watermark（PostgreSQL）
 - **批量侧只做浅任务**：类型受约束的关键字提取，可缓存、可全量重算；LLM 深判断只在 task-time。
 - **检索原语**：`pull_history`（时间线）/ `scan_dimension`（横截面）/ `backlinks` / `lookup_products` / `lookup_players` / `lookup_customers`（单跳聚合）；`browse`（主题，向量概念层）为后续迭代。
 - **写回原语**：`write_observation` / `write_finding` / `watermark`，句级锚定到 evidence span。
-- **存储处置**：新结构全部入 PostgreSQL；Neo4j 冻结只读（`resolve`/`expand` 过渡期保留），Qdrant `kg_entities`/`kg_relations` 随三元组管线退役；`neo4j_kg_search` 已下线。
+- **存储处置**：新结构全部入 PostgreSQL。Neo4j 与三元组管线已于 2026-10-13 整体除役（代码面零依赖，零数据迁移负担）；Qdrant `kg_entities`/`kg_relations` 为冻结只读集合。
 - **后续迭代**：zhparser 全文检索、涌现聚类、embedding 概念层附着（见 `docs/superpowers/specs/2026-09-18-knowledge-layer-redesign-design.md`）。
 
 ## Agent 入口（dsh 硬切已完成）
@@ -263,7 +233,7 @@ docker compose ps
 docker compose logs -f backend
 
 # 仅启动基础设施（应用通过宿主机连接）
-docker compose up -d neo4j postgres mongo redis qdrant
+docker compose up -d postgres mongo redis qdrant
 
 # 停止
 docker compose down
@@ -273,7 +243,6 @@ docker compose down
 
 | 服务 | 容器名 | 端口（宿主机:容器） |
 |------|--------|-------------------|
-| Neo4j | `qingshui_neo4j` | `7474:7474`, `7687:7687` |
 | PostgreSQL | `qingshui_postgres` | `5433:5432` |
 | MongoDB | `qingshui_mongo` | `27018:27017` |
 | Redis | `qingshui_redis` | `6379:6379` |
@@ -294,8 +263,7 @@ docker compose down
 > ```
 >
 > `docker-compose.yml` 的 `environment` 段使用 `${VAR:-default}` 语法：
-> - 未传 `--env-file` 时使用默认值（如 `NEO4J_URL=bolt://neo4j:7687`）
-> - 传了 `--env-file` 时 `.env` 中的值覆盖默认值（如 `NEO4J_URL=bolt://localhost:7687` 适用于宿主机开发）
+> - 未传 `--env-file` 时使用默认值；传了 `--env-file` 时 `.env` 中的值覆盖默认值（适用于宿主机开发）
 
 ### 后端配置
 
@@ -308,9 +276,6 @@ REDIS_URL
 LLM_API_KEY
 LLM_BASE_URL
 LLM_MODEL
-NEO4J_URL
-NEO4J_USER
-NEO4J_PASSWORD
 QDRANT_URL
 API_KEY
 MASTER_PASSWORD
@@ -399,7 +364,7 @@ pnpm test
 
 - Evidence-first: 先证据、后抽取、再推理，降低不可追溯知识污染。
 - 审计友好: 每个事实可以回到 Evidence 原文片段和来源。
-- 混合检索: Neo4j 图谱关系与 Qdrant 语义向量互补。
+- 语义检索: Qdrant 向量 + 链接层结构化查询（横比/时间线/台账）互补。
 - 异步抽取: Evidence 入库与 LLM/向量抽取解耦，支持失败重试和版本化重抽。
 - Agent 可观察: SSE 事件、运行日志、工具调用和中间件让推理过程可调试。
 - 投研边界明确: 系统服务研究辅助，不在知识层沉淀交易建议。
@@ -412,7 +377,7 @@ pnpm test
 - MongoDB EvidenceService
 - IRM/PDF 入口的 Evidence-first 接入
 - 异步 EvidenceExtractionWorker
-- Entity / Relation / StructuredFact 追溯 `evidence_id`
+- 链接层 keyword/link 与判断台账 observation/finding 追溯 `evidence_id`
 - Evidence chunk 写入 Qdrant
 - 针对 Evidence service、builders、worker 的测试覆盖
 
@@ -453,10 +418,9 @@ pnpm test
 
 后续可继续扩展：
 
-- 更细粒度 job 类型，例如 `entity_relation`、`structured_fact`、`metric`。
-- 面向 Agent 的 ResearchContext 工具层。
-- StructuredFact 的更多行业状态维度和验证集。
-- 抽取版本升级后的批量重抽和质量评估。
+- 链接层词典与抽取提示词的持续净化、版本升级后的批量重算。
+- 判断台账数值型 observation 的自动新颖度判定（环比/区间外）。
+- finding supersede 工作流与跨主体预警订阅。
 # 远程 PDF / Evidence Worker
 
 远程 Worker 的部署与回滚说明见 [`docs/运维/云端知识底座Phase1.md`](docs/运维/云端知识底座Phase1.md)。云端启动前先执行：

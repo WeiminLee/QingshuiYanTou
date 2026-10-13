@@ -66,7 +66,7 @@
 | knowledge_worker / pdf_worker | chemagent systemd | ✅ 已切本机 API（17:02） |
 | bge-m3 / Qwen 推理 | H200 rjob | ✅ 运行中，本机内网直连 |
 | Agent 交互层（dsh web） | 本地 Mac | ✅ 已搭建（worktree `agent-mcp-dsh`，`scripts/start-local-dsh-web.sh`，金标 3/3 通过） |
-| Neo4j | 未迁移 | ⚠️ chemagent 未部署；backend env 残留 NEO4J_URL 待清理或补装 |
+| Neo4j | 已除役 | ❌ 2026-10-13 代码面整体删除（旧三元组管线一并退役）；四活进程/金标零依赖，读侧语义检索保留 Qdrant 冻结集合。决策与证据见 `docs/开发文档/16_Neo4j除役记录.md` |
 | 云端整套栈 | 124.221.188.38 | ❄️ 只读冻结，chemagent 验证结束后下线 |
 | sensecore pod / 生产链路经 Mac | — | ❌ 已退出关键路径 |
 

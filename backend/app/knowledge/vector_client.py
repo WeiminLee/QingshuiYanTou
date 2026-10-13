@@ -3,8 +3,7 @@ from __future__ import annotations
 """
 向量数据库客户端抽象层（Qdrant）
 
-存储策略（与 Neo4j 互补）：
-  - Neo4j：结构化关系（实体节点、关系边、时序字段）
+存储策略：
   - Vector DB：非结构化语义（实体描述、关系描述、文档片段、问答摘要）
 
 Collection 设计：
@@ -288,7 +287,7 @@ class LocalEmbedding(EmbeddingModelBase):
             raise
 
     def embed(self, text: str) -> list[float]:
-        """同步接口：upsert_entity_vector 等同步函数需要"""
+        """同步接口：同步 embedding 调用入口"""
         client = self._get_sync()
         payload = {
             "texts": [text],
@@ -836,87 +835,6 @@ def init_collections(
 
 
 # ── 快捷写入函数 ─────────────────────────────────────────────────────────
-
-
-def upsert_entity_vector(
-    entity_id: str,
-    entity_name: str,
-    description: str,
-    entity_type: str = "",
-    ts_code: str = "",
-    collection: str = COLLECTION_ENTITIES,
-) -> bool:
-    """将实体描述写入向量库
-
-    安全修复：entity_type 必须在白名单内，否则跳过并返回 False
-    """
-    # entity_type 校验（防止非法值写入向量库）
-    if entity_type:
-        try:
-            from app.knowledge.entity_service import is_valid_entity_type
-
-            if not is_valid_entity_type(entity_type):
-                logger.warning("upsert_entity_vector 跳过非法 entity_type: %s", entity_type)
-                return False
-        except ImportError:
-            pass  # 模块不可用时降级处理，不校验
-
-    try:
-        client = get_vector_client()
-        embedder = get_embedding_model()
-        vec = embedder.embed(f"{entity_name} {description}")
-        point_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, str(entity_id)))
-        record = VectorRecord(
-            id=point_id,
-            vector=vec,
-            payload={
-                "entity_id": entity_id,
-                "entity_name": entity_name,
-                "description": description,
-                "entity_type": entity_type,
-                "ts_code": ts_code,
-            },
-        )
-        client.upsert(collection, [record])
-        return True
-    except Exception as e:
-        logger.warning("upsert_entity_vector 失败: %s", e)
-        return False
-
-
-def upsert_relation_vector(
-    relation_key: str,
-    from_name: str,
-    to_name: str,
-    description: str,
-    from_entity: str = "",
-    to_entity: str = "",
-    ts_code: str = "",
-    collection: str = COLLECTION_RELATIONS,
-) -> bool:
-    """将关系描述写入向量库"""
-    try:
-        client = get_vector_client()
-        embedder = get_embedding_model()
-        vec = embedder.embed(f"{from_name} 与 {to_name}：{description}")
-        point_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, str(relation_key)))
-        record = VectorRecord(
-            id=point_id,
-            vector=vec,
-            payload={
-                "from_entity": from_entity,
-                "to_entity": to_entity,
-                "from_name": from_name,
-                "to_name": to_name,
-                "description": description,
-                "ts_code": ts_code,
-            },
-        )
-        client.upsert(collection, [record])
-        return True
-    except Exception as e:
-        logger.warning("upsert_relation_vector 失败: %s", e)
-        return False
 
 
 def upsert_chunk_vector(

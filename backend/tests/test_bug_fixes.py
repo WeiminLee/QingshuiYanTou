@@ -166,29 +166,6 @@ class TestBug19EmbeddingDefaults:
 class TestBug9TransactionAtomicity:
     """BUG-9/10/11: 事务原子性测试"""
 
-    def test_neo4j_client_has_write_transaction(self):
-        """测试 neo4j_client.py 包含 write_transaction"""
-        source_file = "/home/code/QingShuiTouYan/backend/app/core/neo4j_client.py"
-        if not os.path.exists(source_file):
-            pytest.skip("neo4j_client.py not found")
-
-        with open(source_file) as f:
-            source = f.read()
-
-        assert "write_transaction" in source, "neo4j_client.py 应包含 write_transaction"
-
-    def test_relation_service_uses_transaction(self):
-        """测试 relation_service.py 使用事务"""
-        source_file = "/home/code/QingShuiTouYan/backend/app/knowledge/relation_service.py"
-        if not os.path.exists(source_file):
-            pytest.skip("relation_service.py not found")
-
-        with open(source_file) as f:
-            source = f.read()
-
-        assert "write_transaction" in source, "relation_service.py 应使用事务"
-
-
 class TestBug6N1Query:
     """BUG-6: N+1 查询问题测试"""
 

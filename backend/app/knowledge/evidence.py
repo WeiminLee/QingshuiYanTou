@@ -1,6 +1,6 @@
 """Evidence-first knowledge construction primitives.
 
-This module is intentionally pure: no database, Neo4j, Qdrant, or LLM imports.
+This module is intentionally pure: no database, Qdrant, or LLM imports.
 It defines stable identifiers and lightweight schemas used by ingestion builders
 and async extraction workers.
 """
@@ -37,11 +37,10 @@ SOURCE_TYPES = frozenset(
     }
 )
 
-JOB_COMBINED = "combined"
 JOB_VECTOR = "vector"
 JOB_SIGNAL = "signal"
 JOB_LINK = "link"
-JOB_TYPES = frozenset({JOB_COMBINED, JOB_VECTOR, JOB_SIGNAL, JOB_LINK})
+JOB_TYPES = frozenset({JOB_VECTOR, JOB_SIGNAL, JOB_LINK})
 
 STATUS_PENDING = "pending"
 STATUS_RUNNING = "running"

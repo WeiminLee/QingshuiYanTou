@@ -14,14 +14,7 @@ from app.config import settings
 from app.data_pipeline.api import data_router, information_router, monitor_router, stocks_router
 from app.data_pipeline.api.data_sync import router as data_sync_router
 from app.data_pipeline.scheduler import Scheduler as DataPipelineScheduler
-from app.knowledge.api import (
-    concept_router,
-    entities_router,
-    kg_extraction_router,
-    relations_router,
-)
-from app.knowledge.api.feedback import router as feedback_router
-from app.knowledge.api.knowledge_package import router as knowledge_package_router
+from app.knowledge.api import concept_router
 from app.knowledge.api.worker_jobs import router as worker_jobs_router, evidence_router
 from app.knowledge.api.worker_writes import router as worker_writes_router
 from app.knowledge.api.agent_search import router as agent_search_router
@@ -136,10 +129,8 @@ async def lifespan(app: FastAPI):
         _data_scheduler.stop()
         print("数据采集调度器已关闭")
     from app.core.mongodb import close_mongo_client
-    from app.core.neo4j_client import close_async_driver
 
     await close_mongo_client()
-    await close_async_driver()
     print(f"关闭 {settings.app_name}...")
 
 
@@ -169,10 +160,6 @@ app.include_router(
     tags=["监控告警"],
     dependencies=[Depends(verify_api_key)],
 )
-app.include_router(entities_router, tags=["知识构建"], dependencies=[Depends(verify_api_key)])
-app.include_router(relations_router, tags=["知识构建"], dependencies=[Depends(verify_api_key)])
-app.include_router(kg_extraction_router, tags=["知识构建"], dependencies=[Depends(verify_api_key)])
-app.include_router(feedback_router, dependencies=[Depends(verify_api_key)])
 # 读操作路由（已有自身Depends，不重复叠加）
 # /api/v1/agent/* removed — Data MCP + dsh harness only (2026-10-10)
 app.include_router(
@@ -185,12 +172,6 @@ app.include_router(
     concept_router,
     prefix="/api/v1/concept",
     tags=["概念评分"],
-    dependencies=[Depends(verify_api_key_optional)],
-)
-app.include_router(
-    knowledge_package_router,
-    prefix="/api/v1/knowledge",
-    tags=["知识构建"],
     dependencies=[Depends(verify_api_key_optional)],
 )
 app.include_router(worker_jobs_router)
