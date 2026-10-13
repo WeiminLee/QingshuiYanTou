@@ -28,7 +28,16 @@ export default defineConfig([
     format: ['cjs'],
     platform: 'browser',
     dts: false,
+    minify: true,
     external: PLATFORM_EXTERNALS,
+    // The browser sandbox has no `process`; fold echarts/zrender's
+    // dev-vs-prod branches at build time (client bundle only).
+    define: { 'process.env.NODE_ENV': '"production"' },
+    deps: {
+      // Browser host provides only PLATFORM_EXTERNALS via ModuleLoader;
+      // everything else the client imports (echarts graph) must be inlined.
+      alwaysBundle: [/^echarts(\/.*)?$/, /^zrender(\/.*)?$/, /^tslib(\/.*)?$/],
+    },
     outputOptions: {
       entryFileNames: 'client.js',
       sourcemap: true,

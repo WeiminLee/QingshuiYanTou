@@ -43,6 +43,9 @@ function createKnowledgeClient(options) {
 		method: "POST",
 		body: JSON.stringify(body)
 	});
+	const get = (path, params) => {
+		return request(`${path}${params === void 0 ? "" : `?${new URLSearchParams(params).toString()}`}`, { method: "GET" });
+	};
 	return {
 		semanticSearch(input) {
 			return post("/api/v1/knowledge/search/semantic", {
@@ -91,6 +94,17 @@ function createKnowledgeClient(options) {
 				min_cooccur: input.min_cooccur ?? 5,
 				top_k: input.top_k ?? 20
 			});
+		},
+		getKline(input) {
+			return get("/api/v1/knowledge/market/kline", {
+				ts_code: input.ts_code,
+				start_date: input.start_date ?? "",
+				end_date: input.end_date ?? "",
+				freq: input.freq ?? "D"
+			});
+		},
+		getStockProfile(tsCode) {
+			return get("/api/v1/knowledge/market/stock_profile", { ts_code: tsCode });
 		}
 	};
 }
@@ -133,6 +147,11 @@ function needClient(options) {
 	const client = options.client();
 	if (!client) return { error: "Knowledge client not configured (set knowledgeBaseUrl + KNOWLEDGE_API_KEY/API_KEY)" };
 	return client;
+}
+/** Model-facing text for the fetch_evidence canonical value (raw doc or {error}). */
+function renderEvidenceValue(value) {
+	if (typeof value === "object" && value !== null && "error" in value) return String(value.error);
+	return formatEvidenceText(value);
 }
 function installQingshuiTools(ctx, options) {
 	ctx.inject(["tools"], (tctx) => {
@@ -246,19 +265,20 @@ function installQingshuiTools(ctx, options) {
 				description: "证据 ID，格式 EV:…"
 			} },
 			output: {
-				schema: { type: "string" },
+				schema: { type: "json" },
 				render: (_a, v) => [{
 					type: "text",
-					text: String(v)
-				}]
+					text: renderEvidenceValue(v)
+				}],
+				presentationMeta: (_a, v) => v
 			},
 			async execute(args) {
 				const c = needClient(options);
-				if ("error" in c) return c.error;
+				if ("error" in c) return { error: c.error };
 				try {
-					return formatEvidenceText(await c.fetchEvidence(String(args.evidence_id ?? "")));
+					return await c.fetchEvidence(String(args.evidence_id ?? ""));
 				} catch (e) {
-					return `证据查询失败: ${e instanceof Error ? e.message : String(e)}`;
+					return { error: `证据查询失败: ${e instanceof Error ? e.message : String(e)}` };
 				}
 			}
 		}));
@@ -286,7 +306,8 @@ function installQingshuiTools(ctx, options) {
 			},
 			output: {
 				schema: { type: "json" },
-				render: (_a, v) => renderJson(v)
+				render: (_a, v) => renderJson(v),
+				presentationMeta: (_a, v) => v
 			},
 			async execute(args) {
 				const c = needClient(options);
@@ -366,6 +387,62 @@ function installQingshuiTools(ctx, options) {
 					min_cooccur: typeof args.min_cooccur === "number" ? args.min_cooccur : 5,
 					top_k: typeof args.top_k === "number" ? args.top_k : 20
 				});
+			}
+		}));
+		tctx.tools.register(defineTool({
+			name: "get_kline",
+			description: "行情 K 线：个股 OHLCV 时间序列（本地行情库）。返回 count 与 items（trade_date/open/high/low/close/pre_close/volume/amount/pct_chg/turnover_rate）及摘要 text。例：get_kline(ts_code=\"300308.SZ\", start_date=\"20250901\", end_date=\"20251013\")。",
+			parameters: {
+				ts_code: {
+					type: "string",
+					required: true,
+					description: "股票代码，如 300308.SZ"
+				},
+				start_date: {
+					type: "string",
+					description: "起始日 YYYYMMDD；缺省为 end_date 前 180 天"
+				},
+				end_date: {
+					type: "string",
+					description: "截止日 YYYYMMDD；缺省为今天"
+				},
+				freq: {
+					type: "string",
+					description: "周期 D|W|M，默认 D"
+				}
+			},
+			output: {
+				schema: { type: "json" },
+				render: (_a, v) => renderJson(v),
+				presentationMeta: (_a, v) => v
+			},
+			async execute(args) {
+				const c = needClient(options);
+				if ("error" in c) return c;
+				return await c.getKline({
+					ts_code: String(args.ts_code ?? ""),
+					start_date: args.start_date ? String(args.start_date) : null,
+					end_date: args.end_date ? String(args.end_date) : null,
+					freq: args.freq ? String(args.freq) : null
+				});
+			}
+		}));
+		tctx.tools.register(defineTool({
+			name: "get_stock_profile",
+			description: "公司概况：主营业务与经营范围（本地股票库）。返回 main_business/business_scope 与摘要 text。例：get_stock_profile(ts_code=\"300308.SZ\")。",
+			parameters: { ts_code: {
+				type: "string",
+				required: true,
+				description: "股票代码，如 300308.SZ"
+			} },
+			output: {
+				schema: { type: "json" },
+				render: (_a, v) => renderJson(v)
+			},
+			async execute(args) {
+				const c = needClient(options);
+				if ("error" in c) return c;
+				return await c.getStockProfile(String(args.ts_code ?? ""));
 			}
 		}));
 	});

@@ -51,3 +51,29 @@ test('non-2xx throws with status', async () => {
   })
   await assert.rejects(() => client.compareMetric({ dimension: 'x' }), /401/)
 })
+
+test('getKline and getStockProfile GET the market endpoints with query params', async () => {
+  const urls: string[] = []
+  const fetchImpl: typeof fetch = async (url) => {
+    urls.push(String(url))
+    return new Response(JSON.stringify({}), { status: 200 })
+  }
+  const client = createKnowledgeClient({
+    baseUrl: 'http://knowledge.test',
+    apiKey: 'k',
+    timeoutMs: 5000,
+    fetchImpl,
+  })
+  await client.getKline({ ts_code: '300308.SZ', start_date: '20250901', end_date: null, freq: 'W' })
+  await client.getKline({ ts_code: '300308.SZ' })
+  await client.getStockProfile('300308.SZ')
+  assert.equal(
+    urls[0],
+    'http://knowledge.test/api/v1/knowledge/market/kline?ts_code=300308.SZ&start_date=20250901&end_date=&freq=W',
+  )
+  assert.equal(
+    urls[1],
+    'http://knowledge.test/api/v1/knowledge/market/kline?ts_code=300308.SZ&start_date=&end_date=&freq=D',
+  )
+  assert.equal(urls[2], 'http://knowledge.test/api/v1/knowledge/market/stock_profile?ts_code=300308.SZ')
+})

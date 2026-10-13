@@ -30,5 +30,8 @@
         "dsh-client-ui-sidebar"
       ]
     }
+  },
+  "dependencies": {
+    "echarts": "^6.1.0"
   }
 }
