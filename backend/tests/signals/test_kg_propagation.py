@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 
 from app.signals.extractor import SignalCandidate
-from app.signals.kg_propagation import KGEdge, KGPath, build_kg_propagations, neo4j_rows_to_paths
+from app.signals.kg_propagation import KGEdge, KGPath, build_kg_propagations
 
 
 def _candidate(signal_type: str = "mass_production") -> SignalCandidate:
@@ -55,56 +55,3 @@ def test_build_kg_propagations_drops_paths_deeper_than_two_hops():
     )
 
     assert build_kg_propagations(_candidate(), [path]) == []
-
-
-def test_neo4j_rows_to_paths_converts_two_hop_records():
-    rows = [
-        {
-            "path_nodes": ["中际旭创", "800G光模块", "光芯片"],
-            "edges": [
-                {
-                    "src": "中际旭创",
-                    "tgt": "800G光模块",
-                    "type": "RELATES",
-                    "text": "生产 800G 光模块",
-                    "weight": 0.9,
-                    "target_labels": ["Product"],
-                },
-                {
-                    "src": "800G光模块",
-                    "tgt": "光芯片",
-                    "type": "RELATES",
-                    "text": "上游依赖光芯片",
-                    "weight": 0.8,
-                    "target_labels": ["Concept"],
-                },
-            ],
-            "hops": 2,
-        }
-    ]
-
-    paths = neo4j_rows_to_paths(rows)
-
-    assert paths == [
-        KGPath(
-            nodes=["中际旭创", "800G光模块", "光芯片"],
-            edges=[
-                KGEdge(
-                    src="中际旭创",
-                    rel_type="RELATES",
-                    tgt="800G光模块",
-                    weight=0.9,
-                    text="生产 800G 光模块",
-                    target_type="product",
-                ),
-                KGEdge(
-                    src="800G光模块",
-                    rel_type="RELATES",
-                    tgt="光芯片",
-                    weight=0.8,
-                    text="上游依赖光芯片",
-                    target_type="concept",
-                ),
-            ],
-        )
-    ]

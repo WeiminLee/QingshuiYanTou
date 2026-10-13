@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.event import Event
 from app.signals.extractor import RuleSignalExtractor, SignalCandidate, SourcePayload, stable_signal_id
-from app.signals.kg_propagation import KGPath, KGPathProvider, Neo4jKGPathProvider, build_kg_propagations
+from app.signals.kg_propagation import KGPath, KGPathProvider, build_kg_propagations
 from app.signals.models import Signal, SignalPropagation
 from app.signals.propagation import PropagationCandidate, build_lightweight_propagations
 
@@ -107,7 +107,9 @@ async def build_event_kg_paths_by_subject(
     candidates: list[SignalCandidate],
     provider: KGPathProvider | None = None,
 ) -> dict[str, list[KGPath]]:
-    provider = provider or Neo4jKGPathProvider()
+    if provider is None:
+        # Neo4j 已除役（2026-10-13）：无路径提供者 → 走 lightweight 传导
+        return {}
     result: dict[str, list[KGPath]] = {}
     for subject in dict.fromkeys(candidate.subject_name for candidate in candidates if candidate.subject_name):
         result[subject] = await provider.fetch_paths(subject, max_hops=2)

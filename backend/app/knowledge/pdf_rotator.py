@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import Any
 
 from app.core.mongodb import get_mongo_db
-from app.core.neo4j_client import run_write
 from app.knowledge.file_indexer import FileIndexer
 
 logger = logging.getLogger(__name__)
@@ -47,27 +46,8 @@ async def get_rotation_stats(days_threshold: int = 730) -> dict[str, int | float
     }
 
 
-def _mark_neo4j_pdf_rotated(cninfo_id: str, file_path: str) -> None:
-    try:
-        run_write(
-            """
-            MATCH (n)
-            WHERE n.evidence_url = $file_path OR n.source_document_id = $cninfo_id
-            SET n.evidence_url = $marker, n.pdf_rotated_at = $rotated_at
-            """,
-            {
-                "file_path": file_path,
-                "cninfo_id": cninfo_id,
-                "marker": f"PDF rotated: {cninfo_id}",
-                "rotated_at": _utc_now().isoformat(),
-            },
-        )
-    except Exception as exc:  # noqa: BLE001
-        logger.debug("Neo4j PDF rotated marker skipped [%s]: %s", cninfo_id, exc)
-
-
 async def rotate_old_pdfs(days_threshold: int = 730, dry_run: bool = False) -> dict[str, int]:
-    """Delete local PDFs older than the threshold; retain Mongo/Neo4j metadata."""
+    """Delete local PDFs older than the threshold; retain Mongo metadata."""
     cutoff = _utc_now() - timedelta(days=days_threshold)
     files = await get_files_older_than(cutoff)
     db = get_mongo_db()
@@ -102,7 +82,6 @@ async def rotate_old_pdfs(days_threshold: int = 730, dry_run: bool = False) -> d
                         },
                     )
                     cleared = True
-                _mark_neo4j_pdf_rotated(cninfo_id, file_path)
                 stats["cleared"] += int(cleared)
         except Exception as exc:  # noqa: BLE001
             stats["failed"] += 1

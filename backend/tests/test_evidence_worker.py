@@ -9,7 +9,7 @@ import pytest
 from sqlalchemy.dialects import postgresql
 
 from app.knowledge.evidence import (
-    JOB_COMBINED,
+    JOB_SIGNAL,
     JOB_LINK,
     JOB_SIGNAL,
     JOB_VECTOR,
@@ -213,33 +213,33 @@ def test_run_once_limit_zero_returns_zero() -> None:
             "success": 0,
             "failed": 0,
             "skipped": 0,
-            "job_type": "combined",
+            "job_type": "link",
         }
 
     asyncio.run(main())
 
 
-def test_successful_combined_job_marks_done_and_updates_evidence(monkeypatch) -> None:
+def test_successful_signal_job_marks_done_and_updates_evidence(monkeypatch) -> None:
     async def main():
-        async def fake_extract(evidence):
-            return {"entities_created": 1, "relations_created": 0}
+        async def fake_signals(evidence):
+            return {"signals": 1}
 
-        monkeypatch.setattr("app.knowledge.evidence_worker.extract_evidence_async", fake_extract)
+        monkeypatch.setattr("app.knowledge.evidence_worker.ingest_evidence_signals", fake_signals)
         service = FakeService()
         service.jobs = [
             {
                 "job_id": "J1",
                 "evidence_id": "EV:1",
-                "job_type": JOB_COMBINED,
+                "job_type": JOB_SIGNAL,
                 "status": STATUS_PENDING,
             }
         ]
         worker = _worker(service)
-        result = await worker.run_once(limit=1, job_type=JOB_COMBINED)
+        result = await worker.run_once(limit=1, job_type=JOB_SIGNAL)
         assert result["claimed"] == 1
         assert result["success"] == 1
         assert service.done
-        assert service.evidence["EV:1"]["status_updates"][-1] == (JOB_COMBINED, STATUS_DONE)
+        assert service.evidence["EV:1"]["status_updates"][-1] == (JOB_SIGNAL, STATUS_DONE)
 
     asyncio.run(main())
 
@@ -251,19 +251,19 @@ def test_missing_evidence_marks_job_failed() -> None:
             {
                 "job_id": "J1",
                 "evidence_id": "EV:missing",
-                "job_type": JOB_COMBINED,
+                "job_type": JOB_SIGNAL,
                 "status": STATUS_PENDING,
             }
         ]
         worker = _worker(service)
-        result = await worker.run_once(limit=1, job_type=JOB_COMBINED)
+        result = await worker.run_once(limit=1, job_type=JOB_SIGNAL)
         assert result["failed"] == 1
         assert service.failed
 
     asyncio.run(main())
 
 
-def test_extractor_exception_marks_failed() -> None:
+def test_extractor_exception_marks_failed(monkeypatch) -> None:
     async def main():
         service = FakeService()
         service.evidence["EV:1"]["source_type"] = "announcement"
@@ -271,53 +271,47 @@ def test_extractor_exception_marks_failed() -> None:
             {
                 "job_id": "J1",
                 "evidence_id": "EV:1",
-                "job_type": JOB_COMBINED,
+                "job_type": JOB_SIGNAL,
                 "status": STATUS_PENDING,
             }
         ]
         worker = _worker(service)
-        from app.knowledge import evidence_worker as ew
-
-        orig = ew.extract_evidence_async
 
         async def boom(*args, **kwargs):
             raise RuntimeError("boom")
 
-        ew.extract_evidence_async = boom
-        try:
-            result = await worker.run_once(limit=1, job_type=JOB_COMBINED)
-            assert result["failed"] == 1
-            assert service.failed
-            assert service.evidence["EV:1"]["status_updates"][-1] == (JOB_COMBINED, STATUS_FAILED)
-        finally:
-            ew.extract_evidence_async = orig
+        monkeypatch.setattr("app.knowledge.evidence_worker.ingest_evidence_signals", boom)
+        result = await worker.run_once(limit=1, job_type=JOB_SIGNAL)
+        assert result["failed"] == 1
+        assert service.failed
+        assert service.evidence["EV:1"]["status_updates"][-1] == (JOB_SIGNAL, STATUS_FAILED)
 
     asyncio.run(main())
 
 
 def test_two_jobs_processed(monkeypatch) -> None:
     async def main():
-        async def fake_extract(evidence):
-            return {"entities_created": 1, "relations_created": 0}
+        async def fake_signals(evidence):
+            return {"signals": 1}
 
-        monkeypatch.setattr("app.knowledge.evidence_worker.extract_evidence_async", fake_extract)
+        monkeypatch.setattr("app.knowledge.evidence_worker.ingest_evidence_signals", fake_signals)
         service = FakeService()
         service.jobs = [
             {
                 "job_id": "J1",
                 "evidence_id": "EV:1",
-                "job_type": JOB_COMBINED,
+                "job_type": JOB_SIGNAL,
                 "status": STATUS_PENDING,
             },
             {
                 "job_id": "J2",
                 "evidence_id": "EV:2",
-                "job_type": JOB_COMBINED,
+                "job_type": JOB_SIGNAL,
                 "status": STATUS_PENDING,
             },
         ]
         worker = _worker(service)
-        result = await worker.run_once(limit=2, job_type=JOB_COMBINED)
+        result = await worker.run_once(limit=2, job_type=JOB_SIGNAL)
         assert result["claimed"] == 2
         assert result["success"] == 2
 

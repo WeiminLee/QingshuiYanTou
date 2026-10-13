@@ -68,14 +68,6 @@ class Settings(BaseSettings):
     # 可用模型列表缓存秒数（仅 403 model_not_available 时才会触发拉取）
     llm_model_list_cache_ttl: int = 300
 
-    # Neo4j（图数据库）
-    neo4j_url: str = "bolt://localhost:7687"
-    neo4j_user: str = "neo4j"
-    neo4j_password: str = ""
-
-    # 三元组抽取退役开关：False=停发三元组 combined job（Neo4j 不再有新写入）
-    enable_kg_extraction: bool = True
-
     # Embedding 后端选择器
     # 可选值：openai（默认，qwen3-embedding 等 OpenAI 兼容格式）、
     #         local（BGE-M3 本地服务）、
@@ -154,8 +146,6 @@ class Settings(BaseSettings):
             missing.append("MONGODB_URL")
         if not self.llm_api_key:
             missing.append("LLM_API_KEY")
-        if not self.neo4j_password:
-            missing.append("NEO4J_PASSWORD")
         if missing:
             raise RuntimeError(f"缺少必需的配置项，请检查 .env 文件: {', '.join(missing)}")
 

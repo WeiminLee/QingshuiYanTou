@@ -5,8 +5,8 @@ import tempfile
 
 import pytest
 
-# 在导入 app.config 之前注入占位配置：app.config 在 import 期即校验 4 个必填项
-# （DATABASE_URL/MONGODB_URL/LLM_API_KEY/NEO4J_PASSWORD），否则 RuntimeError 使整个
+# 在导入 app.config 之前注入占位配置：app.config 在 import 期即校验必填项
+# （DATABASE_URL/MONGODB_URL/LLM_API_KEY），否则 RuntimeError 使整个
 # 测试模块无法收集。此处仅当环境未提供时补占位值，让单元测试无需真实 .env 即可运行；
 # 需要真实外部服务的用例应标记 @pytest.mark.integration。
 #
@@ -19,7 +19,6 @@ _TEST_ENV_DEFAULTS = {
     "DATABASE_URL": "postgresql+asyncpg://test:test@localhost:5432/test",
     "MONGODB_URL": "mongodb://localhost:27017/test",
     "LLM_API_KEY": "test-key",
-    "NEO4J_PASSWORD": "test-password",
     "MINISHARE_DATA_ROOT": _TEST_DATA_ROOT,
 }
 for _k, _v in _TEST_ENV_DEFAULTS.items():

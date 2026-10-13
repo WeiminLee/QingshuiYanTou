@@ -9,10 +9,8 @@ import time
 from typing import Any
 
 from app.core.database import async_session
-from app.knowledge.evidence import JOB_COMBINED, JOB_LINK, JOB_SIGNAL, JOB_VECTOR
+from app.knowledge.evidence import JOB_LINK, JOB_SIGNAL, JOB_VECTOR
 from app.knowledge.evidence_service import EvidenceService
-from app.knowledge.extraction.irm_classifier import classify_irm_evidence, extraction_tier
-from app.knowledge.kg_extractor import extract_evidence_async, extract_evidence_raw
 from app.knowledge.linklayer.candidates import emit_radar_signals, generate_candidates, persist_candidates
 from app.knowledge.linklayer.ingest import compute_link_actions, ingest_evidence
 from app.knowledge.vector_client import build_evidence_vector_record, upsert_evidence_chunk_vector
@@ -42,7 +40,7 @@ class EvidenceExtractionWorker:
         self.batch_size = batch_size
         self.max_concurrency = max_concurrency
 
-    async def run_once(self, limit: int | None = None, job_type: str = "combined") -> dict[str, int]:
+    async def run_once(self, limit: int | None = None, job_type: str = "link") -> dict[str, int]:
         if limit is not None and limit <= 0:
             return {"claimed": 0, "success": 0, "failed": 0, "skipped": 0, "job_type": job_type}
 
@@ -104,7 +102,7 @@ class EvidenceExtractionWorker:
         self,
         interval_seconds: int = 30,
         limit_per_loop: int | None = None,
-        job_type: str = "combined",
+        job_type: str = "link",
     ) -> None:
         while True:
             try:
@@ -119,7 +117,7 @@ class EvidenceExtractionWorker:
     async def process_job(self, job: dict[str, Any]) -> dict[str, Any]:
         evidence_id = str(job.get("evidence_id") or "")
         job_id = str(job.get("job_id") or "")
-        job_type = str(job.get("job_type") or "combined")
+        job_type = str(job.get("job_type") or "link")
         evidence = await self.service.get_evidence(evidence_id)
         if not evidence:
             await self.service.mark_job_failed(job_id, "Evidence not found")
@@ -127,62 +125,6 @@ class EvidenceExtractionWorker:
 
         heartbeat_task = asyncio.create_task(self._heartbeat(job_id))
         try:
-            if job_type == JOB_COMBINED:
-                if evidence.get("source_type") == "irm":
-                    category = classify_irm_evidence(evidence)
-                    tier = extraction_tier(category)
-                    if tier == 0:
-                        await self.service.mark_job_skipped(
-                            job_id, f"IRM classified as '{category}'; no KG extraction"
-                        )
-                        return {"status": "skipped", "reason": category}
-                # Remote workers: LLM 抽取在 worker 本地，云端只做知识图谱入库（/kg/ingest）。
-                # 本地一体（无 KNOWLEDGE_API_URL）走 legacy 路径。
-                import os
-                if os.getenv("KNOWLEDGE_API_URL") and os.getenv("KNOWLEDGE_API_KEY"):
-                    extracted = await extract_evidence_raw(evidence)
-                    if extracted["status"] == "empty":
-                        result = {
-                            "entities_created": 0, "entities_updated": 0,
-                            "relations_created": 0, "relations_updated": 0,
-                            "chunks_processed": 0,
-                            "evidence_id": evidence.get("evidence_id"),
-                            "entities_raw": [], "relations_raw": [],
-                        }
-                    elif extracted["status"] == "cached":
-                        cached = extracted["cached"]
-                        result = {
-                            "entities_created": 0,
-                            "entities_updated": len(cached.get("entities", [])),
-                            "relations_created": 0,
-                            "relations_updated": len(cached.get("relations", [])),
-                            "chunks_processed": 1,
-                            "evidence_id": extracted["evidence_id"],
-                            "entities": cached.get("entities", []),
-                            "relations": cached.get("relations", []),
-                            "signals": cached.get("signals", []),
-                            "from_cache": True,
-                        }
-                    else:
-                        import httpx
-                        async with httpx.AsyncClient(timeout=180) as client:
-                            resp = await client.post(
-                                os.environ["KNOWLEDGE_API_URL"].rstrip("/") + "/api/v1/knowledge/kg/ingest",
-                                headers={"X-API-Key": os.environ["KNOWLEDGE_API_KEY"]},
-                                json={
-                                    "evidence": evidence,
-                                    "entities_raw": extracted.get("entities_raw", []),
-                                    "relations_raw": extracted.get("relations_raw", []),
-                                    "signals": extracted.get("signals", []),
-                                    "text": extracted.get("text", ""),
-                                },
-                            )
-                            resp.raise_for_status()
-                            result = resp.json()
-                else:
-                    result = await extract_evidence_async(evidence)
-                await self.service.mark_job_done(job_id, result)
-                return {"status": "done", **result}
             if job_type == JOB_VECTOR:
                 import os
                 if os.getenv("KNOWLEDGE_API_URL") and os.getenv("KNOWLEDGE_API_KEY"):

@@ -23,7 +23,7 @@ from app.ops.worker_config import WorkerSettings
 
 logger = logging.getLogger(__name__)
 
-EVIDENCE_JOB_TYPES = ("combined", "vector", "signal", "link")
+EVIDENCE_JOB_TYPES = ("vector", "signal", "link")
 
 
 async def run_evidence(settings: WorkerSettings, once: bool, limit: int | None, job_type: str) -> None:

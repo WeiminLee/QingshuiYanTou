@@ -888,13 +888,12 @@ class RAGExtractor:
         # ── weight 累加 ──────────────────────────────────────────────
         total_weight = sum(max(0, e.get("weight", 5)) for e in instances)
 
-        # Neo4j 只支持原始类型：descriptions 扁平化为 list[str]
         flat_descs = [d["text"] for d in descriptions if isinstance(d, dict) and d.get("text")]
         return {
             "src_id": src,
             "tgt_id": tgt,
             "description": flat_descs[0] if flat_descs else "",
-            "descriptions": flat_descs,  # Neo4j 兼容：list[str]
+            "descriptions": flat_descs,
             "keywords": keywords,
             "direction": final_direction,
             "weight": round(total_weight, 2),

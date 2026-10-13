@@ -2,7 +2,7 @@
 清水投研系统（QingShuiTouYan）
 
 主要模块：
-- core: 数据库连接（PostgreSQL, Neo4j, MongoDB）
+- core: 数据库连接（PostgreSQL, MongoDB）
 - data_pipeline: 定时数据采集写入
 - knowledge: 知识图谱构建
 - packages: 情报包生成器

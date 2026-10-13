@@ -9,7 +9,6 @@ from httpx import ASGITransport, AsyncClient
 os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://test:test@localhost:5432/test")
 os.environ.setdefault("MONGODB_URL", "mongodb://localhost:27017/test")
 os.environ.setdefault("LLM_API_KEY", "test-key")
-os.environ.setdefault("NEO4J_PASSWORD", "test-password")
 os.environ.setdefault("MASTER_PASSWORD", "test-master-pass-1234")
 os.environ.setdefault("API_KEY", "test-api-key")
 
