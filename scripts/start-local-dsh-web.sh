@@ -13,6 +13,9 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+# launchd 环境 PATH 极简，必须显式带上 homebrew（node/pnpm 所在）
+export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+
 PORT="${1:-8399}"
 export DSH_HOME="${DSH_HOME:-$HOME/.dsh-qingshui}"
 
@@ -35,11 +38,12 @@ if [ -f "$ENV_FILE" ]; then
   source "$ENV_FILE"
 fi
 : "${KNOWLEDGE_API_KEY:?KNOWLEDGE_API_KEY 未设置（仓内兜底提取也失败）}"
-# OPENAI_API_KEY：进程 env > scripts/local-dsh-env.sh > $DSH_HOME/.env（dsh 凭据层会读）
-if [ -z "${OPENAI_API_KEY:-}" ] && ! grep -qs '^OPENAI_API_KEY=' "$DSH_HOME/.env"; then
+# OPENAI_API_KEY：进程 env > scripts/local-dsh-env.sh > $DSH_HOME/.env > 凭据库软链
+# （~/.dsh-qingshui/.credentials.yaml -> ~/.dsh/.credentials.yaml，复用 pjlab 网关 key）
+if [ -z "${OPENAI_API_KEY:-}" ] && ! grep -qs '^OPENAI_API_KEY=' "$DSH_HOME/.env" 2>/dev/null && [ ! -f "$DSH_HOME/.credentials.yaml" ]; then
   echo "✗ 缺 OPENAI_API_KEY（pjlab 网关）。任选其一：" >&2
-  echo "    echo 'OPENAI_API_KEY=<key>' > $DSH_HOME/.env   # 推荐，一次到位" >&2
-  echo "    或复制 scripts/local-dsh-env.example.sh 为 scripts/local-dsh-env.sh 填入" >&2
+  echo "    echo 'OPENAI_API_KEY=<key>' > $DSH_HOME/.env   # 一次到位" >&2
+  echo "    ln -sf ~/.dsh/.credentials.yaml $DSH_HOME/.credentials.yaml  # 复用 dsh 凭据库" >&2
   exit 1
 fi
 
