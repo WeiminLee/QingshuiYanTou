@@ -28,6 +28,7 @@ from app.knowledge.api.agent_search import router as agent_search_router
 from app.knowledge.api.agent_metrics import router as agent_metrics_router, metrics_compare_router
 from app.knowledge.api.agent_links import router as agent_links_router
 from app.knowledge.api.agent_market import router as agent_market_router
+from app.knowledge.api.agent_ledger import router as agent_ledger_router
 from app.readiness.api import router as readiness_router
 from app.signals.api import router as signals_router
 from app.utils.auth import verify_api_key, verify_api_key_optional
@@ -199,6 +200,7 @@ app.include_router(agent_metrics_router)
 app.include_router(metrics_compare_router)
 app.include_router(agent_links_router)
 app.include_router(agent_market_router)
+app.include_router(agent_ledger_router)
 app.include_router(
     information_router,
     prefix="/api/v1/information",
