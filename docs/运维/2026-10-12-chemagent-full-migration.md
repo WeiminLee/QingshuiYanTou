@@ -140,3 +140,40 @@
 - worker 回云端：supervisor / pdf_worker.env 的 `KNOWLEDGE_API_URL` 改回
   `http://124.221.188.38:8080` 并重启（备份文件 `*.bak-20261012` 在同目录）。
 - compose 回滚：`/data/qingshui/docker-compose.yml.bak-20261012`（无 scheduler 版）。
+
+## 部署方法补记（2026-10-13 三件套 + Neo4j 除役上线）
+
+chemagent 侧**不是 git clone**（两处代码目录均为拷贝），标准部署流程：
+
+1. **打包**（本地仓）：`git archive --format=tar.gz <commit> -o /tmp/bundle.tgz`
+2. **上传覆盖**（两个目录都覆盖，保留各自 .env/data/logs）：
+   ```bash
+   # /root/code/QingShuiYanTou  → backend/data-mcp/scheduler 镜像 build 上下文
+   # /root/wq                   → systemd worker 的代码目录
+   cd <目标目录>
+   rm -rf backend/app backend/scripts backend/tests backend/alembic backend/migrations \
+          plugins scripts deploy docs
+   tar -xzf /tmp/bundle.tgz -C <目标目录>
+   echo <commit> > DEPLOYED_REV
+   ```
+3. **构建+滚动**：**编排真身在 `/data/qingshui/docker-compose.yml`（compose 项目名 qingshui）**，
+   不要用仓内 deploy/chemagent 副本（会因项目名不同触发容器名冲突）。
+   **构建必须带实验室代理 build-arg**——chemagent 构建容器无直连外网出口，
+   裸跑会以「No matching distribution found for <任意包>」面目失败（腾讯/清华源皆如此）：
+   ```bash
+   cd /data/qingshui
+   docker compose build \
+     --build-arg http_proxy=http://httpproxy-headless.kubebrain.svc.pjlab.local:3128 \
+     --build-arg https_proxy=http://httpproxy-headless.kubebrain.svc.pjlab.local:3128 \
+     backend
+   docker compose up -d backend data-mcp scheduler
+   systemctl restart qingshui-worker.service qingshui-pdf-worker.service
+   ```
+4. **能力面冒烟**（本机经隧道）：`KNOWLEDGE_API_KEY=… bash scripts/smoke_capability.sh`
+   （31 项断言：P0 回归 + P0.5 新面 + 台账幂等写 + MCP tools/list）。
+
+### 已知数据缺口（通道正常、待采集；2026-10-13 实测）
+
+- `company_profiles` 表 0 行 → `get_stock_profile` 返回空业务描述（需回填脚本/采集任务）。
+- `concept_limit` 0 个交易日 → `get_top_concepts` 返回「本地数据不足」
+  （需运行概念涨停同步；补涨金标案 catchup-concept-001 依赖此面）。
