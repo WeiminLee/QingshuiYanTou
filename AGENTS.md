@@ -25,6 +25,9 @@
    - Mac → chemagent 的唯一通道：**SSH 端口转发**（如
      `ssh -N -L 8100:127.0.0.1:8100 lwm-server-chemagent`），访问 Data MCP / Knowledge API。
    - 本条是 Mac 常驻通道的**唯一豁免**（Mac 是用户终端而非生产中转）。
+   - **与 MatDiscovery 的 dsh 完全解耦（owner 2026-10-13）**：独立 `DSH_HOME=~/.dsh-qingshui`
+     （会话/配置/凭据互不可见）、各自 worktree 独立 dsh submodule pin、固定端口 **8399**；
+     禁止共享 `~/.dsh`。LLM 凭据在 `~/.dsh-qingshui/.env` 落 `OPENAI_API_KEY`（一次性手工）。
 3. **云服务器（124.221.188.38）= 只读存量快照，待下线**
    - 2026-10-12 起云端不再接收任何写入（worker 已切本机、云端 scheduler/cron 已停）。
    - 云侧 data-mcp / dsh web 仅作只读快照保留，**待 chemagent 侧全部验证结束后整体下线**
