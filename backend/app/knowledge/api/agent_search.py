@@ -43,13 +43,30 @@ def _shape_chunk(r) -> dict[str, Any]:
     payload = r.payload or {}
     content = payload.get("content", "") or ""
     snippet = content[:_SNIPPET_MAX] + ("…" if len(content) > _SNIPPET_MAX else "")
-    return {
+    chunk: dict[str, Any] = {
         "evidence_id": payload.get("evidence_id", ""),
         "snippet": snippet,
         "source_type": payload.get("source_type", ""),
         "source_name": payload.get("source_name", ""),
         "score": round(float(r.score), 4),
     }
+    publish_date = payload.get("publish_date")
+    if publish_date:
+        chunk["publish_date"] = str(publish_date)
+    title = None
+    subject_hint = payload.get("subject_hint")
+    if isinstance(subject_hint, dict):
+        title = subject_hint.get("title")
+    if not title:
+        metadata = payload.get("metadata")
+        if isinstance(metadata, dict):
+            title = metadata.get("title")
+    if title:
+        chunk["title"] = title
+    source_ref = payload.get("source_ref")
+    if isinstance(source_ref, dict) and source_ref.get("pdf_url"):
+        chunk["pdf_url"] = source_ref["pdf_url"]
+    return chunk
 
 
 @router.post("/search/semantic")

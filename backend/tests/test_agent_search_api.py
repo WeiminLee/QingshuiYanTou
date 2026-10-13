@@ -102,3 +102,64 @@ def test_semantic_invalid_scope(client):
         json={"query": "x", "scope": "nope"},
     )
     assert r.status_code == 422 or r.status_code == 400
+
+
+def test_semantic_chunks_enriched_optional_fields(client):
+    hit = SearchResult(
+        id="uuid-point-3",
+        score=0.77,
+        payload={
+            "evidence_id": "EV:xyz789",
+            "content": "硅片价格上调。",
+            "source_type": "announcement",
+            "source_name": "公告:003026.SZ",
+            "publish_date": "2026-09-01",
+            "subject_hint": {"title": "关于产品价格的公告"},
+            "source_ref": {"pdf_url": "https://static.cninfo.com.cn/x.pdf"},
+        },
+    )
+    with patch(
+        "app.knowledge.api.agent_search.semantic_search_chunks",
+        return_value=[hit],
+    ):
+        r = client.post(
+            "/api/v1/knowledge/search/semantic",
+            headers=HEADERS,
+            json={"query": "硅片", "scope": "chunks"},
+        )
+    assert r.status_code == 200
+    chunk = r.json()["chunks"][0]
+    assert chunk["publish_date"] == "2026-09-01"
+    assert chunk["title"] == "关于产品价格的公告"
+    assert chunk["pdf_url"] == "https://static.cninfo.com.cn/x.pdf"
+
+
+def test_semantic_chunks_omit_absent_optional_fields(client):
+    hits = [
+        _chunk_hit(),
+        SearchResult(
+            id="uuid-point-4",
+            score=0.5,
+            payload={
+                "evidence_id": "EV:m1",
+                "content": "正文。",
+                "metadata": {"title": "元数据标题"},
+            },
+        ),
+    ]
+    with patch(
+        "app.knowledge.api.agent_search.semantic_search_chunks",
+        return_value=hits,
+    ):
+        r = client.post(
+            "/api/v1/knowledge/search/semantic",
+            headers=HEADERS,
+            json={"query": "产能", "scope": "chunks"},
+        )
+    assert r.status_code == 200
+    chunks = r.json()["chunks"]
+    assert "publish_date" not in chunks[0]
+    assert "title" not in chunks[0]
+    assert "pdf_url" not in chunks[0]
+    assert chunks[1]["title"] == "元数据标题"  # metadata.title 兜底
+    assert "publish_date" not in chunks[1]
