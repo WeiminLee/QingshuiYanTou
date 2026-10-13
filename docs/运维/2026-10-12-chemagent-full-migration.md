@@ -93,6 +93,47 @@
 - **readiness 误报修复**（`8c54683`）：merge 的 latest_failure 不再计历史失败
   （只认最近成功之后的失败）；删除 9-24 残留的一条 irm all_market 失败 checkpoint
   与 100 条 Mac 时代 reports 失败记录。readiness 现 **overall: fresh**。
+- **semantic_search chunk 字段补全热修**（双轨分支 worktree `agent-mcp-dsh`，未提交）：
+  `_shape_chunk`（`backend/app/knowledge/api/agent_search.py`）在原 5 字段外按
+  payload 可选补 `publish_date`、`title`（`subject_hint.title` → `metadata.title`
+  兜底）、`pdf_url`（`source_ref.pdf_url`，仅公告类有）；缺失即省略不报错。
+  热部照旧：worktree 改码 → scp → `docker cp` 进 `qingshui_backend:/app/app/knowledge/api/`
+  → 重启容器（未动其他容器）。验证：`pytest tests/test_agent_search_api.py` 6/6
+  （新增 2 例钉住新字段与省略行为）；容器内对 doc_chunks 真实 payload 跑
+  `_shape_chunk`：公告类三字段齐、IRM 类仅 `publish_date`（省略语义正确）。
+  ⚠️ 附带发现：**`qingshui-infer-1gpu` rjob 处于 Stopped**（bge-m3/Qwen 推理下线，
+  `100.103.242.214:23456` 不可达），embedding 超时导致 semantic_search 实时检索
+  暂不可用，HTTP 端到端验证待 rjob 恢复后补。→ **已于当日下午恢复并验证通过，
+  见下条**。
+- **GPU 推理 rjob 停机恢复 + Qdrant HNSW 修复**（2026-10-13 下午）：
+  - **停机原因**：日志显示 10-13 10:38 平台侧 SIGTERM（`signal: terminated`，
+    疑似抢占/回收，events 无更多记录）；`--auto-restart` 只自愈失败副本，
+    对 job 级 Stopped 不生效，故未自动拉起。
+  - **恢复**：按 `deploy/chemagent/README.md` 原样重提交 → 新 job
+    `qingshui-infer-1gpu-73168281`，调度到**新节点 H200-0097，IP 变为
+    `100.102.89.71`**（旧 100.103.242.214）。bge-m3/Qwen 约 3 分钟内先后就绪
+    （shared storage 缓存热），`endpoints.json` 已自动更新，worker supervisor
+    自动跟随无需干预。
+  - **IP 漂移处置**：`/root/code/QingShuiYanTou/backend/.env:57`
+    `EMBEDDING_BASE_URL` 改新 IP；`/data/qingshui/docker-compose.yml` 两处
+    `extra_hosts gpu-node` 同步改（备份 `*.bak-20261013`）；`docker compose up -d
+    backend` 仅重建 backend。
+  - **⚠️ 踩坑：compose recreate 会丢 docker cp 热补丁**（容器可写层被换）——
+    上述 semantic chunk 热修一度被冲掉，重新 `docker cp` + restart 恢复，并已
+    `docker compose build backend` 把补丁烧进镜像（构建上下文
+    `/root/code/QingShuiYanTou/backend` 已含补丁，md5 三方一致）。
+    **教训：热修后要么尽快 build 镜像，要么避免 recreate。**
+  - **⚠️ 附带发现 2：Qdrant 三集合 HNSW 全被禁用**（`hnsw_config: null`，
+    从云端目录拷贝继承）：doc_chunks 39 万 / kg_entities 40 万 / kg_relations 55 万
+    点全部暴力全扫，单查 17~29s > qdrant-client 默认 5s 超时——这才是 rjob 恢复后
+    semantic 仍持续 `RETRIEVE-FAIL: timed out` 的根因（昨 18:33 冒烟能过是因当时
+    集合小/缓存热）。已对三集合 `PATCH {"hnsw_config":{"m":16,"ef_construct":100}}`，
+    索引后台重建完成后查询降至 **毫秒级**（0.003~0.35s），配置已持久化进集合
+    `config.json`（重启不丢）。残留：ingestion drain 高峰期 `wait=true` 写流仍会
+    偶发把单查挤出 5s 超时（~10-20% 概率，重试即过）， backlog 排空后应消失。
+  - **端到端验证（本机隧道，全绿）**：`硅片 涨价` → 3 chunks 带
+    `publish_date`；`甬矽电子 年度业绩预告` → 3 条公告 chunk `publish_date`/
+    `title`/`pdf_url` 三字段齐（cninfo 链接）。前一日热修的 HTTP 验证缺口闭合。
 
 ## 关键操作回滚
 
