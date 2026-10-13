@@ -196,6 +196,9 @@ def build_ingestion_jobs_query(source: str):
                    updated_at AS latest_attempt_at
             FROM job_rows
             WHERE status IN ('failed', 'dead')
+              -- 只把"最近一次成功之后仍失败"视作未消解：历史失败已被后续成功覆盖
+              AND ((SELECT latest_success_at FROM latest_success) IS NULL
+                   OR updated_at > (SELECT latest_success_at FROM latest_success))
             ORDER BY updated_at DESC NULLS LAST, id DESC
             LIMIT 1
         ),
@@ -256,6 +259,9 @@ def build_checkpoint_query(source: str):
                    NULL::text AS last_error, last_attempt_at AS latest_attempt_at
             FROM checkpoint_rows
             WHERE last_status IN ('failed', 'dead')
+              -- 只把"最近一次成功之后仍失败"视作未消解：历史失败已被后续成功覆盖
+              AND ((SELECT latest_success_at FROM latest_success) IS NULL
+                   OR last_attempt_at > (SELECT latest_success_at FROM latest_success))
             ORDER BY last_attempt_at DESC NULLS LAST, updated_at DESC NULLS LAST, id DESC
             LIMIT 1
         ),
