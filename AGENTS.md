@@ -73,4 +73,4 @@
 ## Agent 运行时（2026-10-10）
 
 **唯一**投研 Agent 入口：DeepSeek harness（dsh）+ `plugins/qingshui` + 只读 Data MCP。  
-旧 LangChain `/api/v1/agent/*` 已删除。见 `docs/superpowers/specs/2026-10-10-agent-mcp-deepseek-harness-design.md` 与 `deploy/mcp/DUAL_TRACK_RUNBOOK.md`。
+旧 LangChain `/api/v1/agent/*` 与 `backend/app/reasoning/**` 旧运行时已删除（2026-10-13）。见 `docs/superpowers/specs/2026-10-10-agent-mcp-deepseek-harness-design.md` 与 `deploy/mcp/DUAL_TRACK_RUNBOOK.md`。

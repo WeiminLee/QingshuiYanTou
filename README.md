@@ -41,10 +41,10 @@ Backend API
 ### 组件分工
 
 - `archive/frontend/`: 原 Vue 3 前端（全切已归档）；产品壳为 dsh web。
-- `backend/app/main.py`: FastAPI 应用入口，注册数据、知识、Agent、日志等 API。
+- `backend/app/main.py`: FastAPI 应用入口，注册数据、知识、信号、日志等 API。
 - `backend/app/data_pipeline/`: 股票、行情、公告、研报、互动易等数据接入和调度。
 - `backend/app/knowledge/`: 知识构建、链接层与判断台账、Evidence-first 管线、图谱与向量检索。
-- `backend/app/reasoning/`: Agent 运行时、工具注册、推理中间件、SSE 事件、子任务和记忆机制。
+- `backend/app/mcp_data/`: 只读 Data MCP（dsh 插件的 MCP 服务端，薄包装 Knowledge HTTP）。
 - `backend/scripts/`: 运维脚本、知识抽取脚本、worker、健康检查和批处理入口。
 - `docs/`: 架构设计、知识图谱设计、Agent 设计和开发讨论记录。
 
@@ -211,35 +211,34 @@ L2 判断层    observation / finding / watermark（PostgreSQL）
 - **存储处置**：新结构全部入 PostgreSQL；Neo4j 冻结只读（`resolve`/`expand` 过渡期保留），Qdrant `kg_entities`/`kg_relations` 随三元组管线退役；`neo4j_kg_search` 已下线。
 - **后续迭代**：zhparser 全文检索、涌现聚类、embedding 概念层附着（见 `docs/superpowers/specs/2026-09-18-knowledge-layer-redesign-design.md`）。
 
-## Agent 入口（dsh 硬切进行中）
+## Agent 入口（dsh 硬切已完成）
 
-**默认投研对话入口：dsh**（`pnpm dsh --profile web` / `headless` + `plugins/qingshui`）。  
-Vue `/home` 聊天与 `/api/v1/agent/*` LangChain 路径已退役（410 / 弃用页）。Knowledge HTTP、采集、抽取、worker **保留**。  
-`frontend/` 与 `langchain_agent/` 已迁入 `archive/`——见 `archive/README.md` 与 `docs/superpowers/specs/2026-09-29-cutover-followup-status.md`。
+**唯一投研对话入口：dsh**（`scripts/start-local-dsh-web.sh` / `headless` + `plugins/qingshui`）。  
+Vue `/home` 聊天、`/api/v1/agent/*` LangChain 路径与 `backend/app/reasoning/` 旧运行时**已删除**（2026-10-13）。  
+Knowledge HTTP、采集、抽取、worker **保留**。旧前端见 `archive/README.md`。
 
-## Agent 与推理运行机制
+## Agent 运行机制（dsh + Data MCP）
 
-Reasoning 子系统位于 `backend/app/reasoning/`。它把用户请求拆成可观测的运行过程：
-
-- API 层接收用户问题并通过 SSE 返回过程事件。
-- Tool Registry 管理可用工具和工具调用边界。
-- Middleware 负责上下文压缩、内存、重试、事件过滤和安全边界。
-- Tool Executor 执行数据查询、知识检索、图谱查询、行情查询等工具。
-- Run Journal 记录关键事件，方便调试和回放。
-- Subagents 支持较复杂任务的拆分与轮询。
-
-Agent 的设计重点是让推理过程可观察、可测试、可恢复，而不是把所有逻辑藏在单次 LLM 调用里。
+- **Harness**：DeepSeek harness（dsh，submodule pin）+ Cordis 插件 `plugins/qingshui`；投研身份由
+  部署 persona（`plugins/qingshui/cordis.patch.yml`）注入系统提示词。
+- **工具面**：只读 Data MCP（`backend/app/mcp_data/`，:8100）+ Knowledge HTTP
+  （`/api/v1/knowledge/{search/semantic, metrics/compare, agent/*, links/*, market/*}`），
+  工具名与评测金标对齐。
+- **数据面**：knowledge 构建管线（evidence/链接层/图谱/向量）+ scheduler + worker 不变。
+- **评测**：`scripts/run-golden-eval.sh` 跑 `backend/eval/expected_gap_cases_v1.json` 金标
+  （headless 逐案 + session 工具归因 + `eval_dual_track.py` 判分）。
 
 ## API 服务
 
 FastAPI 入口在 `backend/app/main.py`。主要路由类别：
 
-- `/api/v1/agent`: Agent 对话和推理接口。
 - `/api/v1/data`: 数据查询接口。
 - `/api/v1/stocks`: 股票数据写入和管理接口。
 - `/api/v1/concept`: 概念评分接口。
-- `/api/v1/knowledge`: 知识包和知识查询接口。
+- `/api/v1/knowledge`: 知识构建与知识查询接口（含 Agent 只读端点：`search/semantic`、`metrics/compare`、`agent/compare_metric` 等、`links/*`、`market/*`）。
 - `/api/v1/information`: 资讯接口。
+- `/api/v1/signals`: 预期差信号接口。
+- `/api/v1/readiness`: 数据就绪度接口。
 - `/api/v1/logs`: 日志查询接口。
 - `/health`: 健康检查。
 

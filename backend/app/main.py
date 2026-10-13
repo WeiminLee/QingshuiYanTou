@@ -29,8 +29,6 @@ from app.knowledge.api.agent_metrics import router as agent_metrics_router, metr
 from app.knowledge.api.agent_links import router as agent_links_router
 from app.knowledge.api.agent_market import router as agent_market_router
 from app.readiness.api import router as readiness_router
-from app.reasoning.api import stats_router
-from app.reasoning.subagents.polling import router as subagent_router
 from app.signals.api import router as signals_router
 from app.utils.auth import verify_api_key, verify_api_key_optional
 
@@ -169,7 +167,6 @@ app.include_router(
     tags=["监控告警"],
     dependencies=[Depends(verify_api_key)],
 )
-app.include_router(subagent_router, dependencies=[Depends(verify_api_key)])
 app.include_router(entities_router, tags=["知识构建"], dependencies=[Depends(verify_api_key)])
 app.include_router(relations_router, tags=["知识构建"], dependencies=[Depends(verify_api_key)])
 app.include_router(kg_extraction_router, tags=["知识构建"], dependencies=[Depends(verify_api_key)])
@@ -180,12 +177,6 @@ app.include_router(
     data_router,
     prefix="/api/v1/data",
     tags=["数据"],
-    dependencies=[Depends(verify_api_key_optional)],
-)
-app.include_router(
-    stats_router,
-    prefix="/api/v1/stats",
-    tags=["统计"],
     dependencies=[Depends(verify_api_key_optional)],
 )
 app.include_router(

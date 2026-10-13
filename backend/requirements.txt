@@ -2,7 +2,6 @@
 fastapi==0.115.0
 uvicorn[standard]==0.32.0
 python-multipart==0.0.12
-sse-starlette==2.1.3
 
 # Database
 sqlalchemy[asyncio]==2.0.36
@@ -47,12 +46,6 @@ tqdm==4.67.1
 openai>=1.0.0
 pytest>=9.0.3
 pytest-asyncio>=1.3.0
-
-# LangChain (1.2.x — provides langchain.agents.create_agent)
-langchain-core>=1.2.17
-langchain-openai>=1.1.7
-langchain>=1.2.3
-langgraph>=1.0.6
 
 # Dev / Lint
 ruff>=0.15

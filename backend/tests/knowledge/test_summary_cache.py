@@ -138,25 +138,4 @@ class TestSummaryCache:
         await trigger_invalidation(None, None)  # type: ignore
 
 
-class TestSummarizeTool:
-    """SummarizeTool 工具测试（验证 async 模式）"""
 
-    @pytest.mark.asyncio
-    async def test_tool_validation_errors(self):
-        """验证参数校验"""
-        from app.reasoning.tools.knowledge.summarize import summarize
-
-        assert "无效的层级" in summarize._run("C:TEST", level=4)
-        assert "请先用 resolve" in summarize._run("", level=1)
-        assert "无效的层级" in await summarize._arun("C:TEST", level=0)
-
-    @pytest.mark.asyncio
-    async def test_tool_inherits_structured_tool(self):
-        """验证工具继承自 StructuredTool（兼容 LangChain）"""
-        from langchain_core.tools import StructuredTool
-
-        from app.reasoning.tools.knowledge.summarize import summarize
-
-        assert isinstance(summarize, StructuredTool)
-        assert summarize.name == "summarize"
-        assert summarize.description

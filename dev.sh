@@ -1,6 +1,6 @@
 #!/bin/bash
 # =============================================================================
-# 清水投研系统 — 一键开发启动脚本
+# 清水投研系统 — 一键开发启动脚本（后端数据面）
 # =============================================================================
 # 用法:  ./dev.sh
 #
@@ -8,13 +8,13 @@
 #   1. Docker 基础设施 (PostgreSQL + Redis + MongoDB)
 #   2. Alembic 数据库迁移
 #   3. 后端 API (uvicorn)
-#   4. 前端 Dev Server (vite)
+#
+# 交互层（dsh web）不再属于本仓 frontend/，用 scripts/start-local-dsh-web.sh 启动。
 # =============================================================================
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
 BACKEND_DIR="$ROOT_DIR/backend"
-FRONTEND_DIR="$ROOT_DIR/frontend"
 
 # 颜色
 GREEN='\033[0;32m'
@@ -29,13 +29,8 @@ error() { echo -e "${RED}[ERROR]${NC} $1"; }
 # 清理函数
 cleanup() {
     info "正在关闭服务..."
-    # 关闭后端
     if [ -n "${UVICORN_PID:-}" ]; then
         kill "$UVICORN_PID" 2>/dev/null || true
-    fi
-    # 关闭前端
-    if [ -n "${VITE_PID:-}" ]; then
-        kill "$VITE_PID" 2>/dev/null || true
     fi
     info "服务已关闭"
 }
@@ -49,12 +44,6 @@ info "检查环境..."
 if [ ! -f "$BACKEND_DIR/.venv/bin/activate" ]; then
     error "Python venv 不存在，请先创建: cd $BACKEND_DIR && python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt"
     exit 1
-fi
-
-# Node 依赖
-if [ ! -d "$FRONTEND_DIR/node_modules" ]; then
-    warn "前端依赖未安装，正在安装..."
-    cd "$FRONTEND_DIR" && npm install
 fi
 
 # Colima / Docker
@@ -126,27 +115,20 @@ for i in $(seq 1 15); do
         break
     fi
     if [ "$i" -eq 15 ]; then
-        warn "后端未响应，继续启动前端..."
+        warn "后端未响应"
     fi
     sleep 1
 done
-
-# ── 5. 启动前端 ────────────────────────────────────────────────
-
-info "启动前端 Dev Server (localhost:3000)..."
-cd "$FRONTEND_DIR"
-npx vite --host &
-VITE_PID=$!
 
 # ── 完成 ───────────────────────────────────────────────────────
 
 echo ""
 info "================================================"
 info "  清水投研系统 开发环境已启动"
-info "  前端:  http://localhost:3000"
 info "  后端:  http://localhost:8000"
 info "  健康:  http://localhost:8000/health"
 info "  API:   http://localhost:8000/api/v1/readiness"
+info "  交互层(dsh web): scripts/start-local-dsh-web.sh"
 info "================================================"
 echo ""
 info "按 Ctrl+C 停止所有服务"

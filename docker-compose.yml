@@ -109,7 +109,6 @@ services:
       - NEO4J_PASSWORD=qingshui123
       - QDRANT_URL=http://qdrant:6333
       - ENABLE_EVIDENCE_SCHEDULER=${ENABLE_EVIDENCE_SCHEDULER:-false}
-      - AGENT_DATABASE_FALLBACK=${AGENT_DATABASE_FALLBACK:-false}
       # KG 旧三元组抽取开关（2026-09-19 flip：默认 false，新链接层独供）
       - ENABLE_KG_EXTRACTION=${ENABLE_KG_EXTRACTION:-false}
       # 行情与文本数据源
