@@ -501,3 +501,55 @@ def test_search_findings_default_excludes_superseded():
 
     src = inspect.getsource(ops.search_findings)
     assert 'notin_(("dismissed", "superseded"))' in src
+
+
+@pytest.mark.asyncio
+async def test_advance_watermark_numeric_insert_and_merge():
+    """数值水位线推进（mock session 走真实 select 语句：NameError 类回归在此暴露）。"""
+    from app.knowledge.linklayer import ledger_models as lm
+
+    added: list = []
+
+    class _Fresh:
+        def scalar_one_or_none(self):
+            return None
+
+    class _SessionFresh:
+        async def execute(self, stmt):
+            assert "watermarks" in str(stmt)
+            return _Fresh()
+
+        def add(self, obj):
+            added.append(obj)
+
+    out = await lm.advance_watermark_numeric(_SessionFresh(), "X", "毛利率", None, 40.0, "FY2025")
+    assert out["max_value"] == {"high": 40.0, "low": 40.0, "last": 40.0, "last_period": "FY2025", "updates": 1}
+    assert added and added[0].max_value["high"] == 40.0
+
+    class _Existing:
+        subject_ts_code = "X"
+        dimension = "毛利率"
+        dimension_scope = ""
+        max_level = 3
+        max_value = {"high": 40.0, "low": 10.0, "last": 32.0, "last_period": "FY2024", "updates": 2}
+        first_reached_at = None
+
+        def __init__(self):
+            from datetime import UTC, datetime
+
+            self.last_updated_at = datetime.now(UTC)
+
+    class _Result:
+        def scalar_one_or_none(self):
+            return _Existing()
+
+    class _SessionExisting:
+        async def execute(self, stmt):
+            return _Result()
+
+        async def flush(self):
+            pass
+
+    out2 = await lm.advance_watermark_numeric(_SessionExisting(), "X", "毛利率", None, 55.0, "FY2026")
+    assert out2["max_value"] == {"high": 55.0, "low": 10.0, "last": 55.0, "last_period": "FY2026", "updates": 3}
+    assert out2["max_level"] == 3

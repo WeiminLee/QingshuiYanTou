@@ -3,7 +3,7 @@
 import hashlib
 from datetime import UTC, date, datetime
 
-from sqlalchemy import Date, DateTime, Float, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Date, DateTime, Float, Index, Integer, String, Text, UniqueConstraint, select
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Mapped, mapped_column
