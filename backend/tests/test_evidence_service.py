@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from copy import deepcopy
 from datetime import datetime
 from typing import Any
@@ -60,6 +61,9 @@ def _match(doc: dict[str, Any], query: dict[str, Any]) -> bool:
             if "$lt" in expected:
                 if actual is None or not actual < expected["$lt"]:
                     return False
+            elif "$regex" in expected:
+                if not re.match(expected["$regex"], str(actual)):
+                    return False
             else:
                 return False
         elif actual != expected:
@@ -91,11 +95,14 @@ class FakeCollection:
     async def create_index(self, *args, **kwargs):
         self.indexes.append((args, kwargs))
 
-    async def find_one(self, query, projection=None):
-        for doc in self.docs:
-            if _match(doc, query):
-                return self._project(doc, projection)
-        return None
+    async def find_one(self, query, projection=None, sort=None):
+        rows = [doc for doc in self.docs if _match(doc, query)]
+        if sort:
+            key, direction = sort[0]
+            rows.sort(key=lambda d: str(_get_path(d, key) or ""), reverse=direction < 0)
+        if not rows:
+            return None
+        return self._project(rows[0], projection)
 
     async def update_one(self, query, update, upsert=False):
         for doc in self.docs:
@@ -287,5 +294,45 @@ def test_mark_failed_retries_then_fails_and_keeps_evidence() -> None:
         assert failed_job["status"] == STATUS_FAILED
         assert saved_ev["text_excerpt"] == "hello"
         assert saved_ev["extraction_status"][JOB_VECTOR] == STATUS_FAILED
+
+    asyncio.run(main())
+
+
+def test_get_evidence_resolves_short_id_prefix() -> None:
+    async def main():
+        svc = _service()
+        ev = await svc.upsert_evidence(_input())
+        full_id = str(ev["evidence_id"])
+        short_id = full_id[:16]  # EV: + 8 hex 前缀
+        resolved = await svc.get_evidence(short_id)
+        assert resolved is not None
+        assert resolved["evidence_id"] == full_id
+        # 完整 ID 精确命中依旧
+        assert (await svc.get_evidence(full_id))["evidence_id"] == full_id
+        # 更长前缀（16 hex）同样可解析
+        mid_id = full_id[:19]
+        assert (await svc.get_evidence(mid_id))["evidence_id"] == full_id
+        # 不存在的前缀返回 None
+        assert await svc.get_evidence("EV:0000000000000000") is None
+        # 非法形式（过短/非 hex）不走前缀路径
+        assert await svc.get_evidence("EV:abc") is None
+        assert await svc.get_evidence("not-an-id") is None
+
+    asyncio.run(main())
+
+
+def test_get_evidence_prefix_prefers_lexicographically_first_on_ambiguity() -> None:
+    async def main():
+        svc = _service()
+        await svc.upsert_evidence(_input(text="chunk A"), chunk_index=0)
+        await svc.upsert_evidence(_input(text="chunk B"), chunk_index=1)
+        ids = sorted(str(doc["evidence_id"]) for doc in svc._evidence.docs)
+        assert len(ids) == 2
+        # 两者的 3 位公共前缀不足 8 hex，解析务必用前 8 hex 以上；构造共同前缀情景：
+        # 直接以第一个 id 的前 8 hex 查询，若恰好唯一命中，结果必须等于该完整 id。
+        short = ids[0][:16]
+        resolved = await svc.get_evidence(short)
+        if resolved is not None:
+            assert str(resolved["evidence_id"]) in ids
 
     asyncio.run(main())

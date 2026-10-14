@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -32,6 +33,9 @@ from app.knowledge.evidence import (
 logger = logging.getLogger(__name__)
 
 UTC = timezone.utc
+
+# 完整 evidence_id 为 EV: + 64 位十六进制；短于此（>=8 位）视为 SHA256 前缀引用。
+_EVIDENCE_PREFIX_RE = re.compile(r"^EV:[0-9a-fA-F]{8,63}$")
 
 
 def _utc_now() -> datetime:
@@ -130,7 +134,16 @@ class EvidenceService:
 
     async def get_evidence(self, evidence_id: str) -> dict[str, Any] | None:
         doc = await self._evidence.find_one({"evidence_id": evidence_id}, {"_id": 0})
-        return dict(doc) if doc else None
+        if doc is not None or not _EVIDENCE_PREFIX_RE.match(evidence_id or ""):
+            return dict(doc) if doc else None
+        # 短 ID 前缀解析：对话引用常缩写为 SHA256 前缀（如 EV:91deadb043b21744）。
+        # 前缀 >=8 位十六进制时碰撞概率可忽略；多条命中按 id 升序取第一条（确定性）。
+        prefixed = await self._evidence.find_one(
+            {"evidence_id": {"$regex": f"^{re.escape(evidence_id)}"}},
+            {"_id": 0},
+            sort=[("evidence_id", 1)],
+        )
+        return dict(prefixed) if prefixed else None
 
     async def enqueue_job(
         self,
