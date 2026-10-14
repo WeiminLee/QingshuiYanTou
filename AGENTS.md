@@ -26,7 +26,8 @@
      `ssh -N -L 8100:127.0.0.1:8100 lwm-server-chemagent`），访问 Data MCP / Knowledge API。
    - 本条是 Mac 常驻通道的**唯一豁免**（Mac 是用户终端而非生产中转）。
    - **与 MatDiscovery 的 dsh 完全解耦（owner 2026-10-13）**：独立 `DSH_HOME=~/.dsh-qingshui`
-     （会话/配置/凭据互不可见）、各自 worktree 独立 dsh submodule pin、固定端口 **8399**；
+     （会话/配置/凭据互不可见）、各自仓库独立 dsh submodule pin（清水侧 2026-10-14 起
+     worktree 全部并回，唯一 checkout=主仓 `/Users/lwm/code/QingshuiYanTou`）、固定端口 **8399**；
      禁止共享 `~/.dsh`。LLM 凭据经 `~/.dsh-qingshui/.credentials.yaml` 软链复用
      `~/.dsh` 凭据库（免手工配 key）。
 3. **云服务器（124.221.188.38）= 只读存量快照，待下线**
@@ -65,7 +66,7 @@
 | Data MCP（只读 P0×9） | chemagent :8100 | ✅ 冒烟全绿 |
 | knowledge_worker / pdf_worker | chemagent systemd | ✅ 已切本机 API（17:02） |
 | bge-m3 / Qwen 推理 | H200 rjob | ✅ 运行中，本机内网直连 |
-| Agent 交互层（dsh web） | 本地 Mac | ✅ 已搭建（worktree `agent-mcp-dsh`，`scripts/start-local-dsh-web.sh`，金标 3/3 通过） |
+| Agent 交互层（dsh web） | 本地 Mac | ✅ 已搭建（主仓根目录直接运行，`scripts/start-local-dsh-web.sh`，金标 3/3 通过；2026-10-14 worktree 全部并回主目录） |
 | Neo4j | 已除役 | ❌ 2026-10-13 代码面整体删除（旧三元组管线一并退役）；四活进程/金标零依赖，读侧语义检索保留 Qdrant 冻结集合。决策与证据见 `docs/开发文档/16_Neo4j除役记录.md` |
 | 云端整套栈 | 124.221.188.38 | ❄️ 只读冻结，chemagent 验证结束后下线 |
 | sensecore pod / 生产链路经 Mac | — | ❌ 已退出关键路径 |
