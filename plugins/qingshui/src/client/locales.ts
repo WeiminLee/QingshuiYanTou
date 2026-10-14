@@ -4,6 +4,12 @@ export type QingshuiShellKey =
   | 'sessions.new'
   | 'sessions.empty'
   | 'sessions.untitled'
+  | 'sessions.rename'
+  | 'sessions.renameAria'
+  | 'sessions.archive'
+  | 'sessions.archiveConfirm'
+  | 'sessions.archiveAria'
+  | 'sessions.cancel'
   | 'tv.expand'
   | 'tv.collapse'
   | 'tv.kline.title'
@@ -28,6 +34,12 @@ export const zh: Record<QingshuiShellKey, string> = {
   'sessions.new': '新建对话',
   'sessions.empty': '暂无会话',
   'sessions.untitled': '新对话',
+  'sessions.rename': '重命名',
+  'sessions.renameAria': '重命名会话',
+  'sessions.archive': '归档',
+  'sessions.archiveConfirm': '确认归档？',
+  'sessions.archiveAria': '归档会话',
+  'sessions.cancel': '取消',
   'tv.expand': '展开',
   'tv.collapse': '收起',
   'tv.kline.title': 'K 线',
@@ -53,6 +65,12 @@ export const en: Record<QingshuiShellKey, string> = {
   'sessions.new': 'New chat',
   'sessions.empty': 'No chats yet',
   'sessions.untitled': 'New chat',
+  'sessions.rename': 'Rename',
+  'sessions.renameAria': 'Rename chat',
+  'sessions.archive': 'Archive',
+  'sessions.archiveConfirm': 'Archive?',
+  'sessions.archiveAria': 'Archive chat',
+  'sessions.cancel': 'Cancel',
   'tv.expand': 'Expand',
   'tv.collapse': 'Collapse',
   'tv.kline.title': 'Kline',

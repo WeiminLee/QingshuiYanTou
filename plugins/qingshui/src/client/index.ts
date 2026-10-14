@@ -3,7 +3,7 @@
  * cold-open / New chat → sessions.create({}) (no workspaceId), and the
  * assistant-step shadow adding interactive EV citation chips.
  */
-import { createAndOpenSession } from './session-actions.ts'
+import { archiveSession, createAndOpenSession, renameSession } from './session-actions.ts'
 import { SessionBrowser } from './SessionBrowser.tsx'
 import { en, zh, type QingshuiShellKey } from './locales.ts'
 import { installClientStyles } from './theme.ts'
@@ -40,6 +40,12 @@ export function apply(ctx: any): void {
 
   const createSession = (): Promise<string> => createAndOpenSession(ctx.sessions)
   const openSession = (sessionId: string): void => { ctx.sessions.open(sessionId) }
+  const archive = (sessionId: string): Promise<void> =>
+    archiveSession(ctx.workspaces, sessionId).catch((error: unknown) => {
+      console.warn('qingshui: archive failed', error)
+    })
+  const rename = (sessionId: string, title: string): Promise<boolean> =>
+    renameSession(ctx.sessions, sessionId, title)
 
   ctx.effect(
     () => ctx.slots.inject('sidebar.workspaces', () => ctx.slots.register({
@@ -48,6 +54,8 @@ export function apply(ctx: any): void {
       inject: () => ({
         createSession,
         openSession,
+        archiveSession: archive,
+        renameSession: rename,
       }),
     }, SessionBrowser)),
     'qingshui: session browser',
