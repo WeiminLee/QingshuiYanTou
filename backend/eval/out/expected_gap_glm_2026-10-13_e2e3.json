@@ -1,0 +1,95 @@
+[
+  {
+    "case_id": "gap-wafer-margin-001",
+    "pass": false,
+    "tools": [],
+    "reasons": [
+      "missing answer for case in --answer-file"
+    ]
+  },
+  {
+    "case_id": "gap-zj-margin-001",
+    "pass": false,
+    "tools": [],
+    "reasons": [
+      "missing answer for case in --answer-file"
+    ]
+  },
+  {
+    "case_id": "gap-degraded-ok-001",
+    "pass": false,
+    "tools": [],
+    "reasons": [
+      "missing answer for case in --answer-file"
+    ]
+  },
+  {
+    "case_id": "gap-ledger-progress-001",
+    "pass": true,
+    "tools": [
+      "skill",
+      "mcp__qingshui_data__data_readiness",
+      "mcp__qingshui_data__history_findings",
+      "mcp__qingshui_data__pull_history",
+      "grep",
+      "mcp__qingshui_data__get_announcement",
+      "mcp__qingshui_data__get_irm",
+      "metric_trend",
+      "fetch_evidence",
+      "mcp__qingshui_data__semantic_search",
+      "read",
+      "write_observation",
+      "write_finding",
+      "get_kline"
+    ],
+    "reasons": []
+  },
+  {
+    "case_id": "gap-ledger-reuse-001",
+    "pass": false,
+    "tools": [],
+    "reasons": [
+      "missing answer for case in --answer-file"
+    ]
+  },
+  {
+    "case_id": "src-announcement-001",
+    "pass": false,
+    "tools": [],
+    "reasons": [
+      "missing answer for case in --answer-file"
+    ]
+  },
+  {
+    "case_id": "src-irm-001",
+    "pass": false,
+    "tools": [],
+    "reasons": [
+      "missing answer for case in --answer-file"
+    ]
+  },
+  {
+    "case_id": "src-events-001",
+    "pass": false,
+    "tools": [],
+    "reasons": [
+      "missing answer for case in --answer-file"
+    ]
+  },
+  {
+    "case_id": "catchup-concept-001",
+    "pass": false,
+    "tools": [],
+    "reasons": [
+      "missing answer for case in --answer-file"
+    ]
+  },
+  {
+    "case_id": "scan-dimension-001",
+    "pass": false,
+    "tools": [],
+    "reasons": [
+      "missing answer for case in --answer-file"
+    ]
+  }
+]

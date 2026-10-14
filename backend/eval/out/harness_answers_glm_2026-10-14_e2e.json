@@ -1,0 +1,63 @@
+{
+  "gap-wafer-margin-001": {
+    "answer": "",
+    "tools": []
+  },
+  "gap-zj-margin-001": {
+    "answer": "",
+    "tools": []
+  },
+  "gap-degraded-ok-001": {
+    "answer": "",
+    "tools": []
+  },
+  "gap-ledger-progress-001": {
+    "answer": "",
+    "tools": []
+  },
+  "gap-ledger-reuse-001": {
+    "answer": "",
+    "tools": []
+  },
+  "src-announcement-001": {
+    "answer": "",
+    "tools": []
+  },
+  "src-irm-001": {
+    "answer": "",
+    "tools": []
+  },
+  "src-events-001": {
+    "answer": "",
+    "tools": []
+  },
+  "catchup-concept-001": {
+    "answer": "",
+    "tools": []
+  },
+  "scan-dimension-001": {
+    "answer": "",
+    "tools": []
+  },
+  "gap-metric-newhigh-001": {
+    "answer": "已补齐关键序列锚点：`EV:97b62bfe` = 中晶 2024 年报（营收 4.23 亿、净利 2277 万；2023 年亏损 3407 万）；`EV:86a95b4c` = 中晶 2025 半年报（H1 净利 2574 万，+144%）。互动易最新问答（至 2026-09-15）无新增毛利率数值——**库内\"最新披露\"的综合毛利率即 2026Q1 的 45.09%**（2026-06-26 投关记录载体，为最新一次披露）。\n\n历史序列（库内可考）：2023H1 ≈26.3% → 2024H1 ≈36.7% → 2025FY 40.02% → **2026Q1 45.09%**，持续抬升，45.09% 已越过序列上界。台账水位线为空（无既有毛利率观察），按流程沉淀数值观察：先写 2025FY 40.02%（较早披露点，锚定 5-19 投关记录），再写 2026Q1 45.09%（锚定 6-26 投关记录），并同时跑一个横比作参照。",
+    "tools": [
+      "skill",
+      "metric_trend",
+      "mcp__qingshui_data__history_findings",
+      "mcp__qingshui_data__pull_history",
+      "semantic_search",
+      "grep",
+      "get_stock_profile",
+      "mcp__qingshui_data__get_announcement",
+      "fetch_evidence",
+      "mcp__qingshui_data__get_irm",
+      "mcp__qingshui_data__semantic_search",
+      "mcp__qingshui_data__find_events",
+      "mcp__qingshui_data__data_readiness",
+      "web_search",
+      "write_observation",
+      "mcp__qingshui_data__compare_metric"
+    ]
+  }
+}
