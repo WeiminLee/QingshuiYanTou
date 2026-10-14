@@ -1,6 +1,7 @@
 /**
  * Qingshui research-shell browser half: flat session list in sidebar.workspaces,
- * cold-open / New chat → sessions.create({}) (no workspaceId).
+ * cold-open / New chat → sessions.create({}) (no workspaceId), and the
+ * assistant-step shadow adding interactive EV citation chips.
  */
 import { createAndOpenSession } from './session-actions.ts'
 import { SessionBrowser } from './SessionBrowser.tsx'
@@ -8,6 +9,7 @@ import { en, zh, type QingshuiShellKey } from './locales.ts'
 import { installClientStyles } from './theme.ts'
 import { installConversationShadow } from './conversation-shadow.ts'
 import { registerToolviews } from './toolviews/index.ts'
+import { QsAssistantStepView } from './ev-view.tsx'
 
 export type { QingshuiShellKey }
 
@@ -77,6 +79,23 @@ export function apply(ctx: any): void {
   // Shadow ConversationRoot (priority -1). The shipped root stays registered
   // so it keeps declaring child seats; we graft those seats onto the winner.
   ctx.effect(() => installConversationShadow(ctx), 'qingshui: conversation shadow')
+
+  // Shadow the assistant-step chat-node renderer (same priority mechanism)
+  // to promote plain-text EV: citations into interactive evidence chips.
+  ctx.effect(
+    () => ctx.slots.inject('conversation.chat.node', function* () {
+      yield ctx.slots.register(
+        {
+          name: 'conversation.chat.node',
+          key: 'assistant-step',
+          priority: -1,
+          locale: 'conversation',
+        },
+        QsAssistantStepView,
+      )
+    }),
+    'qingshui: assistant-step shadow',
+  )
 
   // Keyed tool cards (kline / evidence / search / timeline) for the native
   // tools and their Data MCP twins.

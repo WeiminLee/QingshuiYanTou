@@ -9,6 +9,7 @@ import { createKnowledgeClient, resolveApiKey } from './knowledge-client.ts'
 import type { KnowledgeClient } from './knowledge-client.ts'
 import { installQingshuiTools } from './tools.ts'
 import { mountQingshuiDataMcp } from './mcp-mount.ts'
+import { installEvidenceRoute } from './ev-route.ts'
 
 export const name = 'qingshui'
 /** tools for defineTool; skills so nested skill-filesystem can register providers. */
@@ -54,6 +55,11 @@ export function apply(ctx: Context, config: QingshuiConfig): void {
 
   rebuild()
   installQingshuiTools(ctx, { client: () => client })
+
+  // Browser evidence lookup: same-origin route proxying the Knowledge API
+  // (activated only under profiles that compose a web server).
+  ctx.inject(['webServer'], webCtx =>
+    installEvidenceRoute(webCtx as unknown as Parameters<typeof installEvidenceRoute>[0], { client: () => client }))
 
   // Dual-track: keep Knowledge HTTP tools; also mount Data MCP when mcpBaseUrl set.
   void mountQingshuiDataMcp(ctx, config)

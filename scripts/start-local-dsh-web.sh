@@ -59,7 +59,7 @@ if [ -f patches/local-mac.yml ]; then
   PATCH_ARGS+=(--patch patches/local-mac.yml)
 fi
 
-echo "✓ DSH_HOME=$DSH_HOME（与 MatDiscovery 隔离）"
+echo "✓ DSH_HOME=${DSH_HOME}（与 MatDiscovery 隔离）"
 echo "✓ 隧道 8100/8001 在线，启动 dsh web :$PORT"
 exec node scripts/dsh.mjs --profile web \
   "${PATCH_ARGS[@]}" \

@@ -722,6 +722,96 @@ async function mountQingshuiDataMcp(ctx, config) {
 	}
 }
 //#endregion
+//#region src/ev-route.ts
+const EVIDENCE_ROUTE_PATH = "/qingshui/evidence";
+const EV_ID_RE = /^EV:[0-9a-fA-F]{6,64}$/;
+/** Minimal Host/Origin fence mirroring the /api channel's trust posture. */
+function isLoopbackHostRequest(req) {
+	const host = req.headers.host;
+	if (typeof host !== "string" || host === "") return false;
+	const hostname = host.split(":")[0]?.toLowerCase() ?? "";
+	const port = host.includes(":") ? host.slice(host.indexOf(":") + 1) : "";
+	if (port !== "" && !/^\d*$/.test(port)) return false;
+	if (hostname !== "127.0.0.1" && hostname !== "localhost" && hostname !== "::1") return false;
+	const site = req.headers["sec-fetch-site"];
+	if (typeof site === "string" && site === "cross-site") return false;
+	const origin = req.headers.origin;
+	if (origin === void 0) return true;
+	try {
+		return new URL(origin).host === host;
+	} catch {
+		return false;
+	}
+}
+/** @param id - candidate evidence id. @returns whether it is a well-formed EV id. */
+function isValidEvidenceId(id) {
+	return EV_ID_RE.test(id);
+}
+function sendJson(res, status, body) {
+	const payload = JSON.stringify(body);
+	res.writeHead(status, {
+		"content-type": "application/json; charset=utf-8",
+		"cache-control": "no-store"
+	});
+	res.end(payload);
+}
+/**
+* Install the evidence proxy route on the web server when it is available.
+* @param webCtx - context carrying the webServer service
+* @param deps - knowledge client accessor
+* @returns disposer
+*/
+function installEvidenceRoute(webCtx, deps) {
+	return webCtx.webServer.register({
+		kind: "prefix",
+		path: EVIDENCE_ROUTE_PATH,
+		handler: async (req, res) => {
+			if (!isLoopbackHostRequest(req)) {
+				sendJson(res, 403, {
+					ok: false,
+					error: "forbidden"
+				});
+				return;
+			}
+			const url = req.url ?? "/";
+			let id = "";
+			try {
+				id = decodeURIComponent(new URL(url, "http://x").pathname).slice(18).replace(/^\//, "");
+			} catch {
+				id = "";
+			}
+			if (!isValidEvidenceId(id)) {
+				sendJson(res, 400, {
+					ok: false,
+					error: "bad evidence id (expected EV:<hex>)"
+				});
+				return;
+			}
+			const client = deps.client();
+			if (client === void 0) {
+				sendJson(res, 503, {
+					ok: false,
+					error: "knowledge client not configured (missing API key)"
+				});
+				return;
+			}
+			try {
+				sendJson(res, 200, {
+					ok: true,
+					doc: await client.fetchEvidence(id)
+				});
+			} catch (error) {
+				const message = error instanceof Error ? error.message : String(error);
+				const missing = /Knowledge API 404/.test(message);
+				sendJson(res, missing ? 404 : 502, {
+					ok: false,
+					error: missing ? "证据未命中：该 evidence_id 不存在（短 ID 需以完整 64 位十六进制核验）" : `知识库查询失败：${message.slice(0, 200)}`
+				});
+			}
+		}
+	});
+}
+//#endregion
 //#region src/index.ts
 const name = "qingshui";
 /** tools for defineTool; skills so nested skill-filesystem can register providers. */
@@ -750,6 +840,7 @@ function apply(ctx, config) {
 	};
 	rebuild();
 	installQingshuiTools(ctx, { client: () => client });
+	ctx.inject(["webServer"], (webCtx) => installEvidenceRoute(webCtx, { client: () => client }));
 	mountQingshuiDataMcp(ctx, config);
 	const skillsDir = resolveSkillsDir();
 	if (skillsDir !== void 0) {

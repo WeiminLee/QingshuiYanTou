@@ -6,6 +6,7 @@
  */
 import { useCallback, useRef } from 'react'
 import { researchComposerOwner, type ComposerBlockLike } from './conversation-owner.ts'
+import { EvCiteLayer } from './ev-cite-layer.tsx'
 
 type Translate = (key: string) => string
 
@@ -88,6 +89,7 @@ export function ResearchConversationRoot(props: ResearchConversationProps) {
           {composer}
         </div>
       </div>
+      <EvCiteLayer />
     </div>
   )
 }
