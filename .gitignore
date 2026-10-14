@@ -124,3 +124,6 @@ backend/eval/out/gate_history.jsonl
 # Keep Cordis plugin build artifact
 !plugins/qingshui/lib/
 !plugins/qingshui/lib/**
+
+# 临时脚本工作区
+.scratch/

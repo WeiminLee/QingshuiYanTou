@@ -15,7 +15,7 @@ import logging
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.core.database import async_session
@@ -25,6 +25,7 @@ from app.knowledge.linklayer.ledger_models import (
     Observation,
     Watermark,
     advance_watermark,
+    advance_watermark_numeric,
     make_finding_id,
     make_obs_id,
     normalize_scope,
@@ -101,6 +102,82 @@ def _finding_dict(row: Finding) -> dict:
     }
 
 
+async def _numeric_novelty(
+    session,
+    subject_ts_code: str,
+    dimension: str,
+    dimension_scope: str | None,
+    num: float,
+    period: str | None,
+    self_obs_id: str,
+) -> dict:
+    """数值新颖度判定（草案 §3）：环比 + 是否超出历史区间；幂等重写不自比。"""
+    import math
+
+    filters = [
+        Observation.subject_ts_code == subject_ts_code,
+        Observation.dimension == dimension,
+        Observation.obs_id != self_obs_id,
+    ]
+    if dimension_scope:
+        filters.append(Observation.dimension_scope == dimension_scope)
+    else:
+        filters.append(
+            (Observation.dimension_scope.is_(None))
+            | (Observation.dimension_scope == SCOPE_SENTINEL)
+        )
+    rows = (
+        await session.execute(
+            select(Observation.metric_value)
+            .where(*filters)
+            .order_by(Observation.published_at.desc().nullslast(), Observation.created_at.desc())
+        )
+    ).scalars().all()
+    nums: list[float] = []
+    last_num: float | None = None
+    last_period: str | None = None
+    for mv in rows:
+        if not isinstance(mv, dict):
+            continue
+        try:
+            v = float(mv.get("num"))
+        except (TypeError, ValueError):
+            continue
+        if math.isnan(v) or math.isinf(v):
+            continue
+        nums.append(v)
+        if last_num is None:
+            last_num = v
+            last_period = mv.get("period")
+    if not nums:
+        return {
+            "is_new_high": True,
+            "is_new_low": True,
+            "is_new_extreme": True,
+            "prev_num": None,
+            "delta": None,
+            "delta_pct": None,
+            "same_period_restated": False,
+            "numeric_history_count": 0,
+        }
+    hist_high, hist_low = max(nums), min(nums)
+    is_new_high = num > hist_high
+    is_new_low = num < hist_low
+    delta = num - last_num if last_num is not None else None
+    delta_pct = (delta / last_num * 100) if (last_num not in (None, 0) and delta is not None) else None
+    return {
+        "is_new_high": is_new_high,
+        "is_new_low": is_new_low,
+        "is_new_extreme": is_new_high or is_new_low,
+        "prev_num": last_num,
+        "delta": delta,
+        "delta_pct": delta_pct,
+        "same_period_restated": bool(period and last_period and period == last_period),
+        "numeric_history_count": len(nums),
+        "numeric_note": "区间外=数值新台阶；delta 为相对上一披露值的环比，方向语义由指标定",
+    }
+
+
 async def save_observation(
     *,
     subject_ts_code: str,
@@ -161,16 +238,40 @@ async def save_observation(
             "span_start", "span_end", "event_date", "published_at", "written_by", "status",
         )
     }
+    numeric_result: dict | None = None
+    watermark: dict = {}
+    is_new_level = False
     async with async_session() as session:
         await session.execute(
             pg_insert(Observation)
             .values(**values)
             .on_conflict_do_update(index_elements=["obs_id"], set_=updatable)
         )
-        watermark = await advance_watermark(session, subject_ts_code, dimension, dimension_scope, stage_level)
-        is_new_level = bool(stage_level is not None and watermark and watermark.get("max_level") == stage_level)
+        if stage_level is not None:
+            watermark = await advance_watermark(session, subject_ts_code, dimension, dimension_scope, stage_level)
+            is_new_level = bool(watermark and watermark.get("max_level") == stage_level)
+        else:
+            mv = metric_value or {}
+            try:
+                num = float(mv.get("num"))
+            except (TypeError, ValueError):
+                num = None
+            if num is not None:
+                numeric_result = await _numeric_novelty(
+                    session, subject_ts_code, dimension, dimension_scope, num,
+                    mv.get("period"), obs_id,
+                )
+                watermark = await advance_watermark_numeric(
+                    session, subject_ts_code, dimension, dimension_scope, num, mv.get("period")
+                )
         await session.commit()
-    return {"ok": True, "obs_id": obs_id, "status": "verified", "is_new_level": is_new_level, "watermark": watermark}
+    result = {"ok": True, "obs_id": obs_id, "status": "verified", "is_new_level": is_new_level, "watermark": watermark}
+    if numeric_result is not None:
+        result.update(numeric_result)
+        result["is_new_signal"] = bool(numeric_result.get("is_new_extreme"))
+    else:
+        result["is_new_signal"] = is_new_level
+    return result
 
 
 async def save_finding(
@@ -228,13 +329,38 @@ async def save_finding(
         )
     }
     async with async_session() as session:
+        if supersedes:
+            target = (
+                await session.execute(
+                    select(Finding).where(Finding.finding_id == supersedes)
+                )
+            ).scalar_one_or_none()
+            if target is None:
+                await session.rollback()
+                return {"ok": False, "errors": [f"supersedes 目标不存在: {supersedes}"]}
+            if target.subject_ts_code != subject_ts_code or target.dimension != dimension:
+                await session.rollback()
+                return {
+                    "ok": False,
+                    "errors": [
+                        f"supersedes 跨主体/维度取代拒绝: "
+                        f"目标 {target.subject_ts_code}/{target.dimension} vs 本次 {subject_ts_code}/{dimension}"
+                    ],
+                }
+            if target.status == "superseded":
+                await session.rollback()
+                return {"ok": False, "errors": [f"supersedes 目标已被取代: {supersedes}"]}
         await session.execute(
             pg_insert(Finding)
             .values(**values)
             .on_conflict_do_update(index_elements=["finding_id"], set_=updatable)
         )
+        if supersedes:
+            await session.execute(
+                update(Finding).where(Finding.finding_id == supersedes).values(status="superseded")
+            )
         await session.commit()
-    return {"ok": True, "finding_id": finding_id, "status": "candidate"}
+    return {"ok": True, "finding_id": finding_id, "status": "candidate", "supersedes": supersedes}
 
 
 async def read_watermark(*, subject_ts_code: str, dimension: str, dimension_scope: str | None = None) -> dict:
@@ -340,7 +466,7 @@ async def search_findings(
     limit: int = 50,
 ) -> dict:
     """跨主体扫描判断；默认排除 dismissed。"""
-    filters: list[Any] = [Finding.status != "dismissed"]
+    filters: list[Any] = [Finding.status.notin_(("dismissed", "superseded"))]
     if dimension:
         filters.append(Finding.dimension == dimension)
     if kind:
