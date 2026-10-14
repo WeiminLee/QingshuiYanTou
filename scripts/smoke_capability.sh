@@ -188,6 +188,20 @@ sys.exit(0 if a.get('finding_id') == b.get('finding_id') else 1)
 post /api/v1/knowledge/ledger/finding "{\"subject_ts_code\":\"003026.SZ\",\"dimension\":\"E2E冒烟\",\"kind\":\"hunch\",\"judgment\":\"x\",\"supports\":[{\"evidence_id\":\"$EV\",\"span_start\":$S1,\"span_end\":$S2}]}" "$T/fdbad.json"
 jcheck "write_finding 非法 kind 拒写" "$T/fdbad.json" "d.get('ok') == False and 'kind 非法' in d.get('errors', [''])[0]"
 
+echo "── 数值新颖度三连测（E2E 专用维度） ──"
+NSPANS=$(python3 -c "print(min(3, $EVLEN)); print($EVLEN)")
+NS1=$(echo "$NSPANS" | head -1); NS2=$(echo "$NSPANS" | tail -1)
+post /api/v1/knowledge/ledger/observation "{\"subject_ts_code\":\"003026.SZ\",\"dimension\":\"E2E冒烟数值\",\"evidence_id\":\"$EV\",\"span_start\":$NS1,\"span_end\":$NS2,\"metric_value\":{\"num\":88.8,\"unit\":\"%\",\"period\":\"E2E-R1\",\"metric\":\"冒烟指标\"}}" "$T/nv1.json"
+jcheck "数值首写=新高" "$T/nv1.json" "d.get('ok') == True and d.get('is_new_extreme') == True and d.get('is_new_high') == True"
+NVOB=$(python3 -c "import json; print(json.load(open('$T/nv1.json')).get('obs_id',''))")
+post /api/v1/knowledge/ledger/observation "{\"subject_ts_code\":\"003026.SZ\",\"dimension\":\"E2E冒烟数值\",\"evidence_id\":\"$EV\",\"span_start\":$NS1,\"span_end\":$NS2,\"metric_value\":{\"num\":11.1,\"unit\":\"%\",\"period\":\"E2E-R2\",\"metric\":\"冒烟指标\"}}" "$T/nv2.json"
+# 同 EV/维度/scope → 同一 obs_id：按 obs_id 幂等 UPDATE，历史只有最后值 → 幂等重写后仍是极值判定
+jcheck "数值重写幂等（同 obs_id）" "$T/nv2.json" "d.get('ok') == True and d.get('obs_id') == '$NVOB'"
+post /api/v1/knowledge/ledger/watermark "{\"subject_ts_code\":\"003026.SZ\",\"dimension\":\"E2E冒烟数值\"}" "$T/nvwm.json"
+jcheck "数值水位线统计落库" "$T/nvwm.json" "d.get('found') == True and (d.get('watermark') or {}).get('max_value', {}).get('updates', 0) >= 1"
+post /api/v1/knowledge/ledger/history "{\"subject\":\"中晶科技\",\"dimension\":\"E2E冒烟数值\"}" "$T/nvh.json"
+jcheck "数值观察入时间线" "$T/nvh.json" "len(d.get('observations', [])) >= 1 and (d['observations'][0].get('metric_value') or {}).get('num') is not None"
+
 echo "── MCP 面 ──"
 curl -sS -m 20 -H "X-API-Key: $KEY" -H 'Content-Type: application/json' \
   -H 'Accept: application/json, text/event-stream' \

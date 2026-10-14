@@ -54,9 +54,13 @@ P0.5 一并落地（全只读）：`get_announcement`/`get_irm`/`find_events`/`g
 - 定时：`deploy/eval/qingshui-golden-eval.plist.example`（launchd 每日一跑，用户手动 load；
   每轮成本 = 案数 × glm 长查询，约 2-3 小时）。
 
-## 五、与 v1.3 全局场景的差距（后续迭代候选）
+## 五、与 v1.3 全局场景的差距状态
 
-- 观察的 `metric_value` 数值维度尚无自动环比/区间外判定（草案 §3 数值型新颖度）；
-- finding 的 `supersedes` 语义已落数据结构但无专用 supersede 工作流；
-- `search_findings` 的跨主体预警订阅、台账→雷达信号的 agent 侧回流（pipeline 侧已由
-  `emit_radar_signals` 覆盖机械候选）可在第二期接上。
+- ✅ 数值型新颖度判定（2026-10-14 二期落地）：`write_observation` 缺 level 带 num 时自动
+  返回 `is_new_high/is_new_low/is_new_extreme + delta/delta_pct + same_period_restated`，
+  水位线 `max_value` 维护 {high, low, last, last_period, updates}，`is_new_signal` 合流信号。
+- ✅ supersede 工作流（2026-10-14 二期落地）：`save_finding(supersedes=旧FD)` 同事务置旧判断
+  `status=superseded`（存在性/同主体维度/未取代三重闸门）；`search_findings` 默认排除
+  dismissed+superseded，显式 status 可审计；`history_findings` 保持全量时间线。
+- ⬜ `search_findings` 的跨主体预警订阅、台账→雷达信号的 agent 侧回流（pipeline 侧已由
+  `emit_radar_signals` 覆盖机械候选）——三期候选。

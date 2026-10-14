@@ -2,78 +2,160 @@
   {
     "case_id": "gap-wafer-margin-001",
     "question": "生产8英寸抛光硅片的公司毛利率对比，是否存在预期差？",
-    "must_call_tools": ["compare_metric"],
-    "must_call_any_of": ["pull_history", "fetch_evidence", "semantic_search"],
-    "answer_must_include_any": ["毛利率", "预期差", "硅片"],
+    "must_call_tools": [
+      "compare_metric"
+    ],
+    "must_call_any_of": [
+      "pull_history",
+      "fetch_evidence",
+      "semantic_search"
+    ],
+    "answer_must_include_any": [
+      "毛利率",
+      "预期差",
+      "硅片"
+    ],
     "notes": "对齐实跑 Case5；允许 degraded"
   },
   {
     "case_id": "gap-zj-margin-001",
     "question": "中晶科技相关毛利率横比与预期差结论",
-    "must_call_tools": ["compare_metric"],
-    "answer_must_include_any": ["中晶", "毛利"],
+    "must_call_tools": [
+      "compare_metric"
+    ],
+    "answer_must_include_any": [
+      "中晶",
+      "毛利"
+    ],
     "notes": "对齐实跑 Case3"
   },
   {
     "case_id": "gap-degraded-ok-001",
     "question": "在数据 readiness=degraded 时，仍基于 compare_metric 给出有依据的弱结论",
-    "must_call_tools": ["compare_metric", "data_readiness"],
-    "answer_must_include_any": ["预期差", "毛利", "依据"],
+    "must_call_tools": [
+      "compare_metric",
+      "data_readiness"
+    ],
+    "answer_must_include_any": [
+      "预期差",
+      "毛利",
+      "依据"
+    ],
     "allow_degraded": true
   },
   {
     "case_id": "gap-ledger-progress-001",
     "question": "中晶科技 8 英寸抛光硅片产线进展的时间线是怎样的？如果识别到状态递进（新台阶），请把判断沉淀到判断台账。",
-    "must_call_tools": ["pull_history", "write_finding"],
-    "answer_must_include_any": ["产线", "预期差"],
+    "must_call_tools": [
+      "pull_history",
+      "write_finding"
+    ],
+    "answer_must_include_any": [
+      "产线",
+      "预期差"
+    ],
     "requires_deploy": true,
     "notes": "台账首案：write_finding 幂等，重跑安全；判断递进/新台阶口径见 divergence-mining skill"
   },
   {
     "case_id": "gap-ledger-reuse-001",
     "question": "查询判断台账：中晶科技产线进展维度当前水位线是什么阶段？已沉淀的判断里有哪些预期差还没被消化？",
-    "must_call_tools": ["history_findings"],
-    "must_call_any_of": ["watermark"],
-    "answer_must_include_any": ["水位", "阶段", "判断"],
+    "must_call_tools": [
+      "history_findings"
+    ],
+    "must_call_any_of": [
+      "watermark"
+    ],
+    "answer_must_include_any": [
+      "水位",
+      "阶段",
+      "判断"
+    ],
     "requires_deploy": true,
     "notes": "台账复用案：先查后断，避免复读旧闻"
   },
   {
     "case_id": "src-announcement-001",
     "question": "中晶科技最近的公告中哪些包含值得关注的经营信息（产线/订单/认证/业绩）？检索并回原文核验一条。",
-    "must_call_tools": ["get_announcement", "fetch_evidence"],
-    "answer_must_include_any": ["公告"],
+    "must_call_tools": [
+      "get_announcement",
+      "fetch_evidence"
+    ],
+    "answer_must_include_any": [
+      "公告"
+    ],
     "requires_deploy": true
   },
   {
     "case_id": "src-irm-001",
     "question": "互动易上，投资者就 8 英寸抛光硅片的产线、认证、放量进展有哪些问答？公司表述是否逐次递进？",
-    "must_call_tools": ["get_irm"],
-    "answer_must_include_any": ["互动易", "认证"],
+    "must_call_tools": [
+      "get_irm"
+    ],
+    "answer_must_include_any": [
+      "互动易",
+      "认证"
+    ],
     "requires_deploy": true,
     "notes": "对齐 09-17 预期差形态1：产线进展的递进式表达"
   },
   {
     "case_id": "src-events-001",
     "question": "最近有哪些利好光模块/CPO 产业链的行业事件？找出事件并引用原文证据。",
-    "must_call_tools": ["find_events"],
-    "must_call_any_of": ["get_event_detail", "semantic_search", "fetch_evidence"],
-    "answer_must_include_any": ["事件", "利好"],
+    "must_call_tools": [
+      "find_events"
+    ],
+    "must_call_any_of": [
+      "get_event_detail",
+      "semantic_search",
+      "fetch_evidence"
+    ],
+    "answer_must_include_any": [
+      "事件",
+      "利好"
+    ],
     "requires_deploy": true
   },
   {
     "case_id": "catchup-concept-001",
     "question": "CPO 概念的成分股里，哪些个股相对滞涨、存在补涨机会？用概念涨幅对比说明产业链传导逻辑。",
-    "must_call_tools": ["get_concept_stocks", "get_kline"],
-    "answer_must_include_any": ["补涨"],
+    "must_call_tools": [
+      "get_concept_stocks",
+      "get_kline"
+    ],
+    "answer_must_include_any": [
+      "补涨"
+    ],
     "requires_deploy": true,
     "notes": "策略思想说明（补涨策略）落地案：先涨环节→滞涨环节"
   },
   {
     "case_id": "scan-dimension-001",
     "question": "扫描『毛利率』维度下全行业主体的最新披露值，找出毛利率显著上行的主体作为预期差候选（不限于硅片板块）。",
-    "must_call_tools": ["scan_dimension"],
-    "answer_must_include_any": ["毛利率"],
+    "must_call_tools": [
+      "scan_dimension"
+    ],
+    "answer_must_include_any": [
+      "毛利率"
+    ],
     "requires_deploy": true
+  },
+  {
+    "case_id": "gap-metric-newhigh-001",
+    "question": "中晶科技最新披露的综合毛利率数值处于什么历史水平？如果识别到数值新高或新低（区间外），请把数值观察沉淀到判断台账并给出判断。",
+    "must_call_tools": [
+      "write_observation"
+    ],
+    "must_call_any_of": [
+      "compare_metric",
+      "metric_trend",
+      "pull_history"
+    ],
+    "answer_must_include_any": [
+      "毛利率",
+      "新"
+    ],
+    "requires_deploy": true,
+    "notes": "数值新颖度案：write_observation 带 metric_value，返回 is_new_extreme/delta 由 agent 语义化"
   }
 ]

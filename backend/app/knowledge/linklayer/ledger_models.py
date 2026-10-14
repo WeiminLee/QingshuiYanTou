@@ -157,3 +157,79 @@ async def advance_watermark(session, subject_ts_code: str, dimension: str, dimen
     )
     row = (await session.execute(stmt)).one()
     return watermark_dict(row)
+
+
+def merge_numeric_stats(prev: dict | None, num: float, period: str | None) -> dict:
+    """数值水位统计合并（纯函数）：high 只升、low 只降、last 总是更新。
+
+    prev=None（首条）时 high=low=last=num；updates 计累计写入次数。
+    """
+    if not isinstance(prev, dict) or not prev:
+        return {
+            "high": num,
+            "low": num,
+            "last": num,
+            "last_period": period,
+            "updates": 1,
+        }
+    return {
+        "high": max(num, prev.get("high", num)),
+        "low": min(num, prev.get("low", num)),
+        "last": num,
+        "last_period": period,
+        "updates": int(prev.get("updates", 0) or 0) + 1,
+    }
+
+
+async def advance_watermark_numeric(
+    session,
+    subject_ts_code: str,
+    dimension: str,
+    dimension_scope: str | None,
+    num: float,
+    period: str | None = None,
+) -> dict:
+    """数值型水位线推进：max_value 统计 {high, low, last, last_period, updates}。
+
+    read-modify-write（agent 写频低，竞态可忽略）；行不存在则连 level 一起建行
+    （max_level 留空，级位写入时由 advance_watermark 的 GREATEST 补齐）。
+    """
+    now = datetime.now(UTC)
+    scope = normalize_scope(dimension_scope)
+    wm = (
+        await session.execute(
+            select(Watermark).where(
+                Watermark.subject_ts_code == subject_ts_code,
+                Watermark.dimension == dimension,
+                Watermark.dimension_scope == scope,
+            )
+        )
+    ).scalar_one_or_none()
+    stats = merge_numeric_stats(wm.max_value if wm else None, num, period)
+    if wm is None:
+        session.add(
+            Watermark(
+                subject_ts_code=subject_ts_code,
+                dimension=dimension,
+                dimension_scope=scope,
+                max_level=None,
+                max_value=stats,
+                first_reached_at=now,
+                last_updated_at=now,
+            )
+        )
+        result_row = None
+    else:
+        wm.max_value = stats
+        wm.last_updated_at = now
+        result_row = wm
+        await session.flush()
+    return {
+        "subject_ts_code": subject_ts_code,
+        "dimension": dimension,
+        "dimension_scope": scope,
+        "max_level": result_row.max_level if result_row else None,
+        "max_value": stats,
+        "first_reached_at": (result_row.first_reached_at.isoformat() if result_row and result_row.first_reached_at else None),
+        "last_updated_at": now.isoformat(),
+    }

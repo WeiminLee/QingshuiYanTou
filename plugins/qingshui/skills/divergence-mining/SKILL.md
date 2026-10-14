@@ -1,7 +1,7 @@
 ---
 name: divergence-mining
-description: "预期差挖掘——在证据时间线上识别状态演进（递进/变化/矛盾），判断须引用 EV:，判断后沉淀 write_finding"
-version: 4.0.0
+description: "预期差挖掘——在证据时间线上识别状态演进（递进/变化/矛盾），判断须引用 EV:，判断后沉淀 write_finding（数值观察看 is_new_extreme，修正旧判断用 supersedes）"
+version: 4.1.0
 metadata:
   tags: [预期差, 状态演进, 信息差, 时间差, 判断沉淀]
   category: finance
@@ -34,7 +34,13 @@ metadata:
    - `supports`：本分析的 EV 句锚 `[{evidence_id, span_start, span_end}]`（硬闸门：伪造/越界会拒写）
    - `to_state`：`{level, stage}` 落归一化阶梯；`judgment` 一句话结论
    - 幂等：同支撑集重复写入自动合并，重跑分析安全
-5. **佐证可溯源**：报告引用判断时附 finding_id（`FD:…`），证据引用照旧附 `EV:…`
+5. **数值型观察**：`write_observation` 带 `metric_value: {num, unit, period, metric}`（如毛利率/订单额）→ 返回
+   - `is_new_extreme`（区间外=数值新台阶，即新的预期差信号）与 `delta`/`delta_pct`（环比上一披露值）
+   - `same_period_restated=True` 是同期间修正披露，**不判递进**
+   - 新高/新低 → progression/regression 的方向由指标语义定（毛利率新低一般是 regression，成本率新低是 progression）
+6. **修正旧判断**：结论推翻或收窄先前判断时 → `write_finding(supersedes="FD:…")`：旧判断自动置
+   superseded（默认搜索不再返回），时间线仍可审计；跨主体/维度取代会被闸门拒绝
+7. **佐证可溯源**：报告引用判断时附 finding_id（`FD:…`），证据引用照旧附 `EV:…`
 
 ## 硅片板块样例输出结构
 对「对硅片板块做预期差分析」必须产出类似结构的 Markdown：
