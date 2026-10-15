@@ -135,8 +135,12 @@ MIGRATIONS = [
         concept_code VARCHAR(50) NOT NULL,
         concept_name VARCHAR(200) NOT NULL,
         trade_date DATE NOT NULL,
+        days INTEGER,
+        up_stat VARCHAR(50),
+        cons_nums INTEGER,
         up_nums INTEGER,
         pct_chg FLOAT,
+        rank INTEGER,
         created_at TIMESTAMP DEFAULT now(),
         UNIQUE(concept_code, trade_date)
     );
