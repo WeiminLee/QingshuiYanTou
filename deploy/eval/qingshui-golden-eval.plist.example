@@ -9,7 +9,7 @@
     launchctl load ~/Library/LaunchAgents/com.qingshui.golden-eval.plist
     launchctl list | grep qingshui   # 查看与手动触发：launchctl start com.qingshui.golden-eval
 
-  成本提示：每轮 = 金标案数 × glm 长查询（当前 v2 十案约 2-3 小时、pjlab token 一笔可观开销）。
+  成本提示：每轮 = 金标案数 × glm 长查询（当前 v2 11 案约 2-3 小时、pjlab token 一笔可观开销）。
   门禁语义见 backend/scripts/eval_dual_track.py --help：连续 3 轮 rate≥0.8 且零回归才提示达标。
   前置：scripts/tunnel_chemagent.sh 隧道在线、~/.dsh-qingshui 凭据可用（launchd 用户态即可）。
 -->

@@ -1,5 +1,12 @@
 # Agent 架构优化路线图
 
+> ⚠️ **已过时（2026-10-15 标注）**：本文属**已退役的 LangChain / `stream/report` Agent 体系**。
+> 该运行时（`backend/app/reasoning/**`、`/api/v1/agent/*`）已于 **2026-10-13 整体删除**，
+> 现役入口为 DeepSeek harness（dsh）+ `plugins/qingshui` + 只读 Data MCP。
+> 本文**仅作历史记录保留**，其中 Phase 清单、文件路径、中间件设计均不对应当前代码，
+> **不得**作为实施依据。现行架构见 `AGENTS.md` 与
+> `docs/superpowers/specs/2026-10-10-agent-mcp-deepseek-harness-design.md`。
+
 > 制定日期：2026-04-24
 > 最后更新：2026-04-26（SSE 流式输出改进 Phase A/B/C/D/E/F 全部完成 ✅）
 > 状态：全部完成（Agent 优化全部完成；SSE 流式改进 Phase A/B/C/D/E/F 全部完成 ✅）

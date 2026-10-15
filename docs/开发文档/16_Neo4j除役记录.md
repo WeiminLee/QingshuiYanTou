@@ -6,7 +6,8 @@
 
 ## 一、为什么是除役
 
-1. **活路径零依赖**：Data MCP 21 工具、readiness 五源、ingestion/worker、金标 3/3 全部
+1. **活路径零依赖**：Data MCP 21 工具、readiness 五源、ingestion/worker、金标 3/3（**指 v1
+   三案子集全过，非全量金标；v2 全量为 11 案，见 `docs/待办.md`**）全部
    不需要 Neo4j——chemagent 自迁移起就没有 Neo4j，生产和评测一直绿。
 2. **真源方向早已确定**：2026-09-18 知识层重设计（草案 §15）明确「新结构全入 PG，
    Neo4j 冻结只读过渡；三元组管线退役」。当时保留的读侧（resolve/expand）只服务旧

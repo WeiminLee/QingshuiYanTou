@@ -63,7 +63,7 @@
 | Mongo / PG / Qdrant / Redis | chemagent docker（数据在 `/data`） | ✅ 已迁移并对账（kg_evidence 353,768 / link_links 1307 万+ / 三集合向量齐） |
 | backend API | chemagent :8001 | ✅ 运行中 |
 | scheduler（采集全家桶） | chemagent compose 服务 | ✅ 2026-10-12 接管，ingestion 积压消化中 |
-| Data MCP（只读 P0×9） | chemagent :8100 | ✅ 冒烟全绿 |
+| Data MCP（只读 **21 工具** = P0×9 + P0.5×12） | chemagent :8100 | ✅ 冒烟全绿（工具数 2026-10-15 对 `backend/app/mcp_data/tools_readonly.py` 核实） |
 | knowledge_worker / pdf_worker | chemagent systemd | ✅ 已切本机 API（17:02） |
 | bge-m3 / Qwen 推理 | H200 rjob | ✅ 运行中，本机内网直连 |
 | Agent 交互层（dsh web） | 本地 Mac | ✅ 已搭建（主仓根目录直接运行，`scripts/start-local-dsh-web.sh`，金标 3/3 通过；2026-10-14 worktree 全部并回主目录） |
@@ -71,13 +71,26 @@
 | 云端整套栈 | 124.221.188.38 | ❄️ 只读冻结，chemagent 验证结束后下线 |
 | sensecore pod / 生产链路经 Mac | — | ❌ 已退出关键路径 |
 
+### 2026-10-15 增量（HEAD `dba89a1`，`feat/ingestion-drain-limit-20` 已 fast-forward 合入 main）
+
+- **检索冷读修复**：Qdrant 连接池化 + 30s 超时，消除冷启动静默断查；readiness 公告校正字段错配。
+- **evidence 短 ID 前缀解析**：`get_evidence` 精确未中时按 ≥8-hex 前缀回退（EV 引用容错）。
+- **前端**：侧边栏会话归档/重命名（原生 RPC + 两步确认）、EV 引用悬停预览/点击大卡。
+- 遗留裸文件（`qs-a2-*.mjs` / `qs-layout-*.png`）已移入 `.scratch/qingshui-legacy-2026-10-15/`。
+
 ## Agent 运行时（2026-10-13）
 
 **唯一**投研 Agent 入口：DeepSeek harness（dsh）+ `plugins/qingshui` + 只读 Data MCP。  
 旧 LangChain `/api/v1/agent/*` 与 `backend/app/reasoning/**` 旧运行时已删除（2026-10-13）。见 `docs/superpowers/specs/2026-10-10-agent-mcp-deepseek-harness-design.md` 与 `deploy/mcp/DUAL_TRACK_RUNBOOK.md`。
 
-- **工具面**：只读 Data MCP 21 工具 + Knowledge HTTP（`knowledge/{search,metrics,agent,links,market,sources,ledger}`）。
+- **工具面**：只读 Data MCP **21 工具**（P0×9 + P0.5×12；2026-10-15 对
+  `backend/app/mcp_data/tools_readonly.py` 的 `TOOL_NAMES` 与 `@mcp.tool` 注册逐项核实）
+  + Knowledge HTTP（`knowledge/{search,metrics,agent,links,market,sources,ledger}`）。
   **判断沉淀**：write_observation/write_finding 只经 HTTP+插件写面（MCP 不注册写工具），
   见 `docs/开发文档/15_findings台账工具面落地.md`。
-- **金标与门禁**：`backend/eval/expected_gap_cases_v2.json`（十案）+ `eval_dual_track.py --gate/--history`
+- **金标与门禁**：`backend/eval/expected_gap_cases_v2.json`（**11 案**）+ `backend/scripts/eval_dual_track.py --gate/--history`
   （连续 3 轮达标零回归 = GATE-STABLE-3，才具备切流/上新判定条件）。
+  ⚠️ **事实限定（2026-10-15）**：全仓**不存在** `gate_history.jsonl`（脚本默认落盘
+  `eval/out/gate_history.jsonl`），即 **GATE-STABLE-3 从未成立、零运行记录**——上述判定规则保留，
+  但当前不具备切流/上新判定条件，须先补跑全量 11 案 ≥3 轮并落盘 history。
+  全项目遗留清单见 `docs/待办.md`（2026-10-15 建立，集中式 backlog）。

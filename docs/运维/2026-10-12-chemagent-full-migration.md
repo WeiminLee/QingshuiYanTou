@@ -56,7 +56,8 @@
 ## 验证
 
 - 本机 readiness API 正常（kline fresh 至最近交易日）。
-- Data MCP `/health` 返回 9 个 P0 工具：fetch_evidence / semantic_search / compare_metric /
+- Data MCP `/health` 返回 9 个 P0 工具（**截至 2026-10-12 实测值**；2026-10-13 落 P0.5 后
+  已扩为 21 个只读工具）：fetch_evidence / semantic_search / compare_metric /
   pull_history / lookup_players / lookup_products / get_kline / get_stock_profile / data_readiness。
 - 冒烟实测（18:33 全绿）：semantic ✅（entities 带分返回）、compare（带 scope）✅ 3.4s、
   links/history ✅、market/kline ✅、MCP /health 9 工具 ✅。

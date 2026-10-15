@@ -194,11 +194,11 @@ Knowledge HTTP、采集、抽取、worker **保留**。旧前端见 `archive/REA
 - **工具面**：只读 Data MCP（`backend/app/mcp_data/`，:8100，21 个只读工具）+ Knowledge HTTP
   （`/api/v1/knowledge/{search/semantic, metrics/compare, agent/*, links/*, market/*, sources/*, ledger/*}`），
 
-  工具名与评测金标对齐（v2 十案）；**判断沉淀**（write_observation/write_finding）只经
+  工具名与评测金标对齐（v2 **11 案**）；**判断沉淀**（write_observation/write_finding）只经
   HTTP+插件写面（MCP 不注册写工具），语义见 `docs/开发文档/15_findings台账工具面落地.md`。
 - **数据面**：knowledge 构建管线（evidence/链接层/图谱/向量）+ scheduler + worker 不变。
-- **评测**：`scripts/run-golden-eval.sh` 跑 `backend/eval/expected_gap_cases_v1.json` 金标
-  （headless 逐案 + session 工具归因 + `eval_dual_track.py` 判分）。
+- **评测**：`scripts/run-golden-eval.sh` 跑 `backend/eval/expected_gap_cases_v2.json` 金标
+  （默认 v2 11 案，`CASES=` 可回退 v1；headless 逐案 + session 工具归因 + `eval_dual_track.py` 判分）。
 
 ## API 服务
 

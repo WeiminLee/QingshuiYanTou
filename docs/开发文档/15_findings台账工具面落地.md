@@ -49,8 +49,13 @@ P0.5 一并落地（全只读）：`get_announcement`/`get_irm`/`find_events`/`g
 
 - `backend/eval/expected_gap_cases_v2.json`：v1 三案 + 七新案（台账写/台账复用/公告/互动易/
   事件/概念补涨/维度扫描），新案标注 `requires_deploy`。
-- 门禁：`eval_dual_track.py --gate 0.8 --history eval/out/gate_history.jsonl`——通过率阈值 +
+  （**2026-10-15 核实**：文件现为 **11 案**，较上文多出 `gap-metric-newhigh-001`，
+  对应 §五「数值型新颖度判定（2026-10-14 二期）」新增案。）
+- 门禁：`backend/scripts/eval_dual_track.py --gate 0.8 --history eval/out/gate_history.jsonl`
+  （脚本在 `backend/scripts/`，非 `eval/` 目录；`--gate` 默认 0.80）——通过率阈值 +
   上轮已过案零回归 + 连续 3 轮达标（`GATE-STABLE-3`）才具备切流判定条件（§9.2）。
+  ⚠️ **2026-10-15 核实：全仓不存在 `gate_history.jsonl`，GATE-STABLE-3 从未成立**，
+  规则保留但尚不可据以判定切流。
 - 定时：`deploy/eval/qingshui-golden-eval.plist.example`（launchd 每日一跑，用户手动 load；
   每轮成本 = 案数 × glm 长查询，约 2-3 小时）。
 

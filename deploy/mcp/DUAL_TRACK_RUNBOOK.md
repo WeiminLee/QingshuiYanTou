@@ -9,7 +9,7 @@
 2. **本机 harness（dev-eval）**：`mcpBaseUrl` 指向云端 MCP（HTTPS + API Key）；**禁止**默认 Mac 隧道
 3. **云端 harness**：`mcpBaseUrl=http://127.0.0.1:8100/mcp`（与 Knowledge 同机）
 4. **烟雾**：`KNOWLEDGE_API_KEY=… ./scripts/smoke_mcp_p0.sh`
-5. **评测**（一键 runner，v2 十案默认；回退 v1：`CASES=backend/eval/expected_gap_cases_v1.json`）：
+5. **评测**（一键 runner，v2 11 案默认；回退 v1：`CASES=backend/eval/expected_gap_cases_v1.json`）：
    ```bash
    bash scripts/run-golden-eval.sh glm_$(date +%F)          # 可选第二参数 = 单案重跑 case_id
    # 产物：backend/eval/out/{harness_answers_*,expected_gap_*,expected_gap_*.json}
@@ -39,4 +39,4 @@
 - runner 以非零退出码上报门禁失败（launchd/cron 可据此告警）。
 
 **定时评测**：`deploy/eval/qingshui-golden-eval.plist.example`（launchd，每日一跑；建议每个交易日
-一次）。每轮成本 ≈ 案数 × glm 长查询（v2 十案约 2-3 小时 + pjlab token），用户手动 load。
+一次）。每轮成本 ≈ 案数 × glm 长查询（v2 11 案约 2-3 小时 + pjlab token），用户手动 load。
