@@ -87,11 +87,18 @@ KLINE_FETCH_MINUTE = 30
 CONCEPT_FETCH_MINUTE = 0
 # 收盘后 concept 补写：A 股涨停列表（tinyshare limit_list_d）当日数据收盘后才发布，
 # concept_hourly 交易时段内（最晚 15:00 整点）与发布时序冲突，系统性漏写当日数据。
-# 本作业默认 17:30（Asia/Shanghai）补跑一次；env 可覆盖（CONCEPT_EOD_HOUR/MINUTE）。
+# 2026-10-15 实测：17:44 未发布、18:04 已发布（≈18:00），故首跑默认 18:30；
+# env 可覆盖首跑时刻（CONCEPT_EOD_HOUR/MINUTE）。
 CONCEPT_EOD_HOUR_ENV = "CONCEPT_EOD_HOUR"
 CONCEPT_EOD_MINUTE_ENV = "CONCEPT_EOD_MINUTE"
-CONCEPT_EOD_DEFAULT_HOUR = 17
+CONCEPT_EOD_DEFAULT_HOUR = 18
 CONCEPT_EOD_DEFAULT_MINUTE = 30
+# 0 行重试档位（HH:MM 逗号分隔；每档先查当日是否已入库，命中即停且不再请求数据源）
+CONCEPT_EOD_RETRIES_ENV = "CONCEPT_EOD_RETRIES"
+CONCEPT_EOD_DEFAULT_RETRIES = "19:30,20:30,21:30"
+# 次日补昨日时刻（条件执行：昨日数据缺失才拉取，避免每日无条件请求数据源引发授权码竞态）
+CONCEPT_EOD_CATCHUP_ENV = "CONCEPT_EOD_CATCHUP_TIME"
+CONCEPT_EOD_DEFAULT_CATCHUP = "09:15"
 IRM_HOUR = 22
 SYNC_STOCKS_WEEKDAY = "mon"
 SYNC_STOCKS_HOUR = 7
@@ -125,10 +132,81 @@ def _evidence_scheduler_enabled() -> bool:
 
 
 def _concept_eod_time() -> tuple[int, int]:
-    """收盘后 concept 补写时刻（Asia/Shanghai），env 可配，默认 17:30。"""
+    """收盘后 concept 补写首跑时刻（Asia/Shanghai），env 可配，默认 18:30。"""
     hour = int(os.getenv(CONCEPT_EOD_HOUR_ENV, str(CONCEPT_EOD_DEFAULT_HOUR)))
     minute = int(os.getenv(CONCEPT_EOD_MINUTE_ENV, str(CONCEPT_EOD_DEFAULT_MINUTE)))
     return hour, minute
+
+
+def _concept_eod_retries() -> list[tuple[int, int]]:
+    """0 行重试档位（HH:MM 逗号分隔，默认 19:30,20:30,21:30），env 可配。"""
+    raw = os.getenv(CONCEPT_EOD_RETRIES_ENV, CONCEPT_EOD_DEFAULT_RETRIES)
+    slots: list[tuple[int, int]] = []
+    for token in raw.split(","):
+        token = token.strip()
+        if not token:
+            continue
+        hour_s, minute_s = token.split(":")
+        slots.append((int(hour_s), int(minute_s)))
+    return slots
+
+
+def _concept_eod_catchup_time() -> tuple[int, int]:
+    """次日补昨日时刻（Asia/Shanghai），env 可配，默认 09:15。"""
+    raw = os.getenv(CONCEPT_EOD_CATCHUP_ENV, CONCEPT_EOD_DEFAULT_CATCHUP)
+    hour_s, minute_s = raw.strip().split(":")
+    return int(hour_s), int(minute_s)
+
+
+async def _concept_limit_has_date(d: date) -> bool:
+    """concept_limit 是否已有指定交易日数据（重试命中即停 / 次日回补条件判定）。"""
+    async with engine.connect() as conn:
+        result = await conn.execute(
+            text("SELECT 1 FROM concept_limit WHERE trade_date = :d LIMIT 1"),
+            {"d": d},
+        )
+        return result.scalar_one_or_none() is not None
+
+
+async def _is_trading_day_by_daily_data(d: date) -> bool:
+    """以 daily_data 作交易日历：当日有日线行即视为交易日。
+
+    当日 kline 作业 17:30 先入库，18:30 EOD 首跑时可用（2026-10-15 实测 18:17
+    已含当日）；周末/法定节假日无日线行 → 天然排除，避免非交易日空跑与误告警。
+    """
+    async with engine.connect() as conn:
+        result = await conn.execute(
+            text("SELECT 1 FROM daily_data WHERE trade_date = :d LIMIT 1"),
+            {"d": d},
+        )
+        return result.scalar_one_or_none() is not None
+
+
+async def _concept_eod_missing_trade_date(lookback_days: int = 10) -> date | None:
+    """最近缺少概念数据的交易日（daily_data 有、concept_limit 无），供次日条件补漏。
+
+    用 daily_data 作交易日历时，周末/节假日天然不在候选集；只对「确认缺数据的真实
+    交易日」发 fetch_concept 请求——没数据才去要数据。
+    """
+    from_d = datetime.now(TRADING_TZ).date() - timedelta(days=lookback_days)
+    async with engine.connect() as conn:
+        result = await conn.execute(
+            text(
+                """
+                SELECT d.trade_date
+                FROM daily_data d
+                WHERE d.trade_date >= :from
+                  AND NOT EXISTS (
+                      SELECT 1 FROM concept_limit c WHERE c.trade_date = d.trade_date
+                  )
+                ORDER BY d.trade_date DESC
+                LIMIT 1
+                """
+            ),
+            {"from": from_d},
+        )
+        row = result.fetchone()
+    return row[0] if row else None
 
 
 def _run_id_kwarg(run_id: object) -> dict[str, int]:
@@ -253,13 +331,25 @@ async def _run_concept_job() -> None:
 
 
 async def _run_concept_eod_job() -> None:
-    """收盘后概念热度补写：**不受交易时段 guard 约束**。
+    """收盘后概念热度补写（首跑/重试共用核心）：**不受交易时段 guard 约束**。
 
-    交易时段内 concept_hourly 拿不到当日数据（limit_list_d 收盘后才发布），
-    本作业在收盘后（默认 17:30）补跑一次，保证当日概念热度入库。
-    与 concept_hourly 分开记录 monitor（task_name=concept_eod），
-    且写入 0 行时显式 warn，不再把「静默空跑」记成成功。
+    交易时段内 concept_hourly 拿不到当日数据（limit_list_d 收盘后才发布，
+    实测 ≈18:00），本作业在首跑 18:30 + 重试档位补跑；**当日已入库则直接跳过**
+    （重试命中即停，且不向数据源发重复请求，规避 tinyshare 授权码并发占用）。
+    写入 0 行时显式 warn，不再把「静默空跑」记成成功。
     """
+    today = datetime.now(TRADING_TZ).date()
+    if await _concept_limit_has_date(today):
+        logger.info("[concept_eod] 今日 %s 概念热度已入库，跳过本次执行", today)
+        return
+    if not await _is_trading_day_by_daily_data(today):
+        # 非交易日（周末/法定节假日/调休休市）静默跳过：不请求数据源、不告警、
+        # 不写 monitor——「休市被记成异常」与「0 行记成成功」同为反向噪声。
+        logger.info(
+            "[concept_eod] 今日 %s 无日线数据（非交易日或行情未到），跳过且不告警", today
+        )
+        return
+
     from app.data_pipeline.dingtalk import (
         notify_task_failed,
         notify_task_start,
@@ -301,6 +391,45 @@ async def _run_concept_eod_job() -> None:
     except Exception as e:
         await record_task_result("concept_eod", TaskStatus.FAILED, error_message=str(e), **_run_id_kwarg(run_id))
         await notify_task_failed("概念热度收盘后补写", str(e))
+        raise
+
+
+async def _run_concept_eod_catchup() -> None:
+    """次日开盘前补漏：**条件执行**——查最近缺少概念数据的真实交易日再拉取。
+
+    交易日历 = daily_data（有日线行即交易日）：周末/法定节假日天然排除，完全静默；
+    只对「daily_data 有、concept_limit 无」的缺数据日调 fetch_concept(trade_date=...)，
+    覆盖整晚未发布 / 数据源异常 / 当日 EOD 因行情缺失而跳过的漏日。没数据才去要数据，
+    防止 tinyshare 授权码并发占用常态化。lookback 默认 10 天。
+    """
+    from app.data_pipeline.fetcher import fetch_concept as _fetch_concept_fn
+    from app.data_pipeline.monitor import (
+        TaskStatus,
+        init_monitor,
+        record_task_result,
+        record_task_start,
+    )
+
+    missing = await _concept_eod_missing_trade_date()
+    if missing is None:
+        logger.info("[concept_eod_catchup] 无缺失交易日，跳过")
+        return
+    await init_monitor()
+    run_id = await record_task_start("concept_eod_catchup")
+    logger.info("[concept_eod_catchup] 交易日 %s 概念数据缺失，补拉", missing)
+    try:
+        result = await _fetch_concept_fn(trade_date=missing.strftime("%Y%m%d"))
+        logger.info("[concept_eod_catchup] 补写交易日 %s: %s", missing, result)
+        await record_task_result(
+            "concept_eod_catchup",
+            TaskStatus.SUCCESS if result.get("fail", 0) == 0 else TaskStatus.PARTIAL,
+            total=result.get("success", 0) + result.get("fail", 0),
+            success=result.get("success", 0),
+            fail=result.get("fail", 0),
+            **_run_id_kwarg(run_id),
+        )
+    except Exception as e:
+        await record_task_result("concept_eod_catchup", TaskStatus.FAILED, error_message=str(e), **_run_id_kwarg(run_id))
         raise
 
 
@@ -847,10 +976,36 @@ class Scheduler:
             id="concept_eod",
             replace_existing=True,
         )
+        for retry_hour, retry_minute in _concept_eod_retries():
+            self._scheduler.add_job(
+                _run_concept_eod_job,
+                CronTrigger(
+                    hour=retry_hour,
+                    minute=retry_minute,
+                    timezone=TIMEZONE,
+                ),
+                id=f"concept_eod_retry_{retry_hour:02d}_{retry_minute:02d}",
+                replace_existing=True,
+            )
+        concept_eod_catchup_hour, concept_eod_catchup_minute = _concept_eod_catchup_time()
+        self._scheduler.add_job(
+            _run_concept_eod_catchup,
+            CronTrigger(
+                hour=concept_eod_catchup_hour,
+                minute=concept_eod_catchup_minute,
+                day_of_week="mon-fri",
+                timezone=TIMEZONE,
+            ),
+            id="concept_eod_catchup",
+            replace_existing=True,
+        )
         logger.info(
-            "concept_eod 已注册: 每日 %02d:%02d (%s) 收盘后补写概念热度",
+            "concept_eod 已注册: 首跑 %02d:%02d + 重试 %s + 次日补昨日 %02d:%02d (%s)",
             concept_eod_hour,
             concept_eod_minute,
+            ",".join(f"{h:02d}:{m:02d}" for h, m in _concept_eod_retries()),
+            concept_eod_catchup_hour,
+            concept_eod_catchup_minute,
             TIMEZONE,
         )
         self._scheduler.add_job(

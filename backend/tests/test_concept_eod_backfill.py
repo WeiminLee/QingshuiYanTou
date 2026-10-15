@@ -115,6 +115,7 @@ def _install_job_mocks(monkeypatch, fetch_result: dict) -> dict:
     import app.data_pipeline.fetcher as fetcher_mod
     from app.data_pipeline import dingtalk as dt
     from app.data_pipeline import monitor
+    from app.data_pipeline import scheduler as sched
 
     m = {
         "start": AsyncMock(return_value=1),
@@ -124,6 +125,9 @@ def _install_job_mocks(monkeypatch, fetch_result: dict) -> dict:
         "notify_success": AsyncMock(),
         "notify_failed": AsyncMock(),
         "init": AsyncMock(),
+        "has_date": AsyncMock(return_value=False),
+        "is_trading": AsyncMock(return_value=True),
+        "missing": AsyncMock(return_value=None),
     }
     monkeypatch.setattr(monitor, "record_task_start", m["start"])
     monkeypatch.setattr(monitor, "record_task_result", m["result"])
@@ -132,6 +136,9 @@ def _install_job_mocks(monkeypatch, fetch_result: dict) -> dict:
     monkeypatch.setattr(dt, "notify_task_success", m["notify_success"])
     monkeypatch.setattr(dt, "notify_task_failed", m["notify_failed"])
     monkeypatch.setattr(fetcher_mod, "fetch_concept", m["fetch"])
+    monkeypatch.setattr(sched, "_concept_limit_has_date", m["has_date"])
+    monkeypatch.setattr(sched, "_is_trading_day_by_daily_data", m["is_trading"])
+    monkeypatch.setattr(sched, "_concept_eod_missing_trade_date", m["missing"])
     return m
 
 
@@ -178,10 +185,43 @@ def test_concept_eod_warns_on_zero_rows(monkeypatch, caplog):
     )
 
 
-def test_concept_eod_default_time_is_17_30(monkeypatch):
+def test_concept_eod_skips_when_today_already_exists(monkeypatch):
+    """重试命中即停：当日已入库则不再请求数据源（防授权码竞态）。"""
     from app.data_pipeline import scheduler as sched
 
-    assert sched._concept_eod_time() == (17, 30)
+    m = _install_job_mocks(monkeypatch, {"success": 0, "fail": 0, "skipped": 0})
+    m["has_date"].return_value = True
+
+    asyncio.run(sched._run_concept_eod_job())
+
+    m["fetch"].assert_not_awaited()
+    m["start"].assert_not_awaited()
+
+
+def test_concept_eod_skips_silently_on_non_trading_day(monkeypatch, caplog):
+    """非交易日（无日线行）必须静默跳过：不请求数据源、不告警、不写 monitor。"""
+    import logging
+
+    from app.data_pipeline import scheduler as sched
+
+    m = _install_job_mocks(monkeypatch, {"success": 0, "fail": 0, "skipped": 0})
+    m["is_trading"].return_value = False
+
+    caplog.set_level(logging.INFO, logger="app.data_pipeline.scheduler")
+    asyncio.run(sched._run_concept_eod_job())
+
+    m["fetch"].assert_not_awaited()
+    m["start"].assert_not_awaited()
+    assert not any("写入 0 行" in rec.message for rec in caplog.records), (
+        "非交易日不得产生 0 行告警（休市被记成异常）"
+    )
+    assert any("非交易日" in rec.message for rec in caplog.records)
+
+
+def test_concept_eod_default_time_is_18_30(monkeypatch):
+    from app.data_pipeline import scheduler as sched
+
+    assert sched._concept_eod_time() == (18, 30)
 
 
 def test_concept_eod_time_env_override(monkeypatch):
@@ -190,6 +230,50 @@ def test_concept_eod_time_env_override(monkeypatch):
     monkeypatch.setenv("CONCEPT_EOD_HOUR", "18")
     monkeypatch.setenv("CONCEPT_EOD_MINUTE", "0")
     assert sched._concept_eod_time() == (18, 0)
+
+
+def test_concept_eod_retries_default_and_env(monkeypatch):
+    from app.data_pipeline import scheduler as sched
+
+    assert sched._concept_eod_retries() == [(19, 30), (20, 30), (21, 30)]
+
+    monkeypatch.setenv("CONCEPT_EOD_RETRIES", "18:45,19:15")
+    assert sched._concept_eod_retries() == [(18, 45), (19, 15)]
+
+
+def test_concept_eod_catchup_time_default_and_env(monkeypatch):
+    from app.data_pipeline import scheduler as sched
+
+    assert sched._concept_eod_catchup_time() == (9, 15)
+
+    monkeypatch.setenv("CONCEPT_EOD_CATCHUP_TIME", "10:00")
+    assert sched._concept_eod_catchup_time() == (10, 0)
+
+
+def test_concept_eod_catchup_skips_when_nothing_missing(monkeypatch):
+    """无缺失交易日 → 直接跳过，不请求数据源（非交易日/无漏日的静默路径）。"""
+    from app.data_pipeline import scheduler as sched
+
+    m = _install_job_mocks(monkeypatch, {"success": 0, "fail": 0, "skipped": 0})
+
+    asyncio.run(sched._run_concept_eod_catchup())
+
+    m["fetch"].assert_not_awaited()
+    m["start"].assert_not_awaited()
+
+
+def test_concept_eod_catchup_backfills_missing_trade_date(monkeypatch):
+    from datetime import date
+
+    from app.data_pipeline import scheduler as sched
+
+    m = _install_job_mocks(monkeypatch, {"success": 7, "fail": 0, "skipped": 0})
+    m["missing"].return_value = date(2026, 10, 14)
+
+    asyncio.run(sched._run_concept_eod_catchup())
+
+    m["fetch"].assert_awaited_once_with(trade_date="20261014")
+    assert m["start"].await_args.args[0] == "concept_eod_catchup"
 
 
 class _FakeScheduler:
@@ -218,14 +302,30 @@ def test_scheduler_registers_concept_eod(monkeypatch):
 
     eod = next(job for job in fake.jobs if job["id"] == "concept_eod")
     assert eod["func"] == "_run_concept_eod_job"
-    # CronTrigger 渲染形如 cron[hour='17', minute='30']
-    assert "hour='17'" in str(eod["trigger"])
+    # CronTrigger 渲染形如 cron[hour='18', minute='30']
+    assert "hour='18'" in str(eod["trigger"])
     assert "minute='30'" in str(eod["trigger"])
+
+    ids = [job["id"] for job in fake.jobs]
+    assert "concept_eod_retry_19_30" in ids
+    assert "concept_eod_retry_20_30" in ids
+    assert "concept_eod_retry_21_30" in ids
+    assert "concept_eod_catchup" in ids
+
+    catchup = next(job for job in fake.jobs if job["id"] == "concept_eod_catchup")
+    assert catchup["func"] == "_run_concept_eod_catchup"
+    assert "hour='9'" in str(catchup["trigger"])
+    assert "minute='15'" in str(catchup["trigger"])
 
 
 def test_scheduler_registers_concept_eod_with_env_override(monkeypatch):
     monkeypatch.setenv("CONCEPT_EOD_HOUR", "18")
+    monkeypatch.setenv("CONCEPT_EOD_RETRIES", "19:00,20:00")
     fake = _start_scheduler(monkeypatch)
 
     eod = next(job for job in fake.jobs if job["id"] == "concept_eod")
     assert "hour='18'" in str(eod["trigger"])
+    ids = [job["id"] for job in fake.jobs]
+    assert "concept_eod_retry_19_00" in ids
+    assert "concept_eod_retry_20_00" in ids
+    assert "concept_eod_retry_19_30" not in ids
