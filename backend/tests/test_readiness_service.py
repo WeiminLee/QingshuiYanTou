@@ -1,12 +1,14 @@
 from datetime import UTC, date, datetime, timezone, timedelta
 
 import pytest
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from app.readiness.schemas import SourceStatus
 from app.readiness.service import (
     DataReadinessService,
     SourceDataSnapshot,
     SourceSyncSnapshot,
+    SqlReadinessRepository,
     build_checkpoint_query,
     build_ingestion_jobs_query,
     build_sync_query,
@@ -379,3 +381,34 @@ def test_format_readiness_for_agent_lists_boundaries():
     assert "overall_status=degraded" in text
     assert "announcement: stale" in text
     assert "基于截至" in text
+
+
+@pytest.mark.asyncio
+async def test_mongo_announcement_latest_uses_kg_evidence_fields():
+    """2026-10-15 回归：kg_evidence 实际字段为 source_type/publish_date。
+
+    原实现误用 source/published_at：匹配永远为空且全表扫触发 maxTimeMS 超时。
+    """
+    repo = SqlReadinessRepository()
+    cursor = MagicMock()
+    cursor.sort.return_value = cursor
+    cursor.limit.return_value = cursor
+    cursor.max_time_ms.return_value = cursor
+    cursor.to_list = AsyncMock(return_value=[{"publish_date": "2026-07-20"}])
+    fake_db = MagicMock()
+    fake_db.__getitem__.return_value.find.return_value = cursor
+
+    with (
+        patch("app.readiness.service.engine") as eng,
+        patch("app.core.mongodb.get_mongo_db", return_value=fake_db),
+    ):
+        eng.connect.side_effect = RuntimeError("pg down")
+        result = await repo._mongo_announcement_latest_date()
+
+    assert result == date(2026, 7, 20)
+    call = fake_db.__getitem__.return_value.find.call_args
+    filter_arg = call.args[0]
+    projection_arg = call.kwargs["projection"]
+    assert filter_arg == {"source_type": "announcement"}
+    assert projection_arg == {"publish_date": 1}
+    cursor.sort.assert_called_once_with("publish_date", -1)

@@ -671,11 +671,17 @@ class QdrantClient(VectorClient):
         url: str = "http://localhost:6333",
         api_key: str = "",
         collection_name: str = "qingshui",
+        timeout: float = 30.0,
     ):
         self._url = url
         self._api_key = api_key
         self._collection_name = collection_name
         self._connected = False
+        # 2026-10-15：/data 为 RBD 网络盘，Qdrant 冷读 page-in 可达 5-11s。
+        # 每次调用新建 client（默认 5s 超时）会撞上冷查询间歇性超时；
+        # 缓存实例复用连接池 + 显式加大超时。失败时丢弃实例自愈重建。
+        self._timeout = timeout
+        self._client_instance: Any = None
 
     def _create_qdrant_client(self) -> Any:
         """创建 Qdrant 客户端"""
@@ -685,10 +691,24 @@ class QdrantClient(VectorClient):
             return qdrant_client.QdrantClient(
                 url=self._url,
                 api_key=self._api_key or None,
+                timeout=self._timeout,
             )
         except ImportError:
             # httpx 不可用时，使用默认配置
-            return qdrant_client.QdrantClient(url=self._url, api_key=self._api_key or None)
+            return qdrant_client.QdrantClient(url=self._url, api_key=self._api_key or None, timeout=self._timeout)
+
+    def _get_qdrant_client(self) -> Any:
+        """获取缓存的 Qdrant 客户端（复用连接池，避免每次调用重建）。
+
+        并发首调用可能各自建一次实例（良性竞态，最后写入者胜出）。
+        """
+        if self._client_instance is None:
+            self._client_instance = self._create_qdrant_client()
+        return self._client_instance
+
+    def _drop_qdrant_client(self) -> None:
+        """请求失败后丢弃缓存实例（不主动 close，避免误伤在途请求；交由 GC 回收）。"""
+        self._client_instance = None
 
     def connect(self) -> None:
         self._connected = True
@@ -712,7 +732,7 @@ class QdrantClient(VectorClient):
         try:
             from qdrant_client.models import Distance, VectorParams
 
-            client = self._create_qdrant_client()
+            client = self._get_qdrant_client()
             if client.collection_exists(name):
                 logger.info("Qdrant Collection 已存在: %s", name)
                 return
@@ -741,7 +761,7 @@ class QdrantClient(VectorClient):
         try:
             from qdrant_client.models import Distance, PointStruct, VectorParams
 
-            client = self._create_qdrant_client()
+            client = self._get_qdrant_client()
             if not client.collection_exists(collection):
                 dim = len(records[0].vector)
                 client.create_collection(
@@ -766,7 +786,7 @@ class QdrantClient(VectorClient):
     ) -> list[SearchResult]:
         self._ensure_connected()
         try:
-            client = self._create_qdrant_client()
+            client = self._get_qdrant_client()
             query_kwargs: dict = dict(
                 collection_name=collection,
                 query=query_vector,
@@ -786,12 +806,14 @@ class QdrantClient(VectorClient):
             return [SearchResult(id=str(r.id), score=r.score, payload=r.payload or {}) for r in results.points]
         except Exception as e:
             logger.error(f"[RETRIEVE-FAIL] Qdrant search failed [{collection}]: {e}", exc_info=True)
+            # 失败丢弃缓存连接池：可能是陈旧 keep-alive 连接，下次调用自愈重建
+            self._drop_qdrant_client()
             return []
 
     def delete_collection(self, name: str) -> None:
         self._ensure_connected()
         try:
-            client = self._create_qdrant_client()
+            client = self._get_qdrant_client()
             client.delete_collection(collection_name=name)
             logger.info("Qdrant Collection 已删除: %s", name)
         except Exception as e:

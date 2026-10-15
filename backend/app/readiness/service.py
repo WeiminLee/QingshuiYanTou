@@ -441,24 +441,26 @@ class SqlReadinessRepository:
             sync_day = None
 
         # 2) Mongo kg_evidence：限时 + 限 source，避免扫全表
+        # 2026-10-15 修复字段错配：kg_evidence 实际字段为 source_type/publish_date
+        # （原查询用 source/published_at 永远匹配空且扫全表触发 maxTimeMS 超时）
         mongo_day = None
         try:
             from app.core.mongodb import get_mongo_db
-            from app.knowledge.evidence import EVIDENCE_COLLECTION
+            from app.knowledge.evidence import SOURCE_ANNOUNCEMENT, EVIDENCE_COLLECTION
 
             db = get_mongo_db()
             cursor = (
                 db[EVIDENCE_COLLECTION]
                 .find(
-                    {"source": {"$in": ["cninfo", "announcement", "disclosure", "minishare_ann"]}},
-                    projection={"published_at": 1},
+                    {"source_type": SOURCE_ANNOUNCEMENT},
+                    projection={"publish_date": 1},
                 )
-                .sort("published_at", -1)
+                .sort("publish_date", -1)
                 .limit(1)
                 .max_time_ms(1500)
             )
             docs = await cursor.to_list(1)
-            raw = (docs[0] if docs else {}).get("published_at")
+            raw = (docs[0] if docs else {}).get("publish_date")
             if isinstance(raw, datetime):
                 mongo_day = _as_shanghai(raw).date()
             elif isinstance(raw, date):

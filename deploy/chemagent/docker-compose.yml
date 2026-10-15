@@ -72,8 +72,6 @@ services:
     env_file: /root/code/QingShuiYanTou/backend/.env
     environment:
       - KNOWLEDGE_BASE_URL=http://qingshui_backend:8000
-    extra_hosts:
-      - "gpu-node:100.103.242.214"
     ports:
       - "127.0.0.1:8001:8000"
     depends_on:
@@ -110,8 +108,6 @@ services:
       - no_proxy=127.0.0.1,localhost,qingshui_mongo,qingshui_postgres,qingshui_qdrant,qingshui_redis,qingshui_backend,.pjlab.org.cn,10.0.0.0/8,100.96.0.0/12
     volumes:
       - /data/qingshui/pdf:/data/qingshui/pdf
-    extra_hosts:
-      - "gpu-node:100.103.242.214"
     depends_on:
       - backend
     networks: [qingshui_net]
