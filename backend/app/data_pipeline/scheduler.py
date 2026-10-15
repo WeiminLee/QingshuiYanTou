@@ -85,6 +85,13 @@ REPORT_FETCH_HOUR = 3
 KLINE_FETCH_HOUR = 17
 KLINE_FETCH_MINUTE = 30
 CONCEPT_FETCH_MINUTE = 0
+# 收盘后 concept 补写：A 股涨停列表（tinyshare limit_list_d）当日数据收盘后才发布，
+# concept_hourly 交易时段内（最晚 15:00 整点）与发布时序冲突，系统性漏写当日数据。
+# 本作业默认 17:30（Asia/Shanghai）补跑一次；env 可覆盖（CONCEPT_EOD_HOUR/MINUTE）。
+CONCEPT_EOD_HOUR_ENV = "CONCEPT_EOD_HOUR"
+CONCEPT_EOD_MINUTE_ENV = "CONCEPT_EOD_MINUTE"
+CONCEPT_EOD_DEFAULT_HOUR = 17
+CONCEPT_EOD_DEFAULT_MINUTE = 30
 IRM_HOUR = 22
 SYNC_STOCKS_WEEKDAY = "mon"
 SYNC_STOCKS_HOUR = 7
@@ -115,6 +122,13 @@ ENABLE_EVIDENCE_SCHEDULER_ENV = "ENABLE_EVIDENCE_SCHEDULER"
 def _evidence_scheduler_enabled() -> bool:
     value = os.getenv(ENABLE_EVIDENCE_SCHEDULER_ENV, "false").strip().lower()
     return value in {"1", "true", "yes", "on"}
+
+
+def _concept_eod_time() -> tuple[int, int]:
+    """收盘后 concept 补写时刻（Asia/Shanghai），env 可配，默认 17:30。"""
+    hour = int(os.getenv(CONCEPT_EOD_HOUR_ENV, str(CONCEPT_EOD_DEFAULT_HOUR)))
+    minute = int(os.getenv(CONCEPT_EOD_MINUTE_ENV, str(CONCEPT_EOD_DEFAULT_MINUTE)))
+    return hour, minute
 
 
 def _run_id_kwarg(run_id: object) -> dict[str, int]:
@@ -235,6 +249,58 @@ async def _run_concept_job() -> None:
     except Exception as e:
         await record_task_result("concept", TaskStatus.FAILED, error_message=str(e), **_run_id_kwarg(run_id))
         await notify_task_failed("概念热度同步", str(e))
+        raise
+
+
+async def _run_concept_eod_job() -> None:
+    """收盘后概念热度补写：**不受交易时段 guard 约束**。
+
+    交易时段内 concept_hourly 拿不到当日数据（limit_list_d 收盘后才发布），
+    本作业在收盘后（默认 17:30）补跑一次，保证当日概念热度入库。
+    与 concept_hourly 分开记录 monitor（task_name=concept_eod），
+    且写入 0 行时显式 warn，不再把「静默空跑」记成成功。
+    """
+    from app.data_pipeline.dingtalk import (
+        notify_task_failed,
+        notify_task_start,
+        notify_task_success,
+    )
+    from app.data_pipeline.fetcher import fetch_concept as _fetch_concept_fn
+    from app.data_pipeline.monitor import (
+        TaskStatus,
+        init_monitor,
+        record_task_result,
+        record_task_start,
+    )
+
+    await init_monitor()
+    run_id = await record_task_start("concept_eod")
+    await notify_task_start("概念热度收盘后补写")
+
+    try:
+        result = await _fetch_concept_fn()
+        success = result.get("success", 0)
+        fail = result.get("fail", 0)
+        await record_task_result(
+            "concept_eod",
+            TaskStatus.SUCCESS if fail == 0 else TaskStatus.PARTIAL,
+            total=success + fail,
+            success=success,
+            fail=fail,
+            **_run_id_kwarg(run_id),
+        )
+        await notify_task_success("概念热度收盘后补写", success + fail, success, fail)
+        if success == 0 and fail == 0:
+            logger.warning(
+                "[concept_eod] 写入 0 行：当日涨停列表未发布或当日无涨停，今日概念热度未入库"
+            )
+        else:
+            logger.info(
+                "[concept_eod] 概念热度补写完成: 入库 %d, 失败 %d", success, fail
+            )
+    except Exception as e:
+        await record_task_result("concept_eod", TaskStatus.FAILED, error_message=str(e), **_run_id_kwarg(run_id))
+        await notify_task_failed("概念热度收盘后补写", str(e))
         raise
 
 
@@ -770,6 +836,23 @@ class Scheduler:
             id="concept_hourly",
             replace_existing=True,
         )
+        concept_eod_hour, concept_eod_minute = _concept_eod_time()
+        self._scheduler.add_job(
+            _run_concept_eod_job,
+            CronTrigger(
+                hour=concept_eod_hour,
+                minute=concept_eod_minute,
+                timezone=TIMEZONE,
+            ),
+            id="concept_eod",
+            replace_existing=True,
+        )
+        logger.info(
+            "concept_eod 已注册: 每日 %02d:%02d (%s) 收盘后补写概念热度",
+            concept_eod_hour,
+            concept_eod_minute,
+            TIMEZONE,
+        )
         self._scheduler.add_job(
             _run_irm_enqueue_job,
             CronTrigger(hour=IRM_HOUR, minute=0, timezone=TIMEZONE),
@@ -926,4 +1009,10 @@ def run_scheduler(run_now: bool = False) -> None:
 if __name__ == "__main__":
     import sys
 
+    # scheduler 入口的日志配置：root 默认 WARNING 会吞掉 INFO（旧容器此前依赖临时构建态配置），
+    # 显式配置后 concept_eod 的写入行数/0 行 warn 才能落 docker logs。
+    logging.basicConfig(
+        level=os.getenv("LOG_LEVEL", "INFO").upper(),
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    )
     run_scheduler(run_now="--now" in sys.argv)

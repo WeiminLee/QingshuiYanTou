@@ -1514,13 +1514,17 @@ class DataFetcher:
 
     # ---------- 巨潮公告（cninfo） ----------
 
-async def fetch_concept() -> dict[str, int]:
+async def fetch_concept(trade_date: str | None = None) -> dict[str, int]:
     """获取概念板块涨停统计（tinyshare limit_list_d + ths_concept_members 映射）。
 
     替代原 akshare ``stock_zt_pool_strong_em`` 方案：
     1. tinyshare ``limit_list_d(trade_date=今天, limit_type="U")`` 拿涨停股
     2. ``ths_concept_members`` 表将涨停股映射到 THS 概念（TI 格式，与知识层对齐）
     3. 按概念聚合涨停家数写入 ``concept_limit``
+
+    Args:
+        trade_date: 可选，YYYYMMDD；缺省取当天（Asia/Shanghai）。
+            供收盘后补写/历史回补使用（当日涨停列表收盘后才发布）。
     """
     from app.config import settings
 
@@ -1535,7 +1539,7 @@ async def fetch_concept() -> dict[str, int]:
         logger.error("tinyshare 未安装，跳过概念同步")
         return {"success": 0, "skipped": 0, "fail": 1}
 
-    today = datetime.now().strftime("%Y%m%d")
+    today = trade_date or datetime.now(SH_TZ).strftime("%Y%m%d")
     try:
         ts.set_token(token)
         pro = ts.pro_api()
