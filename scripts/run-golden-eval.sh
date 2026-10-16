@@ -43,6 +43,11 @@ fi
 
 echo "== 金标一轮 tag=$TAG DSH_HOME=$DSH_HOME =="
 
+# B3 前置：必调工具 vs MCP 工具面缺口告警（非致命；仅整轮检查，单案重跑跳过）
+if [ -z "$RUN_ONLY" ]; then
+  python3 backend/scripts/eval_tools_preflight.py --cases "$CASES" || true
+fi
+
 # 逐案 headless（串行，保证 session 归因唯一；RUN_ONLY 指定时只跑该案）
 python3 - "$CASES" "$RUN_ONLY" <<'PY' | while IFS=$'\t' read -r CID QUESTION; do
 import json, sys

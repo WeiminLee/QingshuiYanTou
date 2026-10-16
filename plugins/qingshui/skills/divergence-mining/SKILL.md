@@ -17,16 +17,16 @@ metadata:
 用户要求板块/公司预期差、深度基本面挖掘、是否充分定价。
 
 ## 流程（先探索后承诺）
-1. **横向**：`compare_metric(dimension, scope=板块词)` → 表「主体 | 数值 | 期间」，保留 evidence_id
+1. **横向**：`mcp__qingshui_data__compare_metric(dimension, scope=板块词)` → 表「主体 | 数值 | 期间」，保留 evidence_id
 2. **层次**：`rollup_metric(parent="营收"|相关粗标尺)` → 子指标与命中量
 3. **传导**：`propagate_along(start=板块词)` / `related_nodes` → 指标/阶段/公司共现面
 4. **纵向**：挑 1–2 个有代表性的主体 `metric_trend(subject, dimension)` → 时间线状态演进
-5. **验证**：对关键判断点 `fetch_evidence(EV:…)`；语义搜索仅冷启动
+5. **验证**：对关键判断点 `mcp__qingshui_data__fetch_evidence(EV:…)`；语义搜索仅冷启动
 
 ## 沉淀（挖掘之后的维护——判断可复用）
 分析完成后把结论沉进判断台账，下次分析先查台账、水位线内不重复断言旧闻：
 
-1. **先查**：`history_findings(subject=主体, dimension=维度)` → 已有观察时间线 + 判断 + 当前水位线（max_level）
+1. **先查**：`mcp__qingshui_data__history_findings(subject=主体, dimension=维度)` → 已有观察时间线 + 判断 + 当前水位线（max_level）
 2. **对照**：本次新观察 vs 水位线——**只有站上新台阶才是预期差**；与已有判断等价的，只在分析中引用 finding_id，不重复沉淀
 3. **观察点**：把本次句级锚定的原始表述/指标点写入 `write_observation`（带 stage_raw/level 或 metric_value）→ 返回 `is_new_level`
 4. **判断**：新台阶/恶化/传导/矛盾成立时 `write_finding`：

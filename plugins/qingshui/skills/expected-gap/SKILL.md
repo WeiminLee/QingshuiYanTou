@@ -17,13 +17,15 @@ metadata:
 - period / 单位不一致时，**不得**直接横比排名。
 
 ## 推荐工具顺序（P0 Data MCP / Knowledge HTTP 同名）
-1. `data_readiness`（可选，degraded 时仍可出**弱结论**，须标明依据强度）
-2. `compare_metric(dimension, scope=…)` — 横比主证据
-3. `pull_history(subject, dimension=…)` — 时间线递进/变化
-4. `fetch_evidence(EV:…)` — 结论必须能落到证据
-5. `semantic_search` — 仅冷启动 / 补漏，不能替代 compare
+1. `mcp__qingshui_data__data_readiness`（可选，degraded 时仍可出**弱结论**，须标明依据强度）
+2. `mcp__qingshui_data__compare_metric(dimension, scope=…)` — 横比主证据
+3. `mcp__qingshui_data__pull_history(subject, dimension=…)` — 时间线递进/变化
+4. `mcp__qingshui_data__fetch_evidence(EV:…)` — 结论必须能落到证据
+5. `mcp__qingshui_data__semantic_search` — 仅冷启动 / 补漏，不能替代 compare
 
-行情辅助：`get_kline` / `get_stock_profile` 按需。
+行情辅助：`mcp__qingshui_data__get_kline` / `mcp__qingshui_data__get_stock_profile` 按需。
+
+> ⚠️ 工具面时序：首步请求仅含 core 工具；第一步工具往返之后才会挂载 `mcp__qingshui_data__` 前缀的 21 个 MCP 工具（如上面的 `mcp__qingshui_data__data_readiness`）。在断言「某工具未暴露 / 不可用」之前，先重扫一次完整工具列表，不要沿用首步快照。
 
 ## 输出最低要求
 - 明确回答是否存在预期差（或「依据不足」）
@@ -34,4 +36,4 @@ metadata:
 金标见 `backend/eval/expected_gap_cases_v1.json`。工具名以 bare name 断言（`mcp__qingshui_data__compare_metric` → `compare_metric`）。
 
 ## 判断沉淀
-与 `divergence-mining` 的沉淀段对齐：结论产生后 `write_finding`，分析前先 `history_findings` 对照水位线——不复读旧闻、不重复沉淀等价判断。
+与 `divergence-mining` 的沉淀段对齐：结论产生后 `write_finding`，分析前先 `mcp__qingshui_data__history_findings` 对照水位线——不复读旧闻、不重复沉淀等价判断。

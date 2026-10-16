@@ -64,6 +64,35 @@ def extract_tools(session_file: Path) -> list[str]:
     return tools
 
 
+def extract_request_tool_snapshots(session_file: Path) -> tuple[dict, dict] | None:
+    """首/末次 LLM 请求的工具面快照（request/header 事件）。
+
+    B3 背景：MCP 21 工具延迟挂载——首步请求仅 core 工具（如 35 个、0 个 mcp__），
+    工具往返后才挂载 mcp__ 前缀工具（56 个、21 个 mcp__）。快照用于诊断
+    「agent 断言某工具未暴露」时首步快照是否真实成立。
+    """
+    out = subprocess.run(
+        ["zstd", "-dc", str(session_file)], capture_output=True, check=True
+    ).stdout.decode("utf-8", errors="replace")
+    snapshots: list[dict] = []
+    for line in out.splitlines():
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if event.get("type") != "request/header":
+            continue
+        tools = (event.get("data") or {}).get("header", {}).get("tools") or []
+        names = [t.get("name") if isinstance(t, dict) else t for t in tools]
+        mcp_count = sum(
+            1 for n in names if isinstance(n, str) and n.startswith("mcp__")
+        )
+        snapshots.append({"count": len(names), "mcp_count": mcp_count})
+    if not snapshots:
+        return None
+    return snapshots[0], snapshots[-1]
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--cases", type=Path, required=True)
@@ -93,6 +122,7 @@ def main() -> int:
         answer = answer_path.read_text(encoding="utf-8", errors="replace").strip() if answer_path.exists() else ""
 
         tools: list[str] = []
+        snapshots: tuple[dict, dict] | None = None
         start = marker_times.get(cid, float("inf"))
         if start == float("inf"):
             problems.append(f"{cid}: marker missing; tools=[]")
@@ -103,6 +133,7 @@ def main() -> int:
             if in_window:
                 session = min(in_window, key=_birthtime)
                 tools = extract_tools(session)
+                snapshots = extract_request_tool_snapshots(session)
                 if len(in_window) > 1:
                     problems.append(
                         f"{cid}: {len(in_window)} sessions in window, used earliest-born {session.parent.name} (later ones are superseded orphans)"
@@ -111,6 +142,9 @@ def main() -> int:
                 problems.append(f"{cid}: no session born in window; tools=[]")
 
         answers[cid] = {"answer": answer, "tools": tools}
+        if snapshots:
+            answers[cid]["tools_at_first_request"] = snapshots[0]
+            answers[cid]["tools_at_last_request"] = snapshots[1]
         exit_note = ""
         exit_file = args.raw_dir / f"{cid}.exit"
         if exit_file.exists() and exit_file.read_text().strip() not in ("0", ""):
