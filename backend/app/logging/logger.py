@@ -70,7 +70,7 @@ class AuditLogger:
         初始化 AuditLogger
 
         Args:
-            service: 服务名称 (如 "data_pipeline", "reasoning")
+            service: 服务名称 (如 "data_pipeline", "knowledge")
         """
         self.service = service
         self._console_logger = logging.getLogger(f"audit.{service}")

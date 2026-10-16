@@ -16,7 +16,7 @@ born inside that case's marker time window, extract called tool names from
     is an orphan from a failed/superseded run of another case.
 
 Usage:
-  eval_collect_harness_round.py --cases eval/expected_gap_cases_v1.json \
+  eval_collect_harness_round.py --cases eval/expected_gap_cases_v2.json \
     --raw-dir eval/out/raw/<tag> --dsh-home ~/.dsh-qingshui \
     --out eval/out/harness_answers_<tag>.json
 

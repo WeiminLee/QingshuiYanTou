@@ -11,7 +11,8 @@ set -a; source .env.dsh.local; set +a
 KNOWLEDGE_API_KEY=… pnpm dsh --profile headless "对硅片板块做预期差分析"
 ```
 
-LLM: Boyue `http://35.220.164.252:3888/v1` + `deepseek-v4-flash`（`OPENAI_API_KEY`）。
+LLM: pjlab Gateway `https://token.pjlab.org.cn/v1`（模型如 `glm-5.3`,
+`OPENAI_API_KEY`；实际 provider/model 配置以 `cordis.patch.yml` 为准）。
 
 ## Skills
 

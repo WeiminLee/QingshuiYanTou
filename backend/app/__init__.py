@@ -4,9 +4,7 @@
 主要模块：
 - core: 数据库连接（PostgreSQL, MongoDB）
 - data_pipeline: 定时数据采集写入
-- knowledge: 知识图谱构建
-- packages: 情报包生成器
-- reasoning: Agent 推理引擎
-- reports: 数据 API（deprecated）
-- stocks: 股票 API（deprecated）
+- knowledge: 知识构建层（evidence / 链接层 / 判断台账）
+- mcp_data: 只读 Data MCP（Agent 工具面）
+- account: 用户与持仓
 """

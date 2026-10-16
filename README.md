@@ -150,12 +150,11 @@ Evidence 入库后会生成 extraction jobs。当前 job 类型：
 - `vector`: Evidence chunk -> Qdrant vector
 - `link`: Evidence -> LLM 浅提取 + 词典匹配 -> 链接层（`link_keywords` / `link_links`）
 
-worker 入口：
+worker 入口（chemagent 上由 systemd `qingshui-worker` 托管；手动触发参数见
+`python backend/scripts/knowledge_worker.py --help`）：
 
 ```bash
-python backend/scripts/evidence_extraction_worker.py --once --limit 10
-python backend/scripts/evidence_extraction_worker.py --daemon --interval 30 --job-type link
-python backend/scripts/evidence_extraction_worker.py --daemon --interval 30 --job-type vector
+python backend/scripts/knowledge_worker.py --role evidence-extraction --once --limit 10
 ```
 
 worker 会 claim pending job，执行抽取，写入 Qdrant/链接层，并把状态回写到 MongoDB。
@@ -218,52 +217,18 @@ FastAPI 入口在 `backend/app/main.py`。主要路由类别：
 
 ## 运行环境
 
-### Docker Compose（完整环境）
+### 部署编排（chemagent）
 
-一键启动所有依赖服务 + 应用容器：
+生产数据面（Mongo/PG/Qdrant/Redis、backend、scheduler、data-mcp）全部跑在 chemagent
+机器的 docker compose 上，编排文件为
+[`deploy/chemagent/docker-compose.yml`](deploy/chemagent/docker-compose.yml)
+（数据一律落 `/data/qingshui/`，宿主端口只绑 `127.0.0.1`）。
+云端（124.221.188.38）已冻结只读、待下线，仓库内云端编排与启动脚本已随下线决策清理。
 
-```bash
-# 启动全部服务
-docker compose up -d
-
-# 查看状态
-docker compose ps
-
-# 查看日志
-docker compose logs -f backend
-
-# 仅启动基础设施（应用通过宿主机连接）
-docker compose up -d postgres mongo redis qdrant
-
-# 停止
-docker compose down
-```
-
-包含：
-
-| 服务 | 容器名 | 端口（宿主机:容器） |
-|------|--------|-------------------|
-| PostgreSQL | `qingshui_postgres` | `5433:5432` |
-| MongoDB | `qingshui_mongo` | `27018:27017` |
-| Redis | `qingshui_redis` | `6379:6379` |
-| Qdrant | `qingshui_qdrant` | `6333:6333`, `6334:6334` |
-| Backend API | `qingshui_backend` | `8080:8000` |
-| Frontend | `qingshui_frontend` | `80:80`, `443:443` |
-| Scheduler | `qingshui_scheduler` | — |
-| Job Worker (×2) | 自动分配 | — |
-
-> **注意：** `backend/.env` 不会被 COPY 进 Docker 镜像（已通过 `.dockerignore` 排除）。
-> 容器内 LLM 密钥等敏感配置通过 `--env-file` 传入：
-> ```bash
-> # 推荐：使用 backend/.env 中的真实密钥
-> docker compose --env-file backend/.env up -d
->
-> # 或使用宿主机 shell 变量
-> export LLM_API_KEY=sk-xxx && docker compose up -d
-> ```
->
-> `docker-compose.yml` 的 `environment` 段使用 `${VAR:-default}` 语法：
-> - 未传 `--env-file` 时使用默认值；传了 `--env-file` 时 `.env` 中的值覆盖默认值（适用于宿主机开发）
+本地 Mac 只跑 Agent 交互层（dsh web + `plugins/qingshui`），入口
+[`scripts/start-local-dsh-web.sh`](scripts/start-local-dsh-web.sh)；访问 chemagent 的
+Knowledge API / Data MCP 需先建 SSH 端口转发
+（[`scripts/tunnel_chemagent.sh`](scripts/tunnel_chemagent.sh)）。
 
 ### 后端配置
 
@@ -315,12 +280,6 @@ pnpm build
 ```
 
 ## 常用命令
-
-Evidence worker smoke test：
-
-```bash
-python backend/scripts/evidence_extraction_worker.py --once --limit 0
-```
 
 Evidence-first 管线测试：
 
@@ -421,13 +380,3 @@ pnpm test
 - 链接层词典与抽取提示词的持续净化、版本升级后的批量重算。
 - 判断台账数值型 observation 的自动新颖度判定（环比/区间外）。
 - finding supersede 工作流与跨主体预警订阅。
-# 远程 PDF / Evidence Worker
-
-远程 Worker 的部署与回滚说明见 [`docs/运维/云端知识底座Phase1.md`](docs/运维/云端知识底座Phase1.md)。云端启动前先执行：
-
-```bash
-ssh lwm-desktop-server 'cd ~/qingshui-worker/backend && python -m scripts.worker_preflight'
-ssh lwm-desktop-server 'cd ~/qingshui-worker/backend && python -m scripts.knowledge_health'
-```
-
-Worker 使用 `docker-compose.cloud.yml` 覆盖配置，默认并发为 1；不要将 MongoDB、PostgreSQL、Qdrant 端口暴露到公网。

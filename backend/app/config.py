@@ -48,7 +48,6 @@ class Settings(BaseSettings):
     http_proxy: str = ""  # 如 "http://proxyhk.zte.com.cn:80"，空则不使用代理
 
     # LLM（LiteLLM 代理）
-    ollama_url: str = "http://localhost:11434"
     llm_api_key: str = ""  # 必须从 LLM_API_KEY 环境变量读取
     llm_base_url: str = "http://localhost:4000/v1"
     llm_model: str = "MiniMax-M2.7-highspeed"
@@ -127,9 +126,6 @@ class Settings(BaseSettings):
     # 公告授权码（用于 anns_d 接口）
     minishare_anns_token: str = ""
 
-    # 数据资产目录（永久存储）
-    data_assets_root: Path = Path("/home/10241671/DataSets/Stocks")
-
     # minishare 外部数据存储路径（PDF/文件，与项目 storage 分离）
     minishare_data_root: Path = Path("/Users/lwm/data/qingshui_data")
 
@@ -159,19 +155,3 @@ def get_settings() -> Settings:
 
 settings = get_settings()
 
-
-# ── 数据资产目录便捷访问 ───────────────────────────────────
-
-
-def data_path(*subdirs: str) -> Path:
-    """获取数据资产目录下的子路径，如 data_path("cninfo", "announcements")"""
-    return settings.data_assets_root.joinpath(*subdirs)
-
-
-DATA_PATHS = {
-    "announcements": data_path("announcements"),
-    "industry_reports": data_path("industry_reports"),
-    "stock_reports": data_path("stock_reports"),
-    "documents": data_path("documents"),
-    "bulletins": data_path("announcements"),  # 新浪/巨潮等公告 PDF（按 {SH600519}/2026-03/ 保存）
-}

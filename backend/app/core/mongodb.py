@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 _client: AsyncIOMotorClient | None = None
 _db: AsyncIOMotorDatabase | None = None
 
-# 隔离 MongoDB 客户端（工具跨 loop 调用用，见 reasoning/tools/_async_runner）。
+# 隔离 MongoDB 客户端（跨 event loop 调用时按 loop 绑定单例）。
 # motor 客户端的内部连接绑定创建它的 event loop，agent 主 loop 创建的单例在
 # 工具线程的新 loop 里复用时同样报 'attached to a different loop'。
 import contextvars as _contextvars

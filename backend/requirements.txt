@@ -8,7 +8,6 @@ sqlalchemy[asyncio]==2.0.36
 asyncpg==0.30.0
 aiosqlite==0.22.1  # 测试用内存 SQLite 异步驱动（account 单测）
 motor==3.6.0
-PyPDF2==3.0.1
 
 alembic==1.14.0
 pdfplumber==0.11.0
@@ -25,9 +24,6 @@ numpy==2.2.1
 minishare
 tinyshare
 
-# Frontend
-jinja2==3.1.4
-
 # Utils
 python-dotenv==1.0.1
 requests==2.32.3
@@ -40,7 +36,6 @@ PyJWT>=2.8
 httpx==0.28.1
 beautifulsoup4==4.12.3
 tenacity==9.0.0
-tqdm==4.67.1
 openai>=1.0.0
 pytest>=9.0.3
 pytest-asyncio>=1.3.0

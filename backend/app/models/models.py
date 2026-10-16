@@ -32,7 +32,6 @@ from sqlalchemy.sql import func
 
 from app.core.database import Base  # 统一 Base，与 alembic 共享
 from app.core.metadata import CURRENT_PARSER_VERSION
-from app.data_pipeline.pdf_download_contract import PdfDownloadJobPayload
 
 # ── 1. 行情层 ────────────────────────────────────────────────────────────────
 
@@ -543,12 +542,12 @@ class BackfillCheckpoint(Base):
 
 class LogEntry(Base):
     """
-    结构化日志表 - 用于跟踪数据接入层和推理服务的日志情况
+    结构化日志表 - 用于跟踪数据接入层与知识构建服务的日志情况
 
     字段说明:
     - level: 日志级别 (DEBUG, INFO, WARNING, ERROR, CRITICAL)
-    - service: 服务名称 (data_pipeline, reasoning)
-    - module: 模块名称 (fetcher, scheduler, agent, tool_executor 等)
+    - service: 服务名称 (data_pipeline, knowledge)
+    - module: 模块名称 (fetcher, scheduler, evidence_worker 等)
     - trace_id: 请求追踪 ID (用于关联整个请求链路)
     - task_id: 任务 ID (用于关联特定任务)
     - duration_ms: 执行耗时 (毫秒)

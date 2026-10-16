@@ -1,5 +1,4 @@
 # 本地：pjlab 网关限流耐心版（cordis patch config 为整体替换语义，providers.qingshui 写全）。
-# 与 patches/local-gpu-llm.yml 二选一使用。
 - id: llm-pi-ai
   config:
     providers:
