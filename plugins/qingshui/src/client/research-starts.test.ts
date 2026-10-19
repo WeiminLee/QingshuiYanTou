@@ -3,8 +3,20 @@ import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { describe, it } from 'node:test'
 import { fileURLToPath } from 'node:url'
+import { RESEARCH_STARTS } from './ResearchStarts.tsx'
 
 const skillPath = join(dirname(fileURLToPath(import.meta.url)), '../../skills/session-review/SKILL.md')
+
+describe('research starts', () => {
+  it('offers a last-session review after the three everyday questions', () => {
+    assert.deepEqual(RESEARCH_STARTS, [
+      '这只票的毛利率，是不是又上台阶了',
+      '芯片板块今天为什么这么热',
+      '今天大盘涨跌家数和成交额怎么样',
+      '复盘上个交易日',
+    ])
+  })
+})
 
 describe('session-review skill', () => {
   it('locks the tool order, the two-day concept window, and the bans', () => {
