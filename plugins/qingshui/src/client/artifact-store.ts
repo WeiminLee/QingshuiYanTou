@@ -5,7 +5,13 @@
  * open the reader without threading props. React binds via
  * useSyncExternalStore against the stable snapshot returned by
  * getArtifactState().
+ *
+ * openEvidenceArtifact is the one asynchronous entry: it resolves the parent
+ * announcement of an evidence row through the evidence cache so an entry point
+ * that only holds an evidence id still opens the whole document.
  */
+import { fetchEvEvidence, getEvEvidence, subscribeEvCite } from './ev-cite-store.ts'
+import { evidenceAnnId } from './toolviews/model.ts'
 
 /** Half-open character range into an evidence body: `[start, end)`. */
 export type ArtifactSpan = { start: number; end: number }
@@ -61,6 +67,48 @@ export function openArtifact(artifact: Artifact): void {
 export function closeArtifact(): void {
   if (state.artifact === undefined) return
   publish({})
+}
+
+/**
+ * Open the reader for one evidence id. The evidence row names its parent
+ * announcement (`source_ref.ann_id`) when it has one, so that id is resolved
+ * first and the reader opens the whole document; evidence without a parent
+ * (IRM / research reports / uploads) opens alone. A failed lookup opens the
+ * single-evidence view too — the reader states its own load failure there
+ * instead of blocking the click.
+ * @param evidenceId - evidence to read.
+ * @param spans - ranges to mark in that evidence body (a finding's sentence).
+ */
+export async function openEvidenceArtifact(evidenceId: string, spans?: ArtifactSpan[]): Promise<void> {
+  const doc = await waitForEvidence(evidenceId)
+  const annId = evidenceAnnId(doc)
+  if (annId === undefined) {
+    openArtifact({ kind: 'evidence', evidenceId, ...(spans === undefined ? {} : { spans }) })
+    return
+  }
+  openArtifact({ kind: 'document', annId, evidenceId, ...(spans === undefined ? {} : { spans }) })
+}
+
+/**
+ * Wait for the evidence cache to settle on one id. Reading through
+ * getEvEvidence keeps the reader's own lookup on the same cached entry, so
+ * opening costs one fetch no matter how many places asked first.
+ * @param id - evidence id.
+ * @returns the raw evidence document, or undefined when it failed to load.
+ */
+function waitForEvidence(id: string): Promise<Record<string, unknown> | undefined> {
+  const cached = getEvEvidence(id, fetchEvEvidence)
+  if (cached.status !== 'loading') {
+    return Promise.resolve(cached.status === 'ok' ? cached.doc : undefined)
+  }
+  return new Promise((resolve) => {
+    const unsubscribe = subscribeEvCite(() => {
+      const entry = getEvEvidence(id, fetchEvEvidence)
+      if (entry.status === 'loading') return
+      unsubscribe()
+      resolve(entry.status === 'ok' ? entry.doc : undefined)
+    })
+  })
 }
 
 function cloneArtifact(artifact: Artifact): Artifact {

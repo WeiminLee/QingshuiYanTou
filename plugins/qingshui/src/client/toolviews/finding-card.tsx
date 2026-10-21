@@ -2,10 +2,13 @@
  * FindingCard: 判断台账 toolview for history_findings / search_findings
  * (native + MCP twin). Renders ledger findings as 预期差 cards — kind badge +
  * subject×dimension, honest confidence + 样本量(support_count) + 证伪(contradicts),
- * the judgment conclusion, and an anchor/supersedes footer. No buy/sell slots:
- * this is a research conclusion, not a trade signal.
+ * the judgment conclusion, and a footer carrying one 查看原文 anchor per
+ * sentence-level support (each opens the reader on that span) plus the
+ * supersedes link. No buy/sell slots: this is a research conclusion, not a
+ * trade signal.
  */
 import { IconListPenOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
+import { openEvidenceArtifact } from '../artifact-store.ts'
 import {
   ErrorBody,
   MonoId,
@@ -83,6 +86,25 @@ function FindingRow({ finding, t }: { finding: FindingDoc; t: TranslateFn }) {
 
       <div className="qs-finding-foot">
         <MonoId id={finding.finding_id} />
+        {finding.supports.length === 0 ? null : (
+          <span className="qs-finding-anchors">
+            {finding.supports.map((support, index) => (
+              <button
+                key={`${support.evidence_id}:${support.span_start}:${support.span_end}`}
+                type="button"
+                className="qs-finding-anchor"
+                title={support.evidence_id}
+                onClick={() => {
+                  void openEvidenceArtifact(support.evidence_id, [
+                    { start: support.span_start, end: support.span_end },
+                  ])
+                }}
+              >
+                {`${t('artifact.open')} ${index + 1}`}
+              </button>
+            ))}
+          </span>
+        )}
         {finding.supersedes === undefined || finding.supersedes === '' ? null : (
           <span className="qs-finding-supersedes">
             {t('tv.finding.supersedes')} {finding.supersedes}

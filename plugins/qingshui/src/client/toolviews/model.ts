@@ -262,6 +262,23 @@ export function asEvidenceDoc(value: unknown): EvidenceDoc | undefined {
   }
 }
 
+/**
+ * Parent announcement id carried by an evidence row (`source_ref.ann_id`).
+ * Absent for IRM / research report / upload evidence, which is exactly when
+ * the reader falls back to the single-evidence view. Mongo stores announcement
+ * ids as ints, so both shapes are read.
+ * @param value - raw evidence document.
+ * @returns the announcement id, or undefined when the evidence has none.
+ */
+export function evidenceAnnId(value: unknown): string | undefined {
+  const ref = asRecord(asRecord(value)?.source_ref)
+  if (ref === undefined) return undefined
+  const raw = ref.ann_id
+  if (typeof raw === 'string' && raw !== '') return raw
+  if (typeof raw === 'number' && Number.isFinite(raw)) return String(raw)
+  return undefined
+}
+
 /** '2025-04-28 16:00:00+00:00' → '2025-04-28'; '20260416' → '2026-04-16'. */
 export function formatDate(value: string | undefined): string {
   if (value === undefined || value === '') return ''
@@ -418,6 +435,37 @@ export function findingStatusLabel(status: string | undefined): string {
   return FINDING_STATUS_LABELS[status] ?? status
 }
 
+/** One sentence-level anchor: `[span_start, span_end)` into that evidence body. */
+export interface FindingSupport {
+  evidence_id: string
+  span_start: number
+  span_end: number
+}
+
+/**
+ * Ledger `supports` are `[{obs_id, evidence_id, span_start, span_end}]`, but
+ * only the three fields the reader can act on survive. An entry without a
+ * usable evidence id or with non-integer offsets cannot be opened or marked,
+ * so it is dropped instead of rendered as a dead anchor.
+ * @param value - raw `supports` value from a finding row.
+ * @returns well-formed supports, in row order.
+ */
+function asFindingSupports(value: unknown): FindingSupport[] {
+  if (!Array.isArray(value)) return []
+  const supports: FindingSupport[] = []
+  for (const raw of value) {
+    const support = asRecord(raw)
+    if (support === undefined) continue
+    const evidenceId = asString(support.evidence_id)
+    if (evidenceId === undefined) continue
+    const start = support.span_start
+    const end = support.span_end
+    if (!Number.isInteger(start) || !Number.isInteger(end)) continue
+    supports.push({ evidence_id: evidenceId, span_start: start as number, span_end: end as number })
+  }
+  return supports
+}
+
 export interface FindingDoc {
   finding_id: string
   kind: string
@@ -427,13 +475,14 @@ export interface FindingDoc {
   judgment: string
   confidence?: number | undefined
   support_count: number
+  supports: FindingSupport[]
   contradicts: number
   status: string
   supersedes?: string | undefined
   created_at?: string | undefined
 }
 
-/** Defensive single-finding parse; supports 恒为 [{obs_id,evidence_id,span…}]。 */
+/** Defensive single-finding parse; supports 恒为 [{obs_id,evidence_id,span…}]，脏锚点丢弃。 */
 export function asFindingDoc(value: unknown): FindingDoc | undefined {
   const o = asRecord(value)
   if (o === undefined) return undefined
@@ -450,6 +499,7 @@ export function asFindingDoc(value: unknown): FindingDoc | undefined {
     confidence: asNumber(o.confidence),
     support_count: asNumber(o.support_count)
       ?? (Array.isArray(o.supports) ? o.supports.length : 0),
+    supports: asFindingSupports(o.supports),
     contradicts: Array.isArray(o.contradicts) ? o.contradicts.length : 0,
     status: asString(o.status) ?? '',
     supersedes: asString(o.supersedes),

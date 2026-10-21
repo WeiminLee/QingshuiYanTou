@@ -20,7 +20,9 @@ import {
 import {
   fetchEvEvidence, getEvEvidence, invalidateEvEvidence, subscribeEvCite, type EvEvidence,
 } from './ev-cite-store.ts'
-import { asEvidenceDoc, formatConfidence, formatDate, sourceTypeLabel } from './toolviews/model.ts'
+import {
+  asEvidenceDoc, evidenceAnnId, formatConfidence, formatDate, sourceTypeLabel,
+} from './toolviews/model.ts'
 
 /** Rendered lines shown before the body folds. */
 const COLLAPSED_LINES = 40
@@ -108,7 +110,7 @@ function ReaderDialog({ artifact }: { artifact: Artifact }): React.ReactElement 
   // The artifact's own evidence id is the only stable anchor for finding the
   // parent document; the body may later switch chapters.
   const anchor = useEvidence(artifact.evidenceId)
-  const anchorAnnId = anchor.state.status === 'ok' ? annIdOf(anchor.state.doc) : undefined
+  const anchorAnnId = anchor.state.status === 'ok' ? evidenceAnnId(anchor.state.doc) : undefined
   useEffect(() => {
     if (artifact.kind === 'document' || anchorAnnId === undefined) return
     setDiscoveredAnnId(previous => (previous === anchorAnnId ? previous : anchorAnnId))
@@ -572,19 +574,4 @@ function asReaderDocument(value: unknown): ReaderDocument | undefined {
     pdf: { exists: pdf?.exists === true },
     chapters,
   }
-}
-
-/**
- * Parent announcement id carried by an evidence row. Absent for IRM / research
- * report / upload evidence, which is exactly when the reader falls back to the
- * single-evidence view. Mongo stores PG ids as ints for announcements.
- * @param doc - raw evidence document.
- */
-function annIdOf(doc: Record<string, unknown>): string | undefined {
-  const ref = asRecord(doc.source_ref)
-  if (ref === undefined) return undefined
-  const raw = ref.ann_id
-  if (typeof raw === 'string' && raw !== '') return raw
-  if (typeof raw === 'number' && Number.isFinite(raw)) return String(raw)
-  return undefined
 }

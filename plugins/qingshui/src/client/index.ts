@@ -3,6 +3,7 @@
  * cold-open / New chat → sessions.create({}) (no workspaceId), and the
  * assistant-step shadow adding interactive EV citation chips.
  */
+import { ArtifactReader } from './ArtifactReader.tsx'
 import { QingshuiBrandMark, QingshuiBrandName } from './Brand.tsx'
 import { clearModuleStart, stageModuleStart, type ResearchModule } from './research-modules.ts'
 import { archiveSession, createAndOpenSession, renameSession } from './session-actions.ts'
@@ -163,6 +164,19 @@ export function apply(ctx: any): void {
       )
     }),
     'qingshui: assistant-step shadow',
+  )
+
+  // Full-screen artifact reader. shell.overlay is a list slot, so this entry
+  // adds a frame-wide surface beside the shipped ones instead of shadowing
+  // them; the reader portals its dialog and renders nothing while closed.
+  ctx.effect(
+    () => ctx.slots.inject('shell.overlay', () => ctx.slots.register({
+      name: 'shell.overlay',
+      id: 'qingshui-artifact-reader',
+      order: 10,
+      locale: NS,
+    }, ArtifactReader)),
+    'qingshui: artifact reader',
   )
 
   // Keyed tool cards (kline / evidence / search / timeline) for the native

@@ -2,7 +2,7 @@ import { strict as assert } from 'node:assert'
 import { test } from 'node:test'
 import {
   chapterLabel, clampSpans, closeArtifact, getArtifactState, openArtifact,
-  splitBySpans, subscribeArtifact,
+  openEvidenceArtifact, splitBySpans, subscribeArtifact,
 } from './artifact-store.ts'
 
 const DOC = {
@@ -78,6 +78,36 @@ test('getArtifactState snapshot is stable between notifications', () => {
   const closed = getArtifactState()
   assert.equal(getArtifactState(), closed)
   assert.equal(closed.artifact, undefined)
+})
+
+test('openEvidenceArtifact resolves the parent ann_id, else opens the evidence alone', async () => {
+  closeArtifact()
+  const original = globalThis.fetch
+  const requested: string[] = []
+  const reply = (doc: Record<string, unknown>): Response =>
+    ({ ok: true, json: async () => ({ ok: true, doc }) }) as unknown as Response
+  globalThis.fetch = (async (input: unknown) => {
+    const url = decodeURIComponent(String(input))
+    requested.push(url)
+    return url.includes('EV:announcement')
+      ? reply({ evidence_id: 'EV:announcement', source_ref: { ann_id: 880123 } })
+      : reply({ evidence_id: 'EV:irm', source_ref: { pdf_url: 'http://example.com/x.pdf' } })
+  }) as typeof fetch
+
+  try {
+    await openEvidenceArtifact('EV:announcement', [{ start: 3, end: 9 }])
+    assert.deepEqual(getArtifactState().artifact, {
+      kind: 'document', annId: '880123', evidenceId: 'EV:announcement', spans: [{ start: 3, end: 9 }],
+    })
+
+    await openEvidenceArtifact('EV:irm')
+    assert.deepEqual(getArtifactState().artifact, { kind: 'evidence', evidenceId: 'EV:irm' })
+  } finally {
+    globalThis.fetch = original
+  }
+  // One fetch per id: the reader later reads the same cached entries.
+  assert.deepEqual(requested.length, 2)
+  closeArtifact()
 })
 
 test('clampSpans drops out-of-range, reversed, empty and non-integer spans', () => {
