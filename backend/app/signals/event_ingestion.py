@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.event import Event
 from app.signals.event_sources import resolve_event_origin, signal_source_type_for_origin
 from app.signals.extractor import SignalCandidate, SourcePayload, stable_signal_id
-from app.signals.kg_propagation import KGPath, KGPathProvider
+from app.signals.kg_propagation import KGPath
 from app.signals.propagation import PropagationCandidate
 
 
@@ -120,23 +120,7 @@ def extract_event_signal_records(
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """同步入口已关闭。事件 signal 只经研究推导。"""
     del event, kg_paths_by_subject
-    raise RuntimeError("新闻、资讯和事件的 signal 必须经 extract_event_signal_records_with_kg 做研究推导，不能用规则抽取。")
-
-
-
-async def extract_event_signal_records_with_kg(
-    event: Any,
-    provider: KGPathProvider | None = None,
-    *,
-    llm: Any = None,
-    prior_lines: list[str] | None = None,
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """研究推导之后才有 signal。没有新的一层时返回空，不附带规则传导。"""
-    del provider
-    from app.signals.research_derivation import derive_candidates, records_from_candidates
-
-    outcome = await derive_candidates(event_to_source_payload(event), llm=llm, prior_lines=prior_lines)
-    return records_from_candidates(outcome.candidates), []
+    raise RuntimeError("新闻、资讯和事件的 signal 必须经研究推导（backfill_event_signals）生成，不能用规则抽取。")
 
 
 async def backfill_event_signals(session: AsyncSession, *, limit: int = 200) -> dict[str, int]:

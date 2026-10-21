@@ -24,7 +24,6 @@ class _StubSession:
         self._select_row = select_row
 
     async def execute(self, stmt):
-        from app.knowledge.linklayer.models import Keyword
 
         self.executed.append(stmt)
         if stmt.is_select:

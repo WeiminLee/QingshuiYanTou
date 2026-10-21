@@ -9,7 +9,6 @@ import pytest
 from sqlalchemy.dialects import postgresql
 
 from app.knowledge.evidence import (
-    JOB_SIGNAL,
     JOB_LINK,
     JOB_SIGNAL,
     JOB_VECTOR,

@@ -8,7 +8,6 @@ from copy import deepcopy
 from datetime import datetime
 from typing import Any
 
-from app.config import settings
 from app.knowledge.evidence import (
     JOB_LINK,
     JOB_SIGNAL,

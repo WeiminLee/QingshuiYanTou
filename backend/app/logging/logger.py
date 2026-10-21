@@ -119,8 +119,6 @@ class AuditLogger:
     def error(self, module: str, message: str, **kwargs: Any) -> None:
         self._log("ERROR", module, message, **kwargs)
 
-    def critical(self, module: str, message: str, **kwargs: Any) -> None:
-        self._log("CRITICAL", module, message, **kwargs)
 
 
 class AsyncAuditLogger(AuditLogger):

@@ -86,13 +86,6 @@ class RateLimiter:
             if wait_time > 0:
                 time.sleep(wait_time)
 
-    def get_remaining(self) -> int:
-        """获取当前窗口剩余可用次数"""
-        with self._lock:
-            now = time.time()
-            while self._timestamps and self._timestamps[0] < now - self.window_seconds:
-                self._timestamps.popleft()
-            return max(0, self.max_requests - len(self._timestamps))
 
 
 class AsyncRateLimiter:
@@ -172,15 +165,6 @@ class AsyncRateLimiter:
             if wait_time > 0:
                 await asyncio.sleep(wait_time)  # 非阻塞！
 
-    async def get_remaining(self) -> int:
-        """获取当前窗口剩余可用次数"""
-        lock = self._get_lock()
-        async with lock:
-            now = time.time()
-            self._timestamps = [t for t in self._timestamps if t > now - self.window_seconds]
-            return max(0, self.max_requests - len(self._timestamps))
-
-    @classmethod
     def from_sync(cls, limiter: RateLimiter) -> "AsyncRateLimiter":
         """从同步 RateLimiter 创建对应的异步版本"""
         return cls(

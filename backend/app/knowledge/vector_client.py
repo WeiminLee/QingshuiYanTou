@@ -829,38 +829,6 @@ COLLECTION_QA = "qa_flash"
 
 
 
-def upsert_chunk_vector(
-    chunk_id: str,
-    content: str,
-    heading: str = "",
-    source: str = "",
-    ts_code: str = "",
-    collection: str = COLLECTION_CHUNKS,
-) -> bool:
-    """将文档分块写入向量库"""
-    try:
-        client = get_vector_client()
-        embedder = get_embedding_model()
-        text = f"{heading} {content}" if heading else content
-        vec = embedder.embed(text)
-        point_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, str(chunk_id)))
-        record = VectorRecord(
-            id=point_id,
-            vector=vec,
-            payload={
-                "content": content,
-                "heading": heading,
-                "source": source,
-                "ts_code": ts_code,
-            },
-        )
-        client.upsert(collection, [record])
-        return True
-    except Exception as e:
-        logger.warning("upsert_chunk_vector 失败: %s", e)
-        return False
-
-
 def build_evidence_vector_record(evidence: dict[str, Any]) -> VectorRecord | None:
     """生成 doc_chunks 向量记录（含 embedding 计算）。输入无效返回 None。"""
     evidence_id = str(evidence.get("evidence_id") or "")

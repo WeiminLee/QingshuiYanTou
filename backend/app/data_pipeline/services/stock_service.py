@@ -56,48 +56,7 @@ class StockService:
             logger.warning(f"查询股票概况失败 {ts_code}: {e}")
             return {}
 
-    async def search_stocks(
-        self,
-        keyword: str | None = None,
-        industry: str | None = None,
-        limit: int = 50,
-    ) -> list[dict[str, Any]]:
-        """
-        搜索股票列表
 
-        Args:
-            keyword: 关键词（匹配名称或代码）
-            industry: 行业筛选
-            limit: 返回数量限制
-
-        Returns:
-            股票列表
-        """
-        sql = "SELECT ts_code, name, industry FROM stocks WHERE 1=1"
-        params: dict[str, Any] = {}
-
-        if keyword:
-            sql += " AND (name LIKE :keyword OR ts_code LIKE :keyword)"
-            params["keyword"] = f"%{keyword}%"
-        if industry:
-            sql += " AND industry = :industry"
-            params["industry"] = industry
-
-        sql += " ORDER BY ts_code LIMIT :limit"
-        params["limit"] = limit
-
-        try:
-            async with async_session() as session:
-                result = await session.execute(text(sql), params)
-                rows = result.fetchall()
-
-            return [{"ts_code": row[0], "name": row[1], "industry": row[2]} for row in rows]
-        except Exception as e:
-            logger.warning(f"搜索股票失败: {e}")
-            return []
-
-
-# 全局单例
 _stock_service: StockService | None = None
 
 

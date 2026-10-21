@@ -347,25 +347,6 @@ class DataFetcher:
         )
         return {"success": success, "skipped": skipped, "fail": fail, "source": "minishare"}
 
-    def _resolve_minishare_pdf_url(url: str) -> str | None:
-        """从 minishare 的 cninfo 详情页 URL 直接构造 PDF 直链。
-
-        当 FileStorage._resolve_pdf_url 的 API 调用失败时，
-        直接从 URL 参数中提取 announcementId 和 announcementTime 构造 PDF 地址。
-        """
-        if not url or "detail" not in url or "cninfo" not in url:
-            return None
-        try:
-            from urllib.parse import parse_qs, urlparse
-            parsed = urlparse(url)
-            qs = parse_qs(parsed.query)
-            ann_id = qs.get("announcementId", [None])[0]
-            ann_time = qs.get("announcementTime", [None])[0]
-            if ann_id and ann_time:
-                return f"http://static.cninfo.com.cn/finalpage/{ann_time}/{ann_id}.PDF"
-        except Exception:
-            pass
-        return None
 
     async def _save_minishare_ann(
         self,
@@ -476,57 +457,6 @@ class DataFetcher:
             logger.warning("入队 PDF 下载任务失败 [%s]: %s", source_id, exc)
             return False
 
-    async def _update_ann_file_path(
-        self,
-        ts_code: str,
-        ann_date: str,
-        title: str,
-        file_path: str,
-        status: str,
-    ) -> None:
-        """更新公告的 file_path 和 download_status。"""
-        from datetime import datetime as dt
-        date_val = dt.strptime(ann_date, "%Y%m%d").date() if ann_date else None
-        async with engine.begin() as conn:
-            await conn.execute(
-                text("""
-                    UPDATE minishare_announcements
-                    SET file_path = :file_path, download_status = :status
-                    WHERE ts_code = :ts_code AND ann_date = :ann_date AND title = :title
-                """),
-                {
-                    "file_path": file_path,
-                    "status": status,
-                    "ts_code": ts_code,
-                    "ann_date": date_val,
-                    "title": title,
-                },
-            )
-
-    async def _update_ann_download_status(
-        self,
-        ts_code: str,
-        ann_date: str,
-        title: str,
-        status: str,
-    ) -> None:
-        """更新公告的 download_status。"""
-        from datetime import datetime as dt
-        date_val = dt.strptime(ann_date, "%Y%m%d").date() if ann_date else None
-        async with engine.begin() as conn:
-            await conn.execute(
-                text("""
-                    UPDATE minishare_announcements
-                    SET download_status = :status
-                    WHERE ts_code = :ts_code AND ann_date = :ann_date AND title = :title
-                """),
-                {
-                    "status": status,
-                    "ts_code": ts_code,
-                    "ann_date": date_val,
-                    "title": title,
-                },
-            )
 
     async def _save_report(
         self,

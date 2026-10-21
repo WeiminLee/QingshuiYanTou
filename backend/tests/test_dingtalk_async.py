@@ -206,7 +206,6 @@ class TestDingtalkSyncHelpers:
 
     def test_get_webhook_url_with_secret(self, monkeypatch):
         """带加签时 URL 会附加 timestamp 和 sign 参数"""
-        import re
 
         from app.data_pipeline import dingtalk
 

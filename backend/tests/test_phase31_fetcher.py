@@ -50,7 +50,7 @@ class TestAkshareThrottleApplied:
     @pytest.mark.integration
     def test_fetch_irm_counts_data_source_exception_as_failure(self):
         import asyncio
-        from unittest.mock import AsyncMock, MagicMock, patch
+        from unittest.mock import AsyncMock, MagicMock
 
         from app.data_pipeline.fetcher import DataFetcher
 

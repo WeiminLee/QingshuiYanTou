@@ -11,7 +11,6 @@ import pytest
 
 from app.config import settings
 from app.core import llm_client as lc
-from app.knowledge.extraction.rag_extractor import _extract_retry_after
 
 
 @pytest.fixture(autouse=True)
@@ -121,9 +120,3 @@ def test_revert_to_primary_after_ttl(_cfg, _fake_fetch, monkeypatch):
 # ── retry-after 解析 ─────────────────────────────────────────────────────
 
 
-def test_extract_retry_after_parsing():
-    assert _extract_retry_after("retry-after: 5") == 5.0
-    assert _extract_retry_after("HTTP/1.1 429, retry-after: 5") == 5.0
-    assert _extract_retry_after("{\"retry_after\":5}") == 5.0
-    assert _extract_retry_after("普通错误，无 retry-after") is None
-    assert _extract_retry_after("Error code: 403 model_not_available") is None

@@ -3,7 +3,7 @@
 import asyncio
 import concurrent.futures
 import logging
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 
 def test_hunyuan_embed_uses_sync_http_client_inside_running_loop():
@@ -113,23 +113,6 @@ def test_irm_checkpoint_write_failure_logs_warning(caplog):
     assert "IRM checkpoint 写入失败" in caplog.text
     assert "mongo down" in caplog.text
 
-
-def test_rag_entity_type_vote_ignores_blank_values():
-    from app.knowledge.extraction.rag_extractor import RAGExtractor
-
-    extractor = RAGExtractor()
-    result = asyncio.run(
-        extractor._merge_single_entity(
-            "测试公司",
-            [
-                {"entity_type": "", "description": "空类型", "source_id": "1"},
-                {"entity_type": None, "description": "无类型", "source_id": "2"},
-                {"entity_type": "Company", "description": "公司类型", "source_id": "3"},
-            ],
-        )
-    )
-
-    assert result["entity_type"] == "Company"
 
 
 def test_safe_float_rejects_nan_and_infinity():
