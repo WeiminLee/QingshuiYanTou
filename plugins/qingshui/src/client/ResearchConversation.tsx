@@ -4,9 +4,10 @@
  * `hero && chipTitle === undefined` inert gate. Styles are plugin-local;
  * child slots (chat, input bar) keep their own shipped CSS.
  */
-import { useCallback, useRef } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 import { useSyncExternalStore } from 'react'
 import { researchComposerOwner, type ComposerBlockLike } from './conversation-owner.ts'
+import { takeModuleStart } from './research-modules.ts'
 import { EvCiteLayer } from './ev-cite-layer.tsx'
 import { getEvCiteState, subscribeEvCite } from './ev-cite-store.ts'
 import { NewsTape } from './NewsTape.tsx'
@@ -82,6 +83,18 @@ export function ResearchConversationRoot(props: ResearchConversationProps) {
     </div>
   )
 
+  // A sidebar module staged its opening before creating this session; spend it
+  // once the blank session is open and the composer can take input.
+  const sessionOpen = openState === 'open'
+  useEffect(() => {
+    if (sessionId === undefined || !sessionOpen || inputActions === undefined) return
+    const start = takeModuleStart()
+    if (start === undefined) return
+    if (start.text === '') return
+    inputActions.setDraft(start.text)
+    if (start.autoSend) inputActions.submit()
+  }, [sessionId, sessionOpen, inputActions])
+
   const cite = useSyncExternalStore(subscribeEvCite, getEvCiteState)
   const pinnedId = cite.mode === 'pinned' ? cite.id : undefined
   const ask = (text: string): void => {
@@ -109,12 +122,17 @@ export function ResearchConversationRoot(props: ResearchConversationProps) {
       <div className="qs-conv-main">
         <div className="qs-conv-scroll" data-conversation-scroll="">
           {renderSlot('conversation.session', {})}
+          {/* Blank desk: announcements and signals ride under the news strip,
+              so only the composer sits at the bottom. A running chat docks the
+              board right above the composer instead. */}
+          {hero ? <div className="qs-hero-top">{signalBoard}</div> : null}
           <div ref={hero ? undefined : seatResizeRef} className={hero ? 'qs-hero-cluster' : 'qs-active-foot'}>
-            {signalBoard}
+            {hero ? null : signalBoard}
+            {/* Suggestions sit above the docked composer so the input stays the last row. */}
+            {hero ? <ResearchStarts onAsk={ask} /> : null}
             <div ref={hero ? seatResizeRef : undefined} className="qs-conv-seat" data-composer-seat="">
               {composer}
             </div>
-            {hero ? <ResearchStarts onAsk={ask} /> : null}
           </div>
         </div>
         <ResearchPanel pinnedId={pinnedId} />

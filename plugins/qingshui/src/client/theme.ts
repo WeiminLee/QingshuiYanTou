@@ -28,6 +28,15 @@ export const SHELL_CSS = `
 .qs-shell-time { flex: none; font-size: 11px; line-height: 16px; font-variant-numeric: tabular-nums; color: var(--dsw-alias-label-tertiary); }
 .qs-shell-item:hover .qs-shell-time, .qs-shell-item:focus-within .qs-shell-time { visibility: hidden; }
 .qs-shell-empty { padding: 12px 4px; color: var(--dsw-alias-label-tertiary); font: var(--dsw-font-xs-13); }
+.qs-shell-toggle { flex: none; align-self: flex-start; margin: 2px 0 0; border: none; border-radius: 6px; padding: 6px 8px; cursor: pointer; background: transparent; color: var(--dsw-alias-label-tertiary); font: var(--dsw-font-xxs-12); }
+.qs-shell-toggle:hover { background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-primary); }
+/* ── core function modules（侧栏底部：每条开一个不同流程的新会话） ── */
+.qs-modules { flex: none; display: flex; flex-direction: column; gap: 2px; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--dsw-alias-border-l2); }
+.qs-module { display: flex; flex-direction: column; gap: 1px; width: 100%; text-align: left; border: none; border-radius: 6px; padding: 6px 8px; cursor: pointer; background: transparent; }
+.qs-module:hover { background: var(--dsw-alias-interactive-bg-hover); }
+.qs-module:focus-visible { outline: 2px solid var(--qs-accent); outline-offset: -2px; }
+.qs-module-label { font: var(--dsw-font-xs-13); color: var(--dsw-alias-label-primary); }
+.qs-module-hint { font: var(--dsw-font-xxxs-11); color: var(--dsw-alias-label-tertiary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .qs-shell-rail { display: flex; flex-direction: column; align-items: center; gap: 8px; padding-top: 4px; }
 .qs-shell-rail-btn { width: 32px; height: 32px; border: none; border-radius: 8px; cursor: pointer; background: transparent; color: var(--dsw-alias-label-secondary); font: var(--dsw-font-xs-13); }
 .qs-shell-rail-btn:hover { background: var(--dsw-alias-interactive-bg-hover); }
@@ -116,9 +125,9 @@ export const SHELL_CSS = `
 .qs-signal-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; line-height: 20px; }
 .qs-signal-empty { margin: 0; padding: 2px 12px 4px; color: var(--dsw-alias-label-tertiary); font: var(--dsw-font-xxs-12); }
 .qs-signals-dock { border-bottom: none; border-top: 1px solid var(--dsw-alias-border-l2); max-height: 148px; overflow: auto; }
-/* Hero: the signal board is a briefing directly above the composer (inside the
-   centered cluster), so it no longer matches the old direct-child selector. */
-.qs-hero-cluster > .qs-signals { max-height: 32vh; overflow: auto; margin-bottom: 12px; }
+/* Blank desk: the signal briefing sits at the TOP of the scroll area (under the
+   market strip), leaving the bottom to the composer alone. */
+.qs-hero-top { flex: none; margin-bottom: 12px; max-height: 38vh; overflow: auto; }
 @media (min-width: 840px) {
   .qs-signals[data-state="ok"] { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .qs-signal-lane { border-bottom: none; border-right: 1px solid var(--dsw-alias-border-l2); }
@@ -146,13 +155,18 @@ export const SHELL_CSS = `
     box-shadow: -16px 0 40px color-mix(in srgb, #000 26%, transparent);
   }
 }
-/* Blank desk: the composer and the questions under it sit in the middle.
-   A running chat pins the signal dock and the composer to the bottom. */
-.qs-conv[data-phase="hero"] .qs-conv-scroll { justify-content: safe center; }
+/* Blank and running chats share one composer position: the bottom. The blank
+   screen puts its briefing at the top and lets the cluster's auto margin claim
+   the space between, so the input never jumps when the first turn starts. */
+.qs-conv[data-phase="hero"] .qs-conv-scroll { justify-content: flex-start; }
 .qs-conv[data-phase="hero"] .qs-conv-scroll > [data-slot="conversation.session"] { display: none; }
+/* Sticky like the running-chat foot: however tall the briefing above grows,
+   the composer stays on screen instead of scrolling out of the viewport. */
 .qs-hero-cluster {
+  position: sticky; bottom: 0; z-index: 7;
   width: min(calc(var(--dsh-composer-card-max-width) + 2 * var(--dsh-composer-side-clearance)), 100%);
-  margin: 0 auto; display: flex; flex: none; flex-direction: column; align-items: stretch;
+  margin: auto auto 0; display: flex; flex: none; flex-direction: column; align-items: stretch;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--dsw-alias-bg-base) 0%, transparent) 0px, var(--dsw-alias-bg-base) 28px);
 }
 .qs-active-foot {
   position: sticky; bottom: 0; z-index: 7; margin-top: auto; display: flex; flex: none; flex-direction: column;
@@ -168,7 +182,10 @@ export const SHELL_CSS = `
 .qs-conv[data-phase="active"] .qs-conv-scroll > [data-slot="conversation.session"] > div {
   flex: 1 0 auto; min-height: auto;
 }
-.qs-conv-seat { display: flex; flex: none; flex-direction: column; position: relative; z-index: 1; visibility: visible; --dsh-composer-text-max-height: 336px; }
+.qs-conv-seat { display: flex; flex: none; flex-direction: column; position: relative; z-index: 1; visibility: visible; --dsh-composer-text-max-height: 144px; }
+/* Docked composer rides its content: tight card, no two-line floor. Shrinks the
+   input to one line at rest and keeps the long-draft scrollport shallow. */
+.qs-conv [data-composer-card] { padding-top: 6px; gap: 8px; border-radius: 18px; }
 .qs-conv-stack { display: flex; flex-direction: column; gap: 6px; }
 .qs-conv-stack-hero {
   position: relative; align-self: center; gap: 8px; padding-bottom: 16px; z-index: 1;

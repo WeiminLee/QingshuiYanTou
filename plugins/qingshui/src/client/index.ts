@@ -4,6 +4,7 @@
  * assistant-step shadow adding interactive EV citation chips.
  */
 import { QingshuiBrandMark, QingshuiBrandName } from './Brand.tsx'
+import { clearModuleStart, stageModuleStart, type ResearchModule } from './research-modules.ts'
 import { archiveSession, createAndOpenSession, renameSession } from './session-actions.ts'
 import { SessionBrowser } from './SessionBrowser.tsx'
 import { en, zh, type QingshuiShellKey } from './locales.ts'
@@ -96,6 +97,16 @@ export function apply(ctx: any): void {
   const rename = (sessionId: string, title: string): Promise<boolean> =>
     renameSession(ctx.sessions, sessionId, title)
 
+  // Stage the lane's opening BEFORE creating, so the conversation root finds it
+  // the moment the new blank session becomes current.
+  const startModule = (module: ResearchModule): void => {
+    stageModuleStart({ text: module.starter, autoSend: module.autoSend })
+    void createAndOpenSession(ctx.sessions).catch((error: unknown) => {
+      clearModuleStart()
+      console.warn('qingshui: module session create failed', error)
+    })
+  }
+
   ctx.effect(
     () => ctx.slots.inject('sidebar.workspaces', () => ctx.slots.register({
       name: 'sidebar.workspaces',
@@ -104,6 +115,7 @@ export function apply(ctx: any): void {
         openSession,
         archiveSession: archive,
         renameSession: rename,
+        startModule,
       }),
     }, SessionBrowser)),
     'qingshui: session browser',
