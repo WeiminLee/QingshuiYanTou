@@ -60,6 +60,8 @@ def test_candidates_sql_targets_every_ingested_row():
     assert "evidence_at IS NOT NULL" in sql and "ORDER BY ann_date DESC" in sql
     assert "minishare_announcements" in sql
     assert "file_path IS NULL" not in sql and "file_path = ''" not in sql
+    # 候选行必须带上 file_path：plan_download 靠它判断原文是否已在盘上。
+    assert "SELECT id, ts_code, ann_date, title, source_url, file_path" in sql
     assert ":since" not in sql
     assert ":ann_ids" not in sql
 
@@ -92,6 +94,25 @@ def test_plan_download_is_idempotent(tmp_path):
     target.parent.mkdir(parents=True)
     target.write_bytes(b"%PDF-1.4")
     assert script.plan_download(cand, tmp_path) == "skip"
+
+
+def test_plan_download_honours_the_stored_file_path(tmp_path):
+    """采集侧具名文件在盘上就跳过；文件不在才回到 canonical 目标判断。"""
+    script = _script()
+    stored = _write_pdf(
+        tmp_path / "notices" / "600962.SH" / "2026-08" / "20260812_600962.SH_关于召开股东会的公告.pdf"
+    )
+    cand = {
+        "id": 2200763,
+        "ts_code": "600962.SH",
+        "ann_date": "20260812",
+        "file_path": str(stored),
+    }
+
+    assert script.plan_download(cand, tmp_path) == "skip"
+
+    stored.unlink()
+    assert script.plan_download(cand, tmp_path) == "download"
 
 
 def test_plan_download_never_overwrites_an_existing_directory(tmp_path):
@@ -288,6 +309,22 @@ def test_run_downloads_rows_whose_file_path_is_stale(monkeypatch, tmp_path):
 
     assert counts == {"candidates": 1, "downloaded": 1, "skipped": 0, "failed": 0}
     write_back.assert_awaited_once_with(2200763, saved)
+
+
+def test_run_skips_rows_whose_stored_file_path_resolves(monkeypatch, tmp_path):
+    """正常采集的具名文件在盘上即跳过：绝不重下第二份 canonical 副本。"""
+    stored = _write_pdf(
+        tmp_path / "notices" / "600962.SH" / "2026-08" / "20260812_600962.SH_关于召开股东会的公告.pdf"
+    )
+    script, _fetch, write_back, storage = _patch_run(
+        monkeypatch, tmp_path, [_candidate(file_path=str(stored))],
+    )
+
+    counts = asyncio.run(script.run(dry_run=False, limit=10, since=None, sleep_s=0.0))
+
+    assert counts == {"candidates": 1, "downloaded": 0, "skipped": 1, "failed": 0}
+    storage.download_notice.assert_not_called()
+    write_back.assert_not_awaited()
 
 
 def test_run_skip_repairs_missing_file_path(monkeypatch, tmp_path):

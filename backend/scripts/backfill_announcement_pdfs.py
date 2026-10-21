@@ -46,7 +46,7 @@ from sqlalchemy import bindparam, text
 
 from app.config import settings
 from app.data_pipeline.file_storage import FileStorage
-from app.knowledge.pdf_store import canonical_pdf_relpath
+from app.knowledge.pdf_store import canonical_pdf_relpath, resolve_pdf_path
 
 logger = logging.getLogger("backfill_announcement_pdfs")
 
@@ -104,11 +104,23 @@ def backfill_target_path(
 
 
 def plan_download(candidate: dict[str, Any], root: Path | str) -> str:
-    """幂等闸门：目标已存在返回 ``"skip"``，否则 ``"download"``。
+    """幂等闸门：原文已在盘上返回 ``"skip"``，否则 ``"download"``。
 
-    用 ``exists()`` 而非 ``is_file()``：目标位置哪怕是目录也算已存在，
+    采集侧落盘用的是具名文件（``{ann_date}_{ts_code}_{title}.pdf``），从不写
+    canonical 名。因此先按阅读器同一套规则解析行里已有的 ``file_path``：
+    能解析到文件即原文已在盘上，绝不再下第二份。只有解析不到时才看 canonical
+    目标 —— 用 ``exists()`` 而非 ``is_file()``：目标位置哪怕是目录也算已存在，
     绝不覆盖。
     """
+    stored = resolve_pdf_path(
+        candidate.get("file_path"),
+        ts_code=str(candidate.get("ts_code") or ""),
+        ann_date=_ann_date_token(candidate.get("ann_date")),
+        ann_id=candidate["id"],
+        root=Path(root),
+    )
+    if stored is not None:
+        return "skip"
     target = backfill_target_path(
         candidate["ts_code"],
         candidate["ann_date"],
