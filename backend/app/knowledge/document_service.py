@@ -20,9 +20,9 @@ import logging
 import re
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
-from app.knowledge.pdf_store import resolve_pdf_path
+from app.knowledge.pdf_store import resolve_pdf_path, strip_to_storage_tail
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +35,11 @@ _ANN_ID_DIGITS_RE = re.compile(r"[0-9]+")
 # Fields needed to resolve a PDF: enough for the storage path and the canonical
 # fallback, without pulling each chapter's text_excerpt.
 _PDF_ROW_PROJECTION = {"source_ref": 1, "subject_hint": 1, "source_name": 1}
+
+# ``ok``: a file inside the root was found.
+# ``missing``: the document has rows but no retained file.
+# ``invalid``: the stored ``pdf_path`` escapes the root — rejected, never probed.
+PdfPathStatus = Literal["ok", "missing", "invalid"]
 
 
 def classify_title(title: str | None) -> tuple[str | None, bool]:
@@ -180,6 +185,28 @@ def _resolve_document_pdf(rows: list[dict[str, Any]], *, root: Path | str) -> Pa
     )
 
 
+def _stored_pdf_path_escapes(rows: list[dict[str, Any]], *, root: Path | str) -> bool:
+    """Return ``True`` when the row's stored ``pdf_path`` points outside ``root``.
+
+    :func:`resolve_pdf_path` drops escaping candidates and carries on, so an
+    escape and an absent file both come back as ``None``.  This predicate
+    recovers the difference without a second resolution rule: it reuses the
+    same tail extraction (:func:`strip_to_storage_tail`) and the same
+    containment test, on the same row, and it never stats the escaped target —
+    the answer does not depend on whether that file exists.
+    """
+    row = _pdf_source_row(rows)
+    tail = strip_to_storage_tail(_source_ref(row).get("pdf_path"))
+    if tail is None:
+        return False
+    root_path = Path(root).resolve()
+    try:
+        candidate = (root_path / tail).resolve()
+    except (OSError, RuntimeError):
+        return True
+    return not candidate.is_relative_to(root_path)
+
+
 def _pdf_summary(rows: list[dict[str, Any]], *, root: Path | str) -> dict[str, Any]:
     sha256 = _first_str(rows, lambda row: _source_ref(row).get("pdf_sha256"))
     resolved = _resolve_document_pdf(rows, root=root)
@@ -235,12 +262,17 @@ async def load_document(db: Any, ann_id: str, *, root: Path | str) -> dict[str, 
     return build_document_response(rows, root=root)
 
 
-async def load_pdf_path(db: Any, ann_id: str, *, root: Path | str) -> Path | None:
-    """Resolve the retained PDF for ``ann_id``, or ``None`` when absent.
+async def load_pdf_path(db: Any, ann_id: str, *, root: Path | str) -> tuple[Path | None, PdfPathStatus]:
+    """Resolve the retained PDF for ``ann_id`` and how resolution went.
 
     Reads the same row set as :func:`load_document` (same ``$in`` query, same
     order) and resolves through :func:`_resolve_document_pdf`, so the streamed
     file is exactly the one the document endpoint reported as existing.
+
+    The status lets callers honour the traversal contract: an escaping stored
+    ``pdf_path`` is reported as ``"invalid"`` even when the canonical candidate
+    exists, because the row itself names a location outside the root and the
+    response must not depend on probing it.
     """
     cursor = db.kg_evidence.find(
         {"source_ref.ann_id": {"$in": ann_id_variants(ann_id)}},
@@ -248,8 +280,13 @@ async def load_pdf_path(db: Any, ann_id: str, *, root: Path | str) -> Path | Non
     )
     rows = await cursor.to_list(length=None)
     if not rows:
-        return None
-    return _resolve_document_pdf(rows, root=root)
+        return None, "missing"
+    if _stored_pdf_path_escapes(rows, root=root):
+        return None, "invalid"
+    resolved = _resolve_document_pdf(rows, root=root)
+    if resolved is None:
+        return None, "missing"
+    return resolved, "ok"
 
 
 async def ensure_document_indexes(db: Any) -> None:

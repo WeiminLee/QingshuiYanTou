@@ -18,11 +18,13 @@ from pymongo.errors import ServerSelectionTimeoutError
 
 from app.config import settings
 from app.knowledge.api import agent_documents
+from app.knowledge.document_service import load_pdf_path as real_load_pdf_path
 
 HEADERS = {"X-API-Key": "test-key"}
 
 PDF_BYTES = b"%PDF-1.4\n" + b"Q" * (2048 - len(b"%PDF-1.4\n"))
 SHA256 = "a" * 64
+ANN_ID = 1225468566
 
 
 @pytest.fixture(autouse=True)
@@ -70,6 +72,29 @@ def _document(sha256: str | None = SHA256) -> dict:
     }
 
 
+class _StubCursor:
+    def __init__(self, rows):
+        self._rows = rows
+
+    async def to_list(self, length=None):
+        return list(self._rows)
+
+
+class _StubCollection:
+    """Minimal ``kg_evidence`` stand-in: ``find`` ignores filter/projection."""
+
+    def __init__(self, rows):
+        self._rows = rows
+
+    def find(self, *args, **kwargs):
+        return _StubCursor(self._rows)
+
+
+class _StubDB:
+    def __init__(self, rows):
+        self.kg_evidence = _StubCollection(rows)
+
+
 @pytest.fixture()
 def service(monkeypatch):
     """Stub both document-service loaders; no Mongo, no real storage lookup."""
@@ -85,7 +110,7 @@ def service(monkeypatch):
         state.calls.append(("pdf_path", ann_id, root))
         if state.path_error is not None:
             raise state.path_error
-        return state.path
+        return state.path, "ok" if state.path is not None else "missing"
 
     async def fake_load_document(db, ann_id, *, root):
         state.calls.append(("document", ann_id, root))
@@ -205,10 +230,18 @@ def test_pdf_without_document_returns_404_document_not_found(client, service, ro
     assert ("document", "999", root) in service.calls
 
 
-def test_pdf_out_of_root_path_returns_400_without_leaking_path(client, service, root, tmp_path):
-    outside = tmp_path / "outside.pdf"
+def test_pdf_escaping_stored_path_returns_400_without_leaking_path(client, service, root, tmp_path, monkeypatch):
+    """A real stored ``pdf_path`` escape must map to 400, not 404.
+
+    The service loader runs for real against a stubbed ``kg_evidence``; only
+    the document loader (sha256 / 404 disambiguation) is stubbed.
+    """
+    outside = tmp_path / "etc" / "passwd"
+    outside.parent.mkdir()
     outside.write_bytes(PDF_BYTES)
-    service.path = outside
+    rows = [{"source_ref": {"ann_id": ANN_ID, "pdf_path": "/x/notices/../../etc/passwd"}}]
+    monkeypatch.setattr(agent_documents, "load_pdf_path", real_load_pdf_path)
+    monkeypatch.setattr(agent_documents, "get_mongo_db", lambda: _StubDB(rows))
 
     r = client.get("/api/v1/knowledge/documents/1225468566/pdf", headers=HEADERS)
 

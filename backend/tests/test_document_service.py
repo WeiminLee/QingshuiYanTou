@@ -294,19 +294,63 @@ async def test_load_document_returns_none_for_unknown_ann_id(tmp_path: Path) -> 
 async def test_load_pdf_path_resolves_existing_file(tmp_path: Path) -> None:
     expected = _touch(tmp_path / "notices" / TS_CODE / "2026-08" / f"{ANN_ID}.pdf")
 
-    resolved = await load_pdf_path(_FakeDB([_row()]), str(ANN_ID), root=tmp_path)
+    path, status = await load_pdf_path(_FakeDB([_row()]), str(ANN_ID), root=tmp_path)
 
-    assert resolved == expected.resolve()
+    assert path == expected.resolve()
+    assert status == "ok"
 
 
 async def test_load_pdf_path_returns_none_when_missing(tmp_path: Path) -> None:
     (tmp_path / "notices").mkdir()
 
-    assert await load_pdf_path(_FakeDB([_row()]), str(ANN_ID), root=tmp_path) is None
+    assert await load_pdf_path(_FakeDB([_row()]), str(ANN_ID), root=tmp_path) == (
+        None,
+        "missing",
+    )
+
+
+async def test_load_pdf_path_returns_missing_for_absent_stored_path(tmp_path: Path) -> None:
+    """A stored path that is merely absent (not an escape) is ``missing``."""
+    (tmp_path / "notices").mkdir()
+    rows = [_row(source_ref=_source_ref(pdf_path="/data/qingshui-pdfs/notices/600962.SH/2026-08/gone.pdf"))]
+
+    assert await load_pdf_path(_FakeDB(rows), str(ANN_ID), root=tmp_path) == (
+        None,
+        "missing",
+    )
 
 
 async def test_load_pdf_path_returns_none_without_rows(tmp_path: Path) -> None:
-    assert await load_pdf_path(_FakeDB(), str(ANN_ID), root=tmp_path) is None
+    assert await load_pdf_path(_FakeDB(), str(ANN_ID), root=tmp_path) == (
+        None,
+        "missing",
+    )
+
+
+async def test_load_pdf_path_reports_invalid_for_escaping_pdf_path(tmp_path: Path) -> None:
+    root = tmp_path / "root"
+    root.mkdir()
+    # The escaped target exists, which is exactly why it must not be probed.
+    _touch(tmp_path / "etc" / "passwd")
+    rows = [_row(source_ref=_source_ref(pdf_path="/x/notices/../../etc/passwd"))]
+
+    assert await load_pdf_path(_FakeDB(rows), str(ANN_ID), root=root) == (
+        None,
+        "invalid",
+    )
+
+
+async def test_load_pdf_path_escape_outranks_existing_canonical_file(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "root"
+    _touch(root / "notices" / TS_CODE / "2026-08" / f"{ANN_ID}.pdf")
+    rows = [_row(source_ref=_source_ref(pdf_path="/x/notices/../../etc/passwd"))]
+
+    assert await load_pdf_path(_FakeDB(rows), str(ANN_ID), root=root) == (
+        None,
+        "invalid",
+    )
 
 
 async def test_load_pdf_path_picks_later_row_that_carries_pdf_path(tmp_path: Path) -> None:
@@ -324,11 +368,12 @@ async def test_load_pdf_path_picks_later_row_that_carries_pdf_path(tmp_path: Pat
     ]
     db = _FakeDB(rows)
 
-    resolved = await load_pdf_path(db, str(ANN_ID), root=tmp_path)
+    resolved, status = await load_pdf_path(db, str(ANN_ID), root=tmp_path)
 
     # The canonical fallback (2200763.pdf) does not exist; only the legacy file
     # named on the second row does, so a first-row-only lookup would return None.
     assert resolved == expected.resolve()
+    assert status == "ok"
     assert db.kg_evidence.queries == [{"source_ref.ann_id": {"$in": [ANN_ID, str(ANN_ID)]}}]
 
     doc = build_document_response(rows, root=tmp_path)

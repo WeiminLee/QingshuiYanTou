@@ -102,15 +102,17 @@ async def get_document_pdf(
     require_api_key(x_api_key)
     db = get_mongo_db()
     try:
-        # The path decides *what* to stream; the document view contributes the
-        # sha256 (the ETag) and disambiguates "no document" from "document with
-        # no retained file", which the path loader alone cannot tell apart.
-        path = await load_pdf_path(db, ann_id, root=settings.pdf_storage_root)
+        # The path and its status decide *what* to stream and why it is absent;
+        # the document view contributes the sha256 (the ETag) and separates
+        # "no document" from "document with no retained file".
+        path, path_status = await load_pdf_path(db, ann_id, root=settings.pdf_storage_root)
         document = await load_document(db, ann_id, root=settings.pdf_storage_root)
     except (PyMongoError, OSError) as exc:
         logger.exception("pdf load failed for ann_id=%r", ann_id)
         raise HTTPException(503, detail={"code": "document_unavailable"}) from exc
 
+    if path_status == "invalid":
+        raise HTTPException(400, detail={"code": "pdf_path_invalid"})
     if path is None:
         if document is None:
             raise HTTPException(404, detail={"code": "document_not_found"})
