@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from 'react'
-import { archiveSession, createAndOpenSession, renameSession } from './session-actions.ts'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { createAndOpenSession } from './session-actions.ts'
+import { groupSessionRows, sessionStamp, type SessionBucket } from './session-groups.ts'
 
 type SessionRow = {
   id: string
@@ -19,13 +20,18 @@ type ListState = {
 /** Confirmation window for the archive two-step (ms). */
 const ARCHIVE_CONFIRM_MS = 3000
 
+const BUCKET_LABEL: Record<SessionBucket, string> = {
+  today: 'sessions.today',
+  yesterday: 'sessions.yesterday',
+  earlier: 'sessions.earlier',
+}
+
 export type SessionBrowserProps = {
   wide: boolean
   expandSidebar: () => void
   useSessions: <S>(select: (state: ListState) => S) => S
   useWorkspaces: <S>(select: (state: { archivedSessionIds: readonly string[] }) => S) => S
   t: (key: string) => string
-  createSession: () => Promise<string>
   openSession: (sessionId: string) => void
   archiveSession: (sessionId: string) => Promise<void>
   renameSession: (sessionId: string, title: string) => Promise<boolean>
@@ -34,12 +40,11 @@ export type SessionBrowserProps = {
 /** Flat research-session list for sidebar.workspaces (no workspace / path tree). */
 export function SessionBrowser(props: SessionBrowserProps) {
   const {
-    wide, expandSidebar, useSessions, useWorkspaces, t,
-    createSession, openSession, archiveSession, renameSession,
+    wide, useSessions, useWorkspaces, t,
+    openSession, archiveSession, renameSession,
   } = props
   const list = useSessions(s => s)
   const archived = useWorkspaces(s => s.archivedSessionIds)
-  const [busy, setBusy] = useState(false)
   const [editing, setEditing] = useState<{ id: string; draft: string } | null>(null)
   const [confirmId, setConfirmId] = useState<string | undefined>(undefined)
   const confirmTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -48,31 +53,17 @@ export function SessionBrowser(props: SessionBrowserProps) {
     if (confirmTimer.current !== null) clearTimeout(confirmTimer.current)
   }, [])
 
-  const onNew = (): void => {
-    if (busy) return
-    if (!wide) expandSidebar()
-    setBusy(true)
-    void createSession()
-      .catch((error: unknown) => { console.warn('qingshui: new session failed', error) })
-      .finally(() => { setBusy(false) })
-  }
+  const rows = useMemo(() => {
+    const archivedSet = new Set(archived)
+    return list.ids
+      .map(id => list.byId[id])
+      .filter(row => row !== undefined && !archivedSet.has(row.id))
+      .sort((a, b) => b.updatedAt - a.updatedAt)
+  }, [list.ids, list.byId, archived])
 
-  if (!wide) {
-    return (
-      <div className="qs-shell-rail">
-        <button type="button" className="qs-shell-rail-btn" aria-label={t('sessions.new')} onClick={onNew} disabled={busy}>
-          +
-        </button>
-      </div>
-    )
-  }
+  const groups = useMemo(() => groupSessionRows(rows, Date.now()), [rows])
 
-  const archivedSet = new Set(archived)
-  const rows = list.ids
-    .map(id => list.byId[id])
-    .filter(row => row !== undefined && !archivedSet.has(row.id))
-    .slice()
-    .sort((a, b) => b.updatedAt - a.updatedAt)
+  if (!wide) return null
 
   const beginRename = (row: SessionRow): void => {
     if (confirmTimer.current !== null) {
@@ -118,70 +109,74 @@ export function SessionBrowser(props: SessionBrowserProps) {
     <div className="qs-shell">
       <div className="qs-shell-head">
         <span className="qs-shell-title">{t('sessions.heading')}</span>
-        <button type="button" className="qs-shell-new" onClick={onNew} disabled={busy}>
-          {t('sessions.new')}
-        </button>
       </div>
       <div className="qs-shell-list" role="list">
         {rows.length === 0 ? (
           <div className="qs-shell-empty">{t('sessions.empty')}</div>
-        ) : rows.map(row => (
-          <div
-            key={row.id}
-            role="listitem"
-            className="qs-shell-item"
-            data-active={list.current === row.id ? 'true' : 'false'}
-          >
-            {editing?.id === row.id
-              ? (
-                <input
-                  className="qs-shell-rename"
-                  value={editing.draft}
-                  autoFocus
-                  aria-label={t('sessions.renameAria')}
-                  onChange={event => { setEditing({ id: row.id, draft: event.target.value }) }}
-                  onKeyDown={event => {
-                    if (event.key === 'Enter') commitRename()
-                    if (event.key === 'Escape') setEditing(null)
-                  }}
-                  onBlur={commitRename}
-                />
-              )
-              : (
-                <>
-                  <button
-                    type="button"
-                    className="qs-shell-row"
-                    data-active={list.current === row.id ? 'true' : 'false'}
-                    onClick={() => { openSession(row.id) }}
-                  >
-                    <span className="qs-shell-row-title">
-                      {row.title ?? (row.blank ? t('sessions.untitled') : (row.displayTitle || t('sessions.untitled')))}
-                    </span>
-                  </button>
-                  <span className="qs-shell-item-actions">
-                    <button
-                      type="button"
-                      className="qs-shell-icon-btn"
+        ) : groups.map(group => (
+          <div key={group.bucket} className="qs-shell-group">
+            <div className="qs-shell-group-label">{t(BUCKET_LABEL[group.bucket])}</div>
+            {group.rows.map(row => (
+              <div
+                key={row.id}
+                role="listitem"
+                className="qs-shell-item"
+                data-active={list.current === row.id ? 'true' : 'false'}
+                data-blank={row.blank ? 'true' : 'false'}
+              >
+                {editing?.id === row.id
+                  ? (
+                    <input
+                      className="qs-shell-rename"
+                      value={editing.draft}
+                      autoFocus
                       aria-label={t('sessions.renameAria')}
-                      title={t('sessions.rename')}
-                      onClick={() => { beginRename(row) }}
-                    >
-                      ✎
-                    </button>
-                    <button
-                      type="button"
-                      className="qs-shell-icon-btn"
-                      data-confirm={confirmId === row.id ? 'true' : 'false'}
-                      aria-label={confirmId === row.id ? t('sessions.archiveConfirm') : t('sessions.archiveAria')}
-                      title={confirmId === row.id ? t('sessions.archiveConfirm') : t('sessions.archive')}
-                      onClick={() => { askArchive(row.id) }}
-                    >
-                      {confirmId === row.id ? t('sessions.archiveConfirm') : '🗄'}
-                    </button>
-                  </span>
-                </>
-              )}
+                      onChange={event => { setEditing({ id: row.id, draft: event.target.value }) }}
+                      onKeyDown={event => {
+                        if (event.key === 'Enter') commitRename()
+                        if (event.key === 'Escape') setEditing(null)
+                      }}
+                      onBlur={commitRename}
+                    />
+                  )
+                  : (
+                    <>
+                      <button
+                        type="button"
+                        className="qs-shell-row"
+                        data-active={list.current === row.id ? 'true' : 'false'}
+                        onClick={() => { openSession(row.id) }}
+                      >
+                        <span className="qs-shell-row-title">
+                          {row.title ?? (row.blank ? t('sessions.untitled') : (row.displayTitle || t('sessions.untitled')))}
+                        </span>
+                        <span className="qs-shell-time">{sessionStamp(row.updatedAt, group.bucket)}</span>
+                      </button>
+                      <span className="qs-shell-item-actions">
+                        <button
+                          type="button"
+                          className="qs-shell-icon-btn"
+                          aria-label={t('sessions.renameAria')}
+                          title={t('sessions.rename')}
+                          onClick={() => { beginRename(row) }}
+                        >
+                          {t('sessions.renameShort')}
+                        </button>
+                        <button
+                          type="button"
+                          className="qs-shell-icon-btn"
+                          data-confirm={confirmId === row.id ? 'true' : 'false'}
+                          aria-label={confirmId === row.id ? t('sessions.archiveConfirm') : t('sessions.archiveAria')}
+                          title={confirmId === row.id ? t('sessions.archiveConfirm') : t('sessions.archive')}
+                          onClick={() => { askArchive(row.id) }}
+                        >
+                          {confirmId === row.id ? t('sessions.archiveConfirm') : t('sessions.archiveShort')}
+                        </button>
+                      </span>
+                    </>
+                  )}
+              </div>
+            ))}
           </div>
         ))}
       </div>

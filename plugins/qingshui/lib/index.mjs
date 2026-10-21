@@ -3,6 +3,8 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import * as skillFilesystem from "@deepseek-ai/dsh-skill-filesystem";
 import z from "@deepseek-ai/schemastery";
+import { execFile } from "node:child_process";
+import { homedir } from "node:os";
 import { defineTool } from "@deepseek-ai/dsh-tools";
 //#region src/config.ts
 const Config = z.object({
@@ -106,6 +108,40 @@ function createKnowledgeClient(options) {
 		getStockProfile(tsCode) {
 			return get("/api/v1/knowledge/market/stock_profile", { ts_code: tsCode });
 		},
+		searchStocks(input) {
+			const limit = input.limit ?? 10;
+			return get("/api/v1/stocks/search", {
+				q: input.q,
+				limit: String(limit)
+			});
+		},
+		getMarketSnapshot() {
+			return get("/api/v1/knowledge/market/snapshot");
+		},
+		health() {
+			return get("/health");
+		},
+		searchFindings(input) {
+			return post("/api/v1/knowledge/ledger/search", { limit: input?.limit ?? 20 });
+		},
+		listSignals(input) {
+			return get("/api/v1/signals", {
+				source_type: input.sourceType,
+				limit: String(input.limit ?? 4)
+			});
+		},
+		async listRecentEvents(limit = 20) {
+			try {
+				return await post("/api/v1/knowledge/sources/events/recent", { limit });
+			} catch (error) {
+				const message = error instanceof Error ? error.message : "";
+				if (!message.includes("Knowledge API 404") && !message.includes("Knowledge API 405")) throw error;
+				return post("/api/v1/knowledge/sources/events", {
+					query: "%",
+					top_n: limit
+				});
+			}
+		},
 		writeObservation(input) {
 			return post("/api/v1/knowledge/ledger/observation", {
 				subject_ts_code: input.subject_ts_code,
@@ -149,6 +185,270 @@ function resolveApiKey(ref) {
 	return "";
 }
 //#endregion
+//#region src/anysearch.ts
+/** Domains accepted by AnySearch CLI 3.1.1. */
+const ANYSEARCH_DOMAINS = [
+	"general",
+	"resource",
+	"social_media",
+	"finance",
+	"academic",
+	"legal",
+	"health",
+	"business",
+	"security",
+	"ip",
+	"code",
+	"energy",
+	"environment",
+	"agriculture",
+	"travel",
+	"film",
+	"gaming"
+];
+const COMMANDS = [
+	"search",
+	"batch_search",
+	"extract",
+	"get_sub_domains"
+];
+const MAX_TEXT = 6e4;
+const QUERY_ITEM_KEYS = /* @__PURE__ */ new Set([
+	"query",
+	"domain",
+	"sub_domain",
+	"sub_domain_params",
+	"tag",
+	"max_results",
+	"params"
+]);
+function clip(text) {
+	if (text.length <= MAX_TEXT) return text;
+	return `${text.slice(0, MAX_TEXT)}\n...[anysearch 输出已截断，共 ${text.length} 字符]`;
+}
+function asText(value) {
+	return typeof value === "string" ? value.trim() : "";
+}
+function domainOk(value) {
+	return ANYSEARCH_DOMAINS.includes(value);
+}
+function maxResultsFlag(value) {
+	if (value === void 0 || value === null || value === "") return { flag: [] };
+	const n = typeof value === "number" ? value : Number(value);
+	if (!Number.isInteger(n) || n < 1 || n > 10) return { error: "max_results 必须是 1 到 10 的整数" };
+	return { flag: ["--max_results", String(n)] };
+}
+function pushOptional(argv, flag, value, check) {
+	const text = asText(value);
+	if (!text) return void 0;
+	const problem = check?.(text);
+	if (problem) return problem;
+	argv.push(flag, text);
+}
+function buildAnysearchArgv(args) {
+	if (asText(args.api_key)) return { error: "不要在工具参数里传 api_key" };
+	const command = asText(args.command);
+	if (!COMMANDS.includes(command)) return { error: "command 只能是 search、batch_search、extract、get_sub_domains" };
+	const argv = [command];
+	if (command === "search") {
+		const query = asText(args.query);
+		if (!query) return { error: "search 需要 query" };
+		if (query.length > 2e3) return { error: "query 过长" };
+		argv.push(query);
+		const domain = asText(args.domain);
+		const vertical = domain !== "" && domain !== "general";
+		const subDomain = asText(args.sub_domain);
+		const tag = asText(args.tag);
+		if (vertical && !domainOk(domain)) return { error: `未知 domain：${domain}` };
+		if (vertical && !subDomain && !tag) return { error: "垂直检索要带 sub_domain 或 tag。先调用 get_sub_domains。" };
+		if (vertical) argv.push("--domain", domain);
+		if (vertical && subDomain) argv.push("--sub_domain", subDomain);
+		if (vertical && tag) argv.push("--tag", tag);
+		const paramsError = pushOptional(argv, "--params", args.params, (text) => text.length > 4e3 ? "params 过长" : void 0);
+		if (paramsError) return { error: paramsError };
+		const zone = asText(args.zone);
+		if (zone && zone !== "cn" && zone !== "intl") return { error: "zone 只能是 cn 或 intl" };
+		if (zone) argv.push("--zone", zone);
+		const languageError = pushOptional(argv, "--language", args.language, (text) => /^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})?$/.test(text) ? void 0 : "language 格式不对");
+		if (languageError) return { error: languageError };
+		const max = maxResultsFlag(args.max_results);
+		if ("error" in max) return max;
+		argv.push(...max.flag);
+		return { argv };
+	}
+	if (command === "get_sub_domains") {
+		const domains = asText(args.domains);
+		const domain = asText(args.domain);
+		const list = domains ? domains.split(",").map((item) => item.trim()).filter(Boolean) : domain ? [domain] : [];
+		if (list.length === 0) return { error: "get_sub_domains 需要 domain 或 domains" };
+		if (list.length > 5) return { error: "get_sub_domains 最多 5 个 domain" };
+		const unknown = list.find((item) => !domainOk(item));
+		if (unknown) return { error: `未知 domain：${unknown}` };
+		if (domains) argv.push("--domains", list.join(","));
+		else argv.push("--domain", list[0] ?? domain);
+		return { argv };
+	}
+	if (command === "extract") {
+		const url = asText(args.url);
+		if (!url) return { error: "extract 需要 url" };
+		let parsed;
+		try {
+			parsed = new URL(url);
+		} catch {
+			return { error: "url 只能是 http 或 https" };
+		}
+		if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return { error: "url 只能是 http 或 https" };
+		argv.push("--url", url);
+		return { argv };
+	}
+	const rawQueries = args.queries;
+	if (typeof rawQueries === "string" && rawQueries.trim().startsWith("@")) return { error: "queries 不要用 @文件" };
+	let parsedQueries = rawQueries;
+	if (typeof rawQueries === "string") try {
+		parsedQueries = JSON.parse(rawQueries);
+	} catch {
+		return { error: "queries 必须是 JSON 数组" };
+	}
+	if (!Array.isArray(parsedQueries) || parsedQueries.length < 1 || parsedQueries.length > 5) return { error: "queries 必须是 1 到 5 条" };
+	const cleaned = [];
+	for (const item of parsedQueries) {
+		if (!item || typeof item !== "object" || Array.isArray(item)) return { error: "queries 的每一项都要有 query" };
+		const record = item;
+		const query = asText(record.query);
+		if (!query) return { error: "queries 的每一项都要有 query" };
+		const next = { query };
+		for (const key of QUERY_ITEM_KEYS) {
+			if (key === "query" || record[key] === void 0) continue;
+			next[key] = record[key];
+		}
+		cleaned.push(next);
+	}
+	argv.push("--queries", JSON.stringify(cleaned));
+	const domain = asText(args.domain);
+	const vertical = domain !== "" && domain !== "general";
+	if (vertical && !domainOk(domain)) return { error: `未知 domain：${domain}` };
+	if (vertical) argv.push("--domain", domain);
+	const sharedError = pushOptional(argv, "--sub_domain", args.sub_domain) ?? pushOptional(argv, "--tag", args.tag) ?? pushOptional(argv, "--params", args.params);
+	if (sharedError) return { error: sharedError };
+	const max = maxResultsFlag(args.max_results);
+	if ("error" in max) return max;
+	argv.push(...max.flag);
+	return { argv };
+}
+function defaultAnysearchCliPath(env = process.env, home = homedir()) {
+	const agentsHome = env.DSH_AGENTS_HOME || join(home, ".agents");
+	return [env.QINGSHUI_ANYSEARCH_CLI, join(agentsHome, "skills", "anysearch", "scripts", "anysearch_cli.js")].filter((item) => typeof item === "string" && item.length > 0).find((item) => existsSync(item));
+}
+async function runAnysearchCli(cliPath, argv) {
+	return await new Promise((resolve) => {
+		execFile(process.execPath, [cliPath, ...argv], {
+			timeout: 45e3,
+			maxBuffer: 2e6
+		}, (error, stdout, stderr) => {
+			const err = error;
+			const code = typeof err?.code === "number" ? err.code : err ? 1 : 0;
+			resolve({
+				code,
+				stdout: stdout ?? "",
+				stderr: stderr || (err && code !== 0 ? err.message : "")
+			});
+		});
+	});
+}
+function installAnysearchTool(ctx, options = {}) {
+	const resolveCli = options.resolveCli ?? (() => defaultAnysearchCliPath());
+	const run = options.run ?? runAnysearchCli;
+	ctx.inject(["tools"], (tctx) => {
+		tctx.tools.register(defineTool({
+			name: "anysearch",
+			description: `垂直检索、批量检索和页面摘录（AnySearch）。新闻、资讯和复盘报道用 web_search；web_search 失败时用本工具做普通检索。普通检索只传 query，不传 domain。domain 为 general 也按普通检索。command 为 search、batch_search、extract、get_sub_domains。垂直领域先 get_sub_domains。domain 取值：${ANYSEARCH_DOMAINS.join(", ")}。标了 required 的参数全部放进 params，没有值就传空字符串。本地行情、公告、事件、概念不要用本工具。结果不是 EV 证据。不要传 api_key。`,
+			parameters: {
+				command: {
+					type: "string",
+					required: true,
+					enum: COMMANDS,
+					description: "search、batch_search、extract、get_sub_domains"
+				},
+				query: {
+					type: "string",
+					description: "search 的检索词"
+				},
+				queries: {
+					type: "json",
+					description: "batch_search 的 JSON 数组，1 到 5 条，每条含 query"
+				},
+				domain: {
+					type: "string",
+					description: "垂直领域，如 finance"
+				},
+				domains: {
+					type: "string",
+					description: "get_sub_domains 的多个 domain，逗号分隔，最多 5 个"
+				},
+				sub_domain: {
+					type: "string",
+					description: "子域，如 finance.quote。先向 get_sub_domains 要"
+				},
+				tag: {
+					type: "string",
+					description: "能力标签，如 finance.quote"
+				},
+				params: {
+					type: "string",
+					description: "子域参数。JSON 或 key=value。必填项没有值就写空字符串"
+				},
+				max_results: {
+					type: "json",
+					description: "1 到 10，默认由 CLI 取 10"
+				},
+				url: {
+					type: "string",
+					description: "extract 的 http(s) 地址"
+				},
+				zone: {
+					type: "string",
+					description: "cn 或 intl"
+				},
+				language: {
+					type: "string",
+					description: "如 zh-CN"
+				}
+			},
+			output: {
+				schema: { type: "json" },
+				render: (_args, value) => {
+					if (typeof value === "object" && value !== null && "text" in value) {
+						const record = value;
+						const text = typeof record.text === "string" ? record.text : "";
+						const error = typeof record.error === "string" ? record.error : "";
+						return [{
+							type: "text",
+							text: error ? text ? `${error}\n${text}` : error : text
+						}];
+					}
+					return [{
+						type: "text",
+						text: JSON.stringify(value, null, 2)
+					}];
+				}
+			},
+			async execute(toolArgs) {
+				const built = buildAnysearchArgv(toolArgs);
+				if ("error" in built) return { error: built.error };
+				const cli = resolveCli();
+				if (!cli) return { error: "anysearch CLI 不在本机。期望 ~/.agents/skills/anysearch/scripts/anysearch_cli.js，或设置 QINGSHUI_ANYSEARCH_CLI。" };
+				const result = await run(cli, built.argv);
+				const text = clip(result.stdout);
+				if (result.code !== 0) return {
+					error: clip(result.stderr || result.stdout || `anysearch 退出码 ${result.code}`),
+					text
+				};
+				return { text };
+			}
+		}));
+	});
+}
+//#endregion
 //#region src/tool-output.ts
 function renderJson(value) {
 	return [{
@@ -175,6 +475,341 @@ function formatEvidenceText(doc) {
 	const subject = doc.subject_hint ?? {};
 	if (subject.ts_code) lines.splice(2, 0, `关联股票: ${subject.ts_code}`);
 	return lines.join("\n");
+}
+function canonicalDecimal(value) {
+	let token = null;
+	if (typeof value === "number" && Number.isFinite(value)) {
+		if (Object.is(value, -0)) return "0";
+		const text = value.toString();
+		if (/^-?\d+(\.\d+)?$/.test(text)) token = text;
+		else if (/^-?\d(?:\.\d+)?e[+-]?\d+$/i.test(text)) token = expandScientific(text);
+	} else if (typeof value === "string" && value.trim() !== "") {
+		const matched = value.trim().match(/-?\d[\d,.]*/);
+		if (matched) token = matched[0].replace(/,/g, "");
+	}
+	if (!token || !/^-?\d+(\.\d+)?$/.test(token)) return null;
+	return normalizeDecimalText(token);
+}
+function expandScientific(text) {
+	const matched = text.toLowerCase().match(/^(-?)(\d)(?:\.(\d+))?e([+-]?\d+)$/);
+	if (!matched) return null;
+	const sign = matched[1] ?? "";
+	const head = matched[2] ?? "";
+	const frac = matched[3] ?? "";
+	const exp = Number(matched[4]);
+	const digits = `${head}${frac}`;
+	const point = 1 + exp;
+	if (point <= 0) return `${sign}0.${"0".repeat(-point)}${digits}`;
+	if (point >= digits.length) return `${sign}${digits}${"0".repeat(point - digits.length)}`;
+	return `${sign}${digits.slice(0, point)}.${digits.slice(point)}`;
+}
+function normalizeDecimalText(token) {
+	const neg = token.startsWith("-");
+	const [rawInt, rawFrac = ""] = (neg ? token.slice(1) : token).split(".");
+	const intPart = (rawInt ?? "0").replace(/^0+(?=\d)/, "") || "0";
+	const frac = rawFrac.replace(/0+$/, "");
+	const core = frac ? `${intPart}.${frac}` : intPart;
+	if (core === "0") return "0";
+	return neg ? `-${core}` : core;
+}
+function decimalParts(text) {
+	const [intPart, frac = ""] = text.split(".");
+	return {
+		digits: `${intPart ?? "0"}${frac}`.replace(/^0+(?=\d)/, "") || "0",
+		scale: frac.length
+	};
+}
+function padDigits(parts, scale) {
+	return parts.digits + "0".repeat(scale - parts.scale);
+}
+function finishDigits(digits, scale) {
+	const body = digits.join("").replace(/^0+/, "") || "0";
+	if (scale === 0) return body;
+	const padded = body.padStart(scale + 1, "0");
+	const intPart = padded.slice(0, padded.length - scale).replace(/^0+(?=\d)/, "") || "0";
+	const frac = padded.slice(padded.length - scale).replace(/0+$/, "");
+	return frac ? `${intPart}.${frac}` : intPart;
+}
+function addPositive(x, y) {
+	const sx = decimalParts(x);
+	const sy = decimalParts(y);
+	const scale = Math.max(sx.scale, sy.scale);
+	const width = Math.max(padDigits(sx, scale).length, padDigits(sy, scale).length);
+	const a = padDigits(sx, scale).padStart(width, "0");
+	const b = padDigits(sy, scale).padStart(width, "0");
+	const out = [];
+	let carry = 0;
+	for (let i = width - 1; i >= 0; i -= 1) {
+		const sum = Number(a[i]) + Number(b[i]) + carry;
+		out.push(sum % 10);
+		carry = Math.floor(sum / 10);
+	}
+	if (carry) out.push(carry);
+	out.reverse();
+	return finishDigits(out, scale);
+}
+function cmpPositive(x, y) {
+	const sx = decimalParts(x);
+	const sy = decimalParts(y);
+	const scale = Math.max(sx.scale, sy.scale);
+	const width = Math.max(padDigits(sx, scale).length, padDigits(sy, scale).length);
+	const a = padDigits(sx, scale).padStart(width, "0");
+	const b = padDigits(sy, scale).padStart(width, "0");
+	if (a === b) return 0;
+	return a > b ? 1 : -1;
+}
+function subPositive(x, y) {
+	const order = cmpPositive(x, y);
+	if (order === 0) return "0";
+	if (order < 0) {
+		const flipped = subPositive(y, x);
+		return flipped === "0" ? "0" : `-${flipped}`;
+	}
+	const sx = decimalParts(x);
+	const sy = decimalParts(y);
+	const scale = Math.max(sx.scale, sy.scale);
+	const width = Math.max(padDigits(sx, scale).length, padDigits(sy, scale).length);
+	const a = padDigits(sx, scale).padStart(width, "0");
+	const b = padDigits(sy, scale).padStart(width, "0");
+	const out = [];
+	let borrow = 0;
+	for (let i = width - 1; i >= 0; i -= 1) {
+		let diff = Number(a[i]) - Number(b[i]) - borrow;
+		if (diff < 0) {
+			diff += 10;
+			borrow = 1;
+		} else borrow = 0;
+		out.push(diff);
+	}
+	out.reverse();
+	return finishDigits(out, scale);
+}
+function subDecimal(a, b) {
+	const negA = a.startsWith("-");
+	const negB = b.startsWith("-");
+	const absA = negA ? a.slice(1) : a;
+	const absB = negB ? b.slice(1) : b;
+	if (!negA && !negB) return subPositive(absA, absB);
+	if (negA && negB) return subPositive(absB, absA);
+	if (!negA && negB) return addPositive(absA, absB);
+	const sum = addPositive(absA, absB);
+	return sum === "0" ? "0" : `-${sum}`;
+}
+function decimalNumber(text) {
+	return Number(text);
+}
+function periodKey(period) {
+	const raw = period.trim();
+	if (!raw) return null;
+	const pad = (part) => String(part).padStart(2, "0");
+	let matched = raw.match(/^(\d{4})A$/i) ?? raw.match(/^(\d{4})$/) ?? raw.match(/^FY\s*(\d{4})$/i) ?? raw.match(/^(\d{4})年$/);
+	if (matched?.[1]) {
+		const year = Number(matched[1]);
+		return {
+			freq: "year",
+			identity: `Y${year}`,
+			sort: [
+				year,
+				0,
+				0
+			],
+			raw
+		};
+	}
+	matched = raw.match(/^(\d{4})Q([1-4])$/i);
+	if (matched?.[1] && matched[2]) {
+		const year = Number(matched[1]);
+		const quarter = Number(matched[2]);
+		return {
+			freq: "quarter",
+			identity: `Q${year}${quarter}`,
+			sort: [
+				year,
+				quarter,
+				0
+			],
+			raw
+		};
+	}
+	matched = raw.match(/^Q([1-4])\s+(\d{4})$/i);
+	if (matched?.[1] && matched[2]) {
+		const quarter = Number(matched[1]);
+		const year = Number(matched[2]);
+		return {
+			freq: "quarter",
+			identity: `Q${year}${quarter}`,
+			sort: [
+				year,
+				quarter,
+				0
+			],
+			raw
+		};
+	}
+	matched = raw.match(/^Q1-Q3\s+(\d{4})$/i);
+	if (matched?.[1]) {
+		const year = Number(matched[1]);
+		return {
+			freq: "ytd-q3",
+			identity: `YTDQ3${year}`,
+			sort: [
+				year,
+				0,
+				0
+			],
+			raw
+		};
+	}
+	matched = raw.match(/^(\d{4})H([12])$/i);
+	if (matched?.[1] && matched[2]) {
+		const year = Number(matched[1]);
+		const half = Number(matched[2]);
+		return {
+			freq: "half",
+			identity: `H${year}${half}`,
+			sort: [
+				year,
+				half,
+				0
+			],
+			raw
+		};
+	}
+	matched = raw.match(/^H([12])\s+(\d{4})$/i);
+	if (matched?.[1] && matched[2]) {
+		const half = Number(matched[1]);
+		const year = Number(matched[2]);
+		return {
+			freq: "half",
+			identity: `H${year}${half}`,
+			sort: [
+				year,
+				half,
+				0
+			],
+			raw
+		};
+	}
+	matched = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+	if (matched?.[1] && matched[2] && matched[3]) {
+		const year = Number(matched[1]);
+		const month = Number(matched[2]);
+		const day = Number(matched[3]);
+		return {
+			freq: "day",
+			identity: `D${year}${pad(month)}${pad(day)}`,
+			sort: [
+				year,
+				month,
+				day
+			],
+			raw
+		};
+	}
+	matched = raw.match(/^(\d{4})-(\d{2})$/);
+	if (matched?.[1] && matched[2]) {
+		const year = Number(matched[1]);
+		const month = Number(matched[2]);
+		return {
+			freq: "month",
+			identity: `M${year}${pad(month)}`,
+			sort: [
+				year,
+				month,
+				0
+			],
+			raw
+		};
+	}
+	return {
+		freq: `raw:${raw.replace(/\d+/g, "#")}`,
+		identity: `R${raw}`,
+		sort: [
+			0,
+			0,
+			0
+		],
+		raw
+	};
+}
+function comparePoints(a, b) {
+	for (let i = 0; i < 3; i += 1) {
+		const delta = a.sort[i] - b.sort[i];
+		if (delta !== 0) return delta;
+	}
+	return a.rawPeriod.localeCompare(b.rawPeriod, "en", { numeric: true });
+}
+/** Last three comparable periods of the longest same-cadence series. The model must not recompute this. */
+function accelerationFromTimeline(timeline) {
+	const rows = Array.isArray(timeline) ? timeline : [];
+	const buckets = /* @__PURE__ */ new Map();
+	for (const row of rows) {
+		if (!row || typeof row !== "object") continue;
+		const rec = row;
+		const text = canonicalDecimal(rec.value);
+		if (text === null) continue;
+		const key = periodKey(rec.period == null ? "" : String(rec.period));
+		if (!key) continue;
+		const metric = rec.metric == null ? null : String(rec.metric);
+		const unit = rec.unit == null ? null : String(rec.unit);
+		const bucketId = `${metric ?? ""}\0${unit ?? ""}\0${key.freq}`;
+		const byPeriod = buckets.get(bucketId) ?? /* @__PURE__ */ new Map();
+		byPeriod.set(key.identity, {
+			value: decimalNumber(text),
+			period: key.raw,
+			evidence_id: rec.evidence_id == null ? null : String(rec.evidence_id),
+			metric,
+			unit,
+			text,
+			sort: key.sort,
+			rawPeriod: key.raw
+		});
+		buckets.set(bucketId, byPeriod);
+	}
+	let best = null;
+	for (const byPeriod of buckets.values()) if (!best || byPeriod.size > best.size) best = byPeriod;
+	const tail = (best ? [...best.values()].sort(comparePoints) : []).slice(-3);
+	const points = tail.map(({ value, period, evidence_id }) => ({
+		value,
+		period,
+		evidence_id
+	}));
+	const metric = tail[0]?.metric ?? null;
+	const unit = tail[0]?.unit ?? null;
+	if (tail.length < 3) return {
+		status: "insufficient_points",
+		metric,
+		unit,
+		points,
+		d1: null,
+		d2: null,
+		a: null,
+		note: "二阶导不可计算。点数不足只说明加速度算不出。"
+	};
+	const d1 = subDecimal(tail[1].text, tail[0].text);
+	const d2 = subDecimal(tail[2].text, tail[1].text);
+	const a = subDecimal(d2, d1);
+	return {
+		status: "ok",
+		metric,
+		unit,
+		points,
+		d1: decimalNumber(d1),
+		d2: decimalNumber(d2),
+		a: decimalNumber(a),
+		note: "acceleration 已给出最后三个可比期间的 d1、d2、a。不要对 timeline 再心算。"
+	};
+}
+/** Attach acceleration on a metric_trend payload. Errors and objects without timeline pass through. */
+function withSeriesAcceleration(payload) {
+	if (!payload || typeof payload !== "object" || Array.isArray(payload)) return payload;
+	if ("error" in payload) return payload;
+	if (!("timeline" in payload)) return payload;
+	const rec = payload;
+	return {
+		...rec,
+		acceleration: accelerationFromTimeline(rec.timeline)
+	};
 }
 function needClient(options) {
 	const client = options.client();
@@ -227,7 +862,7 @@ function installQingshuiTools(ctx, options) {
 		}));
 		tctx.tools.register(defineTool({
 			name: "metric_trend",
-			description: "纵向预期差：同一主体在时间轴上的数值/表述变化（状态演进）。返回 timeline（value/unit/period/evidence_id）。例：metric_trend(subject=\"600962.SH\", dimension=\"营业收入\")。",
+			description: "纵向预期差：同一主体在时间轴上的数值/表述变化（状态演进）。返回 timeline，并附 acceleration（同一口径、同一披露频率下按期间去重后的最后三点 d1、d2、a；千分位逗号按数值计算；status 不是 ok 表示可比期间不足三点）。用返回的 acceleration，不要对 timeline 再做减法。例：metric_trend(subject=\"600962.SH\", dimension=\"营业收入\")。",
 			parameters: {
 				subject: {
 					type: "string",
@@ -250,11 +885,11 @@ function installQingshuiTools(ctx, options) {
 			async execute(args) {
 				const c = needClient(options);
 				if ("error" in c) return c;
-				return await c.metricTrend({
+				return withSeriesAcceleration(await c.metricTrend({
 					subject: String(args.subject ?? ""),
 					dimension: args.dimension ? String(args.dimension) : null,
 					limit: typeof args.limit === "number" ? args.limit : 50
-				});
+				}));
 			}
 		}));
 		tctx.tools.register(defineTool({
@@ -424,7 +1059,7 @@ function installQingshuiTools(ctx, options) {
 		}));
 		tctx.tools.register(defineTool({
 			name: "get_kline",
-			description: "行情 K 线：个股 OHLCV 时间序列（本地行情库）。返回 count 与 items（trade_date/open/high/low/close/pre_close/volume/amount/pct_chg/turnover_rate）及摘要 text。例：get_kline(ts_code=\"300308.SZ\", start_date=\"20250901\", end_date=\"20251013\")。",
+			description: "行情 K 线：个股 OHLCV 时间序列（本地行情库）。返回 count 与 items（trade_date/open/high/low/close/pre_close/volume/amount/pct_chg/turnover_rate）及摘要 text。amount 单位是千元，10 万千元 = 1 亿元。例：get_kline(ts_code=\"300308.SZ\", start_date=\"20250901\", end_date=\"20251013\")。",
 			parameters: {
 				ts_code: {
 					type: "string",
@@ -476,6 +1111,37 @@ function installQingshuiTools(ctx, options) {
 				const c = needClient(options);
 				if ("error" in c) return c;
 				return await c.getStockProfile(String(args.ts_code ?? ""));
+			}
+		}));
+		tctx.tools.register(defineTool({
+			name: "search_stock",
+			description: "按公司名或代码查本地股票库。返回 items（ts_code/name/industry/area）。问某只票为什么涨停、或只给了公司名时，先调用本工具，不要猜代码或板块。",
+			parameters: {
+				q: {
+					type: "string",
+					required: true,
+					description: "公司名或代码，如 大普微"
+				},
+				limit: {
+					type: "json",
+					description: "1 到 20，默认 10"
+				}
+			},
+			output: {
+				schema: { type: "json" },
+				render: (_a, v) => renderJson(v)
+			},
+			async execute(args) {
+				const c = needClient(options);
+				if ("error" in c) return c;
+				const q = String(args.q ?? "").trim();
+				if (!q) return { error: "search_stock 需要 q" };
+				const raw = typeof args.limit === "number" ? args.limit : Number(args.limit);
+				const limit = Number.isInteger(raw) && raw >= 1 && raw <= 20 ? raw : 10;
+				return await c.searchStocks({
+					q,
+					limit
+				});
 			}
 		}));
 		tctx.tools.register(defineTool({
@@ -747,7 +1413,7 @@ function isLoopbackHostRequest(req) {
 function isValidEvidenceId(id) {
 	return EV_ID_RE.test(id);
 }
-function sendJson(res, status, body) {
+function sendJson$5(res, status, body) {
 	const payload = JSON.stringify(body);
 	res.writeHead(status, {
 		"content-type": "application/json; charset=utf-8",
@@ -767,7 +1433,7 @@ function installEvidenceRoute(webCtx, deps) {
 		path: EVIDENCE_ROUTE_PATH,
 		handler: async (req, res) => {
 			if (!isLoopbackHostRequest(req)) {
-				sendJson(res, 403, {
+				sendJson$5(res, 403, {
 					ok: false,
 					error: "forbidden"
 				});
@@ -781,7 +1447,7 @@ function installEvidenceRoute(webCtx, deps) {
 				id = "";
 			}
 			if (!isValidEvidenceId(id)) {
-				sendJson(res, 400, {
+				sendJson$5(res, 400, {
 					ok: false,
 					error: "bad evidence id (expected EV:<hex>)"
 				});
@@ -789,23 +1455,585 @@ function installEvidenceRoute(webCtx, deps) {
 			}
 			const client = deps.client();
 			if (client === void 0) {
-				sendJson(res, 503, {
+				sendJson$5(res, 503, {
 					ok: false,
 					error: "knowledge client not configured (missing API key)"
 				});
 				return;
 			}
 			try {
-				sendJson(res, 200, {
+				sendJson$5(res, 200, {
 					ok: true,
 					doc: await client.fetchEvidence(id)
 				});
 			} catch (error) {
 				const message = error instanceof Error ? error.message : String(error);
 				const missing = /Knowledge API 404/.test(message);
-				sendJson(res, missing ? 404 : 502, {
+				sendJson$5(res, missing ? 404 : 502, {
 					ok: false,
 					error: missing ? "证据未命中：该 evidence_id 不存在（短 ID 需以完整 64 位十六进制核验）" : `知识库查询失败：${message.slice(0, 200)}`
+				});
+			}
+		}
+	});
+}
+//#endregion
+//#region src/quote-strip.ts
+/** Board quotes on the research shell. 科创板 uses 科创50, 北交所 uses 北证50. */
+const SHANGHAI_TS_CODE = "000001.SH";
+const BOARD_INDEXES = [
+	{
+		tsCode: "000001.SH",
+		label: "上证"
+	},
+	{
+		tsCode: "399006.SZ",
+		label: "创业板"
+	},
+	{
+		tsCode: "000688.SH",
+		label: "科创板"
+	},
+	{
+		tsCode: "899050.BJ",
+		label: "北交所"
+	}
+];
+function asRecord$2(value) {
+	if (value === null || typeof value !== "object" || Array.isArray(value)) return void 0;
+	return value;
+}
+function formatClose(value) {
+	const n = typeof value === "number" ? value : typeof value === "string" ? Number(value) : NaN;
+	if (!Number.isFinite(n)) return void 0;
+	return n.toFixed(2);
+}
+function formatPct(value) {
+	const n = typeof value === "number" ? value : typeof value === "string" ? Number(value) : NaN;
+	if (!Number.isFinite(n)) return void 0;
+	return {
+		text: `${n > 0 ? "+" : ""}${n.toFixed(2)}%`,
+		up: n > 0
+	};
+}
+/**
+* Pick the Shanghai composite from a market snapshot payload.
+* @param payload - Knowledge `/market/snapshot` JSON.
+* @returns the strip row, or null when that index is absent.
+*/
+function pickShanghaiQuote(payload) {
+	const body = asRecord$2(payload);
+	if (body === void 0 || !Array.isArray(body.indices)) return null;
+	const tradeDate = typeof body.trade_date === "string" ? body.trade_date : "";
+	for (const item of body.indices) {
+		const row = asRecord$2(item);
+		if (row === void 0 || row.ts_code !== "000001.SH") continue;
+		const close = formatClose(row.close);
+		const pct = formatPct(row.pct_chg);
+		const name = typeof row.name === "string" ? row.name : "";
+		if (close === void 0 || pct === void 0 || name === "") return null;
+		return {
+			tsCode: SHANGHAI_TS_CODE,
+			name,
+			close,
+			pct: pct.text,
+			up: pct.up,
+			tradeDate
+		};
+	}
+	return null;
+}
+function quoteFromRow(row, tradeDate, tsCode, label) {
+	const absent = {
+		tsCode,
+		label,
+		name: label,
+		close: null,
+		pct: null,
+		direction: "absent",
+		tradeDate
+	};
+	if (row === void 0) return absent;
+	const close = formatClose(row.close);
+	const pct = formatPct(row.pct_chg);
+	const name = typeof row.name === "string" && row.name !== "" ? row.name : label;
+	if (close === void 0 || pct === void 0) return {
+		...absent,
+		name
+	};
+	const direction = pct.text.startsWith("+") ? "up" : pct.text.startsWith("-") ? "down" : "flat";
+	return {
+		tsCode,
+		label,
+		name,
+		close,
+		pct: pct.text,
+		direction,
+		tradeDate
+	};
+}
+/**
+* Four board rows in display order. A missing index stays in the strip as absent.
+* @param payload - Knowledge `/market/snapshot` JSON.
+*/
+function pickBoardQuotes(payload) {
+	const body = asRecord$2(payload);
+	const tradeDate = body !== void 0 && typeof body.trade_date === "string" ? body.trade_date : "";
+	const byCode = /* @__PURE__ */ new Map();
+	if (body !== void 0 && Array.isArray(body.indices)) for (const item of body.indices) {
+		const row = asRecord$2(item);
+		if (row !== void 0 && typeof row.ts_code === "string") byCode.set(row.ts_code, row);
+	}
+	return BOARD_INDEXES.map((board) => quoteFromRow(byCode.get(board.tsCode), tradeDate, board.tsCode, board.label));
+}
+//#endregion
+//#region src/market-route.ts
+const SNAPSHOT_ROUTE_PATH = "/qingshui/market-snapshot";
+function sendJson$4(res, status, body) {
+	res.writeHead(status, {
+		"content-type": "application/json; charset=utf-8",
+		"cache-control": "no-store"
+	});
+	res.end(JSON.stringify(body));
+}
+/**
+* Install the snapshot proxy. @param webCtx - web server. @param deps - client accessor.
+* @returns disposer.
+*/
+function installMarketRoute(webCtx, deps) {
+	return webCtx.webServer.register({
+		kind: "exact",
+		path: SNAPSHOT_ROUTE_PATH,
+		handler: async (req, res) => {
+			if (!isLoopbackHostRequest(req)) {
+				sendJson$4(res, 403, {
+					ok: false,
+					error: "forbidden"
+				});
+				return;
+			}
+			const client = deps.client();
+			if (client === void 0) {
+				sendJson$4(res, 503, {
+					ok: false,
+					error: "知识库未配置"
+				});
+				return;
+			}
+			try {
+				const payload = await client.getMarketSnapshot();
+				const quotes = pickBoardQuotes(payload);
+				const quote = pickShanghaiQuote(payload);
+				sendJson$4(res, 200, {
+					ok: true,
+					quotes,
+					...quote === null ? {} : { quote }
+				});
+			} catch (error) {
+				sendJson$4(res, 502, {
+					ok: false,
+					error: error instanceof Error ? error.message : "知识库查询失败"
+				});
+			}
+		}
+	});
+}
+//#endregion
+//#region src/news-tape.ts
+function asRecord$1(value) {
+	if (value === null || typeof value !== "object" || Array.isArray(value)) return void 0;
+	return value;
+}
+/** Map stored source codes onto the label a reader expects. */
+function newsSourceLabel(source) {
+	if (source === "tushare" || source === "cls") return "财联社";
+	if (source === "eastmoney_flash") return "东财";
+	if (source === "wallstreetcn") return "华尔街见闻";
+	if (source === "ths") return "同花顺";
+	if (source === "sina") return "新浪";
+	return source === "" ? "快讯" : source;
+}
+/** Shanghai clock, `MM-DD HH:mm`. Unparseable strings pass through trimmed. */
+function formatNewsTime(raw) {
+	const trimmed = raw.trim();
+	if (trimmed === "") return "";
+	const parsed = new Date(trimmed.includes("T") || trimmed.endsWith("Z") ? trimmed : trimmed.replace(" ", "T"));
+	if (Number.isNaN(parsed.getTime())) return trimmed.slice(0, 16);
+	const parts = new Intl.DateTimeFormat("en-GB", {
+		timeZone: "Asia/Shanghai",
+		month: "2-digit",
+		day: "2-digit",
+		hour: "2-digit",
+		minute: "2-digit",
+		hourCycle: "h23"
+	}).formatToParts(parsed);
+	const pick = (type) => parts.find((part) => part.type === type)?.value ?? "";
+	return `${pick("month")}-${pick("day")} ${pick("hour")}:${pick("minute")}`;
+}
+/**
+* Shape a knowledge `events/recent` payload into tape rows.
+* @param payload - JSON body.
+*/
+function shapeNewsFeed(payload) {
+	const body = asRecord$1(payload);
+	if (body === void 0 || !Array.isArray(body.items)) return [];
+	const items = [];
+	for (const raw of body.items) {
+		const row = asRecord$1(raw);
+		if (row === void 0) continue;
+		const eventId = typeof row.event_id === "string" ? row.event_id.trim() : "";
+		const title = typeof row.title === "string" ? row.title.trim() : "";
+		if (eventId === "" || title === "") continue;
+		const source = newsSourceLabel(typeof row.source === "string" ? row.source : "");
+		const publishAt = typeof row.publish_at === "string" ? row.publish_at : "";
+		items.push({
+			eventId,
+			title,
+			source,
+			publishAt,
+			timeLabel: formatNewsTime(publishAt)
+		});
+	}
+	return items;
+}
+//#endregion
+//#region src/news-route.ts
+const NEWS_ROUTE_PATH = "/qingshui/news";
+function sendJson$3(res, status, body) {
+	res.writeHead(status, {
+		"content-type": "application/json; charset=utf-8",
+		"cache-control": "no-store"
+	});
+	res.end(JSON.stringify(body));
+}
+/**
+* Install the news proxy. @param webCtx - web server. @param deps - client accessor.
+* @returns disposer.
+*/
+function installNewsRoute(webCtx, deps) {
+	return webCtx.webServer.register({
+		kind: "exact",
+		path: NEWS_ROUTE_PATH,
+		handler: async (req, res) => {
+			if (!isLoopbackHostRequest(req)) {
+				sendJson$3(res, 403, {
+					ok: false,
+					error: "forbidden"
+				});
+				return;
+			}
+			const client = deps.client();
+			if (client === void 0) {
+				sendJson$3(res, 503, {
+					ok: false,
+					error: "知识库未配置"
+				});
+				return;
+			}
+			try {
+				sendJson$3(res, 200, {
+					ok: true,
+					items: shapeNewsFeed(await client.listRecentEvents(20))
+				});
+			} catch (error) {
+				sendJson$3(res, 502, {
+					ok: false,
+					error: error instanceof Error ? error.message : "知识库查询失败"
+				});
+			}
+		}
+	});
+}
+const SIGNAL_LANES = [
+	{
+		id: "news",
+		label: "新闻快讯",
+		sources: [{
+			sourceType: "news:llm",
+			tag: ""
+		}, {
+			sourceType: "news",
+			tag: ""
+		}]
+	},
+	{
+		id: "announcement",
+		label: "公告",
+		sources: [{
+			sourceType: "announcement:llm",
+			tag: ""
+		}, {
+			sourceType: "announcement",
+			tag: ""
+		}]
+	},
+	{
+		id: "event",
+		label: "事件",
+		sources: [
+			{
+				sourceType: "event:llm",
+				tag: ""
+			},
+			{
+				sourceType: "event",
+				tag: ""
+			},
+			{
+				sourceType: "irm:llm",
+				tag: ""
+			},
+			{
+				sourceType: "irm",
+				tag: ""
+			}
+		]
+	},
+	{
+		id: "mapping",
+		label: "美股 / 台股",
+		sources: [
+			{
+				sourceType: "us_map:llm",
+				tag: "美股"
+			},
+			{
+				sourceType: "us_map",
+				tag: "美股"
+			},
+			{
+				sourceType: "tw_map:llm",
+				tag: "台股"
+			},
+			{
+				sourceType: "tw_map",
+				tag: "台股"
+			}
+		]
+	}
+];
+function asRecord(value) {
+	if (value === null || typeof value !== "object" || Array.isArray(value)) return void 0;
+	return value;
+}
+function polarityMark(polarity) {
+	if (polarity === "positive" || polarity === "bullish") return {
+		mark: "正",
+		direction: "up"
+	};
+	if (polarity === "negative" || polarity === "risk" || polarity === "bearish") return {
+		mark: "负",
+		direction: "down"
+	};
+	return {
+		mark: "平",
+		direction: "flat"
+	};
+}
+/**
+* One knowledge list payload into cards. Rows without an id or a sentence are dropped.
+*/
+function shapeSignalItems(payload, lane, tag) {
+	const body = asRecord(payload);
+	if (body === void 0 || !Array.isArray(body.items)) return [];
+	const cards = [];
+	for (const raw of body.items) {
+		const row = asRecord(raw);
+		if (row === void 0) continue;
+		const signalId = typeof row.signal_id === "string" ? row.signal_id.trim() : "";
+		const summaryRaw = typeof row.summary === "string" ? row.summary.trim() : "";
+		const title = typeof row.title === "string" ? row.title.trim() : "";
+		const summary = summaryRaw !== "" ? summaryRaw : title;
+		if (signalId === "" || summary === "") continue;
+		const subject = typeof row.subject_name === "string" ? row.subject_name.trim() : "";
+		const polarity = typeof row.polarity === "string" ? row.polarity : "";
+		const valueScore = typeof row.value_score === "number" && Number.isFinite(row.value_score) ? row.value_score : 0;
+		const marked = polarityMark(polarity);
+		cards.push({
+			signalId,
+			lane: lane.id,
+			label: lane.label,
+			tag,
+			subject,
+			summary,
+			mark: marked.mark,
+			direction: marked.direction,
+			valueScore
+		});
+	}
+	return cards;
+}
+/** Highest value first. The same signal from two source queries is kept once. */
+function mergeSignals(items, limit = 4) {
+	const seen = /* @__PURE__ */ new Set();
+	const ranked = [...items].sort((a, b) => b.valueScore - a.valueScore);
+	const kept = [];
+	for (const item of ranked) {
+		if (seen.has(item.signalId)) continue;
+		seen.add(item.signalId);
+		kept.push(item);
+		if (kept.length >= limit) break;
+	}
+	return kept;
+}
+/**
+* Load the four lanes. A source that throws is skipped; a lane is absent only when every source threw.
+*/
+async function loadSignalBoard(list) {
+	return Promise.all(SIGNAL_LANES.map(async (lane) => {
+		const batches = await Promise.all(lane.sources.map(async (source) => {
+			try {
+				return shapeSignalItems(await list(source.sourceType, 4), lane, source.tag);
+			} catch {
+				return null;
+			}
+		}));
+		const absent = batches.every((batch) => batch === null);
+		const items = mergeSignals(batches.flatMap((batch) => batch ?? []));
+		return {
+			id: lane.id,
+			label: lane.label,
+			items,
+			absent
+		};
+	}));
+}
+//#endregion
+//#region src/signal-route.ts
+const SIGNAL_ROUTE_PATH = "/qingshui/signals";
+function sendJson$2(res, status, body) {
+	res.writeHead(status, {
+		"content-type": "application/json; charset=utf-8",
+		"cache-control": "no-store"
+	});
+	res.end(JSON.stringify(body));
+}
+/**
+* Install the signal proxy. @param webCtx - web server. @param deps - client accessor.
+* @returns disposer.
+*/
+function installSignalRoute(webCtx, deps) {
+	return webCtx.webServer.register({
+		kind: "exact",
+		path: SIGNAL_ROUTE_PATH,
+		handler: async (req, res) => {
+			if (!isLoopbackHostRequest(req)) {
+				sendJson$2(res, 403, {
+					ok: false,
+					error: "forbidden"
+				});
+				return;
+			}
+			const client = deps.client();
+			if (client === void 0) {
+				sendJson$2(res, 503, {
+					ok: false,
+					error: "知识库未配置"
+				});
+				return;
+			}
+			try {
+				sendJson$2(res, 200, {
+					ok: true,
+					lanes: await loadSignalBoard((sourceType, limit) => client.listSignals({
+						sourceType,
+						limit
+					}))
+				});
+			} catch (error) {
+				sendJson$2(res, 502, {
+					ok: false,
+					error: error instanceof Error ? error.message : "知识库查询失败"
+				});
+			}
+		}
+	});
+}
+//#endregion
+//#region src/health-route.ts
+const HEALTH_ROUTE_PATH = "/qingshui/health";
+function sendJson$1(res, status, body) {
+	res.writeHead(status, {
+		"content-type": "application/json; charset=utf-8",
+		"cache-control": "no-store"
+	});
+	res.end(JSON.stringify(body));
+}
+function installHealthRoute(webCtx, deps) {
+	return webCtx.webServer.register({
+		kind: "exact",
+		path: HEALTH_ROUTE_PATH,
+		handler: async (req, res) => {
+			if (!isLoopbackHostRequest(req)) {
+				sendJson$1(res, 403, {
+					ok: false,
+					error: "forbidden"
+				});
+				return;
+			}
+			const client = deps.client();
+			if (client === void 0) {
+				sendJson$1(res, 503, {
+					ok: false,
+					error: "知识库未配置"
+				});
+				return;
+			}
+			try {
+				await client.health();
+				sendJson$1(res, 200, { ok: true });
+			} catch (error) {
+				sendJson$1(res, 502, {
+					ok: false,
+					error: error instanceof Error ? error.message : "知识库不可达"
+				});
+			}
+		}
+	});
+}
+//#endregion
+//#region src/ledger-route.ts
+const LEDGER_ROUTE_PATH = "/qingshui/ledger";
+function sendJson(res, status, body) {
+	res.writeHead(status, {
+		"content-type": "application/json; charset=utf-8",
+		"cache-control": "no-store"
+	});
+	res.end(JSON.stringify(body));
+}
+/**
+* Install the findings proxy. @param webCtx - web server. @param deps - client accessor.
+* @returns disposer.
+*/
+function installLedgerRoute(webCtx, deps) {
+	return webCtx.webServer.register({
+		kind: "exact",
+		path: LEDGER_ROUTE_PATH,
+		handler: async (req, res) => {
+			if (!isLoopbackHostRequest(req)) {
+				sendJson(res, 403, {
+					ok: false,
+					error: "forbidden"
+				});
+				return;
+			}
+			const client = deps.client();
+			if (client === void 0) {
+				sendJson(res, 503, {
+					ok: false,
+					error: "知识库未配置"
+				});
+				return;
+			}
+			try {
+				sendJson(res, 200, {
+					ok: true,
+					...await client.searchFindings()
+				});
+			} catch (error) {
+				sendJson(res, 502, {
+					ok: false,
+					error: error instanceof Error ? error.message : "知识库查询失败"
 				});
 			}
 		}
@@ -823,7 +2051,12 @@ function resolveSkillsDir() {
 	for (const dir of candidates) if (existsSync(join(dir, "divergence-mining", "SKILL.md"))) return dir;
 	for (const dir of candidates) if (existsSync(dir)) return dir;
 }
-function apply(ctx, config) {
+/**
+* Plugin entry. Returns a Promise so Cordis waits for Data MCP `listTools()`
+* before the first model turn — `void mountQingshuiDataMcp(...)` raced the
+* first request and left it with 0 MCP tools (review_r1 gap-degraded-ok-001).
+*/
+async function apply(ctx, config, deps = {}) {
 	let client;
 	const rebuild = () => {
 		const apiKey = resolveApiKey(config.knowledgeApiKeyRef);
@@ -840,11 +2073,28 @@ function apply(ctx, config) {
 	};
 	rebuild();
 	installQingshuiTools(ctx, { client: () => client });
-	ctx.inject(["webServer"], (webCtx) => installEvidenceRoute(webCtx, { client: () => client }));
-	mountQingshuiDataMcp(ctx, config);
+	installAnysearchTool(ctx);
+	ctx.inject(["webServer"], (webCtx) => {
+		const server = webCtx;
+		const disposeEvidence = installEvidenceRoute(server, { client: () => client });
+		const disposeMarket = installMarketRoute(server, { client: () => client });
+		const disposeNews = installNewsRoute(server, { client: () => client });
+		const disposeSignals = installSignalRoute(server, { client: () => client });
+		const disposeHealth = installHealthRoute(server, { client: () => client });
+		const disposeLedger = installLedgerRoute(server, { client: () => client });
+		return () => {
+			disposeEvidence();
+			disposeMarket();
+			disposeNews();
+			disposeSignals();
+			disposeHealth();
+			disposeLedger();
+		};
+	});
+	await (deps.mountDataMcp ?? mountQingshuiDataMcp)(ctx, config);
 	const skillsDir = resolveSkillsDir();
 	if (skillsDir !== void 0) {
-		ctx.plugin(skillFilesystem, {
+		ctx.plugin(deps.skillPlugin ?? skillFilesystem, {
 			providerName: "qingshui-local",
 			includeDefaultRoots: false,
 			customSkillDirs: [skillsDir]

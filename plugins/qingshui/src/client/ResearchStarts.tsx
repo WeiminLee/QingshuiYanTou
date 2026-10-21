@@ -6,11 +6,10 @@ export const RESEARCH_STARTS = [
   '复盘上个交易日',
 ] as const
 
-/** Empty-column prompts. Clicking one fills the composer and sends it. */
+/** Suggested questions under the centered composer. Clicking one sends it. */
 export function ResearchStarts(props: { onAsk: (text: string) => void }): React.ReactElement {
   return (
     <div className="qs-starts">
-      <div className="qs-starts-heading">今天想看什么</div>
       {RESEARCH_STARTS.map(text => (
         <button key={text} type="button" className="qs-starts-row" onClick={() => { props.onAsk(text) }}>
           {text}

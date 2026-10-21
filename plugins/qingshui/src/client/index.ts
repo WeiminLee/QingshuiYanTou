@@ -3,6 +3,7 @@
  * cold-open / New chat → sessions.create({}) (no workspaceId), and the
  * assistant-step shadow adding interactive EV citation chips.
  */
+import { QingshuiBrandMark, QingshuiBrandName } from './Brand.tsx'
 import { archiveSession, createAndOpenSession, renameSession } from './session-actions.ts'
 import { SessionBrowser } from './SessionBrowser.tsx'
 import { en, zh, type QingshuiShellKey } from './locales.ts'
@@ -18,12 +19,50 @@ const NS = 'qingshui-shell'
 /** Cordis inject: slots + sessions + workspaces + locale. */
 export const inject = ['slots', 'sessions', 'workspaces', 'locale']
 
+const HARNESS_NOTICE_TITLES = new Set(['内测声明', 'Internal Testing Notice'])
+
+/**
+ * The models settings plugin also mounts the harness developer notice.
+ * Dismiss that dialog only. The API-key page and a first-run key prompt stay.
+ * @returns disposer
+ */
+function dismissHarnessNotice(): () => void {
+  if (typeof document === 'undefined' || typeof MutationObserver === 'undefined') return () => undefined
+  const scan = (): void => {
+    for (const dialog of document.querySelectorAll('[role="dialog"]')) {
+      const title = dialog.querySelector('h2')?.textContent?.trim() ?? ''
+      if (!HARNESS_NOTICE_TITLES.has(title)) continue
+      const button = [...dialog.querySelectorAll('button')].find(el => {
+        const label = el.textContent?.trim()
+        return label === '继续' || label === 'Continue'
+      })
+      if (button instanceof HTMLButtonElement && !button.disabled) button.click()
+    }
+  }
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const schedule = (): void => {
+    if (timer !== undefined) return
+    timer = setTimeout(() => {
+      timer = undefined
+      scan()
+    }, 200)
+  }
+  const observer = new MutationObserver(schedule)
+  observer.observe(document.documentElement, { childList: true, subtree: true })
+  scan()
+  return () => {
+    observer.disconnect()
+    if (timer !== undefined) clearTimeout(timer)
+  }
+}
+
 /**
  * Install research-shell UI.
  * @param ctx - client root context (loosely typed; matches MatDiscovery client style)
  */
 export function apply(ctx: any): void {
   ctx.effect(() => installClientStyles(), 'qingshui: shell styles')
+  ctx.effect(() => dismissHarnessNotice(), 'qingshui: dismiss harness notice')
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'qingshui: shell dictionaries')
 
   // Shell New Session / brand click call workspaces.startSession(); without a
@@ -38,7 +77,17 @@ export function apply(ctx: any): void {
     }
   }
 
-  const createSession = (): Promise<string> => createAndOpenSession(ctx.sessions)
+  // Lowest priority wins a single slot, so this replaces the harness fish
+  // even when the official brand occupant is also registered.
+  ctx.effect(
+    () => ctx.slots.inject('sidebar.brand.mark', () =>
+      ctx.slots.inject('sidebar.brand.name', function* () {
+        yield ctx.slots.register({ name: 'sidebar.brand.mark', priority: -1 }, QingshuiBrandMark)
+        yield ctx.slots.register({ name: 'sidebar.brand.name', priority: -1 }, QingshuiBrandName)
+      })),
+    'qingshui: brand',
+  )
+
   const openSession = (sessionId: string): void => { ctx.sessions.open(sessionId) }
   const archive = (sessionId: string): Promise<void> =>
     archiveSession(ctx.workspaces, sessionId).catch((error: unknown) => {
@@ -52,7 +101,6 @@ export function apply(ctx: any): void {
       name: 'sidebar.workspaces',
       locale: NS,
       inject: () => ({
-        createSession,
         openSession,
         archiveSession: archive,
         renameSession: rename,

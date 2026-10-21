@@ -388,3 +388,98 @@ export function groupHistoryByDate(items: readonly HistoryItem[]): HistoryGroup[
   }
   return groups
 }
+
+// ── findings ledger (history_findings / search_findings) ─────────────────────
+
+export const FINDING_KINDS = ['progression', 'regression', 'new_event', 'association', 'divergence'] as const
+
+export const FINDING_KIND_LABELS: Record<string, string> = {
+  progression: '递进',
+  regression: '恶化',
+  new_event: '新增事件',
+  association: '关联传导',
+  divergence: '预期差',
+}
+
+export function findingKindLabel(kind: string | undefined): string {
+  if (kind === undefined || kind === '') return '未知'
+  return FINDING_KIND_LABELS[kind] ?? kind
+}
+
+export const FINDING_STATUS_LABELS: Record<string, string> = {
+  candidate: '候选',
+  active: '在用',
+  superseded: '已被取代',
+  dismissed: '已驳回',
+}
+
+export function findingStatusLabel(status: string | undefined): string {
+  if (status === undefined || status === '') return ''
+  return FINDING_STATUS_LABELS[status] ?? status
+}
+
+export interface FindingDoc {
+  finding_id: string
+  kind: string
+  subject_ts_code: string
+  dimension: string
+  dimension_scope?: string | undefined
+  judgment: string
+  confidence?: number | undefined
+  support_count: number
+  contradicts: number
+  status: string
+  supersedes?: string | undefined
+  created_at?: string | undefined
+}
+
+/** Defensive single-finding parse; supports 恒为 [{obs_id,evidence_id,span…}]。 */
+export function asFindingDoc(value: unknown): FindingDoc | undefined {
+  const o = asRecord(value)
+  if (o === undefined) return undefined
+  const findingId = asString(o.finding_id)
+  const judgment = typeof o.judgment === 'string' ? o.judgment : undefined
+  if (findingId === undefined && judgment === undefined) return undefined
+  return {
+    finding_id: findingId ?? '',
+    kind: asString(o.kind) ?? '',
+    subject_ts_code: asString(o.subject_ts_code) ?? '',
+    dimension: asString(o.dimension) ?? '',
+    dimension_scope: asString(o.dimension_scope),
+    judgment: judgment ?? '',
+    confidence: asNumber(o.confidence),
+    support_count: asNumber(o.support_count)
+      ?? (Array.isArray(o.supports) ? o.supports.length : 0),
+    contradicts: Array.isArray(o.contradicts) ? o.contradicts.length : 0,
+    status: asString(o.status) ?? '',
+    supersedes: asString(o.supersedes),
+    created_at: asString(o.created_at),
+  }
+}
+
+export interface FindingListPayload {
+  findings: FindingDoc[]
+  observationCount: number
+}
+
+/** Reads both ledger shapes: search_findings {items} and history_findings {findings}. */
+export function asFindingListPayload(value: unknown): FindingListPayload | undefined {
+  const o = asRecord(value)
+  if (o === undefined) return undefined
+  const raw = Array.isArray(o.items) ? o.items : Array.isArray(o.findings) ? o.findings : undefined
+  if (raw === undefined) return undefined
+  const findings: FindingDoc[] = []
+  for (const item of raw) {
+    const doc = asFindingDoc(item)
+    if (doc !== undefined) findings.push(doc)
+  }
+  const observations = Array.isArray(o.observations) ? o.observations : []
+  return { findings, observationCount: observations.length }
+}
+
+/** confidence 0..1 → '72%'；已是百分数(>1)按原值；缺失 → ''。 */
+export function formatConfidence(value: number | undefined): string {
+  if (value === undefined || Number.isNaN(value)) return ''
+  const pct = Math.abs(value) <= 1 ? value * 100 : value
+  return `${Math.round(pct)}%`
+}

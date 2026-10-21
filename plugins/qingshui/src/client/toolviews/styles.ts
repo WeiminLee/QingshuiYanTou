@@ -61,6 +61,31 @@ export const TOOLVIEW_CSS = `
 .qs-tl-date { font: var(--dsw-font-xxs-strong-12); color: var(--dsw-alias-label-primary); }
 .qs-tl-item { display: flex; flex-direction: column; gap: 4px; padding: 6px 0; border-top: 1px dashed var(--dsw-alias-border-l2); }
 .qs-tl-item:first-of-type { border-top: none; }
+
+/* 判断台账 finding card（history_findings / search_findings） */
+.qs-finding { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 10px; background: var(--dsw-alias-bg-layer-1); }
+.qs-finding + .qs-finding { margin-top: 8px; }
+.qs-finding-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+.qs-finding-badge { display: inline-flex; align-items: center; flex: none; border-radius: 4px; padding: 1px 6px; font: var(--dsw-font-xxxs-11); line-height: 16px; }
+.qs-finding-badge[data-k="progression"] { color: var(--dsw-static-green-500); background: color-mix(in srgb, var(--dsw-static-green-500) 12%, transparent); }
+.qs-finding-badge[data-k="regression"] { color: var(--dsw-static-red-400); background: color-mix(in srgb, var(--dsw-static-red-400) 12%, transparent); }
+.qs-finding-badge[data-k="new_event"] { color: var(--dsw-static-blue-500); background: color-mix(in srgb, var(--dsw-static-blue-500) 12%, transparent); }
+.qs-finding-badge[data-k="association"] { color: var(--dsw-alias-label-secondary); background: var(--dsw-alias-interactive-bg-hover); }
+.qs-finding-badge[data-k="divergence"] { color: var(--dsw-static-deepseek-500); background: color-mix(in srgb, var(--dsw-static-deepseek-500) 14%, transparent); }
+.qs-finding-badge[data-s="superseded"], .qs-finding-badge[data-s="dismissed"] { color: var(--dsw-alias-label-tertiary); background: var(--dsw-alias-interactive-bg-hover); }
+.qs-finding-scope { color: var(--dsw-alias-label-tertiary); font: var(--dsw-font-xxxs-11); }
+.qs-finding-date { margin-left: auto; color: var(--dsw-alias-label-tertiary); font: var(--dsw-font-xxxs-11); font-variant-numeric: tabular-nums; }
+.qs-finding-title { font: var(--dsw-font-xs-strong-13); color: var(--dsw-alias-label-primary); }
+.qs-finding-metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.qs-finding-metric { min-width: 0; border: 1px solid var(--dsw-alias-border-l2); border-radius: 8px; padding: 6px 8px; }
+.qs-finding-metric-label { display: block; color: var(--dsw-alias-label-tertiary); font: var(--dsw-font-xxxs-11); }
+.qs-finding-metric-value { display: block; margin-top: 2px; color: var(--dsw-alias-label-primary); font: var(--dsw-font-xs-strong-13); font-variant-numeric: tabular-nums; }
+.qs-finding-metric-value[data-tone="warning"] { color: var(--dsw-static-amber-500); }
+.qs-finding-metric-value[data-tone="muted"] { color: var(--dsw-alias-label-tertiary); }
+.qs-finding-note { border: 1px solid color-mix(in srgb, var(--dsw-static-amber-500) 28%, transparent); border-radius: 8px; padding: 5px 8px; background: color-mix(in srgb, var(--dsw-static-amber-500) 10%, transparent); color: var(--dsw-static-amber-500); font: var(--dsw-font-xxxs-11); }
+.qs-finding-judgment { color: var(--dsw-alias-label-secondary); font: var(--dsw-font-xs-13); line-height: 1.6; white-space: pre-wrap; word-break: break-word; }
+.qs-finding-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.qs-finding-supersedes { color: var(--dsw-alias-label-tertiary); font: var(--dsw-font-xxxs-11); }
 `
 
 const TAG_ID = 'qingshui-toolviews'

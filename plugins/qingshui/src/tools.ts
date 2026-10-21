@@ -28,6 +28,313 @@ export function formatEvidenceText(doc: Record<string, unknown> | null | undefin
   return lines.join('\n')
 }
 
+export interface SeriesPoint {
+  value: number
+  period: string | null
+  evidence_id: string | null
+}
+
+export interface SeriesAcceleration {
+  status: 'ok' | 'insufficient_points'
+  metric: string | null
+  unit: string | null
+  points: SeriesPoint[]
+  d1: number | null
+  d2: number | null
+  a: number | null
+  note: string
+}
+
+interface DecimalParts {
+  digits: string
+  scale: number
+}
+
+interface PeriodKey {
+  freq: string
+  identity: string
+  sort: [number, number, number]
+  raw: string
+}
+
+interface AccPoint extends SeriesPoint {
+  metric: string | null
+  unit: string | null
+  text: string
+  sort: [number, number, number]
+  rawPeriod: string
+}
+
+function canonicalDecimal(value: unknown): string | null {
+  let token: string | null = null
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    if (Object.is(value, -0)) return '0'
+    const text = value.toString()
+    if (/^-?\d+(\.\d+)?$/.test(text)) token = text
+    else if (/^-?\d(?:\.\d+)?e[+-]?\d+$/i.test(text)) token = expandScientific(text)
+  } else if (typeof value === 'string' && value.trim() !== '') {
+    const matched = value.trim().match(/-?\d[\d,.]*/)
+    if (matched) token = matched[0].replace(/,/g, '')
+  }
+  if (!token || !/^-?\d+(\.\d+)?$/.test(token)) return null
+  return normalizeDecimalText(token)
+}
+
+function expandScientific(text: string): string | null {
+  const matched = text.toLowerCase().match(/^(-?)(\d)(?:\.(\d+))?e([+-]?\d+)$/)
+  if (!matched) return null
+  const sign = matched[1] ?? ''
+  const head = matched[2] ?? ''
+  const frac = matched[3] ?? ''
+  const exp = Number(matched[4])
+  const digits = `${head}${frac}`
+  const point = 1 + exp
+  if (point <= 0) return `${sign}0.${'0'.repeat(-point)}${digits}`
+  if (point >= digits.length) return `${sign}${digits}${'0'.repeat(point - digits.length)}`
+  return `${sign}${digits.slice(0, point)}.${digits.slice(point)}`
+}
+
+function normalizeDecimalText(token: string): string {
+  const neg = token.startsWith('-')
+  const body = neg ? token.slice(1) : token
+  const [rawInt, rawFrac = ''] = body.split('.')
+  const intPart = (rawInt ?? '0').replace(/^0+(?=\d)/, '') || '0'
+  const frac = rawFrac.replace(/0+$/, '')
+  const core = frac ? `${intPart}.${frac}` : intPart
+  if (core === '0') return '0'
+  return neg ? `-${core}` : core
+}
+
+function decimalParts(text: string): DecimalParts {
+  const [intPart, frac = ''] = text.split('.')
+  const digits = `${intPart ?? '0'}${frac}`.replace(/^0+(?=\d)/, '') || '0'
+  return { digits, scale: frac.length }
+}
+
+function padDigits(parts: DecimalParts, scale: number): string {
+  return parts.digits + '0'.repeat(scale - parts.scale)
+}
+
+function finishDigits(digits: number[], scale: number): string {
+  const body = digits.join('').replace(/^0+/, '') || '0'
+  if (scale === 0) return body
+  const padded = body.padStart(scale + 1, '0')
+  const intPart = padded.slice(0, padded.length - scale).replace(/^0+(?=\d)/, '') || '0'
+  const frac = padded.slice(padded.length - scale).replace(/0+$/, '')
+  return frac ? `${intPart}.${frac}` : intPart
+}
+
+function addPositive(x: string, y: string): string {
+  const sx = decimalParts(x)
+  const sy = decimalParts(y)
+  const scale = Math.max(sx.scale, sy.scale)
+  const width = Math.max(padDigits(sx, scale).length, padDigits(sy, scale).length)
+  const a = padDigits(sx, scale).padStart(width, '0')
+  const b = padDigits(sy, scale).padStart(width, '0')
+  const out: number[] = []
+  let carry = 0
+  for (let i = width - 1; i >= 0; i -= 1) {
+    const sum = Number(a[i]) + Number(b[i]) + carry
+    out.push(sum % 10)
+    carry = Math.floor(sum / 10)
+  }
+  if (carry) out.push(carry)
+  out.reverse()
+  return finishDigits(out, scale)
+}
+
+function cmpPositive(x: string, y: string): number {
+  const sx = decimalParts(x)
+  const sy = decimalParts(y)
+  const scale = Math.max(sx.scale, sy.scale)
+  const width = Math.max(padDigits(sx, scale).length, padDigits(sy, scale).length)
+  const a = padDigits(sx, scale).padStart(width, '0')
+  const b = padDigits(sy, scale).padStart(width, '0')
+  if (a === b) return 0
+  return a > b ? 1 : -1
+}
+
+function subPositive(x: string, y: string): string {
+  const order = cmpPositive(x, y)
+  if (order === 0) return '0'
+  if (order < 0) {
+    const flipped = subPositive(y, x)
+    return flipped === '0' ? '0' : `-${flipped}`
+  }
+  const sx = decimalParts(x)
+  const sy = decimalParts(y)
+  const scale = Math.max(sx.scale, sy.scale)
+  const width = Math.max(padDigits(sx, scale).length, padDigits(sy, scale).length)
+  const a = padDigits(sx, scale).padStart(width, '0')
+  const b = padDigits(sy, scale).padStart(width, '0')
+  const out: number[] = []
+  let borrow = 0
+  for (let i = width - 1; i >= 0; i -= 1) {
+    let diff = Number(a[i]) - Number(b[i]) - borrow
+    if (diff < 0) {
+      diff += 10
+      borrow = 1
+    } else {
+      borrow = 0
+    }
+    out.push(diff)
+  }
+  out.reverse()
+  return finishDigits(out, scale)
+}
+
+function subDecimal(a: string, b: string): string {
+  const negA = a.startsWith('-')
+  const negB = b.startsWith('-')
+  const absA = negA ? a.slice(1) : a
+  const absB = negB ? b.slice(1) : b
+  if (!negA && !negB) return subPositive(absA, absB)
+  if (negA && negB) return subPositive(absB, absA)
+  if (!negA && negB) return addPositive(absA, absB)
+  const sum = addPositive(absA, absB)
+  return sum === '0' ? '0' : `-${sum}`
+}
+
+function decimalNumber(text: string): number {
+  return Number(text)
+}
+
+function periodKey(period: string): PeriodKey | null {
+  const raw = period.trim()
+  if (!raw) return null
+  const pad = (part: number) => String(part).padStart(2, '0')
+  let matched = raw.match(/^(\d{4})A$/i) ?? raw.match(/^(\d{4})$/) ?? raw.match(/^FY\s*(\d{4})$/i) ?? raw.match(/^(\d{4})年$/)
+  if (matched?.[1]) {
+    const year = Number(matched[1])
+    return { freq: 'year', identity: `Y${year}`, sort: [year, 0, 0], raw }
+  }
+  matched = raw.match(/^(\d{4})Q([1-4])$/i)
+  if (matched?.[1] && matched[2]) {
+    const year = Number(matched[1])
+    const quarter = Number(matched[2])
+    return { freq: 'quarter', identity: `Q${year}${quarter}`, sort: [year, quarter, 0], raw }
+  }
+  matched = raw.match(/^Q([1-4])\s+(\d{4})$/i)
+  if (matched?.[1] && matched[2]) {
+    const quarter = Number(matched[1])
+    const year = Number(matched[2])
+    return { freq: 'quarter', identity: `Q${year}${quarter}`, sort: [year, quarter, 0], raw }
+  }
+  matched = raw.match(/^Q1-Q3\s+(\d{4})$/i)
+  if (matched?.[1]) {
+    const year = Number(matched[1])
+    return { freq: 'ytd-q3', identity: `YTDQ3${year}`, sort: [year, 0, 0], raw }
+  }
+  matched = raw.match(/^(\d{4})H([12])$/i)
+  if (matched?.[1] && matched[2]) {
+    const year = Number(matched[1])
+    const half = Number(matched[2])
+    return { freq: 'half', identity: `H${year}${half}`, sort: [year, half, 0], raw }
+  }
+  matched = raw.match(/^H([12])\s+(\d{4})$/i)
+  if (matched?.[1] && matched[2]) {
+    const half = Number(matched[1])
+    const year = Number(matched[2])
+    return { freq: 'half', identity: `H${year}${half}`, sort: [year, half, 0], raw }
+  }
+  matched = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/)
+  if (matched?.[1] && matched[2] && matched[3]) {
+    const year = Number(matched[1])
+    const month = Number(matched[2])
+    const day = Number(matched[3])
+    return { freq: 'day', identity: `D${year}${pad(month)}${pad(day)}`, sort: [year, month, day], raw }
+  }
+  matched = raw.match(/^(\d{4})-(\d{2})$/)
+  if (matched?.[1] && matched[2]) {
+    const year = Number(matched[1])
+    const month = Number(matched[2])
+    return { freq: 'month', identity: `M${year}${pad(month)}`, sort: [year, month, 0], raw }
+  }
+  const skeleton = raw.replace(/\d+/g, '#')
+  return { freq: `raw:${skeleton}`, identity: `R${raw}`, sort: [0, 0, 0], raw }
+}
+
+function comparePoints(a: AccPoint, b: AccPoint): number {
+  for (let i = 0; i < 3; i += 1) {
+    const delta = a.sort[i]! - b.sort[i]!
+    if (delta !== 0) return delta
+  }
+  return a.rawPeriod.localeCompare(b.rawPeriod, 'en', { numeric: true })
+}
+
+/** Last three comparable periods of the longest same-cadence series. The model must not recompute this. */
+export function accelerationFromTimeline(timeline: unknown): SeriesAcceleration {
+  const rows = Array.isArray(timeline) ? timeline : []
+  const buckets = new Map<string, Map<string, AccPoint>>()
+  for (const row of rows) {
+    if (!row || typeof row !== 'object') continue
+    const rec = row as Record<string, unknown>
+    const text = canonicalDecimal(rec.value)
+    if (text === null) continue
+    const periodRaw = rec.period == null ? '' : String(rec.period)
+    const key = periodKey(periodRaw)
+    if (!key) continue
+    const metric = rec.metric == null ? null : String(rec.metric)
+    const unit = rec.unit == null ? null : String(rec.unit)
+    const bucketId = `${metric ?? ''}\0${unit ?? ''}\0${key.freq}`
+    const byPeriod = buckets.get(bucketId) ?? new Map<string, AccPoint>()
+    byPeriod.set(key.identity, {
+      value: decimalNumber(text),
+      period: key.raw,
+      evidence_id: rec.evidence_id == null ? null : String(rec.evidence_id),
+      metric,
+      unit,
+      text,
+      sort: key.sort,
+      rawPeriod: key.raw,
+    })
+    buckets.set(bucketId, byPeriod)
+  }
+  let best: Map<string, AccPoint> | null = null
+  for (const byPeriod of buckets.values()) {
+    if (!best || byPeriod.size > best.size) best = byPeriod
+  }
+  const ordered = best ? [...best.values()].sort(comparePoints) : []
+  const tail = ordered.slice(-3)
+  const points = tail.map(({ value, period, evidence_id }) => ({ value, period, evidence_id }))
+  const metric = tail[0]?.metric ?? null
+  const unit = tail[0]?.unit ?? null
+  if (tail.length < 3) {
+    return {
+      status: 'insufficient_points',
+      metric,
+      unit,
+      points,
+      d1: null,
+      d2: null,
+      a: null,
+      note: '二阶导不可计算。点数不足只说明加速度算不出。',
+    }
+  }
+  const d1 = subDecimal(tail[1]!.text, tail[0]!.text)
+  const d2 = subDecimal(tail[2]!.text, tail[1]!.text)
+  const a = subDecimal(d2, d1)
+  return {
+    status: 'ok',
+    metric,
+    unit,
+    points,
+    d1: decimalNumber(d1),
+    d2: decimalNumber(d2),
+    a: decimalNumber(a),
+    note: 'acceleration 已给出最后三个可比期间的 d1、d2、a。不要对 timeline 再心算。',
+  }
+}
+
+/** Attach acceleration on a metric_trend payload. Errors and objects without timeline pass through. */
+export function withSeriesAcceleration(payload: unknown): unknown {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return payload
+  if ('error' in payload) return payload
+  if (!('timeline' in payload)) return payload
+  const rec = payload as Record<string, unknown>
+  return { ...rec, acceleration: accelerationFromTimeline(rec.timeline) }
+}
+
 export interface ToolInstallOptions {
   client: () => KnowledgeClient | undefined
 }
@@ -76,7 +383,10 @@ export function installQingshuiTools(ctx: Context, options: ToolInstallOptions):
       name: 'metric_trend',
       description:
         '纵向预期差：同一主体在时间轴上的数值/表述变化（状态演进）。' +
-        '返回 timeline（value/unit/period/evidence_id）。例：metric_trend(subject="600962.SH", dimension="营业收入")。',
+        '返回 timeline，并附 acceleration（同一口径、同一披露频率下按期间去重后的最后三点 d1、d2、a；' +
+        '千分位逗号按数值计算；status 不是 ok 表示可比期间不足三点）。' +
+        '用返回的 acceleration，不要对 timeline 再做减法。' +
+        '例：metric_trend(subject="600962.SH", dimension="营业收入")。',
       parameters: {
         subject: { type: 'string', required: true, description: '主体 ts_code 或名称' },
         dimension: { type: 'string', description: '标尺名；不填则取该主体全部指标' },
@@ -86,11 +396,11 @@ export function installQingshuiTools(ctx: Context, options: ToolInstallOptions):
       async execute(args) {
         const c = needClient(options)
         if ('error' in c) return c as unknown as JsonValue
-        return await c.metricTrend({
+        return withSeriesAcceleration(await c.metricTrend({
           subject: String(args.subject ?? ''),
           dimension: args.dimension ? String(args.dimension) : null,
           limit: typeof args.limit === 'number' ? args.limit : 50,
-        }) as unknown as JsonValue
+        })) as unknown as JsonValue
       },
     }))
 
@@ -213,6 +523,7 @@ export function installQingshuiTools(ctx: Context, options: ToolInstallOptions):
       description:
         '行情 K 线：个股 OHLCV 时间序列（本地行情库）。返回 count 与 items' +
         '（trade_date/open/high/low/close/pre_close/volume/amount/pct_chg/turnover_rate）及摘要 text。' +
+        'amount 单位是千元，10 万千元 = 1 亿元。' +
         '例：get_kline(ts_code="300308.SZ", start_date="20250901", end_date="20251013")。',
       parameters: {
         ts_code: { type: 'string', required: true, description: '股票代码，如 300308.SZ' },
@@ -250,6 +561,27 @@ export function installQingshuiTools(ctx: Context, options: ToolInstallOptions):
         const c = needClient(options)
         if ('error' in c) return c as unknown as JsonValue
         return await c.getStockProfile(String(args.ts_code ?? '')) as unknown as JsonValue
+      },
+    }))
+
+    tctx.tools.register(defineTool({
+      name: 'search_stock',
+      description:
+        '按公司名或代码查本地股票库。返回 items（ts_code/name/industry/area）。' +
+        '问某只票为什么涨停、或只给了公司名时，先调用本工具，不要猜代码或板块。',
+      parameters: {
+        q: { type: 'string', required: true, description: '公司名或代码，如 大普微' },
+        limit: { type: 'json', description: '1 到 20，默认 10' },
+      },
+      output: { schema: { type: 'json' }, render: (_a, v) => renderJson(v) },
+      async execute(args) {
+        const c = needClient(options)
+        if ('error' in c) return c as unknown as JsonValue
+        const q = String(args.q ?? '').trim()
+        if (!q) return { error: 'search_stock 需要 q' } as unknown as JsonValue
+        const raw = typeof args.limit === 'number' ? args.limit : Number(args.limit)
+        const limit = Number.isInteger(raw) && raw >= 1 && raw <= 20 ? raw : 10
+        return await c.searchStocks({ q, limit }) as unknown as JsonValue
       },
     }))
 

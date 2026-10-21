@@ -6,6 +6,7 @@ import { KlineCard } from './kline-card.tsx'
 import { EvidenceCard } from './evidence-card.tsx'
 import { EvidenceListCard } from './evidence-list-card.tsx'
 import { EvidenceTimeline } from './evidence-timeline.tsx'
+import { FindingCard } from './finding-card.tsx'
 import { installToolviewStyles } from './styles.ts'
 
 const NS = 'qingshui-shell'
@@ -17,6 +18,7 @@ const TOOLVIEWS: ReadonlyArray<[unknown, readonly string[]]> = [
   [EvidenceCard, ['fetch_evidence', 'mcp__qingshui_data__fetch_evidence']],
   [EvidenceListCard, ['semantic_search', 'mcp__qingshui_data__semantic_search']],
   [EvidenceTimeline, ['pull_history', 'mcp__qingshui_data__pull_history']],
+  [FindingCard, ['history_findings', 'search_findings', 'mcp__qingshui_data__history_findings', 'mcp__qingshui_data__search_findings']],
 ]
 
 /**

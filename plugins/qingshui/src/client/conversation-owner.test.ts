@@ -4,6 +4,7 @@ import {
   CONVERSATION_SHADOW_PRIORITY,
   donorConversationEntry,
   graftConversationShadow,
+  RESEARCH_PLACEHOLDER,
   researchComposerOwner,
   ungraftConversationShadow,
   type LedgerEntry,
@@ -46,7 +47,7 @@ describe('conversation shadow owner', () => {
     })
     assert.equal(hero['disabled'], undefined)
     assert.equal(hero['onRequestWorkspace'], undefined)
-    assert.equal(hero['placeholder'], 'placeholder.hero')
+    assert.equal(hero['placeholder'], RESEARCH_PLACEHOLDER)
     assert.equal(hero['variant'], 'hero')
     assert.equal(JSON.stringify(hero).includes('workspace'), false)
 
@@ -69,7 +70,7 @@ describe('conversation shadow owner', () => {
       t,
     })
     assert.equal(owner['disabled'], true)
-    assert.equal(owner['placeholder'], 'placeholder.hero')
+    assert.equal(owner['placeholder'], RESEARCH_PLACEHOLDER)
     assert.equal(owner['onRequestWorkspace'], undefined)
     assert.equal('blocked' in owner, false)
   })

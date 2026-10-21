@@ -10,6 +10,9 @@
 
 export const CONVERSATION_SHADOW_PRIORITY = -1
 
+/** Blank-composer copy. Replaces the harness hero line "describe what you want to build". */
+export const RESEARCH_PLACEHOLDER = '问一只股票、一条公告，或一个预期差'
+
 export type LedgerEntry = {
   component?: unknown
   options?: { priority?: number }
@@ -62,7 +65,7 @@ export function ungraftConversationShadow(entry: LedgerEntry): void {
  * @param opts.sessionId - current session, if any
  * @param opts.hero - blank-session centered composer
  * @param opts.composerBlock - plugin block (model route), if raised
- * @param opts.t - conversation-namespace translator
+ * @param opts.t - kept on the owner contract; hero copy is RESEARCH_PLACEHOLDER
  */
 export function researchComposerOwner(opts: {
   sessionId: string | undefined
@@ -70,17 +73,17 @@ export function researchComposerOwner(opts: {
   composerBlock: ComposerBlockLike | undefined
   t: (key: string) => string
 }): Record<string, unknown> {
-  const { sessionId, hero, composerBlock, t } = opts
+  const { sessionId, hero, composerBlock } = opts
   const inert = sessionId === undefined
   const blocked = !inert && composerBlock !== undefined
   return {
     variant: hero ? 'hero' : 'composer',
     ...(inert
-      ? { disabled: true, placeholder: t('placeholder.hero') }
+      ? { disabled: true, placeholder: RESEARCH_PLACEHOLDER }
       : blocked
         ? { blocked: composerBlock, placeholder: composerBlock.reason }
         : hero
-          ? { placeholder: t('placeholder.hero') }
+          ? { placeholder: RESEARCH_PLACEHOLDER }
           : {}),
   }
 }

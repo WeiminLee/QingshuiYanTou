@@ -52,6 +52,27 @@ test('non-2xx throws with status', async () => {
   await assert.rejects(() => client.compareMetric({ dimension: 'x' }), /401/)
 })
 
+test('listRecentEvents posts the recent route and falls back when that route is missing', async () => {
+  const calls: Array<{ url: string; body: string }> = []
+  const fetchImpl: typeof fetch = async (url, init) => {
+    calls.push({ url: String(url), body: String(init?.body ?? '') })
+    if (String(url).endsWith('/events/recent')) return new Response('missing', { status: 404 })
+    return new Response(JSON.stringify({ items: [], count: 0 }), { status: 200 })
+  }
+  const client = createKnowledgeClient({
+    baseUrl: 'http://knowledge.test',
+    apiKey: 'k',
+    timeoutMs: 5000,
+    fetchImpl,
+  })
+  const body = await client.listRecentEvents(12)
+  assert.deepEqual(body, { items: [], count: 0 })
+  assert.equal(calls[0]?.url, 'http://knowledge.test/api/v1/knowledge/sources/events/recent')
+  assert.equal(calls[0]?.body, JSON.stringify({ limit: 12 }))
+  assert.equal(calls[1]?.url, 'http://knowledge.test/api/v1/knowledge/sources/events')
+  assert.equal(calls[1]?.body, JSON.stringify({ query: '%', top_n: 12 }))
+})
+
 test('getKline and getStockProfile GET the market endpoints with query params', async () => {
   const urls: string[] = []
   const fetchImpl: typeof fetch = async (url) => {
@@ -67,6 +88,9 @@ test('getKline and getStockProfile GET the market endpoints with query params', 
   await client.getKline({ ts_code: '300308.SZ', start_date: '20250901', end_date: null, freq: 'W' })
   await client.getKline({ ts_code: '300308.SZ' })
   await client.getStockProfile('300308.SZ')
+  await client.getMarketSnapshot()
+  await client.searchStocks({ q: '大普微', limit: 5 })
+  await client.searchStocks({ q: '大普微' })
   assert.equal(
     urls[0],
     'http://knowledge.test/api/v1/knowledge/market/kline?ts_code=300308.SZ&start_date=20250901&end_date=&freq=W',
@@ -76,4 +100,13 @@ test('getKline and getStockProfile GET the market endpoints with query params', 
     'http://knowledge.test/api/v1/knowledge/market/kline?ts_code=300308.SZ&start_date=&end_date=&freq=D',
   )
   assert.equal(urls[2], 'http://knowledge.test/api/v1/knowledge/market/stock_profile?ts_code=300308.SZ')
+  assert.equal(urls[3], 'http://knowledge.test/api/v1/knowledge/market/snapshot')
+  assert.equal(
+    urls[4],
+    `http://knowledge.test/api/v1/stocks/search?${new URLSearchParams({ q: '大普微', limit: '5' })}`,
+  )
+  assert.equal(
+    urls[5],
+    `http://knowledge.test/api/v1/stocks/search?${new URLSearchParams({ q: '大普微', limit: '10' })}`,
+  )
 })

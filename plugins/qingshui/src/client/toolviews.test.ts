@@ -2,6 +2,8 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
   asEvidenceDoc,
+  asFindingDoc,
+  asFindingListPayload,
   asHistoryPayload,
   asKlinePayload,
   asSearchResult,
@@ -9,6 +11,9 @@ import {
   blockState,
   blockText,
   extractResultJson,
+  findingKindLabel,
+  findingStatusLabel,
+  formatConfidence,
   formatDate,
   formatKlineTooltip,
   formatTradeDate,
@@ -208,4 +213,76 @@ test('formatKlineTooltip renders Chinese OHLC + scaled volume rows', () => {
   assert.equal(formatKlineTooltip(items, []), '')
   const fallback = formatKlineTooltip(items, [{ dataIndex: 0 }])
   assert.ok(fallback.includes('2026-05-11'), 'falls back to formatted trade_date')
+})
+
+test('asFindingDoc parses fields and falls back support_count from supports', () => {
+  const doc = asFindingDoc({
+    finding_id: 'FD:abc123',
+    kind: 'divergence',
+    subject_ts_code: '300308.SZ',
+    dimension: 'pricing',
+    dimension_scope: 'HBM',
+    judgment: '市场预期低估了涨价传导幅度',
+    confidence: 0.72,
+    supports: [{ obs_id: 'o1', evidence_id: 'EV:1' }, { obs_id: 'o2', evidence_id: 'EV:2' }],
+    contradicts: [{ evidence_id: 'EV:3' }],
+    status: 'candidate',
+    supersedes: null,
+    created_at: '2026-10-20T08:00:00+00:00',
+  })
+  assert.ok(doc)
+  assert.equal(doc.kind, 'divergence')
+  assert.equal(doc.support_count, 2)
+  assert.equal(doc.contradicts, 1)
+  assert.equal(doc.confidence, 0.72)
+  assert.equal(doc.dimension_scope, 'HBM')
+  assert.equal(doc.judgment, '市场预期低估了涨价传导幅度')
+  const explicit = asFindingDoc({ finding_id: 'FD:x', support_count: 5, supports: [{}] })
+  assert.equal(explicit?.support_count, 5)
+  assert.equal(asFindingDoc({ finding_id: 'FD:y' })?.support_count, 0)
+  assert.equal(asFindingDoc('not-an-object'), undefined)
+  assert.equal(asFindingDoc({}), undefined)
+})
+
+test('asFindingListPayload reads search_findings items and history_findings findings', () => {
+  const viaItems = asFindingListPayload({
+    count: 1,
+    items: [{ finding_id: 'FD:1', kind: 'progression', judgment: 'a' }],
+  })
+  assert.ok(viaItems)
+  assert.equal(viaItems.findings.length, 1)
+  assert.equal(viaItems.observationCount, 0)
+  const viaFindings = asFindingListPayload({
+    subject_ts_code: '300308.SZ',
+    observations: [{ obs_id: 'o1' }, { obs_id: 'o2' }],
+    findings: [{ finding_id: 'FD:2', kind: 'regression', judgment: 'b' }],
+  })
+  assert.ok(viaFindings)
+  assert.equal(viaFindings.findings.length, 1)
+  assert.equal(viaFindings.observationCount, 2)
+  assert.equal(asFindingListPayload({}), undefined)
+  assert.equal(asFindingListPayload('text'), undefined)
+})
+
+test('findingKindLabel / findingStatusLabel map known values and pass through', () => {
+  assert.equal(findingKindLabel('divergence'), '预期差')
+  assert.equal(findingKindLabel('progression'), '递进')
+  assert.equal(findingKindLabel('regression'), '恶化')
+  assert.equal(findingKindLabel('new_event'), '新增事件')
+  assert.equal(findingKindLabel('association'), '关联传导')
+  assert.equal(findingKindLabel('weird'), 'weird')
+  assert.equal(findingKindLabel(undefined), '未知')
+  assert.equal(findingStatusLabel('candidate'), '候选')
+  assert.equal(findingStatusLabel('superseded'), '已被取代')
+  assert.equal(findingStatusLabel('dismissed'), '已驳回')
+  assert.equal(findingStatusLabel(undefined), '')
+})
+
+test('formatConfidence scales 0..1 to percent and leaves >1 as-is', () => {
+  assert.equal(formatConfidence(0.72), '72%')
+  assert.equal(formatConfidence(0.5), '50%')
+  assert.equal(formatConfidence(0.85), '85%')
+  assert.equal(formatConfidence(85), '85%')
+  assert.equal(formatConfidence(undefined), '')
+  assert.equal(formatConfidence(Number.NaN), '')
 })

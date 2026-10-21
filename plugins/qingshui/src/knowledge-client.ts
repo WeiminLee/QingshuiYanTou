@@ -40,6 +40,14 @@ export interface KnowledgeClient {
     freq?: string | null
   }): Promise<Record<string, unknown>>
   getStockProfile(tsCode: string): Promise<Record<string, unknown>>
+  searchStocks(input: { q: string; limit?: number }): Promise<Record<string, unknown>>
+  getMarketSnapshot(): Promise<Record<string, unknown>>
+  /** Liveness probe against the Knowledge API /health (open, no auth). */
+  health(): Promise<Record<string, unknown>>
+  /** Latest active findings (ledger search, newest first; dismissed/superseded excluded). */
+  searchFindings(input?: { limit?: number }): Promise<Record<string, unknown>>
+  listRecentEvents(limit?: number): Promise<Record<string, unknown>>
+  listSignals(input: { sourceType: string; limit?: number }): Promise<Record<string, unknown>>
   writeObservation(input: {
     subject_ts_code: string
     dimension: string
@@ -172,6 +180,38 @@ export function createKnowledgeClient(options: {
     },
     getStockProfile(tsCode) {
       return get('/api/v1/knowledge/market/stock_profile', { ts_code: tsCode })
+    },
+    searchStocks(input) {
+      const limit = input.limit ?? 10
+      return get('/api/v1/stocks/search', {
+        q: input.q,
+        limit: String(limit),
+      })
+    },
+    getMarketSnapshot() {
+      return get('/api/v1/knowledge/market/snapshot')
+    },
+    health() {
+      return get('/health')
+    },
+    searchFindings(input) {
+      return post('/api/v1/knowledge/ledger/search', { limit: input?.limit ?? 20 })
+    },
+    listSignals(input) {
+      return get('/api/v1/signals', {
+        source_type: input.sourceType,
+        limit: String(input.limit ?? 4),
+      })
+    },
+    async listRecentEvents(limit = 20) {
+      try {
+        return await post('/api/v1/knowledge/sources/events/recent', { limit })
+      } catch (error) {
+        const message = error instanceof Error ? error.message : ''
+        // Older knowledge hosts have find_events only. A single % matches every title.
+        if (!message.includes('Knowledge API 404') && !message.includes('Knowledge API 405')) throw error
+        return post('/api/v1/knowledge/sources/events', { query: '%', top_n: limit })
+      }
     },
     writeObservation(input) {
       return post('/api/v1/knowledge/ledger/observation', {

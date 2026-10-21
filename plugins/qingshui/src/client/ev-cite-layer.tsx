@@ -8,7 +8,7 @@ import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from '
 import { createPortal } from 'react-dom'
 import { evIdOf } from './ev-cite.ts'
 import {
-  closeEvHover, closeEvPinned, fetchEvEvidence, getEvCiteState, getEvEvidence,
+  closeEvHover, fetchEvEvidence, getEvCiteState, getEvEvidence,
   invalidateEvEvidence, openEvHover, subscribeEvCite, type EvAnchor,
 } from './ev-cite-store.ts'
 import { asEvidenceDoc, formatDate, sourceTypeLabel } from './toolviews/model.ts'
@@ -21,11 +21,8 @@ let popoverHoverId: string | undefined
 
 export function EvCiteLayer(): React.ReactElement | null {
   const state = useSyncExternalStore(subscribeEvCite, getEvCiteState)
-  if (state.mode === 'closed') return null
-  if (state.mode === 'hover') {
-    return createPortal(<EvPopover id={state.id} anchor={state.anchor} />, document.body)
-  }
-  return createPortal(<EvPinnedCard id={state.id} />, document.body)
+  if (state.mode !== 'hover') return null
+  return createPortal(<EvPopover id={state.id} anchor={state.anchor} />, document.body)
 }
 
 /** Anchored hover preview: follows the chip rect, clamped to the viewport. */
@@ -69,34 +66,8 @@ function EvPopover({ id, anchor }: { id: string; anchor: EvAnchor }): React.Reac
   )
 }
 
-function EvPinnedCard({ id }: { id: string }): React.ReactElement {
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') closeEvPinned()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => { window.removeEventListener('keydown', onKey) }
-  }, [])
-  return (
-    <div className="qs-ev-backdrop" onMouseDown={() => { closeEvPinned() }}>
-      <div
-        className="qs-ev-card"
-        role="dialog"
-        aria-label="证据详情"
-        onMouseDown={event => { event.stopPropagation() }}
-      >
-        <div className="qs-ev-card-head">
-          <span className="qs-ev-card-title">证据详情</span>
-          <button type="button" className="qs-ev-card-close" aria-label="关闭" onClick={() => { closeEvPinned() }}>×</button>
-        </div>
-        <EvBody id={id} lines={10} />
-      </div>
-    </div>
-  )
-}
-
-/** Evidence body shared by popover and pinned card. */
-function EvBody({ id, lines }: { id: string; lines: number }): React.ReactElement {
+/** Evidence body shared by the hover preview, the side rail, and the research panel. */
+export function EvBody({ id, lines }: { id: string; lines: number }): React.ReactElement {
   const entry = useEvEvidence(id)
   const [expanded, setExpanded] = useState(false)
 

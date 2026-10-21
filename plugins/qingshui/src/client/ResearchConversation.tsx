@@ -5,8 +5,16 @@
  * child slots (chat, input bar) keep their own shipped CSS.
  */
 import { useCallback, useRef } from 'react'
+import { useSyncExternalStore } from 'react'
 import { researchComposerOwner, type ComposerBlockLike } from './conversation-owner.ts'
 import { EvCiteLayer } from './ev-cite-layer.tsx'
+import { getEvCiteState, subscribeEvCite } from './ev-cite-store.ts'
+import { NewsTape } from './NewsTape.tsx'
+import { NetworkStatus } from './NetworkStatus.tsx'
+import { QuoteStrip } from './QuoteStrip.tsx'
+import { ResearchPanel } from './ResearchPanel.tsx'
+import { ResearchStarts } from './ResearchStarts.tsx'
+import { SignalBoard } from './SignalBoard.tsx'
 
 type Translate = (key: string) => string
 
@@ -18,6 +26,7 @@ type ResearchConversationProps = {
   useComposerBlock: (select: (block: ComposerBlockLike | undefined) => ComposerBlockLike | undefined) => ComposerBlockLike | undefined
   renderSlot: (key: string, owner: object) => unknown
   renderSlotChain: (key: string, owner: object, opts: { fallback: unknown; overlay?: boolean }) => unknown
+  inputActions?: { setDraft: (text: string) => void; submit: () => void }
   t: Translate
 }
 
@@ -25,7 +34,7 @@ type ResearchConversationProps = {
 export function ResearchConversationRoot(props: ResearchConversationProps) {
   const {
     sessionId, useSession, useSessions, useInput, useComposerBlock,
-    renderSlot, renderSlotChain, t,
+    renderSlot, renderSlotChain, inputActions, t,
   } = props
   if (typeof renderSlot !== 'function' || typeof renderSlotChain !== 'function') {
     throw new Error('qingshui: conversation shadow missing renderSlot (donor children were not grafted)')
@@ -73,6 +82,14 @@ export function ResearchConversationRoot(props: ResearchConversationProps) {
     </div>
   )
 
+  const cite = useSyncExternalStore(subscribeEvCite, getEvCiteState)
+  const pinnedId = cite.mode === 'pinned' ? cite.id : undefined
+  const ask = (text: string): void => {
+    if (inputActions === undefined) return
+    inputActions.setDraft(text)
+    inputActions.submit()
+  }
+
   const phase = settling ? 'settling' : hero ? 'hero' : 'active'
   const composer = renderSlotChain(
     'conversation.composer',
@@ -80,16 +97,30 @@ export function ResearchConversationRoot(props: ResearchConversationProps) {
     { fallback: composerBar, overlay: true },
   )
 
+  const signalBoard = <SignalBoard onAsk={ask} rows={2} dock={!hero} />
+
   return (
-    <div className="qs-conv" data-phase={phase} data-qs-conversation="research">
+    <div className="qs-conv" data-phase={phase} data-evidence={pinnedId === undefined ? 'closed' : 'open'} data-qs-conversation="research">
       {renderSlot('conversation.session.header', {})}
-      <div className="qs-conv-scroll" data-conversation-scroll="">
-        {renderSlot('conversation.session', {})}
-        <div ref={seatResizeRef} className="qs-conv-seat" data-composer-seat="">
-          {composer}
+      <div className="qs-market">
+        <QuoteStrip />
+        <NewsTape onAsk={ask} />
+      </div>
+      <div className="qs-conv-main">
+        <div className="qs-conv-scroll" data-conversation-scroll="">
+          {renderSlot('conversation.session', {})}
+          <div ref={hero ? undefined : seatResizeRef} className={hero ? 'qs-hero-cluster' : 'qs-active-foot'}>
+            {signalBoard}
+            <div ref={hero ? seatResizeRef : undefined} className="qs-conv-seat" data-composer-seat="">
+              {composer}
+            </div>
+            {hero ? <ResearchStarts onAsk={ask} /> : null}
+          </div>
         </div>
+        <ResearchPanel pinnedId={pinnedId} />
       </div>
       <EvCiteLayer />
+      <NetworkStatus />
     </div>
   )
 }
