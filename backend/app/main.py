@@ -9,12 +9,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.account.api import auth as account_auth_router
 from app.account.api import portfolio as account_portfolio_router
 from app.account.api import users as account_users_router
-from app.api.logs import router as logs_router
 from app.config import settings
-from app.data_pipeline.api import data_router, information_router, monitor_router, stocks_router
-from app.data_pipeline.api.data_sync import router as data_sync_router
+from app.data_pipeline.api import stocks_router
 from app.data_pipeline.scheduler import Scheduler as DataPipelineScheduler
-from app.knowledge.api import concept_router
 from app.knowledge.api.worker_jobs import router as worker_jobs_router, evidence_router
 from app.knowledge.api.worker_writes import router as worker_writes_router
 from app.knowledge.api.agent_search import router as agent_search_router
@@ -162,26 +159,8 @@ async def health():
 # 注册路由
 # 写操作路由（必须认证）
 app.include_router(stocks_router, prefix="/api/v1/stocks", tags=["股票"], dependencies=[Depends(verify_api_key)])
-app.include_router(
-    monitor_router,
-    prefix="/api/v1/monitor",
-    tags=["监控告警"],
-    dependencies=[Depends(verify_api_key)],
-)
 # 读操作路由（已有自身Depends，不重复叠加）
 # /api/v1/agent/* removed — Data MCP + dsh harness only (2026-10-10)
-app.include_router(
-    data_router,
-    prefix="/api/v1/data",
-    tags=["数据"],
-    dependencies=[Depends(verify_api_key_optional)],
-)
-app.include_router(
-    concept_router,
-    prefix="/api/v1/concept",
-    tags=["概念评分"],
-    dependencies=[Depends(verify_api_key_optional)],
-)
 app.include_router(worker_jobs_router)
 app.include_router(evidence_router)
 app.include_router(worker_writes_router)
@@ -194,12 +173,6 @@ app.include_router(agent_ledger_router)
 app.include_router(agent_sources_router)
 app.include_router(agent_documents_router)
 app.include_router(
-    information_router,
-    prefix="/api/v1/information",
-    tags=["资讯"],
-    dependencies=[Depends(verify_api_key_optional)],
-)
-app.include_router(
     signals_router,
     prefix="/api/v1/signals",
     tags=["信号"],
@@ -209,15 +182,6 @@ app.include_router(
     readiness_router,
     prefix="/api/v1/readiness",
     dependencies=[Depends(verify_api_key_optional)],
-)
-# 日志查询路由（读操作，可选认证）
-app.include_router(logs_router, prefix="/api/v1/logs", tags=["日志"])
-# 数据同步路由
-app.include_router(
-    data_sync_router,
-    prefix="/api/v1/sync",
-    tags=["数据同步"],
-    dependencies=[Depends(verify_api_key)],
 )
 
 # Sub-Project 1: 用户与持仓基础

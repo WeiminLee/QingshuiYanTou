@@ -2,7 +2,7 @@
 data_pipeline.services - 数据查询服务
 
 供 Agent 工具和 API 路由调用，从本地数据库读取数据。
-仅包含纯数据查询；情报包/评分等业务逻辑请用 app.packages。
+仅包含纯数据查询。
 """
 
 from app.data_pipeline.services.kline_service import KlineService, get_kline_service

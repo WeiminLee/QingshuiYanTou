@@ -9,31 +9,26 @@
 
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import HTTPException
 from sqlalchemy import and_, desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.database import get_db
 from app.models.models import (
     ConceptLimit,
-    ConceptScore,
     DailyBasic,
     DailyData,
     Stock,
-    StockScore,
     ThsConcept,
     ThsConceptMember,
 )
 
-router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
-@router.get("/top-concepts")
 async def get_top_concepts(
-    days: int = Query(default=5, ge=2, le=20, description="统计最近N个交易日"),
-    top_n: int = Query(default=10, ge=1, le=30, description="返回TOP N概念"),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession,
+    days: int = 5,
+    top_n: int = 10,
 ):
     """
     获取最近N个交易日最强概念 TOP N
@@ -105,12 +100,11 @@ async def get_top_concepts(
     }
 
 
-@router.get("/concept/{concept_code}/stocks")
 async def get_concept_stocks(
     concept_code: str,
-    sort_by: str = Query(default="volume", description="排序: volume/turnover/pct_chg"),
-    limit: int = Query(default=30, ge=1, le=100),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession,
+    sort_by: str = "volume",
+    limit: int = 30,
 ):
     """
     获取概念的成分股列表（按资金面/涨跌排序）
@@ -236,10 +230,9 @@ async def get_concept_stocks(
     }
 
 
-@router.get("/stock/{ts_code}/concepts")
 async def get_stock_concepts(
     ts_code: str,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession,
 ):
     """
     给定个股，返回它所属的所有概念
@@ -304,249 +297,3 @@ async def get_stock_concepts(
         ],
     }
 
-
-@router.get("/concept/{concept_code}/history")
-async def get_concept_history(
-    concept_code: str,
-    days: int = Query(default=10, ge=2, le=60),
-    db: AsyncSession = Depends(get_db),
-):
-    """
-    获取概念历史每日涨停数据（从 concept_limit 表）
-
-    concept_code: THS TI 格式（如 885806.TI）或概念名称
-    """
-    # 优先用 TI 格式直接查
-    stmt = (
-        select(ConceptLimit)
-        .where(ConceptLimit.concept_code == concept_code)
-        .order_by(desc(ConceptLimit.trade_date))
-        .limit(days)
-    )
-    result = await db.execute(stmt)
-    rows = result.scalars().all()
-
-    # 查不到时，尝试当作概念名称查
-    if not rows:
-        stmt = (
-            select(ConceptLimit)
-            .where(ConceptLimit.concept_name == concept_code)
-            .order_by(desc(ConceptLimit.trade_date))
-            .limit(days)
-        )
-        result = await db.execute(stmt)
-        rows = result.scalars().all()
-
-    if not rows:
-        raise HTTPException(status_code=404, detail="该概念无历史数据")
-
-    return {
-        "concept_code": concept_code,
-        "concept_name": rows[0].concept_name if rows else "",
-        "items": [
-            {
-                "trade_date": r.trade_date.strftime("%Y%m%d"),
-                "pct_chg": r.pct_chg,
-                "up_nums": r.up_nums,
-                "days": r.days,
-                "rank": r.rank,
-            }
-            for r in rows
-        ],
-    }
-
-
-@router.post("/sync/concept-limit")
-async def sync_concept_limit_today():
-    """
-    手动触发今日涨停概念数据同步。
-    前端 Dashboard 桑基图已降级展示，本接口返回空。
-    """
-
-
-# ── 概念/个股评分 ───────────────────────────────────────
-
-
-@router.get("/scores/concepts")
-async def get_concept_scores(
-    limit: int = Query(default=50, ge=1, le=200),
-    offset: int = Query(default=0, ge=0),
-    db: AsyncSession = Depends(get_db),
-):
-    """
-    获取概念评分列表（按评分降序）
-    """
-    stmt = select(ConceptScore).order_by(desc(ConceptScore.score)).offset(offset).limit(limit)
-    result = await db.execute(stmt)
-    rows = result.scalars().all()
-
-    count_stmt = select(func.count(ConceptScore.id))
-    total = (await db.execute(count_stmt)).scalar_one()
-
-    return {
-        "total": total,
-        "items": [
-            {
-                "concept_ts_code": r.concept_ts_code,
-                "name": r.name,
-                "score": r.score,
-                "momentum_5d": r.momentum_5d,
-                "momentum_1d": r.momentum_1d,
-                "breadth": round(r.breadth, 4) if r.breadth else None,
-                "breadth_rising": r.breadth_rising,
-                "breadth_total": r.breadth_total,
-                "relative_strength": r.relative_strength,
-                "trade_date": r.trade_date.strftime("%Y-%m-%d") if r.trade_date else None,
-                "calculated_at": r.calculated_at.isoformat() if r.calculated_at else None,
-            }
-            for r in rows
-        ],
-    }
-
-
-@router.get("/scores/concepts/{concept_ts_code}")
-async def get_concept_score(
-    concept_ts_code: str,
-    db: AsyncSession = Depends(get_db),
-):
-    """
-    获取单个概念的评分详情
-    """
-    stmt = (
-        select(ConceptScore)
-        .where(ConceptScore.concept_ts_code == concept_ts_code)
-        .order_by(desc(ConceptScore.trade_date))
-        .limit(1)
-    )
-    result = await db.execute(stmt)
-    row = result.scalar_one_or_none()
-
-    if not row:
-        raise HTTPException(status_code=404, detail="该概念无评分数据")
-
-    return {
-        "concept_ts_code": row.concept_ts_code,
-        "name": row.name,
-        "score": row.score,
-        "momentum_5d": row.momentum_5d,
-        "momentum_1d": row.momentum_1d,
-        "breadth": round(row.breadth, 4) if row.breadth else None,
-        "breadth_rising": row.breadth_rising,
-        "breadth_total": row.breadth_total,
-        "relative_strength": row.relative_strength,
-        "stock_count": row.stock_count,
-        "trade_date": row.trade_date.strftime("%Y-%m-%d") if row.trade_date else None,
-        "calculated_at": row.calculated_at.isoformat() if row.calculated_at else None,
-    }
-
-
-@router.get("/scores/stocks")
-async def get_stock_scores(
-    limit: int = Query(default=50, ge=1, le=200),
-    offset: int = Query(default=0, ge=0),
-    db: AsyncSession = Depends(get_db),
-):
-    """
-    获取个股评分列表（按总分降序）
-    """
-    stmt = select(StockScore).order_by(desc(StockScore.total_score)).offset(offset).limit(limit)
-    result = await db.execute(stmt)
-    rows = result.scalars().all()
-
-    count_stmt = select(func.count(StockScore.id))
-    total = (await db.execute(count_stmt)).scalar_one()
-
-    return {
-        "total": total,
-        "items": [
-            {
-                "ts_code": r.ts_code,
-                "name": r.name,
-                "total_score": r.total_score,
-                "momentum_score": r.momentum_score,
-                "trend_score": r.trend_score,
-                "capital_score": r.capital_score,
-                "concept_bonus": r.concept_bonus,
-                "valuation_bonus": r.valuation_bonus,
-                "momentum_5d": r.momentum_5d,
-                "turnover_rate_pct": r.turnover_rate_pct,
-                "vol_ratio": r.vol_ratio,
-                "trade_date": r.trade_date.strftime("%Y-%m-%d") if r.trade_date else None,
-            }
-            for r in rows
-        ],
-    }
-
-
-@router.get("/scores/stocks/{ts_code}")
-async def get_stock_score(
-    ts_code: str,
-    db: AsyncSession = Depends(get_db),
-):
-    """
-    获取个股综合评分详情
-    """
-    stmt = select(StockScore).where(StockScore.ts_code == ts_code).order_by(desc(StockScore.trade_date)).limit(1)
-    result = await db.execute(stmt)
-    row = result.scalar_one_or_none()
-
-    if not row:
-        raise HTTPException(status_code=404, detail="该股票无评分数据")
-
-    # 获取该股票所属的概念评分
-    concept_stmt = (
-        select(ConceptScore)
-        .join(ThsConceptMember, ThsConceptMember.ts_code == ConceptScore.concept_ts_code)
-        .where(ThsConceptMember.con_code == ts_code)
-        .where(ConceptScore.trade_date == row.trade_date)
-        .order_by(desc(ConceptScore.score))
-    )
-    concept_result = await db.execute(concept_stmt)
-    concept_rows = concept_result.scalars().all()
-
-    return {
-        "ts_code": row.ts_code,
-        "name": row.name,
-        "total_score": row.total_score,
-        "breakdown": {
-            "momentum_score": row.momentum_score,
-            "trend_score": row.trend_score,
-            "capital_score": row.capital_score,
-            "concept_bonus": row.concept_bonus,
-            "valuation_bonus": row.valuation_bonus,
-        },
-        "raw_data": {
-            "momentum_5d": row.momentum_5d,
-            "turnover_rate_pct": row.turnover_rate_pct,
-            "vol_ratio": row.vol_ratio,
-            "ma_state": row.ma_state,
-        },
-        "trade_date": row.trade_date.strftime("%Y-%m-%d") if row.trade_date else None,
-        "concept_scores": [
-            {
-                "concept_ts_code": c.concept_ts_code,
-                "name": c.name,
-                "score": c.score,
-                "momentum_5d": c.momentum_5d,
-                "breadth": round(c.breadth, 4) if c.breadth else None,
-            }
-            for c in concept_rows
-        ],
-    }
-
-
-@router.post("/scores/calculate")
-async def trigger_score_calculation():
-    """
-    手动触发评分计算（后台异步执行）
-    """
-    import subprocess
-    import sys
-    from pathlib import Path
-
-    script = str(Path(__file__).parent.parent / "scripts" / "sync_concept_scores.py")
-    subprocess.Popen(
-        [sys.executable, script],
-        cwd=str(Path(__file__).parent.parent.parent),
-    )
-    return {"message": "评分计算任务已启动"}

@@ -9,10 +9,13 @@ import uuid
 from datetime import date
 from pathlib import Path
 from urllib.request import Request, urlopen
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from app.data_pipeline.file_storage import FileStorage, HTTP_HEADERS
 from app.data_pipeline.pdf_download_contract import PdfDownloadJobPayload
+
+if TYPE_CHECKING:
+    from app.data_pipeline.job_queue import IngestionJobRecord
 
 logger = logging.getLogger(__name__)
 JOB_PDF_DOWNLOAD = "pdf_download"
