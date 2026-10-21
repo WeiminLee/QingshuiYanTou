@@ -32,7 +32,7 @@ def main(argv: list[str] | None = None) -> int:
                 checks.append({"name": "knowledge_api", "target": api, "ok": response.status == 200, "error": None})
         except Exception as exc:
             checks.append({"name": "knowledge_api", "target": api, "ok": False, "error": str(exc)})
-        root = pathlib.Path(os.getenv("PDF_STORAGE_ROOT", "/data/qingshui-pdfs"))
+        root = pathlib.Path(os.getenv("PDF_STORAGE_ROOT", "/data/qingshui/pdf"))
         checks.append({"name": "pdf_storage", "target": str(root), "ok": root.is_dir() and os.access(root, os.W_OK), "error": None})
         checks.append({"name": "api_key", "target": "X-API-Key", "ok": bool(key), "error": None if key else "KNOWLEDGE_API_KEY is empty"})
     else:

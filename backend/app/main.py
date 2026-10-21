@@ -23,17 +23,21 @@ from app.knowledge.api.agent_links import router as agent_links_router
 from app.knowledge.api.agent_market import router as agent_market_router
 from app.knowledge.api.agent_ledger import router as agent_ledger_router
 from app.knowledge.api.agent_sources import router as agent_sources_router
+from app.knowledge.api.agent_documents import router as agent_documents_router
 from app.readiness.api import router as readiness_router
 from app.signals.api import router as signals_router
 from app.utils.auth import verify_api_key, verify_api_key_optional
 
 _data_scheduler: DataPipelineScheduler | None = None
+# Strong reference: asyncio only weakly tracks tasks, so a fire-and-forget
+# warmup could otherwise be garbage-collected mid-await.
+_document_index_task: asyncio.Task | None = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """生命周期管理：启动时初始化调度器，关闭时优雅退出。"""
-    global _data_scheduler
+    global _data_scheduler, _document_index_task
 
     print(f"启动 {settings.app_name}...")
 
@@ -122,6 +126,11 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"[降级] 同步状态表创建跳过: {e}")
 
+    # 文档接口（source_ref.ann_id）索引：后台创建，绝不阻塞启动；失败只降级为全扫
+    from app.knowledge.document_service import warm_document_indexes
+
+    _document_index_task = asyncio.create_task(warm_document_indexes())
+
     # LangChain HITL / agent HTTP removed (dsh + Data MCP only).
     yield
 
@@ -184,6 +193,7 @@ app.include_router(agent_links_router)
 app.include_router(agent_market_router)
 app.include_router(agent_ledger_router)
 app.include_router(agent_sources_router)
+app.include_router(agent_documents_router)
 app.include_router(
     information_router,
     prefix="/api/v1/information",

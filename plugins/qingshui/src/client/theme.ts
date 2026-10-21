@@ -28,6 +28,15 @@ export const SHELL_CSS = `
 .qs-shell-time { flex: none; font-size: 11px; line-height: 16px; font-variant-numeric: tabular-nums; color: var(--dsw-alias-label-tertiary); }
 .qs-shell-item:hover .qs-shell-time, .qs-shell-item:focus-within .qs-shell-time { visibility: hidden; }
 .qs-shell-empty { padding: 12px 4px; color: var(--dsw-alias-label-tertiary); font: var(--dsw-font-xs-13); }
+.qs-shell-toggle { flex: none; align-self: flex-start; margin: 2px 0 0; border: none; border-radius: 6px; padding: 6px 8px; cursor: pointer; background: transparent; color: var(--dsw-alias-label-tertiary); font: var(--dsw-font-xxs-12); }
+.qs-shell-toggle:hover { background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-primary); }
+/* ── core function modules（侧栏底部：每条开一个不同流程的新会话） ── */
+.qs-modules { flex: none; display: flex; flex-direction: column; gap: 2px; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--dsw-alias-border-l2); }
+.qs-module { display: flex; flex-direction: column; gap: 1px; width: 100%; text-align: left; border: none; border-radius: 6px; padding: 6px 8px; cursor: pointer; background: transparent; }
+.qs-module:hover { background: var(--dsw-alias-interactive-bg-hover); }
+.qs-module:focus-visible { outline: 2px solid var(--qs-accent); outline-offset: -2px; }
+.qs-module-label { font: var(--dsw-font-xs-13); color: var(--dsw-alias-label-primary); }
+.qs-module-hint { font: var(--dsw-font-xxxs-11); color: var(--dsw-alias-label-tertiary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .qs-shell-rail { display: flex; flex-direction: column; align-items: center; gap: 8px; padding-top: 4px; }
 .qs-shell-rail-btn { width: 32px; height: 32px; border: none; border-radius: 8px; cursor: pointer; background: transparent; color: var(--dsw-alias-label-secondary); font: var(--dsw-font-xs-13); }
 .qs-shell-rail-btn:hover { background: var(--dsw-alias-interactive-bg-hover); }
@@ -116,9 +125,9 @@ export const SHELL_CSS = `
 .qs-signal-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; line-height: 20px; }
 .qs-signal-empty { margin: 0; padding: 2px 12px 4px; color: var(--dsw-alias-label-tertiary); font: var(--dsw-font-xxs-12); }
 .qs-signals-dock { border-bottom: none; border-top: 1px solid var(--dsw-alias-border-l2); max-height: 148px; overflow: auto; }
-/* Hero: the signal board is a briefing directly above the composer (inside the
-   centered cluster), so it no longer matches the old direct-child selector. */
-.qs-hero-cluster > .qs-signals { max-height: 32vh; overflow: auto; margin-bottom: 12px; }
+/* Blank desk: the signal briefing sits at the TOP of the scroll area (under the
+   market strip), leaving the bottom to the composer alone. */
+.qs-hero-top { flex: none; margin-bottom: 12px; max-height: 38vh; overflow: auto; }
 @media (min-width: 840px) {
   .qs-signals[data-state="ok"] { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .qs-signal-lane { border-bottom: none; border-right: 1px solid var(--dsw-alias-border-l2); }
@@ -146,13 +155,18 @@ export const SHELL_CSS = `
     box-shadow: -16px 0 40px color-mix(in srgb, #000 26%, transparent);
   }
 }
-/* Blank desk: the composer and the questions under it sit in the middle.
-   A running chat pins the signal dock and the composer to the bottom. */
-.qs-conv[data-phase="hero"] .qs-conv-scroll { justify-content: safe center; }
+/* Blank and running chats share one composer position: the bottom. The blank
+   screen puts its briefing at the top and lets the cluster's auto margin claim
+   the space between, so the input never jumps when the first turn starts. */
+.qs-conv[data-phase="hero"] .qs-conv-scroll { justify-content: flex-start; }
 .qs-conv[data-phase="hero"] .qs-conv-scroll > [data-slot="conversation.session"] { display: none; }
+/* Sticky like the running-chat foot: however tall the briefing above grows,
+   the composer stays on screen instead of scrolling out of the viewport. */
 .qs-hero-cluster {
+  position: sticky; bottom: 0; z-index: 7;
   width: min(calc(var(--dsh-composer-card-max-width) + 2 * var(--dsh-composer-side-clearance)), 100%);
-  margin: 0 auto; display: flex; flex: none; flex-direction: column; align-items: stretch;
+  margin: auto auto 0; display: flex; flex: none; flex-direction: column; align-items: stretch;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--dsw-alias-bg-base) 0%, transparent) 0px, var(--dsw-alias-bg-base) 28px);
 }
 .qs-active-foot {
   position: sticky; bottom: 0; z-index: 7; margin-top: auto; display: flex; flex: none; flex-direction: column;
@@ -168,7 +182,10 @@ export const SHELL_CSS = `
 .qs-conv[data-phase="active"] .qs-conv-scroll > [data-slot="conversation.session"] > div {
   flex: 1 0 auto; min-height: auto;
 }
-.qs-conv-seat { display: flex; flex: none; flex-direction: column; position: relative; z-index: 1; visibility: visible; --dsh-composer-text-max-height: 336px; }
+.qs-conv-seat { display: flex; flex: none; flex-direction: column; position: relative; z-index: 1; visibility: visible; --dsh-composer-text-max-height: 144px; }
+/* Docked composer rides its content: tight card, no two-line floor. Shrinks the
+   input to one line at rest and keeps the long-draft scrollport shallow. */
+.qs-conv [data-composer-card] { padding-top: 6px; gap: 8px; border-radius: 18px; }
 .qs-conv-stack { display: flex; flex-direction: column; gap: 6px; }
 .qs-conv-stack-hero {
   position: relative; align-self: center; gap: 8px; padding-bottom: 16px; z-index: 1;
@@ -256,6 +273,9 @@ export const SHELL_CSS = `
 .qs-ev-toggle:hover { text-decoration: underline; }
 .qs-ev-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 2px; }
 .qs-ev-mono { font-family: var(--dsw-font-family-mono, ui-monospace, SFMono-Regular, Menlo, monospace); font-size: 11px; color: var(--dsw-alias-label-dimmed); word-break: break-all; }
+.qs-ev-foot-actions { display: flex; align-items: center; gap: 10px; }
+.qs-ev-open { border: none; background: transparent; padding: 0; cursor: pointer; color: var(--dsw-static-deepseek-500); font: var(--dsw-font-xxs-12); }
+.qs-ev-open:hover { text-decoration: underline; }
 .qs-ev-pdf { color: var(--dsw-static-deepseek-500); font: var(--dsw-font-xxs-12); text-decoration: none; }
 .qs-ev-pdf:hover { text-decoration: underline; }
 .qs-ev-status { color: var(--dsw-alias-label-tertiary); font: var(--dsw-font-xs-13); }
@@ -281,6 +301,9 @@ export const SHELL_CSS = `
 .qs-panel-body { display: flex; flex-direction: column; gap: 16px; padding: 12px; }
 .qs-panel-section { display: flex; flex-direction: column; gap: 8px; }
 .qs-panel-section-title { display: flex; align-items: center; justify-content: space-between; gap: 8px; font: var(--dsw-font-xxs-strong-12); color: var(--dsw-alias-label-secondary); }
+.qs-panel-section-actions { display: flex; align-items: center; gap: 8px; }
+.qs-panel-open { border: none; background: transparent; padding: 0; cursor: pointer; color: var(--dsw-static-deepseek-500); font: var(--dsw-font-xxs-12); }
+.qs-panel-open:hover { text-decoration: underline; }
 .qs-panel-close { border: none; background: transparent; cursor: pointer; color: var(--dsw-alias-label-tertiary); font-size: 16px; line-height: 16px; padding: 0; }
 .qs-panel-close:hover { color: var(--dsw-alias-label-primary); }
 .qs-panel-status { color: var(--dsw-alias-label-tertiary); font: var(--dsw-font-xs-13); padding: 4px 0; }
@@ -289,6 +312,113 @@ export const SHELL_CSS = `
 /* Narrow window: drop the persistent panel; the chat takes the full width. */
 @media (max-width: 1280px) {
   .qs-panel { display: none; }
+}
+
+/* ── artifact reader（shell.overlay：章节 / 正文 / 原文 PDF） ── */
+/* The dialog portals to <body>, outside .qs-shell, so it carries its own copy
+   of the accent token. */
+.qs-art-backdrop {
+  --qs-accent: rgb(65, 118, 230);
+  position: fixed; inset: 0; z-index: 2147483200;
+  display: flex; align-items: center; justify-content: center; padding: 24px;
+  background: color-mix(in srgb, #000 42%, transparent);
+}
+.qs-art-panel {
+  display: flex; flex-direction: column; width: min(1180px, 94vw); height: 88vh;
+  border: 1px solid var(--dsw-alias-border-l2); border-radius: 12px;
+  background: var(--dsw-alias-bg-layer-1); color: var(--dsw-alias-label-primary);
+  box-shadow: 0 24px 64px color-mix(in srgb, #000 32%, transparent);
+  overflow: hidden; outline: none;
+}
+/* Visible keyboard focus for everything inside; the panel itself takes focus on
+   open and must not draw a ring around the whole frame. */
+.qs-art-panel :focus-visible { outline: 2px solid var(--qs-accent); outline-offset: 2px; }
+.qs-art-head {
+  flex: none; display: flex; align-items: center; gap: 12px;
+  padding: 12px 16px; border-bottom: 1px solid var(--dsw-alias-border-l2);
+}
+.qs-art-head-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.qs-art-title { font: var(--dsw-font-s-strong-14); color: var(--dsw-alias-label-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.qs-art-sub { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; font: var(--dsw-font-xxs-12); color: var(--dsw-alias-label-tertiary); }
+/* Raw file name demoted out of the heading: muted, monospaced, truncated. */
+.qs-art-title-raw { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--dsw-font-family-mono, ui-monospace, SFMono-Regular, Menlo, monospace); font-size: 11px; color: var(--dsw-alias-label-dimmed); }
+.qs-art-actions { flex: none; display: flex; align-items: center; gap: 6px; }
+.qs-art-btn {
+  display: inline-flex; align-items: center; border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 6px; background: transparent; color: var(--dsw-alias-label-secondary);
+  font: var(--dsw-font-xxs-12); padding: 4px 10px; cursor: pointer; text-decoration: none;
+}
+.qs-art-btn:hover { background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-primary); }
+.qs-art-btn[aria-pressed="true"] { background: var(--dsw-alias-interactive-bg-active, var(--dsw-alias-interactive-bg-hover)); color: var(--dsw-alias-label-primary); }
+/* Rail toggle only exists once the layout is a single column. */
+.qs-art-rail-toggle { display: none; }
+/* The PDF column hands over to a plain link once it is breakpoint-hidden. */
+.qs-art-pdf-link { display: none; }
+
+/* Three lanes by default; the component narrows --qs-art-cols per state, and
+   the breakpoints below override the property outright. */
+.qs-art-grid {
+  position: relative; flex: 1; min-height: 0; display: grid; align-items: stretch;
+  grid-template-columns: var(--qs-art-cols, 220px minmax(0, 1fr) minmax(0, 42%));
+}
+
+.qs-art-rail { min-height: 0; overflow: auto; display: flex; flex-direction: column; border-right: 1px solid var(--dsw-alias-border-l2); background: var(--dsw-alias-bg-base); }
+.qs-art-rail-head { position: sticky; top: 0; z-index: 1; padding: 10px 12px 6px; background: var(--dsw-alias-bg-base); font: var(--dsw-font-xxs-strong-12); color: var(--dsw-alias-label-secondary); }
+.qs-art-rail-list { display: flex; flex-direction: column; gap: 1px; padding: 0 8px 12px; }
+.qs-art-chapter {
+  display: flex; align-items: baseline; gap: 8px; width: 100%; text-align: left;
+  border: none; border-radius: 6px; background: transparent; cursor: pointer;
+  color: var(--dsw-alias-label-secondary); font: var(--dsw-font-xxs-12); padding: 6px 8px;
+}
+.qs-art-chapter:hover { background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-primary); }
+.qs-art-chapter[data-active="true"] { background: var(--dsw-alias-interactive-bg-active, var(--dsw-alias-interactive-bg-hover)); color: var(--dsw-alias-label-primary); font-weight: 600; box-shadow: inset 2px 0 0 var(--qs-accent); }
+.qs-art-chapter-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.qs-art-chapter-chars { flex: none; white-space: nowrap; font-size: 11px; line-height: 16px; font-variant-numeric: tabular-nums; color: var(--dsw-alias-label-dimmed); }
+
+.qs-art-body { min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 8px; padding: 14px 16px; }
+.qs-art-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; color: var(--dsw-alias-label-tertiary); font: var(--dsw-font-xxs-12); }
+.qs-art-badge { display: inline-flex; align-items: center; flex: none; border-radius: 4px; padding: 1px 6px; font: var(--dsw-font-xxxs-11); line-height: 16px; color: var(--dsw-alias-label-secondary); background: var(--dsw-alias-interactive-bg-hover); }
+.qs-art-mono { font-family: var(--dsw-font-family-mono, ui-monospace, SFMono-Regular, Menlo, monospace); font-size: 11px; color: var(--dsw-alias-label-dimmed); word-break: break-all; }
+.qs-art-text { color: var(--dsw-alias-label-secondary); font: var(--dsw-font-xs-13); line-height: 1.7; white-space: pre-wrap; word-break: break-word; }
+.qs-art-text[data-collapsed="true"] { display: -webkit-box; -webkit-box-orient: vertical; overflow: hidden; }
+.qs-art-mark { background: color-mix(in srgb, var(--dsw-static-amber-500) 28%, transparent); color: var(--dsw-alias-label-primary); border-radius: 2px; padding: 0 1px; }
+.qs-art-status { color: var(--dsw-alias-label-tertiary); font: var(--dsw-font-xs-13); padding: 4px 0; }
+.qs-art-error { color: var(--dsw-alias-state-error-primary); display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
+.qs-art-link { align-self: flex-start; border: none; background: transparent; padding: 0; cursor: pointer; color: var(--dsw-static-deepseek-500); font: var(--dsw-font-xxs-12); text-decoration: none; }
+.qs-art-link:hover { text-decoration: underline; }
+
+.qs-art-pdf { min-height: 0; display: flex; flex-direction: column; border-left: 1px solid var(--dsw-alias-border-l2); background: var(--dsw-alias-bg-base); }
+.qs-art-frame { flex: 1; width: 100%; min-height: 0; border: none; background: var(--dsw-alias-bg-base); }
+.qs-art-note { margin: 0; padding: 16px; color: var(--dsw-alias-label-tertiary); font: var(--dsw-font-xs-13); line-height: 1.7; }
+/* Same statement, carried inside the body where no PDF column exists. */
+.qs-art-note-inline { display: none; padding: 0 0 10px; }
+
+/* ≤1100px: the PDF column folds away; the header keeps a link to the file. */
+@media (max-width: 1100px) {
+  .qs-art-grid { grid-template-columns: 220px minmax(0, 1fr); }
+  .qs-art-grid[data-rail="false"] { grid-template-columns: minmax(0, 1fr); }
+  .qs-art-pdf { display: none; }
+  .qs-art-pdf-toggle { display: none; }
+  .qs-art-pdf-link { display: inline-flex; }
+  .qs-art-note-inline { display: block; }
+}
+/* ≤720px: one lane, with the chapter rail sliding over the body on demand. */
+@media (max-width: 720px) {
+  .qs-art-backdrop { padding: 0; }
+  .qs-art-panel { width: 100%; height: 100%; border: none; border-radius: 0; }
+  .qs-art-grid, .qs-art-grid[data-rail="false"] { grid-template-columns: minmax(0, 1fr); }
+  .qs-art-rail-toggle { display: inline-flex; }
+  .qs-art-rail {
+    position: absolute; top: 0; bottom: 0; left: 0; width: min(320px, 84%); z-index: 2;
+    border-right: 1px solid var(--dsw-alias-border-l2);
+    box-shadow: 0 0 24px color-mix(in srgb, #000 24%, transparent);
+  }
+  .qs-art-grid[data-open="false"] .qs-art-rail { display: none; }
+}
+/* Nothing in the reader animates on open; the query keeps later additions from
+   sneaking a transition past users who asked for stillness. */
+@media (prefers-reduced-motion: reduce) {
+  .qs-art-backdrop, .qs-art-panel, .qs-art-panel * { animation: none !important; transition: none !important; }
 }
 `
 

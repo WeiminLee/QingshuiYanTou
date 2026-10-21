@@ -15,6 +15,9 @@ export type QingshuiShellKey =
   | 'sessions.archiveConfirm'
   | 'sessions.archiveAria'
   | 'sessions.cancel'
+  | 'sessions.showAll'
+  | 'sessions.showLess'
+  | 'artifact.open'
   | 'tv.expand'
   | 'tv.collapse'
   | 'tv.kline.title'
@@ -61,6 +64,9 @@ export const zh: Record<QingshuiShellKey, string> = {
   'sessions.archiveConfirm': '确认归档？',
   'sessions.archiveAria': '归档会话',
   'sessions.cancel': '取消',
+  'sessions.showAll': '展开全部',
+  'sessions.showLess': '收起',
+  'artifact.open': '查看原文',
   'tv.expand': '展开',
   'tv.collapse': '收起',
   'tv.kline.title': 'K 线',
@@ -108,6 +114,9 @@ export const en: Record<QingshuiShellKey, string> = {
   'sessions.archiveConfirm': 'Archive?',
   'sessions.archiveAria': 'Archive chat',
   'sessions.cancel': 'Cancel',
+  'sessions.showAll': 'Show all',
+  'sessions.showLess': 'Show less',
+  'artifact.open': 'Open source',
   'tv.expand': 'Expand',
   'tv.collapse': 'Collapse',
   'tv.kline.title': 'Kline',

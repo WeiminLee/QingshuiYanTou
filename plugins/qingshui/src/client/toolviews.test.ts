@@ -10,6 +10,7 @@ import {
   blockArgs,
   blockState,
   blockText,
+  evidenceAnnId,
   extractResultJson,
   findingKindLabel,
   findingStatusLabel,
@@ -131,6 +132,15 @@ test('asEvidenceDoc extracts doc fields with fallbacks', () => {
   assert.equal(asEvidenceDoc(undefined), undefined)
 })
 
+test('evidenceAnnId reads the parent announcement id, absent for parentless evidence', () => {
+  assert.equal(evidenceAnnId({ source_ref: { ann_id: '880123' } }), '880123')
+  assert.equal(evidenceAnnId({ source_ref: { ann_id: 880123 } }), '880123')
+  assert.equal(evidenceAnnId({ source_ref: { ann_id: '' } }), undefined)
+  assert.equal(evidenceAnnId({ source_ref: { pdf_url: 'http://x' } }), undefined)
+  assert.equal(evidenceAnnId({ evidence_id: 'EV:1' }), undefined)
+  assert.equal(evidenceAnnId(undefined), undefined)
+})
+
 test('asSearchResult reads entities and chunks with optional fields', () => {
   const result = asSearchResult({
     entities: [{ entity_id: 'e1', name: '硅片', type: 'product', ts_code: '', score: 0.9 }],
@@ -242,6 +252,32 @@ test('asFindingDoc parses fields and falls back support_count from supports', ()
   assert.equal(asFindingDoc({ finding_id: 'FD:y' })?.support_count, 0)
   assert.equal(asFindingDoc('not-an-object'), undefined)
   assert.equal(asFindingDoc({}), undefined)
+})
+
+test('asFindingDoc keeps well-formed supports and drops dirty anchors', () => {
+  const doc = asFindingDoc({
+    finding_id: 'FD:spans',
+    judgment: '供给收缩已传导到报价',
+    supports: [
+      { obs_id: 'o1', evidence_id: 'EV:aaaa', span_start: 0, span_end: 12 },
+      { obs_id: 'o2', evidence_id: 'EV:bbbb', span_start: 20, span_end: 44 },
+      { obs_id: 'o3', evidence_id: '', span_start: 0, span_end: 4 },
+      { obs_id: 'o4', evidence_id: 'EV:cccc', span_start: 1.5, span_end: 8 },
+      { obs_id: 'o5', evidence_id: 'EV:dddd', span_start: 0, span_end: '9' },
+      { obs_id: 'o6', evidence_id: 'EV:eeee' },
+      { obs_id: 'o7', evidence_id: 'EV:ffff', span_start: -4, span_end: 3 },
+      { obs_id: 'o8', evidence_id: 'EV:gggg', span_start: 9, span_end: 4 },
+      { evidence_id: 7, span_start: 0, span_end: 1 },
+      null,
+    ],
+  })
+  assert.ok(doc)
+  assert.deepEqual(doc.supports, [
+    { evidence_id: 'EV:aaaa', span_start: 0, span_end: 12 },
+    { evidence_id: 'EV:bbbb', span_start: 20, span_end: 44 },
+  ])
+  assert.deepEqual(asFindingDoc({ finding_id: 'FD:none' })?.supports, [])
+  assert.deepEqual(asFindingDoc({ finding_id: 'FD:bad', supports: 'nope' })?.supports, [])
 })
 
 test('asFindingListPayload reads search_findings items and history_findings findings', () => {

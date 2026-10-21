@@ -84,7 +84,10 @@ export const TOOLVIEW_CSS = `
 .qs-finding-metric-value[data-tone="muted"] { color: var(--dsw-alias-label-tertiary); }
 .qs-finding-note { border: 1px solid color-mix(in srgb, var(--dsw-static-amber-500) 28%, transparent); border-radius: 8px; padding: 5px 8px; background: color-mix(in srgb, var(--dsw-static-amber-500) 10%, transparent); color: var(--dsw-static-amber-500); font: var(--dsw-font-xxxs-11); }
 .qs-finding-judgment { color: var(--dsw-alias-label-secondary); font: var(--dsw-font-xs-13); line-height: 1.6; white-space: pre-wrap; word-break: break-word; }
-.qs-finding-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.qs-finding-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 8px; }
+.qs-finding-anchors { display: flex; flex-wrap: wrap; gap: 4px; }
+.qs-finding-anchor { border: 1px solid var(--dsw-alias-border-l2); border-radius: 6px; background: transparent; color: var(--dsw-static-deepseek-500); font: var(--dsw-font-xxxs-11); padding: 1px 7px; cursor: pointer; }
+.qs-finding-anchor:hover { background: var(--dsw-alias-interactive-bg-hover); }
 .qs-finding-supersedes { color: var(--dsw-alias-label-tertiary); font: var(--dsw-font-xxxs-11); }
 `
 

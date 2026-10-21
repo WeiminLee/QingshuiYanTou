@@ -6,6 +6,7 @@
  */
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
+import { openEvidenceArtifact } from './artifact-store.ts'
 import { evIdOf } from './ev-cite.ts'
 import {
   closeEvHover, fetchEvEvidence, getEvCiteState, getEvEvidence,
@@ -90,6 +91,7 @@ export function EvBody({ id, lines }: { id: string; lines: number }): React.Reac
     return <div className="qs-ev-status qs-ev-error">证据返回格式无法解析（evidence_id：{id}）</div>
   }
 
+  const evidenceId = doc.evidence_id === '' ? id : doc.evidence_id
   const title = doc.title ?? doc.source_name ?? '无标题'
   const meta: string[] = []
   const date = formatDate(doc.publish_date)
@@ -120,13 +122,22 @@ export function EvBody({ id, lines }: { id: string; lines: number }): React.Reac
       </button>
       <div className="qs-ev-foot">
         <span className="qs-ev-mono">{doc.evidence_id}</span>
-        {doc.pdf_url === undefined || doc.pdf_url === ''
-          ? null
-          : (
-            <a className="qs-ev-pdf" href={doc.pdf_url} target="_blank" rel="noreferrer">
-              原文 PDF
-            </a>
-          )}
+        <span className="qs-ev-foot-actions">
+          <button
+            type="button"
+            className="qs-ev-open"
+            onClick={() => { void openEvidenceArtifact(evidenceId) }}
+          >
+            查看原文
+          </button>
+          {doc.pdf_url === undefined || doc.pdf_url === ''
+            ? null
+            : (
+              <a className="qs-ev-pdf" href={doc.pdf_url} target="_blank" rel="noreferrer">
+                原文 PDF
+              </a>
+            )}
+        </span>
       </div>
     </>
   )

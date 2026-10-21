@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { RESEARCH_MODULES, type ResearchModule } from './research-modules.ts'
 import { createAndOpenSession } from './session-actions.ts'
 import { groupSessionRows, sessionStamp, type SessionBucket } from './session-groups.ts'
 
@@ -20,6 +21,9 @@ type ListState = {
 /** Confirmation window for the archive two-step (ms). */
 const ARCHIVE_CONFIRM_MS = 3000
 
+/** Recent sessions shown before the list folds itself behind「展开全部」. */
+export const VISIBLE_SESSION_LIMIT = 7
+
 const BUCKET_LABEL: Record<SessionBucket, string> = {
   today: 'sessions.today',
   yesterday: 'sessions.yesterday',
@@ -35,18 +39,21 @@ export type SessionBrowserProps = {
   openSession: (sessionId: string) => void
   archiveSession: (sessionId: string) => Promise<void>
   renameSession: (sessionId: string, title: string) => Promise<boolean>
+  /** Start a new chat in this module's lane. */
+  startModule: (module: ResearchModule) => void
 }
 
 /** Flat research-session list for sidebar.workspaces (no workspace / path tree). */
 export function SessionBrowser(props: SessionBrowserProps) {
   const {
     wide, useSessions, useWorkspaces, t,
-    openSession, archiveSession, renameSession,
+    openSession, archiveSession, renameSession, startModule,
   } = props
   const list = useSessions(s => s)
   const archived = useWorkspaces(s => s.archivedSessionIds)
   const [editing, setEditing] = useState<{ id: string; draft: string } | null>(null)
   const [confirmId, setConfirmId] = useState<string | undefined>(undefined)
+  const [expanded, setExpanded] = useState(false)
   const confirmTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => () => {
@@ -61,7 +68,9 @@ export function SessionBrowser(props: SessionBrowserProps) {
       .sort((a, b) => b.updatedAt - a.updatedAt)
   }, [list.ids, list.byId, archived])
 
-  const groups = useMemo(() => groupSessionRows(rows, Date.now()), [rows])
+  const folded = !expanded && rows.length > VISIBLE_SESSION_LIMIT
+  const visibleRows = folded ? rows.slice(0, VISIBLE_SESSION_LIMIT) : rows
+  const groups = useMemo(() => groupSessionRows(visibleRows, Date.now()), [visibleRows])
 
   if (!wide) return null
 
@@ -180,6 +189,31 @@ export function SessionBrowser(props: SessionBrowserProps) {
           </div>
         ))}
       </div>
+      {rows.length > VISIBLE_SESSION_LIMIT ? (
+        <button
+          type="button"
+          className="qs-shell-toggle"
+          aria-expanded={expanded}
+          onClick={() => { setExpanded(!expanded) }}
+        >
+          {expanded ? t('sessions.showLess') : t('sessions.showAll')}
+        </button>
+      ) : null}
+      <nav className="qs-modules" aria-label="核心功能">
+        {RESEARCH_MODULES.map(module => (
+          <button
+            key={module.id}
+            type="button"
+            className="qs-module"
+            data-id={module.id}
+            title={module.hint}
+            onClick={() => { startModule(module) }}
+          >
+            <span className="qs-module-label">{module.label}</span>
+            <span className="qs-module-hint">{module.hint}</span>
+          </button>
+        ))}
+      </nav>
     </div>
   )
 }

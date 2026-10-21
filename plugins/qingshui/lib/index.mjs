@@ -6,6 +6,8 @@ import z from "@deepseek-ai/schemastery";
 import { execFile } from "node:child_process";
 import { homedir } from "node:os";
 import { defineTool } from "@deepseek-ai/dsh-tools";
+import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
 //#region src/config.ts
 const Config = z.object({
 	knowledgeBaseUrl: z.string().default("http://127.0.0.1:8080"),
@@ -123,6 +125,25 @@ function createKnowledgeClient(options) {
 		},
 		searchFindings(input) {
 			return post("/api/v1/knowledge/ledger/search", { limit: input?.limit ?? 20 });
+		},
+		fetchDocument(annId) {
+			return request(`/api/v1/knowledge/documents/${encodeURIComponent(annId)}`, { method: "GET" });
+		},
+		async openDocumentPdf(annId, range) {
+			const ctrl = new AbortController();
+			const timer = setTimeout(() => ctrl.abort(), options.timeoutMs);
+			try {
+				return await fetchImpl(`${base}/api/v1/knowledge/documents/${encodeURIComponent(annId)}/pdf`, {
+					method: "GET",
+					signal: ctrl.signal,
+					headers: {
+						"X-API-Key": options.apiKey,
+						...range === void 0 ? {} : { Range: range }
+					}
+				});
+			} finally {
+				clearTimeout(timer);
+			}
 		},
 		listSignals(input) {
 			return get("/api/v1/signals", {
@@ -1413,7 +1434,7 @@ function isLoopbackHostRequest(req) {
 function isValidEvidenceId(id) {
 	return EV_ID_RE.test(id);
 }
-function sendJson$5(res, status, body) {
+function sendJson$6(res, status, body) {
 	const payload = JSON.stringify(body);
 	res.writeHead(status, {
 		"content-type": "application/json; charset=utf-8",
@@ -1433,7 +1454,7 @@ function installEvidenceRoute(webCtx, deps) {
 		path: EVIDENCE_ROUTE_PATH,
 		handler: async (req, res) => {
 			if (!isLoopbackHostRequest(req)) {
-				sendJson$5(res, 403, {
+				sendJson$6(res, 403, {
 					ok: false,
 					error: "forbidden"
 				});
@@ -1447,7 +1468,7 @@ function installEvidenceRoute(webCtx, deps) {
 				id = "";
 			}
 			if (!isValidEvidenceId(id)) {
-				sendJson$5(res, 400, {
+				sendJson$6(res, 400, {
 					ok: false,
 					error: "bad evidence id (expected EV:<hex>)"
 				});
@@ -1455,21 +1476,21 @@ function installEvidenceRoute(webCtx, deps) {
 			}
 			const client = deps.client();
 			if (client === void 0) {
-				sendJson$5(res, 503, {
+				sendJson$6(res, 503, {
 					ok: false,
 					error: "knowledge client not configured (missing API key)"
 				});
 				return;
 			}
 			try {
-				sendJson$5(res, 200, {
+				sendJson$6(res, 200, {
 					ok: true,
 					doc: await client.fetchEvidence(id)
 				});
 			} catch (error) {
 				const message = error instanceof Error ? error.message : String(error);
 				const missing = /Knowledge API 404/.test(message);
-				sendJson$5(res, missing ? 404 : 502, {
+				sendJson$6(res, missing ? 404 : 502, {
 					ok: false,
 					error: missing ? "证据未命中：该 evidence_id 不存在（短 ID 需以完整 64 位十六进制核验）" : `知识库查询失败：${message.slice(0, 200)}`
 				});
@@ -1589,7 +1610,7 @@ function pickBoardQuotes(payload) {
 //#endregion
 //#region src/market-route.ts
 const SNAPSHOT_ROUTE_PATH = "/qingshui/market-snapshot";
-function sendJson$4(res, status, body) {
+function sendJson$5(res, status, body) {
 	res.writeHead(status, {
 		"content-type": "application/json; charset=utf-8",
 		"cache-control": "no-store"
@@ -1606,7 +1627,7 @@ function installMarketRoute(webCtx, deps) {
 		path: SNAPSHOT_ROUTE_PATH,
 		handler: async (req, res) => {
 			if (!isLoopbackHostRequest(req)) {
-				sendJson$4(res, 403, {
+				sendJson$5(res, 403, {
 					ok: false,
 					error: "forbidden"
 				});
@@ -1614,7 +1635,7 @@ function installMarketRoute(webCtx, deps) {
 			}
 			const client = deps.client();
 			if (client === void 0) {
-				sendJson$4(res, 503, {
+				sendJson$5(res, 503, {
 					ok: false,
 					error: "知识库未配置"
 				});
@@ -1624,13 +1645,13 @@ function installMarketRoute(webCtx, deps) {
 				const payload = await client.getMarketSnapshot();
 				const quotes = pickBoardQuotes(payload);
 				const quote = pickShanghaiQuote(payload);
-				sendJson$4(res, 200, {
+				sendJson$5(res, 200, {
 					ok: true,
 					quotes,
 					...quote === null ? {} : { quote }
 				});
 			} catch (error) {
-				sendJson$4(res, 502, {
+				sendJson$5(res, 502, {
 					ok: false,
 					error: error instanceof Error ? error.message : "知识库查询失败"
 				});
@@ -1699,7 +1720,7 @@ function shapeNewsFeed(payload) {
 //#endregion
 //#region src/news-route.ts
 const NEWS_ROUTE_PATH = "/qingshui/news";
-function sendJson$3(res, status, body) {
+function sendJson$4(res, status, body) {
 	res.writeHead(status, {
 		"content-type": "application/json; charset=utf-8",
 		"cache-control": "no-store"
@@ -1716,7 +1737,7 @@ function installNewsRoute(webCtx, deps) {
 		path: NEWS_ROUTE_PATH,
 		handler: async (req, res) => {
 			if (!isLoopbackHostRequest(req)) {
-				sendJson$3(res, 403, {
+				sendJson$4(res, 403, {
 					ok: false,
 					error: "forbidden"
 				});
@@ -1724,19 +1745,19 @@ function installNewsRoute(webCtx, deps) {
 			}
 			const client = deps.client();
 			if (client === void 0) {
-				sendJson$3(res, 503, {
+				sendJson$4(res, 503, {
 					ok: false,
 					error: "知识库未配置"
 				});
 				return;
 			}
 			try {
-				sendJson$3(res, 200, {
+				sendJson$4(res, 200, {
 					ok: true,
 					items: shapeNewsFeed(await client.listRecentEvents(20))
 				});
 			} catch (error) {
-				sendJson$3(res, 502, {
+				sendJson$4(res, 502, {
 					ok: false,
 					error: error instanceof Error ? error.message : "知识库查询失败"
 				});
@@ -1901,7 +1922,7 @@ async function loadSignalBoard(list) {
 //#endregion
 //#region src/signal-route.ts
 const SIGNAL_ROUTE_PATH = "/qingshui/signals";
-function sendJson$2(res, status, body) {
+function sendJson$3(res, status, body) {
 	res.writeHead(status, {
 		"content-type": "application/json; charset=utf-8",
 		"cache-control": "no-store"
@@ -1916,6 +1937,53 @@ function installSignalRoute(webCtx, deps) {
 	return webCtx.webServer.register({
 		kind: "exact",
 		path: SIGNAL_ROUTE_PATH,
+		handler: async (req, res) => {
+			if (!isLoopbackHostRequest(req)) {
+				sendJson$3(res, 403, {
+					ok: false,
+					error: "forbidden"
+				});
+				return;
+			}
+			const client = deps.client();
+			if (client === void 0) {
+				sendJson$3(res, 503, {
+					ok: false,
+					error: "知识库未配置"
+				});
+				return;
+			}
+			try {
+				sendJson$3(res, 200, {
+					ok: true,
+					lanes: await loadSignalBoard((sourceType, limit) => client.listSignals({
+						sourceType,
+						limit
+					}))
+				});
+			} catch (error) {
+				sendJson$3(res, 502, {
+					ok: false,
+					error: error instanceof Error ? error.message : "知识库查询失败"
+				});
+			}
+		}
+	});
+}
+//#endregion
+//#region src/health-route.ts
+const HEALTH_ROUTE_PATH = "/qingshui/health";
+function sendJson$2(res, status, body) {
+	res.writeHead(status, {
+		"content-type": "application/json; charset=utf-8",
+		"cache-control": "no-store"
+	});
+	res.end(JSON.stringify(body));
+}
+function installHealthRoute(webCtx, deps) {
+	return webCtx.webServer.register({
+		kind: "exact",
+		path: HEALTH_ROUTE_PATH,
 		handler: async (req, res) => {
 			if (!isLoopbackHostRequest(req)) {
 				sendJson$2(res, 403, {
@@ -1933,25 +2001,20 @@ function installSignalRoute(webCtx, deps) {
 				return;
 			}
 			try {
-				sendJson$2(res, 200, {
-					ok: true,
-					lanes: await loadSignalBoard((sourceType, limit) => client.listSignals({
-						sourceType,
-						limit
-					}))
-				});
+				await client.health();
+				sendJson$2(res, 200, { ok: true });
 			} catch (error) {
 				sendJson$2(res, 502, {
 					ok: false,
-					error: error instanceof Error ? error.message : "知识库查询失败"
+					error: error instanceof Error ? error.message : "知识库不可达"
 				});
 			}
 		}
 	});
 }
 //#endregion
-//#region src/health-route.ts
-const HEALTH_ROUTE_PATH = "/qingshui/health";
+//#region src/ledger-route.ts
+const LEDGER_ROUTE_PATH = "/qingshui/ledger";
 function sendJson$1(res, status, body) {
 	res.writeHead(status, {
 		"content-type": "application/json; charset=utf-8",
@@ -1959,10 +2022,14 @@ function sendJson$1(res, status, body) {
 	});
 	res.end(JSON.stringify(body));
 }
-function installHealthRoute(webCtx, deps) {
+/**
+* Install the findings proxy. @param webCtx - web server. @param deps - client accessor.
+* @returns disposer.
+*/
+function installLedgerRoute(webCtx, deps) {
 	return webCtx.webServer.register({
 		kind: "exact",
-		path: HEALTH_ROUTE_PATH,
+		path: LEDGER_ROUTE_PATH,
 		handler: async (req, res) => {
 			if (!isLoopbackHostRequest(req)) {
 				sendJson$1(res, 403, {
@@ -1980,20 +2047,44 @@ function installHealthRoute(webCtx, deps) {
 				return;
 			}
 			try {
-				await client.health();
-				sendJson$1(res, 200, { ok: true });
+				sendJson$1(res, 200, {
+					ok: true,
+					...await client.searchFindings()
+				});
 			} catch (error) {
 				sendJson$1(res, 502, {
 					ok: false,
-					error: error instanceof Error ? error.message : "知识库不可达"
+					error: error instanceof Error ? error.message : "知识库查询失败"
 				});
 			}
 		}
 	});
 }
 //#endregion
-//#region src/ledger-route.ts
-const LEDGER_ROUTE_PATH = "/qingshui/ledger";
+//#region src/document-route.ts
+/**
+* Same-origin artifact routes for the browser:
+*   GET /qingshui/document/<ann_id> — aggregate document view (chapters, no bodies)
+*   GET /qingshui/pdf/<ann_id>      — the retained PDF, byte-for-byte
+* Both proxy the Knowledge API with the host-side API key, so the browser never
+* sees it. Loopback-fenced like the other /qingshui routes. The PDF route
+* forwards Range and copies the upstream status/headers through untouched, so
+* pdf.js sees 200/206/304/404/416 exactly as the backend produced them.
+*/
+const DOCUMENT_ROUTE_PATH = "/qingshui/document";
+const PDF_ROUTE_PATH = "/qingshui/pdf";
+/** Upstream response headers the browser is allowed to see, verbatim. */
+const PDF_PASSTHROUGH_HEADERS = [
+	"content-type",
+	"content-length",
+	"content-range",
+	"accept-ranges",
+	"etag",
+	"cache-control",
+	"content-disposition"
+];
+/** Defense in depth: an ann_id is a flat key, never a path fragment. */
+const BAD_ANN_ID_RE = /[/\\]|\.\./;
 function sendJson(res, status, body) {
 	res.writeHead(status, {
 		"content-type": "application/json; charset=utf-8",
@@ -2001,14 +2092,51 @@ function sendJson(res, status, body) {
 	});
 	res.end(JSON.stringify(body));
 }
+/** @returns the decoded ann_id tail of a prefix path, or '' when absent/malformed. */
+function annIdFrom(url, prefix) {
+	try {
+		return decodeURIComponent(new URL(url, "http://x").pathname).slice(prefix.length).replace(/^\//, "");
+	} catch {
+		return "";
+	}
+}
+function requestRange(req) {
+	const range = req.headers.range;
+	const value = Array.isArray(range) ? range[0] : range;
+	return typeof value === "string" && value !== "" ? value : void 0;
+}
+/** Send the 400 for an unusable id. @returns true when the request was answered. */
+function rejectBadAnnId(res, annId) {
+	if (annId === "") {
+		sendJson(res, 400, {
+			ok: false,
+			error: "missing ann_id"
+		});
+		return true;
+	}
+	if (BAD_ANN_ID_RE.test(annId)) {
+		sendJson(res, 400, {
+			ok: false,
+			error: "bad ann_id"
+		});
+		return true;
+	}
+	return false;
+}
+/** A log-safe error label: code when present, else the class name. */
+function errorLabel(error) {
+	const code = error?.code;
+	if (typeof code === "string" && code !== "") return code;
+	return error instanceof Error && error.name !== "" ? error.name : "unknown";
+}
 /**
-* Install the findings proxy. @param webCtx - web server. @param deps - client accessor.
+* Install the document aggregate proxy. @param webCtx - web server. @param deps - client accessor.
 * @returns disposer.
 */
-function installLedgerRoute(webCtx, deps) {
+function installDocumentRoute(webCtx, deps) {
 	return webCtx.webServer.register({
-		kind: "exact",
-		path: LEDGER_ROUTE_PATH,
+		kind: "prefix",
+		path: DOCUMENT_ROUTE_PATH,
 		handler: async (req, res) => {
 			if (!isLoopbackHostRequest(req)) {
 				sendJson(res, 403, {
@@ -2017,24 +2145,87 @@ function installLedgerRoute(webCtx, deps) {
 				});
 				return;
 			}
+			const annId = annIdFrom(req.url ?? "/", DOCUMENT_ROUTE_PATH);
+			if (rejectBadAnnId(res, annId)) return;
 			const client = deps.client();
 			if (client === void 0) {
 				sendJson(res, 503, {
 					ok: false,
-					error: "知识库未配置"
+					error: "knowledge client not configured (missing API key)"
 				});
 				return;
 			}
 			try {
 				sendJson(res, 200, {
 					ok: true,
-					...await client.searchFindings()
+					doc: await client.fetchDocument(annId)
 				});
+			} catch (error) {
+				const message = error instanceof Error ? error.message : String(error);
+				const missing = /Knowledge API 404/.test(message);
+				sendJson(res, missing ? 404 : 502, {
+					ok: false,
+					error: missing ? "文档未命中：该 ann_id 不存在" : `文档查询失败：${message.slice(0, 200)}`
+				});
+			}
+		}
+	});
+}
+/**
+* Install the PDF streaming proxy. @param webCtx - web server. @param deps - client accessor.
+* @returns disposer.
+*/
+function installPdfRoute(webCtx, deps) {
+	return webCtx.webServer.register({
+		kind: "prefix",
+		path: PDF_ROUTE_PATH,
+		handler: async (req, res) => {
+			if (!isLoopbackHostRequest(req)) {
+				sendJson(res, 403, {
+					ok: false,
+					error: "forbidden"
+				});
+				return;
+			}
+			const annId = annIdFrom(req.url ?? "/", PDF_ROUTE_PATH);
+			if (rejectBadAnnId(res, annId)) return;
+			const client = deps.client();
+			if (client === void 0) {
+				sendJson(res, 503, {
+					ok: false,
+					error: "knowledge client not configured (missing API key)"
+				});
+				return;
+			}
+			let upstream;
+			try {
+				upstream = await client.openDocumentPdf(annId, requestRange(req));
 			} catch (error) {
 				sendJson(res, 502, {
 					ok: false,
-					error: error instanceof Error ? error.message : "知识库查询失败"
+					error: `PDF 获取失败：${(error instanceof Error ? error.message : String(error)).slice(0, 200)}`
 				});
+				return;
+			}
+			const headers = {};
+			for (const name of PDF_PASSTHROUGH_HEADERS) {
+				const value = upstream.headers.get(name);
+				if (value !== null) headers[name] = value;
+			}
+			const log = deps.log ?? ((message) => {
+				console.warn(message);
+			});
+			try {
+				res.writeHead(upstream.status, headers);
+				if (upstream.body === null) {
+					res.end();
+					return;
+				}
+				await pipeline(Readable.fromWeb(upstream.body), res);
+			} catch (error) {
+				await upstream.body?.cancel().catch(() => {});
+				log(`qingshui: pdf proxy stream failed (${errorLabel(error)})`);
+				if (!res.writableEnded && !res.destroyed) res.end();
 			}
 		}
 	});
@@ -2082,6 +2273,17 @@ async function apply(ctx, config, deps = {}) {
 		const disposeSignals = installSignalRoute(server, { client: () => client });
 		const disposeHealth = installHealthRoute(server, { client: () => client });
 		const disposeLedger = installLedgerRoute(server, { client: () => client });
+		const log = (message) => {
+			ctx.logger.warn(message);
+		};
+		const disposeDocument = installDocumentRoute(server, {
+			client: () => client,
+			log
+		});
+		const disposePdf = installPdfRoute(server, {
+			client: () => client,
+			log
+		});
 		return () => {
 			disposeEvidence();
 			disposeMarket();
@@ -2089,6 +2291,8 @@ async function apply(ctx, config, deps = {}) {
 			disposeSignals();
 			disposeHealth();
 			disposeLedger();
+			disposeDocument();
+			disposePdf();
 		};
 	});
 	await (deps.mountDataMcp ?? mountQingshuiDataMcp)(ctx, config);

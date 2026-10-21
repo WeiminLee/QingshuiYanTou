@@ -62,8 +62,12 @@ export function ungraftConversationShadow(entry: LedgerEntry): void {
  * Owner share for `conversation.composer.bar` in the research shell.
  * Session presence is the only inert gate. Never passes workspace recovery
  * props: those render「选择工作区」and lock the textarea readOnly.
+ *
+ * The variant is always `composer`, never `hero`: the research shell docks the
+ * input at the bottom of the blank screen too, so the hero variant's two-line
+ * floor would only make the box taller than its content.
  * @param opts.sessionId - current session, if any
- * @param opts.hero - blank-session centered composer
+ * @param opts.hero - blank session (copy only; the dock position is shared)
  * @param opts.composerBlock - plugin block (model route), if raised
  * @param opts.t - kept on the owner contract; hero copy is RESEARCH_PLACEHOLDER
  */
@@ -77,7 +81,7 @@ export function researchComposerOwner(opts: {
   const inert = sessionId === undefined
   const blocked = !inert && composerBlock !== undefined
   return {
-    variant: hero ? 'hero' : 'composer',
+    variant: 'composer',
     ...(inert
       ? { disabled: true, placeholder: RESEARCH_PLACEHOLDER }
       : blocked

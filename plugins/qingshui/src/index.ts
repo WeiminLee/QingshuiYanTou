@@ -16,6 +16,7 @@ import { installNewsRoute } from './news-route.ts'
 import { installSignalRoute } from './signal-route.ts'
 import { installHealthRoute } from './health-route.ts'
 import { installLedgerRoute } from './ledger-route.ts'
+import { installDocumentRoute, installPdfRoute } from './document-route.ts'
 
 export const name = 'qingshui'
 /** tools for defineTool; skills so nested skill-filesystem can register providers. */
@@ -88,6 +89,9 @@ export async function apply(
     const disposeSignals = installSignalRoute(server, { client: () => client })
     const disposeHealth = installHealthRoute(server, { client: () => client })
     const disposeLedger = installLedgerRoute(server, { client: () => client })
+    const log = (message: string): void => { ctx.logger.warn(message) }
+    const disposeDocument = installDocumentRoute(server, { client: () => client, log })
+    const disposePdf = installPdfRoute(server, { client: () => client, log })
     return () => {
       disposeEvidence()
       disposeMarket()
@@ -95,6 +99,8 @@ export async function apply(
       disposeSignals()
       disposeHealth()
       disposeLedger()
+      disposeDocument()
+      disposePdf()
     }
   })
 

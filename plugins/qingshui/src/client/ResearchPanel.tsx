@@ -6,6 +6,7 @@
  * QuoteStrip); the toolviews stay the i18n'd layer.
  */
 import { useCallback, useEffect, useState } from 'react'
+import { openEvidenceArtifact } from './artifact-store.ts'
 import { closeEvPinned } from './ev-cite-store.ts'
 import { EvBody } from './ev-cite-layer.tsx'
 import {
@@ -76,7 +77,16 @@ export function ResearchPanel({ pinnedId }: { pinnedId: string | undefined }): R
           <div className="qs-panel-section-title">
             证据原文
             {pinnedId === undefined ? null : (
-              <button type="button" className="qs-panel-close" aria-label="关闭" onClick={() => { closeEvPinned() }}>×</button>
+              <span className="qs-panel-section-actions">
+                <button
+                  type="button"
+                  className="qs-panel-open"
+                  onClick={() => { void openEvidenceArtifact(pinnedId) }}
+                >
+                  展开
+                </button>
+                <button type="button" className="qs-panel-close" aria-label="关闭" onClick={() => { closeEvPinned() }}>×</button>
+              </span>
             )}
           </div>
           {pinnedId === undefined ? (

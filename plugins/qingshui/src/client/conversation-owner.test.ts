@@ -48,7 +48,8 @@ describe('conversation shadow owner', () => {
     assert.equal(hero['disabled'], undefined)
     assert.equal(hero['onRequestWorkspace'], undefined)
     assert.equal(hero['placeholder'], RESEARCH_PLACEHOLDER)
-    assert.equal(hero['variant'], 'hero')
+    // Docked everywhere: the blank screen keeps the composer variant too.
+    assert.equal(hero['variant'], 'composer')
     assert.equal(JSON.stringify(hero).includes('workspace'), false)
 
     const active = researchComposerOwner({
