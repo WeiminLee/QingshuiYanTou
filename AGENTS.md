@@ -71,6 +71,19 @@
 | 云端整套栈 | 124.221.188.38 | ❄️ 只读冻结，chemagent 验证结束后下线 |
 | sensecore pod / 生产链路经 Mac | — | ❌ 已退出关键路径 |
 
+### 2026-10-21 增量（产物阅读器 + 原文 PDF 保留）
+
+- **PDF 保留**：公告抽完 evidence 后**不再删除**原 PDF（`download_status='stored'`，保留
+  `file_path`）；两年轮转由 `PDF_ROTATION_ENABLED`（默认 `false`）关停。存储根统一
+  `/data/qingshui/pdf`，compose 的 backend/data-mcp 按需挂载（当前仅 backend+scheduler）。
+  历史缺口约 4 万份，由 `backend/scripts/backfill_announcement_pdfs.py` 幂等回补中。
+- **只读产物接口**：`GET /api/v1/knowledge/documents/{ann_id}` 与 `.../pdf`（手写 Range）。
+  浏览器只经插件 `/qingshui/document/*`、`/qingshui/pdf/*` 的 loopback 代理取数，Key 不出主机。
+- **注意**：`source_ref.ann_id` 类型不统一——老公告为 PG 整数，新采集为
+  `{ann_date}_{ts_code}_{标题}` 复合串；查询必须 int+str 双查。
+- 设计稿 `docs/superpowers/specs/2026-10-21-artifact-reader-and-pdf-retention-design.md`，
+  计划 `docs/superpowers/plans/2026-10-21-artifact-reader-and-pdf-retention.md`。
+
 ### 2026-10-15 增量（HEAD `dba89a1`，`feat/ingestion-drain-limit-20` 已 fast-forward 合入 main）
 
 - **检索冷读修复**：Qdrant 连接池化 + 30s 超时，消除冷启动静默断查；readiness 公告校正字段错配。
