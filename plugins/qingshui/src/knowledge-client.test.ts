@@ -41,6 +41,50 @@ test('metricTrend and rollupMetric hit correct paths', async () => {
   assert.equal(urls[2], 'http://knowledge.test/api/v1/knowledge/evidence/EV%3A1')
 })
 
+test('fetchDocument GETs the encoded document path with X-API-Key', async () => {
+  const calls: Array<{ url: string; init: RequestInit }> = []
+  const fetchImpl: typeof fetch = async (url, init) => {
+    calls.push({ url: String(url), init: init ?? {} })
+    return new Response(JSON.stringify({ ann_id: '1225468566', chapters: [] }), { status: 200 })
+  }
+  const client = createKnowledgeClient({
+    baseUrl: 'http://knowledge.test',
+    apiKey: 'k',
+    timeoutMs: 5000,
+    fetchImpl,
+  })
+  const doc = await client.fetchDocument('1225468566')
+  assert.equal(calls[0]?.url, 'http://knowledge.test/api/v1/knowledge/documents/1225468566')
+  assert.equal((calls[0]?.init.headers as Record<string, string>)['X-API-Key'], 'k')
+  assert.deepEqual(doc, { ann_id: '1225468566', chapters: [] })
+})
+
+test('openDocumentPdf forwards Range and returns non-2xx responses unthrown', async () => {
+  const calls: Array<{ url: string; init: RequestInit }> = []
+  const fetchImpl: typeof fetch = async (url, init) => {
+    calls.push({ url: String(url), init: init ?? {} })
+    return new Response('{"detail":{"code":"pdf_missing"}}', {
+      status: 404,
+      headers: { 'content-type': 'application/json' },
+    })
+  }
+  const client = createKnowledgeClient({
+    baseUrl: 'http://knowledge.test',
+    apiKey: 'k',
+    timeoutMs: 5000,
+    fetchImpl,
+  })
+  const response = await client.openDocumentPdf('1225468566', 'bytes=0-1023')
+  assert.equal(response.status, 404)
+  assert.equal((calls[0]?.init.headers as Record<string, string>)['X-API-Key'], 'k')
+  assert.equal((calls[0]?.init.headers as Record<string, string>).Range, 'bytes=0-1023')
+  assert.equal(calls[0]?.url, 'http://knowledge.test/api/v1/knowledge/documents/1225468566/pdf')
+  assert.deepEqual(await response.json(), { detail: { code: 'pdf_missing' } })
+
+  await client.openDocumentPdf('1225468566')
+  assert.equal((calls[1]?.init.headers as Record<string, string>).Range, undefined)
+})
+
 test('non-2xx throws with status', async () => {
   const fetchImpl: typeof fetch = async () => new Response('nope', { status: 401 })
   const client = createKnowledgeClient({

@@ -46,6 +46,14 @@ export interface KnowledgeClient {
   health(): Promise<Record<string, unknown>>
   /** Latest active findings (ledger search, newest first; dismissed/superseded excluded). */
   searchFindings(input?: { limit?: number }): Promise<Record<string, unknown>>
+  /** Aggregate one announcement document (chapters without bodies, pdf flags). */
+  fetchDocument(annId: string): Promise<Record<string, unknown>>
+  /**
+   * Open the retained PDF for an announcement. The raw response is returned
+   * without status checks so 404/416/304 bodies reach the browser untouched;
+   * only transport failures reject.
+   */
+  openDocumentPdf(annId: string, range?: string): Promise<Response>
   listRecentEvents(limit?: number): Promise<Record<string, unknown>>
   listSignals(input: { sourceType: string; limit?: number }): Promise<Record<string, unknown>>
   writeObservation(input: {
@@ -196,6 +204,29 @@ export function createKnowledgeClient(options: {
     },
     searchFindings(input) {
       return post('/api/v1/knowledge/ledger/search', { limit: input?.limit ?? 20 })
+    },
+    fetchDocument(annId) {
+      return request(`/api/v1/knowledge/documents/${encodeURIComponent(annId)}`, {
+        method: 'GET',
+      }) as Promise<Record<string, unknown>>
+    },
+    async openDocumentPdf(annId, range) {
+      const ctrl = new AbortController()
+      // The timeout guards the response head, not the streamed body: the timer
+      // clears once fetch resolves, so a slow PDF is not cut off mid-transfer.
+      const timer = setTimeout(() => ctrl.abort(), options.timeoutMs)
+      try {
+        return await fetchImpl(`${base}/api/v1/knowledge/documents/${encodeURIComponent(annId)}/pdf`, {
+          method: 'GET',
+          signal: ctrl.signal,
+          headers: {
+            'X-API-Key': options.apiKey,
+            ...(range === undefined ? {} : { Range: range }),
+          },
+        })
+      } finally {
+        clearTimeout(timer)
+      }
     },
     listSignals(input) {
       return get('/api/v1/signals', {
