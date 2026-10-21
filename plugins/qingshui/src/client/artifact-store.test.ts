@@ -169,7 +169,34 @@ test('splitBySpans clamps dirty spans before slicing and still round-trips', () 
   assert.equal(segments.map(segment => segment.text).join(''), input)
 })
 
-test('chapterLabel prefixes the retained chapter ordinal and falls back without a heading', () => {
+test('splitBySpans slices by code point so astral characters cannot shift a mark', () => {
+  // Server spans are Python len() offsets (code points); '😀' is two UTF-16
+  // code units, so UTF-16 slicing would land inside the surrogate pair.
+  const input = '😀关于重大资产重组'
+  const segments = splitBySpans(input, [{ start: 1, end: 5 }])
+
+  assert.deepEqual(segments, [
+    { text: '😀', marked: false },
+    { text: '关于重大', marked: true },
+    { text: '资产重组', marked: false },
+  ])
+  assert.equal(segments[1].text, '关于重大')
+  assert.equal(segments.map(segment => segment.text).join(''), input)
+})
+
+test('splitBySpans keeps astral characters inside a marked span intact', () => {
+  const input = '前😀后'
+  const segments = splitBySpans(input, [{ start: 1, end: 2 }])
+  assert.deepEqual(segments, [
+    { text: '前', marked: false },
+    { text: '😀', marked: true },
+    { text: '后', marked: false },
+  ])
+  assert.equal(segments.map(segment => segment.text).join(''), input)
+})
+
+test('chapterLabel maps the 0-based kept-chapter ordinal to 第 N 段', () => {
+  // chapter_index 91 is the 92nd kept chapter (0-based over KEPT chapters).
   assert.equal(chapterLabel({ chapter_index: 91, heading: '第三节 经营情况讨论与分析' }), '第 92 段 · 第三节 经营情况讨论与分析')
   assert.equal(chapterLabel({ chapter_index: 91, heading: null }), '第 92 段')
   assert.equal(chapterLabel({ chapter_index: 0, heading: '' }), '第 1 段')

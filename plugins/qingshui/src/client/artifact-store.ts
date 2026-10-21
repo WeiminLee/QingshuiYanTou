@@ -119,30 +119,37 @@ export function clampSpans(spans: ArtifactSpan[] | undefined, length: number): A
 }
 
 /**
- * Slice text into marked and unmarked runs. Slices only — the caller renders
- * each run as a text node, so `<` or `&` in the source can never become markup.
- * Spans are clamped first, so concatenating the segment texts always returns
- * the input unchanged.
+ * Slice text into marked and unmarked runs. Slicing is by code point, not
+ * UTF-16 code unit: server offsets come from Python `len()`, where an astral
+ * character (emoji, CJK Ext-B) counts as one, so slicing the string directly
+ * would land inside a surrogate pair and shift every later mark. Slices only —
+ * the caller renders each run as a text node, so `<` or `&` in the source can
+ * never become markup. Spans are clamped first, so concatenating the segment
+ * texts always returns the input unchanged.
  * @param text - plain text body.
  * @param spans - highlights, possibly dirty; clamped internally.
  * @returns ordered segments covering the whole input.
  */
 export function splitBySpans(text: string, spans: ArtifactSpan[]): ArtifactSegment[] {
+  const codePoints = Array.from(text)
   const segments: ArtifactSegment[] = []
   let cursor = 0
-  for (const span of clampSpans(spans, text.length)) {
-    if (span.start > cursor) segments.push({ text: text.slice(cursor, span.start), marked: false })
-    segments.push({ text: text.slice(span.start, span.end), marked: true })
+  for (const span of clampSpans(spans, codePoints.length)) {
+    if (span.start > cursor) {
+      segments.push({ text: codePoints.slice(cursor, span.start).join(''), marked: false })
+    }
+    segments.push({ text: codePoints.slice(span.start, span.end).join(''), marked: true })
     cursor = span.end
   }
-  if (cursor < text.length) segments.push({ text: text.slice(cursor), marked: false })
+  if (cursor < codePoints.length) segments.push({ text: codePoints.slice(cursor).join(''), marked: false })
   return segments
 }
 
 /**
- * Label for one retained chapter: the stored 0-based ordinal as a 1-based
- * prefix plus its heading. The parsed total is deliberately absent — the
- * ordinal is a kept-chapter index, so a ratio would mislead.
+ * Label for one retained chapter: the stored ordinal as a 1-based prefix plus
+ * its heading. `chapter_index` is 0-based over KEPT chapters — the extraction
+ * loop assigns it from `enumerate(keep_chapters)`, not over the parsed total —
+ * so `+1` is the kept-chapter position and the parsed total never appears.
  * @param chapter - `chapter_index` and `heading` from the document API.
  */
 export function chapterLabel(chapter: { chapter_index: number; heading: string | null }): string {
