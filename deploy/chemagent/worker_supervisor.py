@@ -23,7 +23,7 @@ from pathlib import Path
 
 M = Path("/mnt/shared-storage-user/liweimin/qingshui")
 VENV = M / "worker" / "venv" / "bin" / "python"
-CODE = Path("/root/wq/backend")
+CODE = Path("/root/code/QingShuiYanTou/backend")
 LOG = M / "logs"
 ENDPOINTS = M / "endpoints.json"
 ENV_FILE = M / "worker.env"

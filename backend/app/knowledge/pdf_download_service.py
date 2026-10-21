@@ -107,8 +107,12 @@ class PdfDownloadWorker:
     ) -> None:
         stop_event = stop_event or asyncio.Event()
         while not stop_event.is_set():
-            result = await self.run_once(limit=limit_per_loop)
-            logger.info("pdf download worker loop: %s", result)
+            try:
+                result = await self.run_once(limit=limit_per_loop)
+                logger.info("pdf download worker loop: %s", result)
+            except Exception as exc:  # noqa: BLE001
+                # 后端重启/网络抖动会让 claim 抛 httpx.ReadError；常驻进程不能因此退出。
+                logger.warning("pdf download worker pass failed, retrying in %ss: %r", interval_seconds, exc)
             try:
                 await asyncio.wait_for(stop_event.wait(), timeout=interval_seconds)
             except TimeoutError:

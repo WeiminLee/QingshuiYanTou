@@ -251,3 +251,25 @@ def test_retryable_failure_marks_job_failed(monkeypatch, tmp_path) -> None:
 
     assert queue.failure_calls[0][-1] == "http_retryable"
     assert not evidence_service.upserts
+
+
+def test_run_loop_retries_after_a_transient_failure(monkeypatch) -> None:
+    """一次瞬时 HTTP 错误不应终止常驻进程（否则只能靠 systemd 反复重启）。"""
+    from app.knowledge.pdf_download_service import PdfDownloadWorker
+
+    worker = PdfDownloadWorker(queue=object(), storage=object())
+    calls = {"n": 0}
+    stop = asyncio.Event()
+
+    async def flaky_run_once(limit=None):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("httpx.ReadError")
+        stop.set()
+        return {"claimed": 0, "success": 0, "failed": 0, "skipped": 0}
+
+    monkeypatch.setattr(worker, "run_once", flaky_run_once)
+
+    asyncio.run(worker.run_loop(interval_seconds=0.01, stop_event=stop))
+
+    assert calls["n"] == 2
