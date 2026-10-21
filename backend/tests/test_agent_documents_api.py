@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from pymongo.errors import ServerSelectionTimeoutError
 
 from app.config import settings
 from app.knowledge.api import agent_documents
@@ -46,56 +49,93 @@ def _document():
 
 
 @pytest.fixture()
-def calls(monkeypatch):
-    """Record ``load_document`` calls and stub the DB handle."""
-    recorded: list[dict] = []
+def service(monkeypatch):
+    """Stub ``load_document``; ``service.doc`` is returned, ``service.error`` raised."""
+    state = SimpleNamespace(calls=[], doc=_document(), error=None)
 
     async def fake_load_document(db, ann_id, *, root):
-        recorded.append({"db": db, "ann_id": ann_id, "root": root})
-        return _document() if ann_id == "1225468566" else None
+        state.calls.append({"db": db, "ann_id": ann_id, "root": root})
+        if state.error is not None:
+            raise state.error
+        return state.doc
 
     monkeypatch.setattr(agent_documents, "load_document", fake_load_document)
     monkeypatch.setattr(agent_documents, "get_mongo_db", lambda: object())
-    return recorded
+    return state
 
 
-def test_document_requires_api_key(client, calls):
+def test_document_requires_api_key(client, service):
     r = client.get("/api/v1/knowledge/documents/1225468566")
 
     assert r.status_code == 401
-    assert calls == []
+    assert service.calls == []
 
 
-def test_document_returns_view_shape(client, calls):
+def test_document_returns_view_shape(client, service):
     r = client.get("/api/v1/knowledge/documents/1225468566", headers=HEADERS)
 
     assert r.status_code == 200
     assert r.json() == _document()
-    assert calls[0]["ann_id"] == "1225468566"
-    assert calls[0]["root"] == settings.pdf_storage_root
+    assert service.calls[0]["ann_id"] == "1225468566"
+    assert service.calls[0]["root"] == settings.pdf_storage_root
 
 
-def test_document_never_exposes_server_path(client, calls):
+def test_document_forwards_service_document_unchanged(client, service):
+    """The handler is a pass-through: whatever the service builds is returned as-is.
+
+    The guarantee that no server path can appear in that dict lives in
+    ``tests/test_document_service.py::test_response_never_exposes_server_paths``;
+    here we only pin that the handler neither reshapes nor filters it.
+    """
+    forwarded = _document()
+    forwarded["title"] = "FORWARDED-UNCHANGED"
+    forwarded["title_is_filename"] = True
+    forwarded["chapters_parsed"] = 7
+    forwarded["chapters_kept"] = 3
+    forwarded["pdf"] = {"exists": False, "sha256": None, "size": None}
+    service.doc = forwarded
+
     r = client.get("/api/v1/knowledge/documents/1225468566", headers=HEADERS)
 
     assert r.status_code == 200
-    assert set(r.json()) == {
-        "ann_id",
-        "ts_code",
-        "source_name",
-        "publish_date",
-        "title",
-        "title_is_filename",
-        "chapters_parsed",
-        "chapters_kept",
-        "pdf",
-        "chapters",
-    }
-    assert set(r.json()["pdf"]) == {"exists", "sha256", "size"}
+    assert r.json() == forwarded
 
 
-def test_document_missing_returns_coded_404(client, calls):
+def test_document_missing_returns_coded_404(client, service):
+    service.doc = None
+
     r = client.get("/api/v1/knowledge/documents/999", headers=HEADERS)
 
     assert r.status_code == 404
     assert r.json() == {"detail": {"code": "document_not_found"}}
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        ServerSelectionTimeoutError(
+            "connection refused mongodb://127.0.0.1:27017 from /Users/lwm/data/qingshui_pdfs"
+        ),
+        OSError(13, "Permission denied", "/Users/lwm/data/qingshui_pdfs/notices/300750.SZ"),
+    ],
+    ids=["mongo-unavailable", "storage-io-error"],
+)
+def test_document_backend_failure_returns_503_without_details(client, service, error):
+    service.error = error
+
+    r = client.get("/api/v1/knowledge/documents/1225468566", headers=HEADERS)
+
+    assert r.status_code == 503
+    assert r.json() == {"detail": {"code": "document_unavailable"}}
+    # Neither the driver message nor any filesystem path may reach the client.
+    assert "/Users" not in r.text
+    assert "Permission denied" not in r.text
+    assert "mongodb://" not in r.text
+
+
+def test_document_code_bug_is_not_masked_as_unavailable(client, service):
+    """Only backend failures map to 503; programming errors still surface."""
+    service.error = RuntimeError("unexpected bug")
+
+    with pytest.raises(RuntimeError, match="unexpected bug"):
+        client.get("/api/v1/knowledge/documents/1225468566", headers=HEADERS)

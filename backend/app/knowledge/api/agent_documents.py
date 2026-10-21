@@ -5,14 +5,18 @@
 """
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from fastapi import APIRouter, Header, HTTPException
+from pymongo.errors import PyMongoError
 
 from app.config import settings
 from app.core.mongodb import get_mongo_db
 from app.knowledge.api._auth import require_api_key
 from app.knowledge.document_service import load_document
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/knowledge/documents", tags=["知识 文档"])
 
@@ -23,11 +27,18 @@ async def get_document(
     x_api_key: str | None = Header(default=None),
 ) -> dict[str, Any]:
     require_api_key(x_api_key)
-    document = await load_document(
-        get_mongo_db(),
-        ann_id,
-        root=settings.pdf_storage_root,
-    )
+    try:
+        document = await load_document(
+            get_mongo_db(),
+            ann_id,
+            root=settings.pdf_storage_root,
+        )
+    except (PyMongoError, OSError) as exc:
+        # Backend unavailability must be distinguishable from a code bug.  The
+        # driver message and any filesystem path stay in the server log; the
+        # client gets a fixed code only.
+        logger.exception("document load failed for ann_id=%r", ann_id)
+        raise HTTPException(503, detail={"code": "document_unavailable"}) from exc
     if document is None:
         raise HTTPException(404, detail={"code": "document_not_found"})
     return document
