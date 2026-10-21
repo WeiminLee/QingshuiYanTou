@@ -1533,16 +1533,11 @@ async def fetch_concept(trade_date: str | None = None) -> dict[str, int]:
         logger.warning("TUSHARE_TOKEN 未配置，跳过概念同步")
         return {"success": 0, "skipped": 1, "fail": 0}
 
-    try:
-        import tinyshare as ts
-    except ImportError:
-        logger.error("tinyshare 未安装，跳过概念同步")
-        return {"success": 0, "skipped": 0, "fail": 1}
-
     today = trade_date or datetime.now(SH_TZ).strftime("%Y%m%d")
     try:
-        ts.set_token(token)
-        pro = ts.pro_api()
+        from app.data_pipeline.tinyshare_client import open_tinyshare_pro
+
+        pro = open_tinyshare_pro(token)
         # tinyshare 兼容 tushare SDK；优先 typed 方法，回退通用 query 接口
         fetcher_fn = getattr(pro, "limit_list_d", None) or (
             lambda **kw: pro.query("limit_list_d", **kw)

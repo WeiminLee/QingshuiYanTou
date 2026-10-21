@@ -168,6 +168,94 @@ async def _concept_limit_has_date(d: date) -> bool:
         return result.scalar_one_or_none() is not None
 
 
+def latest_weekday_without_kline(
+    today: date,
+    dates_with_kline: set[date],
+    *,
+    include_today: bool,
+    lookback_days: int = 4,
+) -> date | None:
+    """近窗里最晚一个没有日线的工作日。
+
+    窗口内完全没有日线（长假）返回 None，避免把休市叫成故障。
+    窗口内已有行情、却缺某个工作日时返回该日：这是 K 线失败被当成休市的口子。
+    """
+    end = today if include_today else today - timedelta(days=1)
+    start = today - timedelta(days=lookback_days)
+    if end < start:
+        return None
+    window: list[date] = []
+    cursor = start
+    while cursor <= end:
+        window.append(cursor)
+        cursor += timedelta(days=1)
+    if not any(day in dates_with_kline for day in window):
+        return None
+    missing = [day for day in window if day.weekday() < 5 and day not in dates_with_kline]
+    if not missing:
+        return None
+    return max(missing)
+
+
+async def _recent_kline_dates(today: date, lookback_days: int) -> set[date]:
+    start = today - timedelta(days=lookback_days)
+    async with engine.connect() as conn:
+        result = await conn.execute(
+            text(
+                """
+                SELECT DISTINCT trade_date
+                FROM daily_data
+                WHERE trade_date >= :start AND trade_date <= :today
+                """
+            ),
+            {"start": start, "today": today},
+        )
+        found: set[date] = set()
+        for row in result:
+            value = row[0]
+            if isinstance(value, datetime):
+                value = value.date()
+            if isinstance(value, date):
+                found.add(value)
+        return found
+
+
+async def _weekday_kline_gap(today: date, *, include_today: bool) -> date | None:
+    dates = await _recent_kline_dates(today, 4)
+    return latest_weekday_without_kline(
+        today,
+        dates,
+        include_today=include_today,
+        lookback_days=4,
+    )
+
+
+async def _alert_concept_kline_gap(gap: date, task_name: str) -> None:
+    """工作日无日线时记失败。单日休市也会响一次，消息里写明可以忽略。"""
+    from app.data_pipeline.dingtalk import notify_task_failed
+    from app.data_pipeline.monitor import (
+        TaskStatus,
+        init_monitor,
+        record_task_result,
+        record_task_start,
+    )
+
+    message = (
+        f"工作日 {gap.isoformat()} 无日线，概念作业已跳过。"
+        "若当天休市可忽略；若是交易日，则是 K 线失败导致概念数据缺失。"
+    )
+    logger.error("[concept_eod] %s", message)
+    await init_monitor()
+    run_id = await record_task_start(task_name)
+    await record_task_result(
+        task_name,
+        TaskStatus.FAILED,
+        error_message=message,
+        **_run_id_kwarg(run_id),
+    )
+    await notify_task_failed("概念热度", message)
+
+
 async def _is_trading_day_by_daily_data(d: date) -> bool:
     """以 daily_data 作交易日历：当日有日线行即视为交易日。
 
@@ -304,30 +392,34 @@ async def _run_concept_job() -> None:
         record_task_start,
     )
 
-    await init_monitor()
-    run_id = await record_task_start("concept")
-    await notify_task_start("概念热度同步")
-
     try:
         result = await _fetch_concept_fn()
-        await record_task_result(
-            "concept",
-            TaskStatus.SUCCESS if result.get("fail", 0) == 0 else TaskStatus.PARTIAL,
-            total=result.get("success", 0) + result.get("fail", 0),
-            success=result.get("success", 0),
-            fail=result.get("fail", 0),
-            **_run_id_kwarg(run_id),
-        )
-        await notify_task_success(
-            "概念热度同步",
-            result.get("success", 0) + result.get("fail", 0),
-            result.get("success", 0),
-            result.get("fail", 0),
-        )
     except Exception as e:
+        await init_monitor()
+        run_id = await record_task_start("concept")
         await record_task_result("concept", TaskStatus.FAILED, error_message=str(e), **_run_id_kwarg(run_id))
         await notify_task_failed("概念热度同步", str(e))
         raise
+
+    success = result.get("success", 0)
+    fail = result.get("fail", 0)
+    # 涨停列表约 18:00 才发布。盘中 0 行是常态，记 SUCCESS 会把「没数据」看成健康。
+    if success == 0 and fail == 0:
+        logger.info("[concept] 盘中写入 0 行（涨停列表收盘后才发布），不记成功")
+        return
+
+    await init_monitor()
+    run_id = await record_task_start("concept")
+    await notify_task_start("概念热度同步")
+    await record_task_result(
+        "concept",
+        TaskStatus.SUCCESS if fail == 0 else TaskStatus.PARTIAL,
+        total=success + fail,
+        success=success,
+        fail=fail,
+        **_run_id_kwarg(run_id),
+    )
+    await notify_task_success("概念热度同步", success + fail, success, fail)
 
 
 async def _run_concept_eod_job() -> None:
@@ -336,15 +428,19 @@ async def _run_concept_eod_job() -> None:
     交易时段内 concept_hourly 拿不到当日数据（limit_list_d 收盘后才发布，
     实测 ≈18:00），本作业在首跑 18:30 + 重试档位补跑；**当日已入库则直接跳过**
     （重试命中即停，且不向数据源发重复请求，规避 tinyshare 授权码并发占用）。
-    写入 0 行时显式 warn，不再把「静默空跑」记成成功。
+    写入 0 行时记 FAILED 并告警，不再把空跑记成成功。
     """
     today = datetime.now(TRADING_TZ).date()
     if await _concept_limit_has_date(today):
         logger.info("[concept_eod] 今日 %s 概念热度已入库，跳过本次执行", today)
         return
     if not await _is_trading_day_by_daily_data(today):
-        # 非交易日（周末/法定节假日/调休休市）静默跳过：不请求数据源、不告警、
-        # 不写 monitor——「休市被记成异常」与「0 行记成成功」同为反向噪声。
+        # 周末和长假没有日线，静默跳过。近窗已有行情、唯独缺某个工作日时告警：
+        # 那是 K 线失败被当成休市，不是正常休市。
+        gap = await _weekday_kline_gap(today, include_today=True)
+        if gap is not None:
+            await _alert_concept_kline_gap(gap, "concept_eod")
+            return
         logger.info(
             "[concept_eod] 今日 %s 无日线数据（非交易日或行情未到），跳过且不告警", today
         )
@@ -371,20 +467,26 @@ async def _run_concept_eod_job() -> None:
         result = await _fetch_concept_fn()
         success = result.get("success", 0)
         fail = result.get("fail", 0)
+        empty = success == 0 and fail == 0
         await record_task_result(
             "concept_eod",
-            TaskStatus.SUCCESS if fail == 0 else TaskStatus.PARTIAL,
+            TaskStatus.FAILED if empty else (TaskStatus.SUCCESS if fail == 0 else TaskStatus.PARTIAL),
             total=success + fail,
             success=success,
             fail=fail,
+            error_message="写入 0 行：当日涨停列表未发布或当日无涨停" if empty else "",
             **_run_id_kwarg(run_id),
         )
-        await notify_task_success("概念热度收盘后补写", success + fail, success, fail)
-        if success == 0 and fail == 0:
+        if empty:
             logger.warning(
                 "[concept_eod] 写入 0 行：当日涨停列表未发布或当日无涨停，今日概念热度未入库"
             )
+            await notify_task_failed(
+                "概念热度收盘后补写",
+                "写入 0 行：当日涨停列表未发布或当日无涨停",
+            )
         else:
+            await notify_task_success("概念热度收盘后补写", success + fail, success, fail)
             logger.info(
                 "[concept_eod] 概念热度补写完成: 入库 %d, 失败 %d", success, fail
             )
@@ -397,7 +499,8 @@ async def _run_concept_eod_job() -> None:
 async def _run_concept_eod_catchup() -> None:
     """次日开盘前补漏：**条件执行**——查最近缺少概念数据的真实交易日再拉取。
 
-    交易日历 = daily_data（有日线行即交易日）：周末/法定节假日天然排除，完全静默；
+    交易日历 = daily_data（有日线行即交易日）：周末/长假静默。
+    近窗已有行情、却缺某个工作日的日线时记失败（K 线失败被当成休市）。
     只对「daily_data 有、concept_limit 无」的缺数据日调 fetch_concept(trade_date=...)，
     覆盖整晚未发布 / 数据源异常 / 当日 EOD 因行情缺失而跳过的漏日。没数据才去要数据，
     防止 tinyshare 授权码并发占用常态化。lookback 默认 10 天。
@@ -410,24 +513,38 @@ async def _run_concept_eod_catchup() -> None:
         record_task_start,
     )
 
+    today = datetime.now(TRADING_TZ).date()
     missing = await _concept_eod_missing_trade_date()
+    gap = await _weekday_kline_gap(today, include_today=False)
+    if gap is not None:
+        await _alert_concept_kline_gap(gap, "concept_eod_catchup")
     if missing is None:
-        logger.info("[concept_eod_catchup] 无缺失交易日，跳过")
+        if gap is None:
+            logger.info("[concept_eod_catchup] 无缺失交易日，跳过")
         return
     await init_monitor()
     run_id = await record_task_start("concept_eod_catchup")
     logger.info("[concept_eod_catchup] 交易日 %s 概念数据缺失，补拉", missing)
     try:
         result = await _fetch_concept_fn(trade_date=missing.strftime("%Y%m%d"))
+        success = result.get("success", 0)
+        fail = result.get("fail", 0)
+        empty = success == 0 and fail == 0
         logger.info("[concept_eod_catchup] 补写交易日 %s: %s", missing, result)
         await record_task_result(
             "concept_eod_catchup",
-            TaskStatus.SUCCESS if result.get("fail", 0) == 0 else TaskStatus.PARTIAL,
-            total=result.get("success", 0) + result.get("fail", 0),
-            success=result.get("success", 0),
-            fail=result.get("fail", 0),
+            TaskStatus.FAILED if empty else (TaskStatus.SUCCESS if fail == 0 else TaskStatus.PARTIAL),
+            total=success + fail,
+            success=success,
+            fail=fail,
+            error_message="写入 0 行：涨停列表未发布或当日无涨停" if empty else "",
             **_run_id_kwarg(run_id),
         )
+        if empty:
+            from app.data_pipeline.dingtalk import notify_task_failed
+
+            logger.warning("[concept_eod_catchup] 交易日 %s 写入 0 行", missing)
+            await notify_task_failed("概念热度次日补漏", f"{missing.isoformat()} 写入 0 行")
     except Exception as e:
         await record_task_result("concept_eod_catchup", TaskStatus.FAILED, error_message=str(e), **_run_id_kwarg(run_id))
         raise
@@ -609,7 +726,7 @@ async def _run_pdf_download_job() -> None:
 
 
 async def _run_news_job() -> None:
-    """财联社新闻定时同步（每 5 分钟）。"""
+    """多源快讯定时同步（每 5 分钟）：东财、华尔街见闻、同花顺、新浪滚动。"""
     from app.data_pipeline.monitor import (
         TaskStatus,
         init_monitor,
@@ -850,6 +967,15 @@ async def _run_kline_job() -> None:
 
     try:
         result = await sync_daily(scope=scope)
+        from scripts.sync_index_daily import sync_indices
+
+        index_result = await sync_indices()
+        result = {
+            "total": result.get("total", 0) + index_result.get("total", 0),
+            "ok": result.get("ok", 0) + index_result.get("ok", 0),
+            "fail": result.get("fail", 0) + index_result.get("fail", 0),
+            "saved": result.get("saved", 0) + index_result.get("saved", 0),
+        }
         await record_task_result(
             "kline",
             TaskStatus.SUCCESS if result.get("fail", 0) == 0 else TaskStatus.PARTIAL,

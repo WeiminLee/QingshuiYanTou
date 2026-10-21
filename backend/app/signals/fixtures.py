@@ -4,7 +4,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.signals.evidence_ingestion import _upsert_signal_records, extract_evidence_signal_records_with_kg
+from app.signals.evidence_ingestion import _upsert_signal_records
 from app.signals.kg_propagation import KGEdge, KGPath
 
 
@@ -43,11 +43,22 @@ async def _extract_fixture_records(
     evidence_items: list[dict[str, Any]],
     provider: StaticKGPathProvider,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """概念板夹具仍用规则抽取演示传导。公告和新闻的生产入库不走这里。"""
+    from app.signals.evidence_ingestion import (
+        build_kg_paths_by_subject,
+        evidence_to_source_payload,
+        extract_evidence_signal_records,
+    )
+    from app.signals.extractor import RuleSignalExtractor
+
     all_signals: list[dict[str, Any]] = []
     all_propagations: list[dict[str, Any]] = []
-
+    extractor = RuleSignalExtractor()
     for evidence in evidence_items:
-        signals, propagations = await extract_evidence_signal_records_with_kg(evidence, provider)
+        payload = evidence_to_source_payload(evidence)
+        candidates = extractor.extract(payload)
+        paths = await build_kg_paths_by_subject(candidates, provider)
+        signals, propagations = extract_evidence_signal_records(evidence, kg_paths_by_subject=paths)
         all_signals.extend(signals)
         all_propagations.extend(propagations)
     return all_signals, all_propagations

@@ -1,31 +1,62 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from datetime import UTC, datetime
 from decimal import Decimal
+from types import SimpleNamespace
 from typing import Any
 
 from sqlalchemy import desc, select
-from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.event import Event
-from app.signals.extractor import RuleSignalExtractor, SignalCandidate, SourcePayload, stable_signal_id
-from app.signals.kg_propagation import KGPath, KGPathProvider, build_kg_propagations
-from app.signals.models import Signal, SignalPropagation
-from app.signals.propagation import PropagationCandidate, build_lightweight_propagations
+from app.signals.event_sources import resolve_event_origin, signal_source_type_for_origin
+from app.signals.extractor import SignalCandidate, SourcePayload, stable_signal_id
+from app.signals.kg_propagation import KGPath, KGPathProvider
+from app.signals.propagation import PropagationCandidate
+
+
+def coerce_event(event: Any) -> Any:
+    """Accept an ORM row or a plain dict from the news writer."""
+    if not isinstance(event, dict):
+        return event
+    metadata = event.get("metadata_")
+    if metadata is None:
+        metadata = event.get("metadata") or {}
+    if isinstance(metadata, str):
+        try:
+            metadata = json.loads(metadata)
+        except json.JSONDecodeError:
+            metadata = {}
+    return SimpleNamespace(
+        event_id=str(event.get("event_id") or ""),
+        title=event.get("title") or "",
+        summary=event.get("summary") or "",
+        content=event.get("content") or "",
+        publish_at=event.get("publish_at"),
+        url=event.get("url"),
+        source=event.get("source") or "news",
+        metadata_=metadata if isinstance(metadata, dict) else {},
+    )
 
 
 def event_to_source_payload(event: Any) -> SourcePayload:
+    event = coerce_event(event)
+    raw_source = str(getattr(event, "source", None) or "news")
+    origin = resolve_event_origin(raw_source)
+    metadata = dict(getattr(event, "metadata_", None) or {})
+    metadata["event_origin"] = origin
+    metadata["raw_source"] = raw_source
     return SourcePayload(
-        source_type="news",
+        source_type=signal_source_type_for_origin(origin),
         source_id=str(event.event_id),
         title=event.title or "",
         content=event.content or "",
         summary=event.summary or "",
         published_at=event.publish_at,
         url=event.url,
-        metadata=dict(getattr(event, "metadata_", None) or {}),
+        metadata=metadata,
     )
 
 
@@ -87,20 +118,9 @@ def extract_event_signal_records(
     *,
     kg_paths_by_subject: dict[str, list[KGPath]] | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    payload = event_to_source_payload(event)
-    candidates = RuleSignalExtractor().extract(payload)
-    signals: list[dict[str, Any]] = []
-    propagations: list[dict[str, Any]] = []
-    for candidate in candidates:
-        signal_values = _signal_values(candidate)
-        signals.append(signal_values)
-        kg_paths = (kg_paths_by_subject or {}).get(candidate.subject_name, [])
-        propagation_candidates = build_kg_propagations(candidate, kg_paths) if kg_paths else []
-        if not propagation_candidates:
-            propagation_candidates = build_lightweight_propagations(candidate)
-        for propagation in propagation_candidates:
-            propagations.append(_propagation_values(signal_values["signal_id"], propagation))
-    return signals, propagations
+    """同步入口已关闭。事件 signal 只经研究推导。"""
+    del event, kg_paths_by_subject
+    raise RuntimeError("新闻、资讯和事件的 signal 必须经 extract_event_signal_records_with_kg 做研究推导，不能用规则抽取。")
 
 
 async def build_event_kg_paths_by_subject(
@@ -119,50 +139,32 @@ async def build_event_kg_paths_by_subject(
 async def extract_event_signal_records_with_kg(
     event: Any,
     provider: KGPathProvider | None = None,
+    *,
+    llm: Any = None,
+    prior_lines: list[str] | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    payload = event_to_source_payload(event)
-    candidates = RuleSignalExtractor().extract(payload)
-    kg_paths_by_subject = await build_event_kg_paths_by_subject(candidates, provider)
-    return extract_event_signal_records(event, kg_paths_by_subject=kg_paths_by_subject)
+    """研究推导之后才有 signal。没有新的一层时返回空，不附带规则传导。"""
+    del provider
+    from app.signals.research_derivation import derive_candidates, records_from_candidates
+
+    outcome = await derive_candidates(event_to_source_payload(event), llm=llm, prior_lines=prior_lines)
+    return records_from_candidates(outcome.candidates), []
 
 
 async def backfill_event_signals(session: AsyncSession, *, limit: int = 200) -> dict[str, int]:
+    from app.signals.evidence_ingestion import _upsert_signal_records
+    from app.signals.research_derivation import derive_candidates, records_from_candidates
+
     result = await session.execute(select(Event).order_by(desc(Event.publish_at)).limit(limit))
     events = result.scalars().all()
+    payloads = [event_to_source_payload(event) for event in events]
+    await session.rollback()
 
-    signals_upserted = 0
-    propagations_upserted = 0
-    for event in events:
-        signals, propagations = await extract_event_signal_records_with_kg(event)
-        for values in signals:
-            stmt = insert(Signal).values(**values)
-            stmt = stmt.on_conflict_do_update(
-                index_elements=["signal_id"],
-                set_={
-                    "detected_at": values["detected_at"],
-                    "freshness_score": values["freshness_score"],
-                    "value_score": values["value_score"],
-                    "summary": values["summary"],
-                    "evidence_excerpt": values["evidence_excerpt"],
-                    "metadata": values["metadata_"],
-                },
-            )
-            await session.execute(stmt)
-            signals_upserted += 1
-        for values in propagations:
-            stmt = insert(SignalPropagation).values(**values)
-            stmt = stmt.on_conflict_do_update(
-                index_elements=["propagation_id"],
-                set_={
-                    "confidence": values["confidence"],
-                    "reasoning": values["reasoning"],
-                    "evidence_refs": values["evidence_refs"],
-                    "metadata": values["metadata_"],
-                },
-            )
-            await session.execute(stmt)
-            propagations_upserted += 1
-
+    records: list[dict[str, Any]] = []
+    for payload in payloads:
+        outcome = await derive_candidates(payload)
+        records.extend(records_from_candidates(outcome.candidates))
+    signals_upserted, propagations_upserted = await _upsert_signal_records(session, records, [])
     await session.commit()
     return {
         "events_scanned": len(events),

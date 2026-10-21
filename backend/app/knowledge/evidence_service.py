@@ -12,10 +12,10 @@ from pymongo import ReturnDocument, UpdateOne
 from app.config import settings
 from app.core.mongodb import get_mongo_db
 from app.knowledge.evidence import (
+    DEFAULT_JOB_TYPES,
     EVIDENCE_COLLECTION,
     EXTRACTION_JOBS_COLLECTION,
     EXTRACTOR_VERSION,
-    JOB_LINK,
     JOB_SIGNAL,
     JOB_VECTOR,
     STATUS_DONE,
@@ -179,8 +179,8 @@ class EvidenceService:
 
     async def enqueue_default_jobs(self, evidence_id: str) -> list[dict[str, Any]]:
         jobs = []
-        jobs.append(await self.enqueue_job(evidence_id, JOB_VECTOR))
-        jobs.append(await self.enqueue_job(evidence_id, JOB_LINK))
+        for job_type in DEFAULT_JOB_TYPES:
+            jobs.append(await self.enqueue_job(evidence_id, job_type))
         return jobs
 
     # ── 批量写入 ────────────────────────────────────────────────
@@ -222,6 +222,7 @@ class EvidenceService:
                 "created_at": now,
                 "extraction_status": {
                     JOB_VECTOR: STATUS_PENDING,
+                    JOB_SIGNAL: STATUS_PENDING,
                     "last_extracted_at": None,
                     "extractor_version": EXTRACTOR_VERSION,
                 },
@@ -244,7 +245,7 @@ class EvidenceService:
             return 0
         await self.ensure_indexes()
         now = _utc_now()
-        job_types = [JOB_VECTOR, JOB_LINK]
+        job_types = DEFAULT_JOB_TYPES
         operations = []
         for evidence_id in evidence_ids:
             for job_type in job_types:

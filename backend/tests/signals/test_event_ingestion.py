@@ -13,7 +13,7 @@ os.environ.setdefault("MASTER_PASSWORD", "test-master-pass-1234")
 os.environ.setdefault("API_KEY", "test-api-key")
 
 from app.signals.api import router
-from app.signals.event_ingestion import event_to_source_payload, extract_event_signal_records
+from app.signals.event_ingestion import event_to_source_payload
 from app.utils.auth import verify_api_key
 
 
@@ -34,25 +34,6 @@ def test_event_to_source_payload_preserves_news_fields():
     assert payload.source_id == "EV:policy"
     assert payload.title == "十五五规划强调算力基础设施"
     assert payload.metadata["tags"] == ["算力概念"]
-
-
-def test_extract_event_signal_records_links_propagations_to_signal_ids():
-    event = SimpleNamespace(
-        event_id="EV:policy",
-        title="十五五规划强调算力基础设施，大厂资本开支显著增加",
-        summary="",
-        content="十五五规划强调算力基础设施建设，多家大公司资本开支显著增加。",
-        publish_at=datetime(2026, 7, 14, tzinfo=UTC),
-        url=None,
-        metadata_={"tags": ["算力概念"]},
-    )
-
-    signals, propagations = extract_event_signal_records(event)
-
-    assert {s["signal_type"] for s in signals} >= {"policy", "capex"}
-    assert all(s["signal_id"].startswith("SIG:") for s in signals)
-    assert propagations
-    assert {p["signal_id"] for p in propagations}.issubset({s["signal_id"] for s in signals})
 
 
 @pytest.mark.asyncio

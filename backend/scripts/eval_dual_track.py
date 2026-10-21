@@ -5,7 +5,7 @@ Historical name `eval_dual_track` kept for path stability; there is **no**
 old LangChain `/api/v1/agent/*` track anymore (removed 2026-10-10).
 
 Acceptance gates (harness-only):
-1. Pass rate on `expected_gap_cases_v1.json` meets owner bar
+1. Pass rate on `expected_gap_cases_v2.json` (11 cases) meets owner bar
 2. Failed cases have locatable tool/trace reasons
 3. Embedding must not depend on a Mac tunnel
 4. ≥ N (default 3) scheduled eval runs with no regression
@@ -84,6 +84,10 @@ def load_cases(path: Path) -> list[dict[str, Any]]:
     return data
 
 
+# CWD-independent: this file lives in backend/scripts/, cases in backend/eval/.
+DEFAULT_CASES = Path(__file__).resolve().parent.parent / "eval" / "expected_gap_cases_v2.json"
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description=__doc__,
@@ -92,7 +96,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--cases",
         type=Path,
-        default=Path("eval/expected_gap_cases_v1.json"),
+        default=DEFAULT_CASES,
     )
     parser.add_argument(
         "--mode",

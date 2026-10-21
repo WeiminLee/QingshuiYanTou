@@ -11,6 +11,7 @@ from typing import Any
 from app.config import settings
 from app.knowledge.evidence import (
     JOB_LINK,
+    JOB_SIGNAL,
     JOB_VECTOR,
     STATUS_DONE,
     STATUS_FAILED,
@@ -215,9 +216,9 @@ def test_upsert_evidence_auto_enqueues_default_jobs(monkeypatch) -> None:
         svc = _service()
         ev = await svc.upsert_evidence(_input(), chunk_index=0)
 
-        assert await svc._jobs.count_documents({}) == 2
+        assert await svc._jobs.count_documents({}) == 3
         jobs = svc._jobs.docs
-        assert {job["job_type"] for job in jobs} == {JOB_VECTOR, JOB_LINK}
+        assert {job["job_type"] for job in jobs} == {JOB_VECTOR, JOB_LINK, JOB_SIGNAL}
         assert all(job["evidence_id"] == ev["evidence_id"] for job in jobs)
 
     asyncio.run(main())
@@ -229,9 +230,9 @@ def test_enqueue_default_jobs_is_idempotent(monkeypatch) -> None:
         ev = await svc.upsert_evidence(_input())
         jobs1 = await svc.enqueue_default_jobs(ev["evidence_id"])
         jobs2 = await svc.enqueue_default_jobs(ev["evidence_id"])
-        assert {j["job_type"] for j in jobs1} == {JOB_VECTOR, JOB_LINK}
+        assert {j["job_type"] for j in jobs1} == {JOB_VECTOR, JOB_LINK, JOB_SIGNAL}
         assert [j["job_id"] for j in jobs1] == [j["job_id"] for j in jobs2]
-        assert await svc._jobs.count_documents({}) == 2
+        assert await svc._jobs.count_documents({}) == 3
 
     asyncio.run(main())
 
@@ -240,15 +241,37 @@ def test_bulk_enqueue_jobs_includes_link_and_is_idempotent(monkeypatch) -> None:
     async def main():
         svc = _service()
         upserted = await svc.bulk_enqueue_jobs(["EV:a", "EV:b"])
-        assert upserted == 4
+        assert upserted == 6
         jobs = svc._jobs.docs
-        assert {job["job_type"] for job in jobs} == {JOB_VECTOR, JOB_LINK}
+        assert {job["job_type"] for job in jobs} == {JOB_VECTOR, JOB_LINK, JOB_SIGNAL}
         assert all(job["status"] == STATUS_PENDING for job in jobs)
         assert all(job["evidence_id"] in {"EV:a", "EV:b"} for job in jobs)
         # 幂等：重复入队不新增
         upserted_again = await svc.bulk_enqueue_jobs(["EV:a", "EV:b"])
         assert upserted_again == 0
-        assert await svc._jobs.count_documents({}) == 4
+        assert await svc._jobs.count_documents({}) == 6
+
+    asyncio.run(main())
+
+
+def test_announcement_and_irm_both_enqueue_signal_jobs() -> None:
+    async def main():
+        svc = _service()
+        for source_type in ("announcement", "irm"):
+            ev = await svc.upsert_evidence(
+                EvidenceInput(
+                    source_type=source_type,
+                    source_name=source_type,
+                    source_id=source_type,
+                    text_excerpt=f"text-{source_type}",
+                    subject_hint={},
+                    source_ref={},
+                )
+            )
+            jobs = [job for job in svc._jobs.docs if job["evidence_id"] == ev["evidence_id"]]
+            kinds = {job["job_type"] for job in jobs}
+            assert JOB_LINK in kinds
+            assert JOB_SIGNAL in kinds
 
     asyncio.run(main())
 

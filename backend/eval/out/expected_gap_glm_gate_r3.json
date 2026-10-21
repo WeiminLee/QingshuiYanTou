@@ -1,0 +1,236 @@
+[
+  {
+    "case_id": "gap-wafer-margin-001",
+    "pass": true,
+    "tools": [
+      "skill",
+      "mcp__qingshui_data__data_readiness",
+      "mcp__qingshui_data__compare_metric",
+      "mcp__qingshui_data__lookup_players",
+      "mcp__qingshui_data__get_stock_profile",
+      "metric_trend",
+      "fetch_evidence",
+      "mcp__qingshui_data__pull_history",
+      "mcp__qingshui_data__semantic_search",
+      "mcp__qingshui_data__get_irm",
+      "mcp__qingshui_data__find_events",
+      "mcp__qingshui_data__get_announcement",
+      "grep",
+      "mcp__qingshui_data__history_findings",
+      "write_observation",
+      "write_finding"
+    ],
+    "reasons": []
+  },
+  {
+    "case_id": "gap-zj-margin-001",
+    "pass": true,
+    "tools": [
+      "skill",
+      "mcp__qingshui_data__data_readiness",
+      "mcp__qingshui_data__get_stock_profile",
+      "mcp__qingshui_data__compare_metric",
+      "mcp__qingshui_data__history_findings",
+      "mcp__qingshui_data__lookup_products",
+      "mcp__qingshui_data__pull_history",
+      "mcp__qingshui_data__fetch_evidence",
+      "metric_trend",
+      "mcp__qingshui_data__get_announcement",
+      "mcp__qingshui_data__semantic_search",
+      "mcp__qingshui_data__scan_dimension",
+      "mcp__qingshui_data__get_irm",
+      "mcp__qingshui_data__find_events",
+      "mcp__qingshui_data__get_kline",
+      "web_search",
+      "mcp__qingshui_data__lookup_players"
+    ],
+    "reasons": []
+  },
+  {
+    "case_id": "gap-degraded-ok-001",
+    "pass": true,
+    "tools": [
+      "skill",
+      "mcp__qingshui_data__data_readiness",
+      "mcp__qingshui_data__compare_metric",
+      "mcp__qingshui_data__fetch_evidence",
+      "mcp__qingshui_data__get_stock_profile",
+      "mcp__qingshui_data__history_findings",
+      "metric_trend"
+    ],
+    "reasons": []
+  },
+  {
+    "case_id": "gap-ledger-progress-001",
+    "pass": true,
+    "tools": [
+      "skill",
+      "mcp__qingshui_data__data_readiness",
+      "mcp__qingshui_data__history_findings",
+      "mcp__qingshui_data__pull_history",
+      "mcp__qingshui_data__lookup_products",
+      "grep",
+      "mcp__qingshui_data__get_irm",
+      "mcp__qingshui_data__get_announcement",
+      "metric_trend",
+      "fetch_evidence",
+      "semantic_search",
+      "mcp__qingshui_data__backlinks",
+      "write_observation",
+      "write_finding"
+    ],
+    "reasons": []
+  },
+  {
+    "case_id": "gap-ledger-reuse-001",
+    "pass": true,
+    "tools": [
+      "skill",
+      "mcp__qingshui_data__data_readiness",
+      "mcp__qingshui_data__watermark",
+      "mcp__qingshui_data__history_findings",
+      "mcp__qingshui_data__fetch_evidence",
+      "mcp__qingshui_data__pull_history",
+      "mcp__qingshui_data__get_announcement",
+      "mcp__qingshui_data__get_irm",
+      "mcp__qingshui_data__get_kline",
+      "grep",
+      "mcp__qingshui_data__find_events",
+      "mcp__qingshui_data__get_event_detail",
+      "mcp__qingshui_data__get_stock_profile",
+      "web_search",
+      "write_finding"
+    ],
+    "reasons": []
+  },
+  {
+    "case_id": "src-announcement-001",
+    "pass": true,
+    "tools": [
+      "skill",
+      "mcp__qingshui_data__data_readiness",
+      "mcp__qingshui_data__get_stock_profile",
+      "mcp__qingshui_data__get_announcement",
+      "mcp__qingshui_data__pull_history",
+      "mcp__qingshui_data__history_findings",
+      "mcp__qingshui_data__semantic_search",
+      "mcp__qingshui_data__fetch_evidence",
+      "grep",
+      "metric_trend",
+      "mcp__qingshui_data__get_kline",
+      "write_observation",
+      "mcp__qingshui_data__find_events",
+      "write_finding"
+    ],
+    "reasons": []
+  },
+  {
+    "case_id": "src-irm-001",
+    "pass": true,
+    "tools": [
+      "skill",
+      "mcp__qingshui_data__data_readiness",
+      "mcp__qingshui_data__get_irm",
+      "mcp__qingshui_data__semantic_search",
+      "mcp__qingshui_data__lookup_players",
+      "mcp__qingshui_data__history_findings",
+      "mcp__qingshui_data__pull_history",
+      "grep",
+      "mcp__qingshui_data__fetch_evidence",
+      "mcp__qingshui_data__watermark",
+      "write_observation",
+      "mcp__qingshui_data__search_findings",
+      "get_kline"
+    ],
+    "reasons": []
+  },
+  {
+    "case_id": "src-events-001",
+    "pass": true,
+    "tools": [
+      "skill",
+      "mcp__qingshui_data__data_readiness",
+      "mcp__qingshui_data__find_events",
+      "mcp__qingshui_data__get_top_concepts",
+      "mcp__qingshui_data__search_findings",
+      "mcp__qingshui_data__semantic_search",
+      "mcp__qingshui_data__fetch_evidence",
+      "mcp__qingshui_data__history_findings",
+      "mcp__qingshui_data__get_event_detail",
+      "mcp__qingshui_data__get_announcement",
+      "mcp__qingshui_data__pull_history",
+      "grep",
+      "write_observation",
+      "write_finding",
+      "get_kline",
+      "propagate_along"
+    ],
+    "reasons": []
+  },
+  {
+    "case_id": "catchup-concept-001",
+    "pass": true,
+    "tools": [
+      "skill",
+      "mcp__qingshui_data__data_readiness",
+      "mcp__qingshui_data__get_concept_stocks",
+      "mcp__qingshui_data__get_top_concepts",
+      "mcp__qingshui_data__get_kline",
+      "mcp__qingshui_data__get_stock_concepts",
+      "mcp__qingshui_data__find_events",
+      "mcp__qingshui_data__fetch_evidence",
+      "mcp__qingshui_data__history_findings",
+      "mcp__qingshui_data__get_stock_profile",
+      "mcp__qingshui_data__get_irm",
+      "mcp__qingshui_data__get_event_detail",
+      "mcp__qingshui_data__semantic_search",
+      "write_finding"
+    ],
+    "reasons": []
+  },
+  {
+    "case_id": "scan-dimension-001",
+    "pass": true,
+    "tools": [
+      "skill",
+      "todo_write",
+      "mcp__qingshui_data__data_readiness",
+      "mcp__qingshui_data__compare_metric",
+      "mcp__qingshui_data__scan_dimension",
+      "mcp__qingshui_data__search_findings",
+      "metric_trend",
+      "fetch_evidence",
+      "mcp__qingshui_data__pull_history",
+      "mcp__qingshui_data__get_stock_profile",
+      "mcp__qingshui_data__semantic_search",
+      "mcp__qingshui_data__watermark",
+      "mcp__qingshui_data__history_findings",
+      "grep",
+      "write_observation",
+      "write_finding"
+    ],
+    "reasons": []
+  },
+  {
+    "case_id": "gap-metric-newhigh-001",
+    "pass": true,
+    "tools": [
+      "skill",
+      "mcp__qingshui_data__data_readiness",
+      "mcp__qingshui_data__get_stock_profile",
+      "metric_trend",
+      "mcp__qingshui_data__history_findings",
+      "mcp__qingshui_data__fetch_evidence",
+      "mcp__qingshui_data__get_announcement",
+      "mcp__qingshui_data__get_irm",
+      "mcp__qingshui_data__pull_history",
+      "grep",
+      "mcp__qingshui_data__semantic_search",
+      "mcp__qingshui_data__find_events",
+      "web_search",
+      "write_observation",
+      "write_finding"
+    ],
+    "reasons": []
+  }
+]

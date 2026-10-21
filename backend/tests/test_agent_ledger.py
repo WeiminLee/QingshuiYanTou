@@ -26,6 +26,15 @@ def client():
     return TestClient(app)
 
 
+def test_confidence_from_support_count():
+    assert agent_ledger_ops._confidence_from_support_count(1) == 0.50
+    assert agent_ledger_ops._confidence_from_support_count(2) == 0.62
+    assert agent_ledger_ops._confidence_from_support_count(3) == 0.74
+    # 封顶 0.85，别装满
+    assert agent_ledger_ops._confidence_from_support_count(4) == 0.85
+    assert agent_ledger_ops._confidence_from_support_count(10) == 0.85
+
+
 # ── validate_supports：硬证据闸门 ─────────────────────────────
 
 

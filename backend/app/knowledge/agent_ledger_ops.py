@@ -92,6 +92,7 @@ def _finding_dict(row: Finding) -> dict:
         "to_state": row.to_state,
         "delta": row.delta,
         "supports": row.supports,
+        "support_count": len(row.supports or []),
         "contradicts": row.contradicts,
         "judgment": row.judgment,
         "confidence": row.confidence,
@@ -274,6 +275,14 @@ async def save_observation(
     return result
 
 
+def _confidence_from_support_count(n: int) -> float:
+    """无显式置信度时按证据锚点数推断：锚点越多越稳，但封顶不装满。
+
+    一条锚点只给 0.50，别让单条证据装成很确信。
+    """
+    return round(min(0.85, 0.38 + n * 0.12), 2)
+
+
 async def save_finding(
     *,
     subject_ts_code: str,
@@ -300,8 +309,19 @@ async def save_finding(
     errors = await validate_supports(supports)
     if errors:
         return {"ok": False, "errors": errors}
+    from app.knowledge.retrieval.entailment import entailment_errors
+
+    mismatch = await entailment_errors(
+        dimension=dimension,
+        judgment=judgment,
+        to_state=to_state,
+        supports=supports,
+    )
+    if mismatch:
+        return {"ok": False, "errors": mismatch}
 
     to_level = int((to_state or {}).get("level") or 0)
+    resolved_confidence = confidence if confidence is not None else _confidence_from_support_count(len(supports))
     obs_ids = ",".join(sorted({str(s.get("obs_id") or s.get("evidence_id")) for s in supports}))
     finding_id = make_finding_id(subject_ts_code, dimension, to_level, obs_ids)
     values = {
@@ -316,7 +336,7 @@ async def save_finding(
         "supports": supports,
         "contradicts": contradicts or [],
         "judgment": judgment,
-        "confidence": confidence,
+        "confidence": resolved_confidence,
         "status": "candidate",
         "supersedes": supersedes,
         "created_by": created_by,

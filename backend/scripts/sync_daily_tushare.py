@@ -53,10 +53,9 @@ def _get_tinyshare_api():
     if ts is None:
         raise RuntimeError("tinyshare 包未安装")
     token = os.environ.get("TUSHARE_TOKEN", "")
-    if not token:
-        raise RuntimeError("TUSHARE_TOKEN 未配置，请填写 tinyshare 授权码")
-    ts.set_token(token)
-    _TUSHARE_API = ts.pro_api()
+    from app.data_pipeline.tinyshare_client import open_tinyshare_pro
+
+    _TUSHARE_API = open_tinyshare_pro(token)
     return _TUSHARE_API
 
 logging.basicConfig(
@@ -72,6 +71,9 @@ PROGRESS_FILE = Path(__file__).parent / ".daily_tushare_progress"
 
 # 不支持的交易所后缀
 UNSUPPORTED_EXCHANGES = {"BJ", "NQ"}  # 北交所、新三板
+# pro.daily 只稳定覆盖 A 股。ETF/基金/转债/指数每天打出异常，把整轮 K 线记成 partial。
+_SH_EQUITY_PREFIXES = ("600", "601", "603", "605", "688", "689")
+_SZ_EQUITY_PREFIXES = ("000", "001", "002", "003", "300", "301")
 
 # 授权服务标称每分钟最多 500 次。按 0.25 秒间隔控制为最多 240 次/分钟，
 # 给调度器的其他 Tinyshare 调用留出余量，并避免并发 worker 在同一时刻突发请求。
@@ -82,9 +84,15 @@ _next_request_at = 0.0
 
 
 def _is_supported(ts_code: str) -> bool:
-    """判断是否支持获取 K 线数据。"""
-    suffix = ts_code.split(".")[-1]
-    return suffix not in UNSUPPORTED_EXCHANGES
+    """A 股股票才走 pro.daily。基金、转债、指数和北交所跳过。"""
+    code, _, suffix = ts_code.partition(".")
+    if suffix in UNSUPPORTED_EXCHANGES or not code:
+        return False
+    if suffix == "SH":
+        return code.startswith(_SH_EQUITY_PREFIXES)
+    if suffix == "SZ":
+        return code.startswith(_SZ_EQUITY_PREFIXES)
+    return False
 
 
 # ── 进度追踪 ──────────────────────────────────────────────
@@ -146,6 +154,15 @@ def _fetch_tinyshare(ts_code: str, start_date: str, end_date: str) -> list[dict]
         raise
 
 
+async def _pause_tinyshare_after_429(delay: float) -> None:
+    """429 后把全局限流槽推后，让其他 worker 一起停，而不是继续打。"""
+    global _next_request_at
+    async with _request_lock:
+        now = asyncio.get_running_loop().time()
+        _next_request_at = max(_next_request_at, now + delay)
+    await asyncio.sleep(delay)
+
+
 async def _wait_for_tinyshare_slot() -> None:
     """全局串行分配请求起始时刻，避免并发突发触发 429。"""
     global _next_request_at
@@ -168,7 +185,7 @@ async def _fetch_tinyshare_with_retry(ts_code: str, start_date: str, end_date: s
                 raise
             delay = 2 ** attempt
             logger.warning("Tinyshare 429 for %s, %ss 后重试 (%s/%s)", ts_code, delay, attempt, TINYSHARE_MAX_RETRIES)
-            await asyncio.sleep(delay)
+            await _pause_tinyshare_after_429(delay)
     raise RuntimeError("Tinyshare retry loop exhausted")
 
 

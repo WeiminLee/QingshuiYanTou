@@ -12,8 +12,71 @@ os.environ.setdefault("MASTER_PASSWORD", "test-master-pass-1234")
 os.environ.setdefault("API_KEY", "test-api-key")
 
 from app.signals.api import router
-from app.signals.evidence_ingestion import evidence_to_source_payload, extract_evidence_signal_records
+from app.signals.evidence_ingestion import (
+    evidence_to_source_payload,
+    extract_evidence_signal_records,
+    signal_conflict_updates,
+)
 from app.utils.auth import verify_api_key
+
+
+def test_existing_second_order_sentence_is_not_replaced():
+    updates = signal_conflict_updates(
+        {
+            "detected_at": datetime(2026, 10, 20, tzinfo=UTC),
+            "freshness_score": 80,
+            "value_score": 70,
+            "summary": "后一次更弱的句子",
+            "evidence_excerpt": "新摘录",
+            "metadata_": {"derivation": "second_order", "falsify": "依据不足"},
+        }
+    )
+    from sqlalchemy.dialects import postgresql
+
+    rendered = str(
+        updates["summary"].compile(
+            dialect=postgresql.dialect(),
+            compile_kwargs={"literal_binds": True},
+        )
+    )
+    assert "second_order" in rendered
+    assert "signals.summary" in rendered
+    assert "detected_at" in updates
+    assert "value_score" in updates
+
+
+def test_conflict_metadata_is_json_text_before_asyncpg_encodes_it():
+    """裸 dict 进 CASE 时 asyncpg 的 jsonb 编码会调用 .encode()，整批插入失败。"""
+    updates = signal_conflict_updates(
+        {
+            "detected_at": datetime(2026, 10, 20, tzinfo=UTC),
+            "freshness_score": 80,
+            "value_score": 70,
+            "summary": "后一次更弱的句子",
+            "evidence_excerpt": "新摘录",
+            "metadata_": {
+                "derivation": "second_order",
+                "event_origin": "eastmoney",
+                "raw_source": "eastmoney_flash",
+                "falsify": "依据不足",
+            },
+        }
+    )
+    from sqlalchemy.dialects.postgresql.asyncpg import PGDialect_asyncpg
+
+    dialect = PGDialect_asyncpg()
+    compiled = updates["metadata"].compile(dialect=dialect)
+    encoded = []
+    for bind in compiled.binds.values():
+        if not isinstance(bind.value, dict):
+            continue
+        processor = bind.type._cached_bind_processor(dialect)
+        assert processor is not None
+        serialized = processor(bind.value)
+        assert isinstance(serialized, str)
+        encoded.append(b"\x01" + serialized.encode())
+    assert encoded
+    assert b'"event_origin"' in encoded[0]
 
 
 def test_evidence_to_source_payload_preserves_announcement_fields():

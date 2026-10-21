@@ -3,6 +3,8 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
+from sqlalchemy import case, type_coerce
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.mongodb import get_mongo_db
@@ -84,7 +86,23 @@ async def build_kg_paths_by_subject(
 async def extract_evidence_signal_records_with_kg(
     evidence: dict[str, Any],
     provider: KGPathProvider | None = None,
+    *,
+    llm: Any = None,
+    prior_lines: list[str] | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    from app.signals.research_derivation import derive_candidates, evidence_needs_research, records_from_candidates
+
+    source_type = str(evidence.get("source_type") or "")
+    if evidence_needs_research(source_type):
+        # 公告 / IRM / 新闻：先推导。没有新层就不写，也不退回规则传导。
+        # 模型或水位查询失败要抛出，让 signal 任务重试；不能记成一次完成的空结果。
+        payload = evidence_to_source_payload(evidence)
+        outcome = await derive_candidates(payload, llm=llm, prior_lines=prior_lines)
+        if outcome.stats.get("derivation_failed"):
+            reason = ",".join(outcome.rejected) or "llm"
+            raise RuntimeError(f"signal derivation failed for {payload.source_id}: {reason}")
+        return records_from_candidates(outcome.candidates), []
+
     payload = evidence_to_source_payload(evidence)
     candidates = RuleSignalExtractor().extract(payload)
     kg_paths_by_subject = await build_kg_paths_by_subject(candidates, provider)
@@ -110,6 +128,23 @@ def _records_from_candidates(
     return signals, propagations
 
 
+def signal_conflict_updates(values: dict[str, Any]) -> dict[str, Any]:
+    """已有的二阶导句子保持原句。后一次推导只刷新时间与分数，不把句子改弱。
+
+    metadata 的 else 必须带 JSONB 类型。裸 dict 进 CASE 后，asyncpg 按 jsonb
+    参数调用 .encode()，整批插入失败，过门的句子被丢掉。
+    """
+    locked = Signal.metadata_["derivation"].astext == "second_order"
+    return {
+        "detected_at": values["detected_at"],
+        "freshness_score": values["freshness_score"],
+        "value_score": values["value_score"],
+        "summary": case((locked, Signal.summary), else_=values["summary"]),
+        "evidence_excerpt": case((locked, Signal.evidence_excerpt), else_=values["evidence_excerpt"]),
+        "metadata": case((locked, Signal.metadata_), else_=type_coerce(values["metadata_"], JSONB)),
+    }
+
+
 async def _upsert_signal_records(
     session: AsyncSession,
     signals: list[dict[str, Any]],
@@ -123,14 +158,7 @@ async def _upsert_signal_records(
         stmt = insert(Signal).values(**values)
         stmt = stmt.on_conflict_do_update(
             index_elements=["signal_id"],
-            set_={
-                "detected_at": values["detected_at"],
-                "freshness_score": values["freshness_score"],
-                "value_score": values["value_score"],
-                "summary": values["summary"],
-                "evidence_excerpt": values["evidence_excerpt"],
-                "metadata": values["metadata_"],
-            },
+            set_=signal_conflict_updates(values),
         )
         await session.execute(stmt)
         signals_upserted += 1

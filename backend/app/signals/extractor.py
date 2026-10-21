@@ -43,6 +43,19 @@ def _normalize_text(value: str | None) -> str:
 
 
 def stable_signal_id(candidate: SignalCandidate) -> str:
+    # 二阶导按「来源 + 主体 + 落地形式」定号。摘录或措辞改了，同一条通道不另起一行。
+    if candidate.metadata.get("derivation") == "second_order":
+        form = _normalize_text(str(candidate.metadata.get("landing_form") or ""))
+        if form:
+            raw = "|".join(
+                [
+                    candidate.source_type,
+                    candidate.source_id,
+                    _normalize_text(candidate.subject_name),
+                    form,
+                ]
+            )
+            return f"SIG:{hashlib.sha256(raw.encode('utf-8')).hexdigest()[:20]}"
     raw = "|".join(
         [
             candidate.source_type,

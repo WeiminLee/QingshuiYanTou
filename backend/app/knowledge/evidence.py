@@ -41,6 +41,8 @@ JOB_VECTOR = "vector"
 JOB_SIGNAL = "signal"
 JOB_LINK = "link"
 JOB_TYPES = frozenset({JOB_VECTOR, JOB_SIGNAL, JOB_LINK})
+# 向量和链接是信息抽取；signal 必须同时入队，结果另存 signals 表。
+DEFAULT_JOB_TYPES = (JOB_VECTOR, JOB_LINK, JOB_SIGNAL)
 
 STATUS_PENDING = "pending"
 STATUS_RUNNING = "running"

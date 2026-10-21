@@ -268,8 +268,121 @@ class KlineService:
 
         return result_map
 
+    async def get_market_snapshot(self, trade_date: str = "") -> dict[str, Any]:
+        """某一交易日的涨跌家数、两市成交额和主要指数收盘。"""
+        raw = trade_date.replace("-", "") if trade_date else ""
+        day = _parse_yyyymmdd(raw) if raw else None
+        async with engine.connect() as conn:
+            if day is None:
+                row = (
+                    await conn.execute(
+                        text(
+                            """
+                            SELECT MAX(d.trade_date)
+                            FROM daily_data d
+                            JOIN stocks s ON s.ts_code = d.ts_code
+                            WHERE s.name NOT LIKE '%指数%'
+                            """
+                        )
+                    )
+                ).fetchone()
+                day = row[0] if row else None
+            if day is None:
+                return shape_market_snapshot("", 0, 0, 0, None, [])
+            breadth = (
+                await conn.execute(
+                    text(
+                        """
+                        SELECT
+                            COUNT(*) FILTER (WHERE d.pct_chg > 0),
+                            COUNT(*) FILTER (WHERE d.pct_chg < 0),
+                            COUNT(*) FILTER (WHERE d.pct_chg = 0 OR d.pct_chg IS NULL),
+                            SUM(d.amount)
+                        FROM daily_data d
+                        JOIN stocks s ON s.ts_code = d.ts_code
+                        WHERE d.trade_date = :day
+                          AND s.name NOT LIKE '%指数%'
+                        """
+                    ),
+                    {"day": day},
+                )
+            ).fetchone()
+            index_rows = (
+                await conn.execute(
+                    text(
+                        """
+                        SELECT d.ts_code, s.name, d.close, d.pct_chg, d.amount
+                        FROM daily_data d
+                        JOIN stocks s ON s.ts_code = d.ts_code
+                        WHERE d.trade_date = :day
+                          AND d.ts_code = ANY(:codes)
+                        ORDER BY d.ts_code
+                        """
+                    ),
+                    {"day": day, "codes": list(SNAPSHOT_INDEX_CODES)},
+                )
+            ).fetchall()
+        up, down, flat, amount = breadth if breadth else (0, 0, 0, None)
+        indices = [
+            {
+                "ts_code": row[0],
+                "name": row[1],
+                "close": row[2],
+                "pct_chg": row[3],
+                "amount": row[4],
+            }
+            for row in index_rows
+        ]
+        return shape_market_snapshot(
+            day.strftime("%Y%m%d"),
+            int(up or 0),
+            int(down or 0),
+            int(flat or 0),
+            None if amount is None else float(amount),
+            indices,
+        )
+
 
 _kline_service: KlineService | None = None
+
+
+# daily_data.amount 单位是千元；1 亿元 = 100000 千元。
+AMOUNT_QIANYUAN_PER_YI = 100_000
+SNAPSHOT_INDEX_CODES: tuple[str, ...] = (
+    "000001.SH",
+    "399001.SZ",
+    "399006.SZ",
+    "000300.SH",
+    "000016.SH",
+    "000905.SH",
+    "000852.SH",
+    "000688.SH",  # 科创50，主页面「科创板」
+    "899050.BJ",  # 北证50，主页面「北交所」
+)
+
+
+def shape_market_snapshot(
+    trade_date: str,
+    up: int,
+    down: int,
+    flat: int,
+    amount_qianyuan: float | None,
+    indices: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """涨跌家数与两市成交额。成交额是个股 amount 合计，已排除名称含「指数」的行。"""
+    amount_yi = None
+    if amount_qianyuan is not None:
+        amount_yi = round(float(amount_qianyuan) / AMOUNT_QIANYUAN_PER_YI, 2)
+    return {
+        "trade_date": trade_date,
+        "up": up,
+        "down": down,
+        "flat": flat,
+        "amount_qianyuan": amount_qianyuan,
+        "amount_yi": amount_yi,
+        "amount_note": "两市个股成交额合计（daily_data.amount 为千元，amount_yi 为亿元），不含指数行。",
+        "indices": indices,
+    }
 
 
 def get_kline_service() -> KlineService:

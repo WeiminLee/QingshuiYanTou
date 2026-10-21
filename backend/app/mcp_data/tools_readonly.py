@@ -21,6 +21,7 @@ TOOL_NAMES: tuple[str, ...] = (
     "lookup_products",
     "get_kline",
     "get_stock_profile",
+    "get_market_snapshot",
     "data_readiness",
     # P0.5（2026-10-13）
     "get_announcement",
@@ -74,7 +75,9 @@ async def knowledge_request(
     headers = {"X-API-Key": knowledge_api_key(), "Content-Type": "application/json"}
     async with httpx.AsyncClient(timeout=timeout) as client:
         resp = await client.request(method, url, headers=headers, json=json_body, params=params)
-        resp.raise_for_status()
+        if resp.is_error:
+            detail = " ".join((resp.text or "").split())[:400]
+            raise RuntimeError(f"knowledge {method} {path} failed: {resp.status_code} {detail}")
         if not resp.content:
             return {}
         return resp.json()
@@ -176,6 +179,11 @@ async def get_stock_profile(ts_code: str) -> dict[str, Any]:
         "/api/v1/knowledge/market/stock_profile",
         params={"ts_code": ts_code},
     )
+
+
+async def get_market_snapshot(trade_date: str = "") -> dict[str, Any]:
+    params = {"trade_date": trade_date} if trade_date else None
+    return await knowledge_get("/api/v1/knowledge/market/snapshot", params=params)
 
 
 async def data_readiness() -> dict[str, Any]:
@@ -398,6 +406,16 @@ def register_tools(mcp: Any) -> None:
             await get_kline(ts_code=ts_code, start_date=start_date, end_date=end_date, freq=freq)
         )
 
+    @mcp.tool(name="get_market_snapshot")
+    async def _get_market_snapshot(trade_date: str = "") -> str:
+        """One session's breadth, two-market turnover, and major index closes.
+
+        trade_date is YYYYMMDD; empty means the latest stock session.
+        up/down/flat exclude rows whose stock name contains 指数.
+        amount_yi is the sum of stock amount (千元) converted to 亿元.
+        """
+        return _json_result(await get_market_snapshot(trade_date))
+
     @mcp.tool(name="get_stock_profile")
     async def _get_stock_profile(ts_code: str) -> str:
         """Company main-business profile."""
@@ -418,7 +436,10 @@ def register_tools(mcp: Any) -> None:
         end_date: str | None = None,
         page_size: int = 10,
     ) -> str:
-        """Search listed-company announcements (title-level; fetch_evidence for text)."""
+        """Search listed-company announcements (title-level; fetch_evidence for text).
+
+        start_date and end_date accept YYYYMMDD or YYYY-MM-DD.
+        """
         return _json_result(
             await get_announcement(
                 ts_code=ts_code,
@@ -437,7 +458,11 @@ def register_tools(mcp: Any) -> None:
         end_date: str | None = None,
         page_size: int = 20,
     ) -> str:
-        """Search 互动易 Q&A (investor-relations answers from listed companies)."""
+        """Search 互动易 Q&A (investor-relations answers from listed companies).
+
+        start_date and end_date accept YYYYMMDD or YYYY-MM-DD.
+        A bad parameter is ignored. The result still returns, with note explaining what was dropped.
+        """
         return _json_result(
             await get_irm(
                 ts_code=ts_code,

@@ -55,8 +55,15 @@ class EvidenceRequest(BaseModel):
 evidence_router = APIRouter(prefix="/api/v1/knowledge/evidence", tags=["知识 Worker"])
 @evidence_router.get("/{evidence_id}")
 async def evidence_get(evidence_id: str, x_api_key: str | None = Header(default=None)):
-    _auth(x_api_key); item = await EvidenceService().get_evidence(evidence_id)
-    if not item: raise HTTPException(404, "Evidence not found")
+    _auth(x_api_key)
+    from app.knowledge.retrieval.facts import lookup_registered_passage
+
+    passage = lookup_registered_passage(evidence_id)
+    if passage is not None:
+        return {"evidence_id": evidence_id, "text_excerpt": passage}
+    item = await EvidenceService().get_evidence(evidence_id)
+    if not item:
+        raise HTTPException(404, "Evidence not found")
     return item
 
 @evidence_router.post("/jobs/claim")

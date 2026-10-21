@@ -24,9 +24,16 @@ class _FakePro:
 class _FakeTinyShare:
     def __init__(self):
         self.token = None
+        self.url = ""
 
     def set_token(self, token):
         self.token = token
+
+    def set_url(self, url):
+        self.url = url
+
+    def get_url(self):
+        return self.url
 
     def pro_api(self):
         return _FakePro()
@@ -128,6 +135,7 @@ def _install_job_mocks(monkeypatch, fetch_result: dict) -> dict:
         "has_date": AsyncMock(return_value=False),
         "is_trading": AsyncMock(return_value=True),
         "missing": AsyncMock(return_value=None),
+        "kline_gap": AsyncMock(return_value=None),
     }
     monkeypatch.setattr(monitor, "record_task_start", m["start"])
     monkeypatch.setattr(monitor, "record_task_result", m["result"])
@@ -139,6 +147,7 @@ def _install_job_mocks(monkeypatch, fetch_result: dict) -> dict:
     monkeypatch.setattr(sched, "_concept_limit_has_date", m["has_date"])
     monkeypatch.setattr(sched, "_is_trading_day_by_daily_data", m["is_trading"])
     monkeypatch.setattr(sched, "_concept_eod_missing_trade_date", m["missing"])
+    monkeypatch.setattr(sched, "_weekday_kline_gap", m["kline_gap"])
     return m
 
 
@@ -183,6 +192,128 @@ def test_concept_eod_warns_on_zero_rows(monkeypatch, caplog):
     assert any("写入 0 行" in rec.message for rec in caplog.records), (
         "0 行必须显式 warn，不能静默记成功"
     )
+
+
+def test_concept_eod_zero_rows_is_failure_not_success(monkeypatch):
+    """交易日确认后写入 0 行必须记失败并告警，不能再记 SUCCESS。"""
+    from app.data_pipeline import scheduler as sched
+    from app.data_pipeline.monitor import TaskStatus
+
+    m = _install_job_mocks(monkeypatch, {"success": 0, "fail": 0, "skipped": 0})
+
+    asyncio.run(sched._run_concept_eod_job())
+
+    assert m["result"].await_args.args[1] == TaskStatus.FAILED
+    m["notify_success"].assert_not_awaited()
+    m["notify_failed"].assert_awaited()
+
+
+def test_concept_hourly_zero_rows_does_not_record_success(monkeypatch):
+    """盘中涨停列表尚未发布时，0 行不得记成概念同步成功。"""
+    from app.data_pipeline import scheduler as sched
+
+    m = _install_job_mocks(monkeypatch, {"success": 0, "fail": 0, "skipped": 0})
+    monkeypatch.setattr(sched, "_is_trading_hours", lambda: True)
+
+    asyncio.run(sched._run_concept_job())
+
+    m["start"].assert_not_awaited()
+    m["result"].assert_not_awaited()
+    m["notify_success"].assert_not_awaited()
+    m["notify_failed"].assert_not_awaited()
+
+
+def test_concept_eod_catchup_zero_rows_is_failure(monkeypatch):
+    from datetime import date
+
+    from app.data_pipeline import scheduler as sched
+    from app.data_pipeline.monitor import TaskStatus
+
+    m = _install_job_mocks(monkeypatch, {"success": 0, "fail": 0, "skipped": 0})
+    m["missing"].return_value = date(2026, 10, 16)
+
+    asyncio.run(sched._run_concept_eod_catchup())
+
+    assert m["result"].await_args.args[1] == TaskStatus.FAILED
+    m["notify_failed"].assert_awaited()
+
+
+def test_latest_weekday_without_kline_flags_friday_seen_on_monday():
+    from datetime import date
+
+    from app.data_pipeline.scheduler import latest_weekday_without_kline
+
+    # 周一回看：周四有日线、周五没有 → 周五是疑似 K 线失败，不是长假。
+    gap = latest_weekday_without_kline(
+        date(2026, 10, 19),
+        {date(2026, 10, 15)},
+        include_today=False,
+        lookback_days=4,
+    )
+    assert gap == date(2026, 10, 16)
+
+
+def test_latest_weekday_without_kline_stays_quiet_when_window_is_dark():
+    from datetime import date
+
+    from app.data_pipeline.scheduler import latest_weekday_without_kline
+
+    # 长假后窗口里没有任何日线：当作休市，不告警。
+    gap = latest_weekday_without_kline(
+        date(2026, 10, 8),
+        set(),
+        include_today=False,
+        lookback_days=4,
+    )
+    assert gap is None
+
+
+def test_latest_weekday_without_kline_ignores_complete_weekend():
+    from datetime import date
+
+    from app.data_pipeline.scheduler import latest_weekday_without_kline
+
+    gap = latest_weekday_without_kline(
+        date(2026, 10, 18),
+        {date(2026, 10, 14), date(2026, 10, 15), date(2026, 10, 16)},
+        include_today=True,
+        lookback_days=4,
+    )
+    assert gap is None
+
+
+def test_concept_eod_alerts_when_weekday_has_no_kline(monkeypatch):
+    """无日线不能再当成休市静默跳过：近窗有行情时要记失败。"""
+    from datetime import date
+
+    from app.data_pipeline import scheduler as sched
+    from app.data_pipeline.monitor import TaskStatus
+
+    m = _install_job_mocks(monkeypatch, {"success": 0, "fail": 0, "skipped": 0})
+    m["is_trading"].return_value = False
+    m["kline_gap"].return_value = date(2026, 10, 16)
+
+    asyncio.run(sched._run_concept_eod_job())
+
+    m["fetch"].assert_not_awaited()
+    assert m["result"].await_args.args[1] == TaskStatus.FAILED
+    m["notify_failed"].assert_awaited()
+
+
+def test_concept_catchup_alerts_kline_gap_without_fetch(monkeypatch):
+    from datetime import date
+
+    from app.data_pipeline import scheduler as sched
+    from app.data_pipeline.monitor import TaskStatus
+
+    m = _install_job_mocks(monkeypatch, {"success": 4, "fail": 0, "skipped": 0})
+    m["kline_gap"].return_value = date(2026, 10, 16)
+
+    asyncio.run(sched._run_concept_eod_catchup())
+
+    m["fetch"].assert_not_awaited()
+    assert m["result"].await_args.args[1] == TaskStatus.FAILED
+    m["notify_failed"].assert_awaited()
 
 
 def test_concept_eod_skips_when_today_already_exists(monkeypatch):

@@ -69,7 +69,7 @@ def _strip_thinking_tags(text: str) -> str:
     return text.strip()
 
 
-def _disable_thinking(kwargs: dict) -> None:
+def _disable_thinking(kwargs: dict, *, force: bool = False) -> None:
     """按后端类型关闭推理模型的 thinking，就地写入 kwargs。
 
     各后端关思考的协议不同，必须分别处理（写错等于没关，模型会持续吐思考链，
@@ -77,12 +77,17 @@ def _disable_thinking(kwargs: dict) -> None:
       · DeepSeek / MiniMax / pjlab 网关：extra_body["thinking"] = {"type": "disabled"}
       · vLLM（Qwen 系等）：chat_template_kwargs["enable_thinking"] = False
 
-    触发条件：显式配置 LLM_DISABLE_THINKING=true，或模型名命中已知推理模型。
+    触发条件：force=True，或显式配置 LLM_DISABLE_THINKING=true，或模型名命中已知推理模型。
     """
     from app.config import settings
 
     model = str(kwargs.get("model") or "").lower()
-    if not (getattr(settings, "llm_disable_thinking", False) or "deepseek" in model or "minimax" in model):
+    if not (
+        force
+        or getattr(settings, "llm_disable_thinking", False)
+        or "deepseek" in model
+        or "minimax" in model
+    ):
         return
 
     base_url = str(getattr(settings, "llm_base_url", "") or "").lower()
@@ -102,6 +107,7 @@ async def chat_async(
     thinking: bool = False,
     max_tokens: int | None = None,
     stream: bool = False,
+    force_disable_thinking: bool = False,
 ) -> str:
     """Async LLM 调用 — 不阻塞事件循环
 
@@ -121,7 +127,8 @@ async def chat_async(
         kwargs["max_tokens"] = max_tokens
     # 推理模型默认开启 thinking，不显式关闭会输出思考文字污染 JSON，且长文本下
     # 思考链会耗尽超时（实测 Qwen3.6 未关思考 16.7s vs 关闭 1.19s，约 14 倍差距）
-    _disable_thinking(kwargs)
+    # force_disable_thinking 只给必须拿到干净 JSON 的调用（signal 研究推导）。
+    _disable_thinking(kwargs, force=force_disable_thinking)
     if stream:
         kwargs["stream"] = True
         chunks: list[str] = []

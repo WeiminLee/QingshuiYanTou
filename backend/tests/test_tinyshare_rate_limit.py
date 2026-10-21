@@ -51,3 +51,37 @@ async def test_tinyshare_429_is_retried_not_reported_as_empty(monkeypatch):
 
     assert calls == 2
     assert rows == [{"ts_code": "600000.SH"}]
+
+
+@pytest.mark.asyncio
+async def test_429_pushes_the_global_slot_forward(monkeypatch):
+    """一次 429 要把全局限流槽推后，避免其他 worker 继续打满。"""
+    clock = {"now": 10.0}
+
+    class Loop:
+        def time(self):
+            return clock["now"]
+
+    async def fake_sleep(delay):
+        clock["now"] += delay
+
+    monkeypatch.setattr(asyncio, "get_running_loop", lambda: Loop())
+    monkeypatch.setattr(asyncio, "sleep", fake_sleep)
+    monkeypatch.setattr(mod, "_next_request_at", 10.0)
+
+    await mod._pause_tinyshare_after_429(2.0)
+
+    assert mod._next_request_at >= 12.0
+
+
+def test_daily_sync_skips_funds_bonds_and_extra_indices():
+    assert mod._is_supported("600519.SH")
+    assert mod._is_supported("000001.SZ")
+    assert mod._is_supported("300750.SZ")
+    assert mod._is_supported("688981.SH")
+    assert not mod._is_supported("159745.SZ")
+    assert not mod._is_supported("123165.SZ")
+    assert not mod._is_supported("511180.SH")
+    assert not mod._is_supported("563080.SH")
+    assert not mod._is_supported("399649.SZ")
+    assert not mod._is_supported("830001.BJ")

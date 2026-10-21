@@ -362,6 +362,15 @@ def test_kline_job_passes_scope_from_settings(monkeypatch):
         raising=False,
     )
 
+    async def fake_sync_indices():
+        return {"ok": 7, "fail": 0, "saved": 0, "total": 7}
+
+    monkeypatch.setattr(
+        "scripts.sync_index_daily.sync_indices",
+        fake_sync_indices,
+        raising=False,
+    )
+
     import app.data_pipeline.monitor as monitor
     monkeypatch.setattr(monitor, "init_monitor", AsyncMock())
     monkeypatch.setattr(monitor, "record_task_start", AsyncMock())
@@ -378,3 +387,36 @@ def test_kline_job_passes_scope_from_settings(monkeypatch):
     asyncio.run(scheduler_mod._run_kline_job())
 
     assert received["scope"] == "all"
+
+
+def test_kline_job_records_index_sync_failure(monkeypatch):
+    """个股成功不能盖住指数失败：指数 fail 必须进入本轮 K 线结果。"""
+    from app.data_pipeline import scheduler as scheduler_mod
+    from app.data_pipeline.monitor import TaskStatus
+
+    async def fake_sync_daily(*, scope):
+        return {"ok": 10, "skip": 0, "fail": 0, "saved": 10, "total": 10}
+
+    async def fake_sync_indices():
+        return {"ok": 5, "fail": 2, "saved": 5, "total": 7}
+
+    monkeypatch.setattr("scripts.sync_daily_tushare.sync_daily", fake_sync_daily, raising=False)
+    monkeypatch.setattr("scripts.sync_index_daily.sync_indices", fake_sync_indices, raising=False)
+
+    import app.data_pipeline.monitor as monitor
+
+    monkeypatch.setattr(monitor, "init_monitor", AsyncMock())
+    monkeypatch.setattr(monitor, "record_task_start", AsyncMock())
+    result = AsyncMock()
+    monkeypatch.setattr(monitor, "record_task_result", result)
+
+    import app.data_pipeline.dingtalk as dt
+
+    monkeypatch.setattr(dt, "notify_task_start", AsyncMock())
+    monkeypatch.setattr(dt, "notify_task_success", AsyncMock())
+    monkeypatch.setattr(dt, "notify_task_failed", AsyncMock())
+
+    asyncio.run(scheduler_mod._run_kline_job())
+
+    assert result.await_args.args[1] == TaskStatus.PARTIAL
+    assert result.await_args.kwargs["fail"] == 2

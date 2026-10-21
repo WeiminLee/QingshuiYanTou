@@ -8,6 +8,7 @@ ReportService - 研报/公告/互动易查询服务
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 from sqlalchemy import text
@@ -18,9 +19,17 @@ logger = logging.getLogger(__name__)
 
 
 def _parse_yyyymmdd(value: str | None) -> str | None:
-    if not value or len(value) < 8 or not value[:8].isdigit():
+    """YYYYMMDD 或 YYYY-MM-DD。对不上就不当筛选，避免把横线日期切坏。"""
+    if not value:
         return None
-    return f"{value[:4]}-{value[4:6]}-{value[6:8]}"
+    digits = re.sub(r"\D", "", value)
+    if len(digits) < 8 or not digits[:8].isdigit():
+        return None
+    compact = digits[:8]
+    month, day = int(compact[4:6]), int(compact[6:8])
+    if month < 1 or month > 12 or day < 1 or day > 31:
+        return None
+    return f"{compact[:4]}-{compact[4:6]}-{compact[6:8]}"
 
 
 class ReportService:

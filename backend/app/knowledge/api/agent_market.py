@@ -153,3 +153,17 @@ async def api_stock_concepts(
     require_api_key(x_api_key)
     async with async_session() as db:
         return await concept_api.get_stock_concepts(req.ts_code, db=db)
+
+
+@router.get("/snapshot")
+async def api_market_snapshot(
+    trade_date: str = Query(default="", max_length=10),
+    x_api_key: str | None = Header(default=None),
+):
+    """某一交易日的涨跌家数、两市成交额和主要指数。空日期取最新交易日。"""
+    require_api_key(x_api_key)
+    try:
+        return await get_kline_service().get_market_snapshot(trade_date)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("market snapshot failed")
+        raise HTTPException(500, f"tool failed: {exc}") from exc

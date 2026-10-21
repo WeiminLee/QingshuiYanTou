@@ -1,4 +1,6 @@
-from scripts.eval_dual_track import bare_tool_name, judge_case
+import json
+
+from scripts.eval_dual_track import DEFAULT_CASES, bare_tool_name, judge_case
 
 
 def test_judge_requires_tool_and_phrase():
@@ -40,3 +42,11 @@ def test_judge_must_call_any_of():
 def test_bare_tool_name():
     assert bare_tool_name("mcp__qingshui_data__compare_metric") == "compare_metric"
     assert bare_tool_name("compare_metric") == "compare_metric"
+
+
+def test_default_cases_is_v2_eleven():
+    """Direct eval_dual_track.py invocation must score v2 (11 cases), not v1 (3)."""
+    assert DEFAULT_CASES.name == "expected_gap_cases_v2.json"
+    assert DEFAULT_CASES.is_file()
+    cases = json.loads(DEFAULT_CASES.read_text(encoding="utf-8"))
+    assert len(cases) == 11

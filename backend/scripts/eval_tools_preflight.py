@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """B3 前置检查：金标轮开跑前核对「案例必调工具 ⊆ MCP 工具面 ∪ 插件本地工具面」。
 
-背景：MCP 21 只读工具在 dsh 属延迟挂载（首步请求仅 35 个裸名工具、无 mcp__ 前缀，
+背景：MCP 只读工具在 dsh 属延迟挂载（首步请求仅 35 个裸名工具、无 mcp__ 前缀，
 工具往返后才挂载 21 个 mcp__qingshui_data__*——见 request/header 快照 35→56）。
 另有 11 个**插件本地工具**（plugins/qingshui/src/tools.ts 注册、走 HTTP 端点，如
 metric_trend / rollup_metric / propagate_along / related_nodes / write_finding 等），
