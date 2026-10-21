@@ -35,7 +35,7 @@
 
 ## Part A · chemagent 数据面
 
-### Task A1: PDF 路径解析器
+### Task 1: PDF 路径解析器
 
 **Files:**
 - Create: `backend/app/knowledge/pdf_store.py`
@@ -85,7 +85,7 @@ git add backend/app/knowledge/pdf_store.py backend/tests/test_pdf_store.py
 git commit -m "feat(knowledge): resolve retained PDFs across legacy roots"
 ```
 
-### Task A2: 保留策略（不再删 + 轮转开关）
+### Task 2: 保留策略（不再删 + 轮转开关）
 
 **Files:**
 - Modify: `backend/app/data_pipeline/scheduler.py:833-849`（删除 unlink、改状态）
@@ -138,7 +138,7 @@ git add backend/app/data_pipeline/scheduler.py backend/app/config.py backend/tes
 git commit -m "feat(pipeline): retain announcement PDFs after evidence build"
 ```
 
-### Task A3: 统一 PDF 根目录
+### Task 3: 统一 PDF 根目录
 
 **Files:**
 - Modify: `backend/app/ops/worker_config.py:24`
@@ -176,9 +176,9 @@ Run: `cd backend && .venv/bin/python -m pytest tests/test_pdf_storage_root.py -q
 git commit -am "feat(deploy): pin PDF storage root to /data/qingshui/pdf"
 ```
 
-> 上线时仓库副本与 `/data/qingshui/docker-compose.yml` **两份都要改**（见 Task C1）。
+> 上线时仓库副本与 `/data/qingshui/docker-compose.yml` **两份都要改**（见 Task 12）。
 
-### Task A4: 文档聚合服务
+### Task 4: 文档聚合服务
 
 **Files:**
 - Create: `backend/app/knowledge/document_service.py`
@@ -230,7 +230,7 @@ def test_parse_range_rejects_bad_input():
 - [ ] **Step 4: 跑测试确认通过**
 - [ ] **Step 5: 提交** `feat(knowledge): aggregate announcement chapters into a document view`
 
-### Task A5: 文档接口
+### Task 5: 文档接口
 
 **Files:**
 - Create: `backend/app/knowledge/api/agent_documents.py`
@@ -248,7 +248,7 @@ def test_parse_range_rejects_bad_input():
 - [ ] **Step 4: 跑测试确认通过**
 - [ ] **Step 5: 提交** `feat(knowledge): expose read-only document endpoint`
 
-### Task A6: PDF 流接口（手动 Range）
+### Task 6: PDF 流接口（手动 Range）
 
 **Files:**
 - Modify: `backend/app/knowledge/api/agent_documents.py`（加 `/pdf`）
@@ -266,7 +266,7 @@ def test_parse_range_rejects_bad_input():
 - [ ] **Step 4: 跑测试确认通过**
 - [ ] **Step 5: 提交** `feat(knowledge): stream retained PDFs with range support`
 
-### Task A7: 回补脚本
+### Task 7: 回补脚本
 
 **Files:**
 - Create: `backend/scripts/backfill_announcement_pdfs.py`
@@ -308,7 +308,7 @@ def test_plan_download_is_idempotent(tmp_path):
 
 ## Part B · 本地交互层
 
-### Task B1: 插件代理路由（文档 + PDF）
+### Task 8: 插件代理路由（文档 + PDF）
 
 **Files:**
 - Create: `plugins/qingshui/src/document-route.ts`
@@ -334,7 +334,7 @@ Expected: 找不到 `./document-route.ts`
 - [ ] **Step 4: 跑测试确认通过**
 - [ ] **Step 5: 提交** `feat(plugin): proxy document and PDF routes`
 
-### Task B2: 产物状态与纯函数
+### Task 9: 产物状态与纯函数
 
 **Files:**
 - Create: `plugins/qingshui/src/client/artifact-store.ts`
@@ -357,12 +357,12 @@ Expected: 找不到 `./document-route.ts`
 - [ ] **Step 4: 跑测试确认通过**
 - [ ] **Step 5: 提交** `feat(client): add artifact reader state`
 
-### Task B3: 阅读器组件
+### Task 10: 阅读器组件
 
 **Files:**
 - Create: `plugins/qingshui/src/client/ArtifactReader.tsx`
 - Modify: `plugins/qingshui/src/client/theme.ts`（`.qs-art*` 样式）
-- Test: 无独立测试文件（组件行为在 Task B4 之后手工验收；纯逻辑已在 B2 覆盖）
+- Test: 无独立测试文件（组件行为在 Task 11 之后手工验收；纯逻辑已在 B2 覆盖）
 
 **Interfaces:**
 - Consumes: `artifact-store`、`GET /qingshui/document/<annId>`、`GET /qingshui/evidence/<EV:id>`、`GET /qingshui/pdf/<annId>`、`clampSpans`、`chapterLabel`。
@@ -376,7 +376,7 @@ Expected: 找不到 `./document-route.ts`
 - [ ] **Step 6: 样式**——三栏栅格、`@media (max-width: 1100px)` 收起 PDF 栏、`prefers-reduced-motion` 不加动画；窄屏 720px 下单栏切换。
 - [ ] **Step 7: 构建 + 提交** `feat(client): add full-screen artifact reader`
 
-### Task B4: 入口接线
+### Task 11: 入口接线
 
 **Files:**
 - Modify: `plugins/qingshui/src/client/index.ts`（注册 `shell.overlay`）
@@ -416,7 +416,7 @@ Expected: 构建通过、全绿；重启 `launchctl kickstart -k gui/$(id -u)/co
 
 ## Part C · 上线
 
-### Task C1: 部署、迁移 301 份、回补
+### Task 12: 部署、迁移 301 份、回补
 
 **Files:**
 - Modify: `/data/qingshui/docker-compose.yml`（chemagent 上的真实编排，非仓库副本）
