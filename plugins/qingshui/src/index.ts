@@ -89,8 +89,9 @@ export async function apply(
     const disposeSignals = installSignalRoute(server, { client: () => client })
     const disposeHealth = installHealthRoute(server, { client: () => client })
     const disposeLedger = installLedgerRoute(server, { client: () => client })
-    const disposeDocument = installDocumentRoute(server, { client: () => client })
-    const disposePdf = installPdfRoute(server, { client: () => client })
+    const log = (message: string): void => { ctx.logger.warn(message) }
+    const disposeDocument = installDocumentRoute(server, { client: () => client, log })
+    const disposePdf = installPdfRoute(server, { client: () => client, log })
     return () => {
       disposeEvidence()
       disposeMarket()

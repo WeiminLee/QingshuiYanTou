@@ -8,7 +8,7 @@
  * pdf.js sees 200/206/304/404/416 exactly as the backend produced them.
  */
 import { Readable } from 'node:stream'
-import { once } from 'node:events'
+import { pipeline } from 'node:stream/promises'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { KnowledgeClient } from './knowledge-client.ts'
 import { isLoopbackHostRequest } from './ev-route.ts'
@@ -18,6 +18,11 @@ export const PDF_ROUTE_PATH = '/qingshui/pdf'
 
 export type DocumentRouteDeps = {
   client: () => KnowledgeClient | undefined
+  /**
+   * Host-side diagnostics sink (defaults to console.warn). Messages never carry
+   * a path, ann_id, or body content — only an error code/name.
+   */
+  log?: (message: string) => void
 }
 
 /** Upstream response headers the browser is allowed to see, verbatim. */
@@ -28,7 +33,11 @@ const PDF_PASSTHROUGH_HEADERS = [
   'accept-ranges',
   'etag',
   'cache-control',
+  'content-disposition',
 ] as const
+
+/** Defense in depth: an ann_id is a flat key, never a path fragment. */
+const BAD_ANN_ID_RE = /[/\\]|\.\./
 
 function sendJson(res: ServerResponse, status: number, body: Record<string, unknown>): void {
   res.writeHead(status, {
@@ -54,6 +63,26 @@ function requestRange(req: IncomingMessage): string | undefined {
   return typeof value === 'string' && value !== '' ? value : undefined
 }
 
+/** Send the 400 for an unusable id. @returns true when the request was answered. */
+function rejectBadAnnId(res: ServerResponse, annId: string): boolean {
+  if (annId === '') {
+    sendJson(res, 400, { ok: false, error: 'missing ann_id' })
+    return true
+  }
+  if (BAD_ANN_ID_RE.test(annId)) {
+    sendJson(res, 400, { ok: false, error: 'bad ann_id' })
+    return true
+  }
+  return false
+}
+
+/** A log-safe error label: code when present, else the class name. */
+function errorLabel(error: unknown): string {
+  const code = (error as { code?: unknown } | null)?.code
+  if (typeof code === 'string' && code !== '') return code
+  return error instanceof Error && error.name !== '' ? error.name : 'unknown'
+}
+
 /**
  * Install the document aggregate proxy. @param webCtx - web server. @param deps - client accessor.
  * @returns disposer.
@@ -71,10 +100,7 @@ export function installDocumentRoute(
         return
       }
       const annId = annIdFrom(req.url ?? '/', DOCUMENT_ROUTE_PATH)
-      if (annId === '') {
-        sendJson(res, 400, { ok: false, error: 'missing ann_id' })
-        return
-      }
+      if (rejectBadAnnId(res, annId)) return
       const client = deps.client()
       if (client === undefined) {
         sendJson(res, 503, { ok: false, error: 'knowledge client not configured (missing API key)' })
@@ -112,10 +138,7 @@ export function installPdfRoute(
         return
       }
       const annId = annIdFrom(req.url ?? '/', PDF_ROUTE_PATH)
-      if (annId === '') {
-        sendJson(res, 400, { ok: false, error: 'missing ann_id' })
-        return
-      }
+      if (rejectBadAnnId(res, annId)) return
       const client = deps.client()
       if (client === undefined) {
         sendJson(res, 503, { ok: false, error: 'knowledge client not configured (missing API key)' })
@@ -136,22 +159,27 @@ export function installPdfRoute(
         const value = upstream.headers.get(name)
         if (value !== null) headers[name] = value
       }
-      res.writeHead(upstream.status, headers)
 
-      if (upstream.body === null) {
-        res.end()
-        return
-      }
+      const log = deps.log ?? ((message: string): void => { console.warn(message) })
       try {
-        const stream = Readable.fromWeb(upstream.body as Parameters<typeof Readable.fromWeb>[0])
-        for await (const chunk of stream) {
-          if (res.write(chunk as Uint8Array) === false) await once(res, 'drain')
+        res.writeHead(upstream.status, headers)
+        if (upstream.body === null) {
+          res.end()
+          return
         }
-      } catch {
+        // pipeline owns both ends from here: it honours backpressure, and on
+        // any failure (upstream error, client 'close' before 'drain') it
+        // destroys the transformed stream and the destination, which in turn
+        // cancels the undici body. No backend connection is left dangling.
+        await pipeline(Readable.fromWeb(upstream.body as Parameters<typeof Readable.fromWeb>[0]), res)
+      } catch (error: unknown) {
         // The browser went away mid-stream (or the upstream aborted): there is
-        // no status left to report, only the truncated response to close.
+        // no status left to report. Diagnostics stay host-side and carry no
+        // path or body content.
+        await upstream.body?.cancel().catch(() => {})
+        log(`qingshui: pdf proxy stream failed (${errorLabel(error)})`)
+        if (!res.writableEnded && !res.destroyed) res.end()
       }
-      if (!res.writableEnded && !res.destroyed) res.end()
     },
   })
 }

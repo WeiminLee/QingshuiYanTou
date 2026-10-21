@@ -7,7 +7,7 @@ import { execFile } from "node:child_process";
 import { homedir } from "node:os";
 import { defineTool } from "@deepseek-ai/dsh-tools";
 import { Readable } from "node:stream";
-import { once } from "node:events";
+import { pipeline } from "node:stream/promises";
 //#region src/config.ts
 const Config = z.object({
 	knowledgeBaseUrl: z.string().default("http://127.0.0.1:8080"),
@@ -2080,8 +2080,11 @@ const PDF_PASSTHROUGH_HEADERS = [
 	"content-range",
 	"accept-ranges",
 	"etag",
-	"cache-control"
+	"cache-control",
+	"content-disposition"
 ];
+/** Defense in depth: an ann_id is a flat key, never a path fragment. */
+const BAD_ANN_ID_RE = /[/\\]|\.\./;
 function sendJson(res, status, body) {
 	res.writeHead(status, {
 		"content-type": "application/json; charset=utf-8",
@@ -2102,6 +2105,30 @@ function requestRange(req) {
 	const value = Array.isArray(range) ? range[0] : range;
 	return typeof value === "string" && value !== "" ? value : void 0;
 }
+/** Send the 400 for an unusable id. @returns true when the request was answered. */
+function rejectBadAnnId(res, annId) {
+	if (annId === "") {
+		sendJson(res, 400, {
+			ok: false,
+			error: "missing ann_id"
+		});
+		return true;
+	}
+	if (BAD_ANN_ID_RE.test(annId)) {
+		sendJson(res, 400, {
+			ok: false,
+			error: "bad ann_id"
+		});
+		return true;
+	}
+	return false;
+}
+/** A log-safe error label: code when present, else the class name. */
+function errorLabel(error) {
+	const code = error?.code;
+	if (typeof code === "string" && code !== "") return code;
+	return error instanceof Error && error.name !== "" ? error.name : "unknown";
+}
 /**
 * Install the document aggregate proxy. @param webCtx - web server. @param deps - client accessor.
 * @returns disposer.
@@ -2119,13 +2146,7 @@ function installDocumentRoute(webCtx, deps) {
 				return;
 			}
 			const annId = annIdFrom(req.url ?? "/", DOCUMENT_ROUTE_PATH);
-			if (annId === "") {
-				sendJson(res, 400, {
-					ok: false,
-					error: "missing ann_id"
-				});
-				return;
-			}
+			if (rejectBadAnnId(res, annId)) return;
 			const client = deps.client();
 			if (client === void 0) {
 				sendJson(res, 503, {
@@ -2167,13 +2188,7 @@ function installPdfRoute(webCtx, deps) {
 				return;
 			}
 			const annId = annIdFrom(req.url ?? "/", PDF_ROUTE_PATH);
-			if (annId === "") {
-				sendJson(res, 400, {
-					ok: false,
-					error: "missing ann_id"
-				});
-				return;
-			}
+			if (rejectBadAnnId(res, annId)) return;
 			const client = deps.client();
 			if (client === void 0) {
 				sendJson(res, 503, {
@@ -2197,16 +2212,21 @@ function installPdfRoute(webCtx, deps) {
 				const value = upstream.headers.get(name);
 				if (value !== null) headers[name] = value;
 			}
-			res.writeHead(upstream.status, headers);
-			if (upstream.body === null) {
-				res.end();
-				return;
-			}
+			const log = deps.log ?? ((message) => {
+				console.warn(message);
+			});
 			try {
-				const stream = Readable.fromWeb(upstream.body);
-				for await (const chunk of stream) if (res.write(chunk) === false) await once(res, "drain");
-			} catch {}
-			if (!res.writableEnded && !res.destroyed) res.end();
+				res.writeHead(upstream.status, headers);
+				if (upstream.body === null) {
+					res.end();
+					return;
+				}
+				await pipeline(Readable.fromWeb(upstream.body), res);
+			} catch (error) {
+				await upstream.body?.cancel().catch(() => {});
+				log(`qingshui: pdf proxy stream failed (${errorLabel(error)})`);
+				if (!res.writableEnded && !res.destroyed) res.end();
+			}
 		}
 	});
 }
@@ -2253,8 +2273,17 @@ async function apply(ctx, config, deps = {}) {
 		const disposeSignals = installSignalRoute(server, { client: () => client });
 		const disposeHealth = installHealthRoute(server, { client: () => client });
 		const disposeLedger = installLedgerRoute(server, { client: () => client });
-		const disposeDocument = installDocumentRoute(server, { client: () => client });
-		const disposePdf = installPdfRoute(server, { client: () => client });
+		const log = (message) => {
+			ctx.logger.warn(message);
+		};
+		const disposeDocument = installDocumentRoute(server, {
+			client: () => client,
+			log
+		});
+		const disposePdf = installPdfRoute(server, {
+			client: () => client,
+			log
+		});
 		return () => {
 			disposeEvidence();
 			disposeMarket();
