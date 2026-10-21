@@ -9,7 +9,6 @@ from typing import Any
 
 from pymongo import ReturnDocument, UpdateOne
 
-from app.config import settings
 from app.core.mongodb import get_mongo_db
 from app.knowledge.evidence import (
     DEFAULT_JOB_TYPES,

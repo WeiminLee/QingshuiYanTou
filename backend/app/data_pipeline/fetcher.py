@@ -14,8 +14,6 @@ import random
 import re
 import uuid
 from datetime import UTC, date, datetime, timedelta
-from functools import partial
-from pathlib import Path
 from typing import Any
 
 import pytz

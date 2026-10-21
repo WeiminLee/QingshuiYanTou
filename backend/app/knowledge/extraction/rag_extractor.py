@@ -30,7 +30,6 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
-from app.core.llm_client import chat_async
 from app.knowledge.extraction.chunker import Chunk, chunk_by_token
 from app.knowledge.extraction.rag_prompts import (
     ENTITY_TYPES,
@@ -244,56 +243,6 @@ def _parse_json_output(raw_text: str) -> tuple[list[dict], list[dict], list[dict
         })
 
     return entities_out, relations_out, signals_out
-
-
-# ── 旧解析器（已废弃，保留空桩兼容导入）─────────────────────────────────────
-
-
-def _parse_tuple_record(record: str) -> list[str]:
-    """已废弃。保留空桩以避免 ImportError。"""
-    logger.warning("_parse_tuple_record is deprecated")
-    return []
-
-
-def _normalize_llm_output_line(line: str) -> str:
-    """已废弃。保留空桩以避免 ImportError。"""
-    return line.strip()
-
-
-def _parse_entity_relation_blocks(raw_text: str) -> tuple[dict, dict]:
-    """已废弃。保留空桩以避免 ImportError。"""
-    logger.warning("_parse_entity_relation_blocks is deprecated, use _parse_json_output instead")
-    return {}, {}
-
-
-def _parse_relates(raw_text: str) -> list[dict]:
-    """已废弃。保留空桩以避免 ImportError。"""
-    logger.warning("_parse_relates is deprecated, use _parse_json_output instead")
-    return []
-
-
-def _parse_metrics(raw_text: str) -> list[dict]:
-    """已废弃。保留空桩以避免 ImportError。"""
-    logger.warning("_parse_metrics is deprecated, use _parse_json_output instead")
-    return []
-
-
-def _parse_chunk_output(raw_text: str) -> tuple[dict, dict]:
-    """已废弃，保留兼容。直接调用 _parse_json_output。"""
-    logger.warning("_parse_chunk_output is deprecated, use _parse_json_output instead")
-    result = _parse_json_output(raw_text)
-    if result is None:
-        return {}, {}
-    entities, relations, _signals = result
-    # 转为旧的 (nodes dict, edges dict) 格式（兼容旧调用方）
-    nodes: dict = defaultdict(list)
-    edges: dict = defaultdict(list)
-    for e in entities:
-        nodes[e["entity_name"]].append(e)
-    for r in relations:
-        key = (r["src_id"], r["tgt_id"])
-        edges[key].append(r)
-    return dict(nodes), dict(edges)
 
 
 # ── LLM 调用（异步，非阻塞）─────────────────────────────────────────────────────

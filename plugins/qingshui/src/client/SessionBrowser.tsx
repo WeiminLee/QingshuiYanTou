@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { RESEARCH_MODULES, type ResearchModule } from './research-modules.ts'
-import { createAndOpenSession } from './session-actions.ts'
 import { groupSessionRows, sessionStamp, type SessionBucket } from './session-groups.ts'
 
 type SessionRow = {
@@ -216,12 +215,4 @@ export function SessionBrowser(props: SessionBrowserProps) {
       </nav>
     </div>
   )
-}
-
-/** Factory kept for tests — mirrors createAndOpenSession wiring. */
-export function wireCreateSession(sessions: {
-  create: (opts?: object) => Promise<string>
-  open: (id: string) => void
-}): () => Promise<string> {
-  return () => createAndOpenSession(sessions)
 }

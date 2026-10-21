@@ -12,7 +12,7 @@ HTTP 面见 app/knowledge/api/agent_ledger.py；MCP 第一期只读，写工具�
 from __future__ import annotations
 
 import logging
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy import select, update

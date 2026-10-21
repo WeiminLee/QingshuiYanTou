@@ -552,106 +552,6 @@ async def _run_concept_eod_catchup() -> None:
         raise
 
 
-async def _run_irm_job() -> None:
-    from app.data_pipeline.dingtalk import (
-        notify_task_failed,
-        notify_task_start,
-        notify_task_success,
-    )
-    from app.data_pipeline.fetcher import DataFetcher
-    from app.data_pipeline.monitor import (
-        TaskStatus,
-        init_monitor,
-        record_task_result,
-        record_task_start,
-    )
-
-    await init_monitor()
-    run_id = await record_task_start("irm")
-    await notify_task_start("互动易同步")
-
-    try:
-        # 优先使用 minishare 接口
-        result = await DataFetcher().fetch_irm()
-        await record_task_result(
-            "irm",
-            TaskStatus.SUCCESS if result.get("fail", 0) == 0 else TaskStatus.PARTIAL,
-            total=result.get("total", 0),
-            success=result.get("success", 0),
-            skipped=result.get("skipped", 0),
-            fail=result.get("fail", 0),
-            **_run_id_kwarg(run_id),
-        )
-        await notify_task_success(
-            "互动易同步",
-            result.get("total", 0),
-            result.get("success", 0),
-            result.get("fail", 0),
-        )
-    except Exception as e:
-        await record_task_result("irm", TaskStatus.FAILED, error_message=str(e), **_run_id_kwarg(run_id))
-        await notify_task_failed("互动易同步", str(e))
-        raise
-
-
-async def _run_cninfo_job() -> None:
-    """巨潮公告每日同步任务（Phase 03 plan 03-03，D-05 23:00 触发）。
-
-    优先使用 minishare 接口回补；只抓昨天的全市场公告，
-    入库时按 cninfo_id 去重；命中关键词的公告在线下载 PDF。
-    """
-    from app.data_pipeline.dingtalk import (
-        notify_task_failed,
-        notify_task_start,
-        notify_task_success,
-    )
-    from app.data_pipeline.fetcher import DataFetcher
-    from app.data_pipeline.monitor import (
-        TaskStatus,
-        init_monitor,
-        record_task_result,
-        record_task_start,
-    )
-
-    await init_monitor()
-    run_id = await record_task_start("cninfo")
-    await notify_task_start("巨潮公告同步")
-
-    try:
-        # 优先使用 minishare 接口
-        result = await DataFetcher().fetch_minishare_announcements()
-        await record_task_result(
-            "cninfo",
-            TaskStatus.SUCCESS if result.get("fail", 0) == 0 else TaskStatus.PARTIAL,
-            total=result.get("total", 0),
-            success=result.get("success", 0),
-            skipped=result.get("skipped", 0),
-            fail=result.get("fail", 0),
-            **_run_id_kwarg(run_id),
-        )
-        # notify_task_success 第三个位置参数语义是"成功数"，第四个是"失败数"。
-        # 这里把 PDF 下载条数作为附加观测：通过 notify 仍传 success/fail；
-        # downloaded 仅记录到 monitor / log，不改变 dingtalk 通知结构。
-        await notify_task_success(
-            "巨潮公告同步",
-            result.get("total", 0),
-            result.get("success", 0),
-            result.get("fail", 0),
-        )
-        logger.info(
-            "[cninfo] 巨潮公告完成: 总 %d 新增 %d 跳过 %d 下载 %d 失败 %d",
-            result.get("total", 0),
-            result.get("success", 0),
-            result.get("skipped", 0),
-            result.get("downloaded", 0),
-            result.get("fail", 0),
-        )
-    except Exception as e:
-        await record_task_result("cninfo", TaskStatus.FAILED, error_message=str(e), **_run_id_kwarg(run_id))
-        await notify_task_failed("巨潮公告同步", str(e))
-        raise
-
-
 async def _run_cninfo_enqueue_job() -> None:
     from app.data_pipeline.monitor import (
         TaskStatus,
@@ -896,67 +796,6 @@ def add_pdf_rotation_job(scheduler: AsyncIOScheduler) -> None:
     )
 
 
-# Phase 06: Batch reindex job
-BATCH_REINDEX_HOUR = 3
-BATCH_REINDEX_MINUTE = 0
-
-
-async def _run_batch_reindex_job() -> None:
-    """Nightly batch reindex of missing vector embeddings (Phase 06 D-07)."""
-    from app.data_pipeline.dingtalk import (
-        notify_task_failed,
-        notify_task_start,
-        notify_task_success,
-    )
-    from app.data_pipeline.monitor import (
-        TaskStatus,
-        init_monitor,
-        record_task_result,
-        record_task_start,
-    )
-    from app.knowledge.vector_ops import reindex_missing_vectors
-
-    await init_monitor()
-    run_id = await record_task_start("batch_reindex")
-    await notify_task_start("向量索引批量重刷")
-
-    try:
-        count = await reindex_missing_vectors(batch_size=100)
-        await record_task_result(
-            "batch_reindex",
-            TaskStatus.SUCCESS,
-            total=count,
-            success=count,
-            fail=0,
-            **_run_id_kwarg(run_id),
-        )
-        await notify_task_success(
-            "向量索引批量重刷",
-            count,
-            count,
-            0,
-        )
-        logger.info("[BatchReindex] Completed: %d records reindexed", count)
-    except Exception as e:
-        await record_task_result("batch_reindex", TaskStatus.FAILED, error_message=str(e), **_run_id_kwarg(run_id))
-        await notify_task_failed("向量索引批量重刷", str(e))
-        raise
-
-
-def add_batch_reindex_job(scheduler: AsyncIOScheduler) -> None:
-    """Register nightly batch reindex job idempotently."""
-    scheduler.add_job(
-        _run_batch_reindex_job,
-        CronTrigger(
-            hour=BATCH_REINDEX_HOUR,
-            minute=BATCH_REINDEX_MINUTE,
-            timezone=TIMEZONE,
-        ),
-        id="batch_reindex_daily",
-        replace_existing=True,
-    )
-
-
 async def _run_kline_job() -> None:
     """K 线日终任务：收盘后同步白名单股票的日线数据（tinyshare + 配置白名单）。"""
     from app.data_pipeline.backfill_config import load_backfill_settings, reset_settings_cache
@@ -1193,10 +1032,6 @@ class Scheduler:
             coalesce=True,
         )
         add_pdf_rotation_job(self._scheduler)
-        # batch_reindex 未注册：reindex_missing_vectors 尚未实现（缺 kg_extraction_index.vector_indexed
-        # 字段），且现网向量在抽取时已内联写入（evidence_worker / kg_extractor），无"缺失向量待补"场景。
-        # 若注册，每晚会向 monitor/钉钉误报 SUCCESS(count=0) 假成功。待 schema 落地后再启用 add_batch_reindex_job。
-        # add_batch_reindex_job(self._scheduler)
         self._scheduler.add_job(
             _run_sync_stocks_job,
             CronTrigger(

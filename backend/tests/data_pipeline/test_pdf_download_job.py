@@ -95,7 +95,7 @@ class FakeAsyncEngine:
 
 
 def test_pdf_download_job_payload_serializes_and_parses_stably() -> None:
-    _, job_handlers = _load_data_pipeline_modules()
+    _load_data_pipeline_modules()
     contract = sys.modules["app.data_pipeline.pdf_download_contract"]
 
     job = contract.PdfDownloadJobPayload(
@@ -118,7 +118,7 @@ def test_pdf_download_job_payload_serializes_and_parses_stably() -> None:
         "publish_date": "2026-09-01",
         "filename": "600000.SH-20260901.pdf",
     }
-    assert job_handlers.parse_pdf_download_job_payload(payload) == job
+    assert contract.PdfDownloadJobPayload.from_payload(payload) == job
 
 
 def test_pdf_download_job_enqueue_uses_source_id_as_dedup_key(monkeypatch) -> None:

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import hashlib
 import logging
-import uuid
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from typing import Any
@@ -13,13 +12,6 @@ from app.core.metadata import CURRENT_KG_PARSER_VERSION, CURRENT_KG_SCHEMA_VERSI
 from app.core.mongodb import get_mongo_db
 from app.knowledge.evidence_builders import build_irm_evidence_batch
 from app.knowledge.evidence_service import EvidenceService
-from app.knowledge.extraction.rag_extractor import extract_async as rag_extract_async
-from app.knowledge.vector_client import (
-    COLLECTION_QA,
-    VectorRecord,
-    get_embedding_model,
-    get_vector_client,
-)
 
 logger = logging.getLogger(__name__)
 

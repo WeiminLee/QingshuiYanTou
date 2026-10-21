@@ -96,5 +96,3 @@ export function ErrorBody({ block }: { block: ToolviewBlock }) {
   const firstLine = text.split('\n', 1)[0] ?? ''
   return <div className="qs-tv-error">{firstLine === '' ? `${block.error?.name ?? 'Error'}: ${block.error?.code ?? 'unknown'}` : firstLine}</div>
 }
-
-export { blockState, isSettled }

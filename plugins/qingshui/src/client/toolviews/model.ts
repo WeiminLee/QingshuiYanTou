@@ -408,8 +408,6 @@ export function groupHistoryByDate(items: readonly HistoryItem[]): HistoryGroup[
 
 // ── findings ledger (history_findings / search_findings) ─────────────────────
 
-export const FINDING_KINDS = ['progression', 'regression', 'new_event', 'association', 'divergence'] as const
-
 export const FINDING_KIND_LABELS: Record<string, string> = {
   progression: '递进',
   regression: '恶化',

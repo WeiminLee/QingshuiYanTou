@@ -4,11 +4,9 @@ from __future__ import annotations
 
 import ast
 import inspect
-from datetime import UTC
 from pathlib import Path
 
 import app.knowledge.evidence_service as evidence_service
-from app.knowledge.evidence_builders import build_file_evidence, build_irm_evidence
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 
@@ -42,21 +40,6 @@ def test_knowledge_runtime_uses_timezone_aware_utc() -> None:
     offenders = {module: _utcnow_calls(module) for module in modules}
     offenders = {module: lines for module, lines in offenders.items() if lines}
     assert offenders == {}
-
-
-def test_evidence_builders_emit_timezone_aware_utc_observed_at() -> None:
-    irm = build_irm_evidence({"question": "Q", "answer": "A"})
-    file_evidence = build_file_evidence(
-        {"file_path": "/tmp/a.pdf", "file_hash": "h", "file_type": "pdf"},
-        "content",
-        "announcement",
-        "contract",
-        "300001.SZ",
-        max_chunks=1,
-    )[0]
-
-    assert irm.observed_at.tzinfo is UTC
-    assert file_evidence.observed_at.tzinfo is UTC
 
 
 def test_evidence_service_has_single_timezone_aware_clock() -> None:

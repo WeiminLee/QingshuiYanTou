@@ -73,7 +73,6 @@ async def lifespan(app: FastAPI):
         print(f"[降级] 用户同步跳过（PostgreSQL 不可用）: {e}")
 
     # Readiness 使用的同步状态表（如不存在则创建）
-    from app.data_pipeline.monitor import init_sync_status_table, init_alert_log_table
     from app.core.database import engine
 
     try:

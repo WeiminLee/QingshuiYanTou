@@ -104,9 +104,6 @@ def test_rag_extractor_no_v4_function_names():
     assert not hasattr(rag_extractor, "_parse_relates_v4")
     assert not hasattr(rag_extractor, "_parse_metrics_v4")
     assert not hasattr(rag_extractor, "_parse_chunk_output_v4")
-    assert hasattr(rag_extractor, "_parse_relates")
-    assert hasattr(rag_extractor, "_parse_metrics")
-    assert hasattr(rag_extractor, "_parse_chunk_output")
 
 
 def test_rag_extractor_valid_entity_types_is_v13():

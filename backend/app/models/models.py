@@ -331,45 +331,6 @@ class ResearchReportMeta(Base):
     extracted_at: Mapped[datetime | None] = mapped_column(DateTime)
 
 
-class DownloadedDocument(Base):
-    """
-    已下载文档记录（防重 + 断点续传）
-
-    用于：
-    - 公告 PDF 下载防重
-    - 调研公告、业绩说明会记录等下载防重
-    - 进程中断后继续时跳过已下载文件
-    """
-
-    __tablename__ = "downloaded_documents"
-    __table_args__ = (
-        UniqueConstraint("cninfo_id", name="idx_doc_cninfo_id_unique"),
-        Index("idx_doc_ts_date", "ts_code", "doc_date"),
-        Index("idx_doc_downloaded_at", "downloaded_at"),
-    )
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    # 标识
-    cninfo_id: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
-    ts_code: Mapped[str] = mapped_column(String(20), nullable=False)
-    title: Mapped[str] = mapped_column(Text, nullable=False)
-    # 文件信息
-    doc_type: Mapped[str] = mapped_column(String(30), nullable=False)  # 见文档类型常量
-    doc_date: Mapped[date] = mapped_column(Date, nullable=False)
-    file_path: Mapped[str] = mapped_column(String(500), nullable=False)
-    file_size: Mapped[int] = mapped_column(Integer)  # bytes
-    # 巨潮原始字段（便于溯源）
-    org_id: Mapped[str | None] = mapped_column(String(50))
-    pdf_url: Mapped[str | None] = mapped_column(Text)
-    # 元数据
-    source_type: Mapped[str] = mapped_column(String(30), server_default="cninfo_document")
-    source_name: Mapped[str] = mapped_column(String(50), server_default="巨潮资讯PDF")
-    confidence_tier: Mapped[str] = mapped_column(String(10), server_default="Tier 1")
-    parser_version: Mapped[str] = mapped_column(String(10), server_default=CURRENT_PARSER_VERSION)
-    extracted_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
-    downloaded_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
-
-
 # ── 6. 业务层 ────────────────────────────────────────────────────────────────
 
 

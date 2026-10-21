@@ -349,22 +349,6 @@ class TestSchedulerAwaitsDingtalk:
         src = inspect.getsource(scheduler._run_concept_job)
         assert "await notify_task" in src
 
-    def test_irm_job_awaits_dingtalk(self):
-        import inspect
-
-        from app.data_pipeline import scheduler
-
-        src = inspect.getsource(scheduler._run_irm_job)
-        assert "await notify_task" in src
-
-    def test_cninfo_job_awaits_dingtalk(self):
-        import inspect
-
-        from app.data_pipeline import scheduler
-
-        src = inspect.getsource(scheduler._run_cninfo_job)
-        assert "await notify_task" in src
-
     def test_kline_job_awaits_dingtalk(self):
         import inspect
 
@@ -380,15 +364,6 @@ class TestSchedulerAwaitsDingtalk:
 
         src = inspect.getsource(scheduler._run_sync_stocks_job)
         assert "await notify_task" in src
-
-    def test_batch_reindex_job_awaits_dingtalk(self):
-        import inspect
-
-        from app.data_pipeline import scheduler
-
-        src = inspect.getsource(scheduler._run_batch_reindex_job)
-        assert "await notify_task" in src
-
 
 class TestMonitorAwaitsDingtalk:
     """验证 monitor 对 dingtalk 的调用使用了 await"""

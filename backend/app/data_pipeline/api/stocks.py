@@ -258,18 +258,6 @@ async def get_stock_kline(
         raise HTTPException(status_code=500, detail=f"获取K线数据失败: {str(e)}")
 
 
-@router.get("/capital-flow")
-async def get_capital_flow(
-    period: str = Query("D", description="周期，D=日/W=周/M=月"),
-    limit: int = Query(20, ge=5, le=50, description="节点数量"),
-):
-    """
-    资金流向数据（已废弃）。
-    返回空数据结构，前端 Dashboard 桑基图降级展示。
-    """
-    return {"nodes": [], "links": [], "period": period, "deprecated": True}
-
-
 # ── 个股详情 ──────────────────────────────────────────
 # 注意：必须在所有特定路径路由之后
 

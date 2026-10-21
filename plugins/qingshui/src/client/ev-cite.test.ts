@@ -1,6 +1,6 @@
 import { strict as assert } from 'node:assert'
 import { test } from 'node:test'
-import { evCiteTransform, evIdFromTarget, evIdOf, isFullEvId } from './ev-cite.ts'
+import { evCiteTransform, evIdOf, isFullEvId } from './ev-cite.ts'
 
 test('evIdOf accepts canonical and short ids', () => {
   assert.equal(evIdOf('EV:3fe7ff02'), 'EV:3fe7ff02')
