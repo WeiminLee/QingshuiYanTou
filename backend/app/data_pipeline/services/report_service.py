@@ -35,54 +35,6 @@ def _parse_yyyymmdd(value: str | None) -> str | None:
 class ReportService:
     """研报/公告/互动易查询服务"""
 
-    async def search_reports(
-        self,
-        ts_code: str | None = None,
-        keyword: str | None = None,
-        start_date: str | None = None,
-        end_date: str | None = None,
-        limit: int = 20,
-    ) -> list[dict[str, Any]]:
-        sql = """
-        SELECT trade_date, ts_code, title, inst_csname, author
-        FROM research_report_meta
-        WHERE 1=1
-        """
-        params: dict[str, Any] = {}
-
-        if ts_code:
-            sql += " AND ts_code = :ts_code"
-            params["ts_code"] = ts_code
-        if keyword:
-            sql += " AND title LIKE :keyword"
-            params["keyword"] = f"%{keyword}%"
-        if sd := _parse_yyyymmdd(start_date):
-            sql += " AND trade_date >= :start_date"
-            params["start_date"] = sd
-        if ed := _parse_yyyymmdd(end_date):
-            sql += " AND trade_date <= :end_date"
-            params["end_date"] = ed
-
-        sql += " ORDER BY trade_date DESC LIMIT :limit"
-        params["limit"] = limit
-
-        try:
-            async with engine.connect() as conn:
-                result = await conn.execute(text(sql), params)
-                rows = result.fetchall()
-            return [
-                {
-                    "trade_date": row[0].strftime("%Y%m%d") if row[0] else "",
-                    "ts_code": row[1] or "",
-                    "title": row[2] or "",
-                    "institution": row[3] or "",
-                    "author": row[4] or "",
-                }
-                for row in rows
-            ]
-        except Exception as exc:
-            logger.warning("查询研报失败: %s", exc)
-            return []
 
     async def search_announcements(
         self,

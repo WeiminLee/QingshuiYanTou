@@ -828,36 +828,6 @@ COLLECTION_CHUNKS = "doc_chunks"
 COLLECTION_QA = "qa_flash"
 
 
-def init_collections(
-    embedder: EmbeddingModelBase | None = None,
-) -> dict[str, bool]:
-    if embedder is None:
-        embedder = get_embedding_model()
-
-    dim = embedder.dimension()
-    client = QdrantClient(collection_name="qingshui")
-
-    collections = {
-        COLLECTION_ENTITIES: "实体描述向量（entity_id + entity_name + description）",
-        COLLECTION_RELATIONS: "关系描述向量（from_entity + to_entity + description）",
-        COLLECTION_CHUNKS: "文档分块向量（content + heading + source）",
-        COLLECTION_QA: "研报摘要向量（question + answer + source）",
-    }
-
-    results = {}
-    for name, desc in collections.items():
-        try:
-            client.create_collection(name=name, dimension=dim, description=desc)
-            results[name] = True
-        except Exception as e:
-            logger.warning("Collection 初始化失败 [%s]: %s", name, e)
-            results[name] = False
-
-    return results
-
-
-# ── 快捷写入函数 ─────────────────────────────────────────────────────────
-
 
 def upsert_chunk_vector(
     chunk_id: str,

@@ -64,11 +64,6 @@ class BackfillSettings:
     whitelist_file: Path
     ts_codes: frozenset[str] = field(default_factory=frozenset)
 
-    def filter_codes(self, codes):
-        """根据 scope 过滤 ts_code 列表。scope=all 时不过滤。"""
-        if self.scope == "all":
-            return list(codes)
-        return [c for c in codes if c in self.ts_codes]
 
     def is_in_scope(self, ts_code: str) -> bool:
         if self.scope == "all":

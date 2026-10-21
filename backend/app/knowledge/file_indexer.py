@@ -16,7 +16,7 @@ import hashlib
 import logging
 import os
 import re
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from pathlib import Path
 
 from motor.motor_asyncio import AsyncIOMotorDatabase
@@ -216,21 +216,6 @@ class FileIndexer:
             files.append(doc)
         return files
 
-    async def get_file_info(self, file_path: str) -> dict | None:
-        doc = await self._col.find_one({"file_path": file_path}, {"_id": 0})
-        return doc
-
-    async def find_files_by_status(self, status: str, limit: int = 100) -> list[dict]:
-        cursor = self._col.find({"status": status}, {"_id": 0}).sort("updated_at", 1).limit(limit)
-        return [doc async for doc in cursor]
-
-    async def get_extracting_files(self, older_than_minutes: int = 30) -> list[dict]:
-        cutoff = _utc_now() - timedelta(minutes=older_than_minutes)
-        cursor = self._col.find(
-            {"status": "extracting", "updated_at": {"$lt": cutoff}},
-            {"_id": 0},
-        )
-        return [doc async for doc in cursor]
 
     async def mark_extracting(
         self,
@@ -254,21 +239,6 @@ class FileIndexer:
             upsert=True,
         )
 
-    async def mark_extracting_status(self, file_paths: list[str]) -> int:
-        if not file_paths:
-            return 0
-        result = await self._col.update_many(
-            {"file_path": {"$in": file_paths}},
-            {
-                "$set": {
-                    "status": "extracting",
-                    "schema_version": CURRENT_KG_SCHEMA_VERSION,
-                    "parser_version": CURRENT_KG_PARSER_VERSION,
-                    "updated_at": _utc_now(),
-                }
-            },
-        )
-        return int(result.modified_count)
 
     async def mark_done(
         self,
@@ -350,25 +320,6 @@ class FileIndexer:
         )
         return bool(result.modified_count)
 
-    async def heal_extracting(self) -> int:
-        """
-        将所有卡在 extracting 的记录重置回 pending。
-
-        捕获场景：Ctrl+C / 进程崩溃 / LLM 超时未归还
-        """
-        result = await self._col.update_many(
-            {"status": "extracting"},
-            {
-                "$set": {
-                    "status": "pending",
-                    "error": "进程中断，上次抽取未完成",
-                    "updated_at": _utc_now(),
-                }
-            },
-        )
-        return result.modified_count
-
-    # ── 统计 ──────────────────────────────────────────
 
     async def get_stats(self) -> dict:
         """获取索引统计"""

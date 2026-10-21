@@ -96,24 +96,6 @@ def _is_supported_path(path: KGPath) -> bool:
     return True
 
 
-def _labels_to_target_type(labels: list) -> str:
-    normalized = {str(label).lower() for label in labels}
-    if "company" in normalized:
-        return "company"
-    if "product" in normalized:
-        return "product"
-    if "concept" in normalized:
-        return "concept"
-    if "industry" in normalized:
-        return "industry"
-    if "metric" in normalized:
-        return "metric"
-    if "technology" in normalized:
-        return "technology"
-    if "application" in normalized:
-        return "application"
-    return "entity"
-
 
 def _secondary_type(candidate: SignalCandidate, path: KGPath) -> str:
     rels = {edge.rel_type.upper() for edge in path.edges}

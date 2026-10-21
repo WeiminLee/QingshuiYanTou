@@ -100,7 +100,6 @@ class Settings(BaseSettings):
     api_key: str = ""  # API 访问密钥，必填
     cors_origins: str = "http://localhost:3000,http://localhost:8080"  # CORS 允许的 origins，逗号分隔
     enable_api_scheduler: bool = False  # 默认使用独立 scheduler，避免 API 与独立进程重复消费
-    knowledge_api_url: str = ""  # worker/MCP 访问 Knowledge API 的入口
     knowledge_api_key: str = ""  # worker/MCP 访问 Knowledge API 的密钥
     pdf_storage_root: Path = Path("/Users/lwm/data/qingshui_pdfs")  # 本机 PDF 缓存/Worker 目录
     # 两年期 PDF 轮转开关：默认关闭——公告 PDF 为长期保留资产（设计稿 §4.2），

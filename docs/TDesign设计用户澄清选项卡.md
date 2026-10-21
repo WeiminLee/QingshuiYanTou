@@ -1,5 +1,11 @@
 # TDesign 实现 AI 澄清选项的完整最佳实践指南
 
+> ⚠️ **历史文档（2026-10-21 标注）**
+> 本文写于 Vue 3 + TDesign 前端时代，该前端已于 2026-09-29 全量切换到 dsh web 并从仓库移除。
+> TDesign 组件 API 部分**不再适用**；其中与框架无关的交互设计原则仍可参考。
+> 现行产品壳见 `plugins/qingshui/` 与 `AGENTS.md` 的 Agent 运行时章节。
+
+
 基于行业通用标准、ChatGPT/Claude 等主流产品的交互设计，以及 TDesign 官方组件特性，我为你整理了一套生产级别的 `ask_clarification` 实现方案。
 
 ## 一、产品设计最佳实践

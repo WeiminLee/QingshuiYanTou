@@ -26,18 +26,18 @@ for p in 8100 8001; do
   fi
 done
 
-# KNOWLEDGE_API_KEY 兜底：从仓内已提交的 deploy/chemagent/worker_supervisor.py 提取
-if [ -z "${KNOWLEDGE_API_KEY:-}" ]; then
-  KNOWLEDGE_API_KEY="$(grep -m1 '^KNOWLEDGE_API_KEY=' deploy/chemagent/worker_supervisor.py | cut -d= -f2)"
-  export KNOWLEDGE_API_KEY
-fi
-
+# 本地密钥（gitignored）：进程 env > scripts/local-dsh-env.sh
 ENV_FILE="scripts/local-dsh-env.sh"
 if [ -f "$ENV_FILE" ]; then
   # shellcheck disable=SC1090
   source "$ENV_FILE"
 fi
-: "${KNOWLEDGE_API_KEY:?KNOWLEDGE_API_KEY 未设置（仓内兜底提取也失败）}"
+if [ -z "${KNOWLEDGE_API_KEY:-}" ]; then
+  echo "✗ 缺 KNOWLEDGE_API_KEY。复制模板并填入 chemagent backend/.env 的 API_KEY：" >&2
+  echo "    cp scripts/local-dsh-env.example.sh scripts/local-dsh-env.sh && chmod 600 scripts/local-dsh-env.sh" >&2
+  exit 1
+fi
+export KNOWLEDGE_API_KEY
 # OPENAI_API_KEY：进程 env > scripts/local-dsh-env.sh > $DSH_HOME/.env > 凭据库软链
 # （~/.dsh-qingshui/.credentials.yaml -> ~/.dsh/.credentials.yaml，复用 pjlab 网关 key）
 if [ -z "${OPENAI_API_KEY:-}" ] && ! grep -qs '^OPENAI_API_KEY=' "$DSH_HOME/.env" 2>/dev/null && [ ! -f "$DSH_HOME/.credentials.yaml" ]; then

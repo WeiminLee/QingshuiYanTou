@@ -55,10 +55,31 @@ def gpu_alive(node: str) -> bool:
         return False
 
 
+def api_key() -> str:
+    """取 Knowledge API 密钥：进程环境优先，其次读既有的 worker.env。
+
+    仓库里不存明文密钥；部署侧用 systemd `EnvironmentFile=` 或预置的
+    worker.env（0600）提供，缺失时直接拒绝启动而不是带着空 key 跑。
+    """
+    key = os.environ.get("KNOWLEDGE_API_KEY", "").strip()
+    if key:
+        return key
+    if ENV_FILE.exists():
+        for line in ENV_FILE.read_text().splitlines():
+            if line.startswith("KNOWLEDGE_API_KEY="):
+                value = line.partition("=")[2].strip()
+                if value:
+                    return value
+    raise SystemExit(
+        "KNOWLEDGE_API_KEY 未设置：请在 qingshui-worker.service 用 "
+        f"EnvironmentFile= 提供，或先写好 {ENV_FILE}"
+    )
+
+
 def write_env(node: str) -> None:
     ENV_FILE.write_text(
         f"""KNOWLEDGE_API_URL=http://127.0.0.1:8001
-KNOWLEDGE_API_KEY=sk-V-ZNidHIYdGK4rOXpPCsPw
+KNOWLEDGE_API_KEY={api_key()}
 EMBEDDING_BASE_URL=http://{node}:23456/v1
 EMBEDDING_API_KEY=dummy
 EMBEDDING_DIMENSION=1024

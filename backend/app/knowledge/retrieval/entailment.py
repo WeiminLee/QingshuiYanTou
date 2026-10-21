@@ -102,9 +102,6 @@ def default_slot_judge(claim: dict, passage: str) -> SlotJudgment:
     )
 
 
-def judgment_accepts(judgment: SlotJudgment) -> bool:
-    return judgment.period_ok and judgment.metric_ok and judgment.unit_ok
-
 
 async def entailment_errors(
     *,

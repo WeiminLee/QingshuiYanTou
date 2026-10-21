@@ -57,20 +57,6 @@ def async_session():
     return maker()
 
 
-def use_isolated_engine(engine_obj):
-    return _isolated_engine.set(engine_obj)
-
-
-def reset_isolated_engine(token) -> None:
-    _isolated_engine.reset(token)
-
-
-def make_nullpool_engine(url: str | None = None):
-    """创建一个 NullPool 一次性 engine（连接用后即闭，不跨 loop 复用）。"""
-    from sqlalchemy.pool import NullPool
-
-    return create_async_engine(url or settings.database_url, poolclass=NullPool)
-
 # 基础模型
 Base = declarative_base()
 

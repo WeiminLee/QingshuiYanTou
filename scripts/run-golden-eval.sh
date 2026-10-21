@@ -31,15 +31,16 @@ mkdir -p "$RAW"
 for p in 8100 8001; do
   nc -z 127.0.0.1 "$p" >/dev/null 2>&1 || { echo "✗ 本机 $p 未监听——先起隧道：bash scripts/tunnel_chemagent.sh" >&2; exit 1; }
 done
-if [ -z "${KNOWLEDGE_API_KEY:-}" ]; then
-  KNOWLEDGE_API_KEY="$(grep -m1 '^KNOWLEDGE_API_KEY=' deploy/chemagent/worker_supervisor.py | cut -d= -f2)"
-  export KNOWLEDGE_API_KEY
-fi
 if [ -f scripts/local-dsh-env.sh ]; then
   # shellcheck disable=SC1090
   source scripts/local-dsh-env.sh
 fi
-: "${KNOWLEDGE_API_KEY:?KNOWLEDGE_API_KEY 未设置}"
+if [ -z "${KNOWLEDGE_API_KEY:-}" ]; then
+  echo "✗ 缺 KNOWLEDGE_API_KEY。复制模板并填入 chemagent backend/.env 的 API_KEY：" >&2
+  echo "    cp scripts/local-dsh-env.example.sh scripts/local-dsh-env.sh && chmod 600 scripts/local-dsh-env.sh" >&2
+  exit 1
+fi
+export KNOWLEDGE_API_KEY
 
 echo "== 金标一轮 tag=$TAG DSH_HOME=$DSH_HOME =="
 

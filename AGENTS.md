@@ -88,6 +88,9 @@
   MCP 复用的查询函数）、`/api/v1/stocks` 除 `/search` 外全部；`archive/`、`app/packages`、
   `logging/{audit_export,log_service}` 一并删除。**不要再按旧 README 的端点清单写代码**，
   活接口以 `backend/app/main.py` 的 `include_router` 为准。详见 `docs/待办.md` E5。
+- **凭据不再入仓**：`deploy/chemagent/worker_supervisor.py` 从 `KNOWLEDGE_API_KEY`
+  环境变量或既有 `worker.env` 取 key；本地脚本读 `scripts/local-dsh-env.sh`（gitignored）。
+  任何新脚本**不得**再从仓库文件里 grep 密钥。
 
 ### 2026-10-15 增量（HEAD `dba89a1`，`feat/ingestion-drain-limit-20` 已 fast-forward 合入 main）
 

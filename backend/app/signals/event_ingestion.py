@@ -123,18 +123,6 @@ def extract_event_signal_records(
     raise RuntimeError("新闻、资讯和事件的 signal 必须经 extract_event_signal_records_with_kg 做研究推导，不能用规则抽取。")
 
 
-async def build_event_kg_paths_by_subject(
-    candidates: list[SignalCandidate],
-    provider: KGPathProvider | None = None,
-) -> dict[str, list[KGPath]]:
-    if provider is None:
-        # Neo4j 已除役（2026-10-13）：无路径提供者 → 走 lightweight 传导
-        return {}
-    result: dict[str, list[KGPath]] = {}
-    for subject in dict.fromkeys(candidate.subject_name for candidate in candidates if candidate.subject_name):
-        result[subject] = await provider.fetch_paths(subject, max_hops=2)
-    return result
-
 
 async def extract_event_signal_records_with_kg(
     event: Any,

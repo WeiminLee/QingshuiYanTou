@@ -24,27 +24,6 @@ async def get_files_older_than(cutoff_date: datetime, limit: int = 1000) -> list
     return await indexer.find_files_older_than(cutoff_date, limit=limit)
 
 
-async def get_rotation_stats(days_threshold: int = 730) -> dict[str, int | float]:
-    cutoff = _utc_now() - timedelta(days=days_threshold)
-    files = await get_files_older_than(cutoff)
-    total_size = 0
-    existing = 0
-    missing = 0
-    for doc in files:
-        path = Path(str(doc.get("file_path") or ""))
-        size = int(doc.get("file_size") or 0)
-        if path.exists():
-            existing += 1
-            total_size += size or path.stat().st_size
-        else:
-            missing += 1
-    return {
-        "eligible": len(files),
-        "existing": existing,
-        "missing": missing,
-        "size_mb": round(total_size / 1024 / 1024, 2),
-    }
-
 
 async def rotate_old_pdfs(days_threshold: int = 730, dry_run: bool = False) -> dict[str, int]:
     """Delete local PDFs older than the threshold; retain Mongo metadata."""

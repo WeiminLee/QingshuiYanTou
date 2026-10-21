@@ -392,23 +392,6 @@ class EvidenceService:
         )
         return bool(getattr(result, "modified_count", 0))
 
-    async def bulk_update_irm_classification(
-        self, evidence_ids_to_class: dict[str, str]
-    ) -> int:
-        """批量更新 IRM Evidence 的 irm_classification 字段。"""
-        now = _utc_now()
-        operations = []
-        for evidence_id, category in evidence_ids_to_class.items():
-            operations.append(
-                UpdateOne(
-                    {"evidence_id": evidence_id},
-                    {"$set": {"irm_classification": category, "updated_at": now}},
-                )
-            )
-        if operations:
-            result = await self._evidence.bulk_write(operations, ordered=False)
-            return int(getattr(result, "modified_count", 0))
-        return 0
 
     async def update_evidence_status(
         self,
@@ -434,22 +417,6 @@ class EvidenceService:
             {"$set": {"keyword_extraction": payload, "updated_at": _utc_now()}},
         )
 
-    async def heal_running_jobs(self, older_than_minutes: int = 30) -> int:
-        now = _utc_now()
-        cutoff = now - timedelta(minutes=older_than_minutes)
-        result = await self._jobs.update_many(
-            {"status": STATUS_RUNNING, "locked_at": {"$lt": cutoff}},
-            {
-                "$set": {
-                    "status": STATUS_PENDING,
-                    "locked_by": None,
-                    "locked_at": None,
-                    "error": "stale running job reset",
-                    "updated_at": now,
-                }
-            },
-        )
-        return int(getattr(result, "modified_count", 0))
 
     async def get_stats(self) -> dict[str, Any]:
         evidence_count = await self._evidence.count_documents({})

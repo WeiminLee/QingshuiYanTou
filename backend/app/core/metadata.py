@@ -138,7 +138,3 @@ SOURCE_META_MAP: dict[str, SourceMeta] = {
     ),
 }
 
-
-def get_source_meta(source_type: str) -> SourceMeta | None:
-    """Return metadata for a known source type."""
-    return SOURCE_META_MAP.get(source_type)

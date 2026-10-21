@@ -25,10 +25,6 @@ _current_trace_id: ContextVar[str | None] = ContextVar("trace_id", default=None)
 _current_task_id: ContextVar[str | None] = ContextVar("task_id", default=None)
 
 
-def generate_trace_id() -> str:
-    """生成新的 trace_id"""
-    return str(uuid.uuid4())
-
 
 def generate_task_id() -> str:
     """生成新的 task_id"""
@@ -39,10 +35,6 @@ def get_trace_id() -> str | None:
     """获取当前 trace_id"""
     return _current_trace_id.get()
 
-
-def set_trace_id(trace_id: str) -> None:
-    """设置当前 trace_id"""
-    _current_trace_id.set(trace_id)
 
 
 def get_task_id() -> str | None:
@@ -187,10 +179,6 @@ class AsyncAuditLogger(AuditLogger):
     async def ainfo(self, module: str, message: str, **kwargs: Any) -> None:
         """异步记录 INFO 级别日志"""
         await self.log_to_db("INFO", module, message, **kwargs)
-
-    async def aerror(self, module: str, message: str, **kwargs: Any) -> None:
-        """异步记录 ERROR 级别日志"""
-        await self.log_to_db("ERROR", module, message, **kwargs)
 
 
 # 全局日志实例缓存

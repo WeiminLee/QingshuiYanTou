@@ -11,7 +11,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime
 from enum import StrEnum
 
 from sqlalchemy import text
@@ -363,112 +363,6 @@ async def log_alert(task_name: str, level: AlertLevel, message: str, details: di
                 "details": json.dumps(details) if details else None,
             },
         )
-
-
-async def get_recent_alerts(hours: int = 24, level: AlertLevel = None) -> list[dict]:
-    """获取最近的告警"""
-    since = datetime.now() - timedelta(hours=hours)
-    sql = """
-    SELECT task_name, alert_level, message, details, created_at
-    FROM sync_alerts
-    WHERE created_at >= :since
-    """
-    params = {"since": since}
-    if level:
-        sql += " AND alert_level = :level"
-        params["level"] = level.value
-    sql += " ORDER BY created_at DESC LIMIT 100"
-
-    async with engine.connect() as conn:
-        result = await conn.execute(text(sql), params)
-        return [
-            {
-                "task_name": row[0],
-                "level": row[1],
-                "message": row[2],
-                "details": row[3],
-                "created_at": row[4],
-            }
-            for row in result.fetchall()
-        ]
-
-
-async def get_task_status_summary() -> dict:
-    """获取任务状态汇总"""
-    sql = """
-    SELECT
-        task_name,
-        status,
-        MAX(started_at) as last_run,
-        MAX(total_items) as last_total,
-        MAX(success_count) as last_success,
-        MAX(consecutive_failures) as consecutive_failures
-    FROM sync_task_status
-    WHERE started_at >= NOW() - INTERVAL '7 days'
-    GROUP BY task_name, status
-    ORDER BY task_name, MAX(started_at) DESC
-    """
-    async with engine.connect() as conn:
-        result = await conn.execute(text(sql))
-        return {
-            row[0]: {
-                "status": row[1],
-                "last_run": row[2],
-                "last_total": row[3],
-                "last_success": row[4],
-                "consecutive_failures": row[5],
-            }
-            for row in result.fetchall()
-        }
-
-
-# ── 监视装饰器 ─────────────────────────────────────────────
-
-
-def monitor_task(task_name: str):
-    """监控任务执行的装饰器"""
-
-    def decorator(func):
-        async def wrapper(*args, **kwargs):
-            await init_sync_status_table()
-            await init_alert_log_table()
-
-            logger.info(f"[{task_name}] 任务开始")
-            run_id = await record_task_start(task_name)
-
-            try:
-                result = await func(*args, **kwargs)
-
-                # 解析结果
-                if isinstance(result, dict):
-                    total = result.get("total", 0)
-                    success = result.get("success", 0)
-                    skipped = result.get("skipped", 0)
-                    fail = result.get("fail", 0)
-
-                    if fail == 0 and skipped == 0:
-                        status = TaskStatus.SUCCESS
-                    elif success > 0:
-                        status = TaskStatus.PARTIAL
-                    else:
-                        status = TaskStatus.FAILED
-                else:
-                    total = success = skipped = fail = 0
-                    status = TaskStatus.SUCCESS
-
-                await record_task_result(task_name, status, total, success, skipped, fail, run_id=run_id)
-                logger.info(f"[{task_name}] 任务完成: {status.value}, 成功 {success}, 失败 {fail}")
-
-                return result
-
-            except Exception as e:
-                await record_task_result(task_name, TaskStatus.FAILED, error_message=str(e), run_id=run_id)
-                logger.error(f"[{task_name}] 任务失败: {e}")
-                raise
-
-        return wrapper
-
-    return decorator
 
 
 # ── 初始化 ─────────────────────────────────────────────────

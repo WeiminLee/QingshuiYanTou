@@ -108,23 +108,6 @@ def _is_truncated_paragraph(para: str, prev_body: str) -> bool:
     return True
 
 
-def _is_valid_heading(heading: str) -> bool:
-    """判断标题是否有效"""
-    if not heading:
-        return False
-    if _is_table_line(heading):
-        return False
-    # 纯数字/百分比
-    if re.match(r"^[\d\s%\.%,]+$", heading):
-        return False
-    # 过短
-    if len(heading) < 3:
-        return False
-    # 投资者关系表格
-    if "投资者关系活动" in heading:
-        return False
-    return True
-
 
 def _is_valid_chunk(text: str, heading: str) -> bool:
     """判断 chunk 是否有效"""

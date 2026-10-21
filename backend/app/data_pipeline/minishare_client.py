@@ -51,17 +51,6 @@ def _safe_str(val) -> str:
     return str(val)
 
 
-def _safe_str_full(val) -> str:
-    """安全转完整字符串（保留时间），空值转空字符串"""
-    if _is_null(val):
-        return ""
-    if hasattr(val, "date") and hasattr(val, "hour"):
-        try:
-            return val.strftime("%Y-%m-%d %H:%M:%S")
-        except Exception:
-            return ""
-    return str(val)
-
 
 def _normalize_ts_code(code: str) -> str:
     """标准化股票代码格式"""

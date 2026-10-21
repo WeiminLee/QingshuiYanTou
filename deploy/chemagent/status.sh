@@ -10,9 +10,10 @@ for p in 23456 23457; do printf "  port %s: " $p; curl -s -m 5 --noproxy "*" -o 
 echo "===== worker（systemd supervisor）====="
 echo "  active=$(systemctl is-active qingshui-worker.service) enabled=$(systemctl is-enabled qingshui-worker.service 2>/dev/null)"
 pgrep -af knowledge_worker | sed "s|.*job-type |  job-type |" | head -4
-echo "===== 云端通道 ====="
-echo -n "  cloud API: "; http_proxy=http://httpproxy-headless.kubebrain.svc.pjlab.local:3128 curl -s -m 10 -o /dev/null -w "%{http_code}\n" http://124.221.188.38:8080/health
+echo "===== 本机数据面 ====="
+for p in 8001 8100; do printf "  port %s: " $p; curl -s -m 5 --noproxy "*" -o /dev/null -w "%{http_code}\n" http://127.0.0.1:$p/health 2>/dev/null || echo "n/a"; done
 echo "===== 存储 ====="
+df -h /data | tail -1
 df -h $M | tail -1
 echo "===== 最近 supervisor 日志 ====="
 tail -3 $M/logs/supervisor.log

@@ -24,23 +24,6 @@ _isolated_db: _contextvars.ContextVar = _contextvars.ContextVar(
 )
 
 
-def make_isolated_mongo_db() -> tuple[AsyncIOMotorClient, AsyncIOMotorDatabase]:
-    """创建一次性 motor 客户端（工具窗口内使用，调用方负责 close）。"""
-    client = AsyncIOMotorClient(
-        settings.mongodb_url,
-        serverSelectionTimeoutMS=2000,
-        connectTimeoutMS=2000,
-    )
-    return client, client[_extract_db_name(settings.mongodb_url)]
-
-
-def use_isolated_mongo(db) -> object:
-    return _isolated_db.set(db)
-
-
-def reset_isolated_mongo(token) -> None:
-    _isolated_db.reset(token)
-
 
 def _extract_db_name(url: str) -> str:
     """从 MongoDB URL 中提取数据库名（忽略查询参数）"""

@@ -124,40 +124,6 @@ def _detect_generic_names(entities: list[dict]) -> bool:
     return False
 
 
-def _merge_descriptions_raw(descriptions: list[str]) -> str:
-    """
-    保留原文的多源合并（不做 LLM summarization）。
-    各描述用 GRAPH_FIELD_SEP 分隔，标记来源索引。
-    用于注入 properties.descriptions[] 数组。
-    """
-    if not descriptions:
-        return ""
-    seen = set()
-    unique = []
-    for d in descriptions:
-        if d and d not in seen:
-            seen.add(d)
-            unique.append(d)
-    return GRAPH_FIELD_SEP.join(unique)
-
-
-# ── 输出解析 ────────────────────────────────────────────────────────────────
-
-
-def _is_noise_entity_name(name: str) -> bool:
-    value = (name or "").strip()
-    if not value:
-        return True
-    if value in {"---", "--", "-", "###", "##", "#", "RELATES", "METRIC", "Entity", "Relation"}:
-        return True
-    if re.fullmatch(r"[\W_]+", value, flags=re.UNICODE):
-        return True
-    if re.match(r"^#{1,6}\s*", value):
-        return True
-    if any(marker in value for marker in ("实体列表", "关系列表", "RELATES 关系", "METRIC 指标")):
-        return True
-    return False
-
 
 def _parse_json_output(raw_text: str) -> tuple[list[dict], list[dict], list[dict]] | None:
     """解析 LLM 返回的 JSON 字符串，返回 (entities, relations, signals) 或 None。"""

@@ -29,7 +29,7 @@ lwm-server-chemagent（开发机，唯一枢纽）
 |---|---|---|
 | `docker-compose.yml` | `/data/qingshui/docker-compose.yml` | 全栈编排（mongo/pg/qdrant/redis/backend/data-mcp/scheduler） |
 | `serve.sh` | shared storage，rjob 里执行 | 单卡双服务：`:23457` Qwen3.6 / `:23456` bge-m3；写 `endpoints.json` |
-| `worker_supervisor.py` | shared storage，systemd 托管 | 常驻守护 knowledge_worker（link/vector），自动跟随 GPU 节点漂移 |
+| `worker_supervisor.py` | shared storage，systemd 托管 | 常驻守护 knowledge_worker（link/vector），自动跟随 GPU 节点漂移。**密钥不在仓内**：由 `qingshui-worker.service` 的 `EnvironmentFile=` 或既有的 `$M/worker.env` 提供 `KNOWLEDGE_API_KEY`，缺失即拒绝启动 |
 | `status.sh` | shared storage | 全栈状态一览 |
 | `restore_qdrant.sh` | `/data/migration/` | qdrant 集合目录恢复（doc_chunks 用；kg_entities/kg_relations 2026-10-12 补迁同法） |
 
