@@ -28,6 +28,12 @@ const COLLAPSED_LINES = 40
 const COLLAPSED_CHARS = 1200
 /** Stated wherever the PDF column is not available, instead of an empty frame. */
 const UNARCHIVED_NOTE = '原文未归档：该公告入库时 PDF 已被清理，新公告自本次变更起会保留'
+/** Stand-in heading when extraction never recovered a real title. */
+const NO_TITLE = '公告（标题缺失）'
+/** The backend's classifier for "the title was just the file name" (`FILENAME_TITLE_RE`). */
+const FILENAME_ONLY_RE = /^[\w.-]+\.(?:pdf|PDF)$/
+/** Same breakpoint as the stylesheet: below this the PDF column is not shown. */
+const PDF_COLUMN_QUERY = '(max-width: 1100px)'
 
 /** Document response from `GET /qingshui/document/<ann_id>`, parsed defensively. */
 type ReaderChapter = {
@@ -43,6 +49,8 @@ type ReaderDocument = {
   source_name: string
   publish_date: string
   title: string | null
+  /** The backend nulled `title` because extraction only found a filename. */
+  title_is_filename: boolean
   pdf: { exists: boolean }
   chapters: ReaderChapter[]
 }
@@ -55,6 +63,9 @@ type DocState =
 
 /** Evidence entry, plus the idle state an absent evidence id leaves behind. */
 type BodyState = EvEvidence | { status: 'idle' }
+
+/** Header lines: the heading, plus a muted raw-filename line when there is one. */
+type Heading = { primary: string; secondary: string | null }
 
 const BODY_IDLE: BodyState = { status: 'idle' }
 
@@ -86,6 +97,7 @@ function artifactKey(artifact: Artifact): string {
  */
 function ReaderDialog({ artifact }: { artifact: Artifact }): React.ReactElement {
   const panelRef = useRef<HTMLDivElement | null>(null)
+  const backdropRef = useRef<HTMLDivElement | null>(null)
   const [selectedId, setSelectedId] = useState<string | undefined>(artifact.evidenceId)
   // Only the ≤720px layout consumes this: there the rail is a slide-over, so it
   // starts closed and the body keeps the screen. Above that it is always on.
@@ -111,19 +123,36 @@ function ReaderDialog({ artifact }: { artifact: Artifact }): React.ReactElement 
 
   const showRail = chapters.length > 0
   const pdfHref = annId === undefined ? undefined : `/qingshui/pdf/${encodeURIComponent(annId)}`
-  const showPdf = pdfHref !== undefined && doc !== undefined && pdfOpen
+  // The column is display:none below 1100px, so the frame must not be mounted
+  // there: it would stream a PDF into a lane nobody can see.
+  const columnHidden = usePdfColumnHidden()
+  const showPdf = pdfHref !== undefined && doc !== undefined && pdfOpen && !columnHidden
   // A highlight only applies to the evidence it was opened for; browsing other
   // chapters must not paint stale ranges over unrelated text.
   const spans = displayId !== undefined && displayId === artifact.evidenceId ? artifact.spans : undefined
 
   const bodyDoc = body.state.status === 'ok' ? asEvidenceDoc(body.state.doc) : undefined
-  const title = doc?.title ?? bodyDoc?.title ?? doc?.source_name ?? bodyDoc?.source_name ?? ''
+  const heading = headingOf(doc, bodyDoc?.title)
 
-  // Focus moves into the dialog on open and returns to the opener on close.
+  // One modal shell effect: background inert, focus in, and the exact reverse
+  // on close (un-inert first, so the opener can actually take focus back).
+  // Without inert, Tab walks out of the iframe into the chat behind an
+  // aria-modal dialog.
   useEffect(() => {
+    const host = backdropRef.current
     const opener = document.activeElement
+    const inerted: HTMLElement[] = []
+    if (host !== null) {
+      for (const sibling of [...document.body.children]) {
+        if (!(sibling instanceof HTMLElement) || sibling === host || sibling.contains(host)) continue
+        if (sibling.inert) continue
+        sibling.inert = true
+        inerted.push(sibling)
+      }
+    }
     panelRef.current?.focus()
     return () => {
+      for (const sibling of inerted) sibling.inert = false
       if (opener instanceof HTMLElement && opener.isConnected) opener.focus()
     }
   }, [])
@@ -175,9 +204,17 @@ function ReaderDialog({ artifact }: { artifact: Artifact }): React.ReactElement 
   }
 
   const subParts: React.ReactNode[] = []
+  // The raw filename is a filename, not a title: it rides the second line in
+  // muted mono, never the heading.
+  if (heading.secondary !== null) {
+    subParts.push(<span key="file" className="qs-art-title-raw" title={heading.secondary}>{heading.secondary}</span>)
+  }
   if (doc !== undefined && doc.ts_code !== '') subParts.push(<span key="ts">{doc.ts_code}</span>)
   const date = formatDate(doc?.publish_date ?? bodyDoc?.publish_date)
   if (date !== '') subParts.push(<span key="date">{date}</span>)
+  if (doc !== undefined && doc.source_name !== '') {
+    subParts.push(<span key="src">{doc.source_name}</span>)
+  }
   if (bodyDoc !== undefined) {
     subParts.push(<span key="type" className="qs-art-badge">{sourceTypeLabel(bodyDoc.source_type)}</span>)
   }
@@ -189,19 +226,19 @@ function ReaderDialog({ artifact }: { artifact: Artifact }): React.ReactElement 
   ].filter((part): part is string => part !== null).join(' ')
 
   return (
-    <div className="qs-art-backdrop" onMouseDown={onBackdropMouseDown}>
+    <div ref={backdropRef} className="qs-art-backdrop" onMouseDown={onBackdropMouseDown}>
       <div
         ref={panelRef}
         className="qs-art-panel"
         role="dialog"
         aria-modal="true"
-        aria-label={title === '' ? '产物阅读器' : `产物阅读器：${title}`}
+        aria-label={`产物阅读器：${heading.primary}`}
         tabIndex={-1}
         onKeyDown={trapFocus}
       >
         <header className="qs-art-head">
           <div className="qs-art-head-main">
-            <div className="qs-art-title">{title === '' ? '未命名材料' : title}</div>
+            <div className="qs-art-title">{heading.primary}</div>
             <div className="qs-art-sub">{subParts}</div>
           </div>
           <div className="qs-art-actions">
@@ -263,7 +300,9 @@ function ReaderDialog({ artifact }: { artifact: Artifact }): React.ReactElement 
                       }}
                     >
                       <span className="qs-art-chapter-label">{label}</span>
-                      {chapter.chars === null ? null : <span className="qs-art-chapter-chars">{chapter.chars}</span>}
+                      {chapter.chars === null ? null : (
+                        <span className="qs-art-chapter-chars">{`${chapter.chars.toLocaleString('en-US')} 字`}</span>
+                      )}
                     </button>
                   )
                 })}
@@ -389,6 +428,52 @@ function renderSegments(text: string, spans: ArtifactSpan[] | undefined): React.
     : <Fragment key={index}>{segment.text}</Fragment>))
 }
 
+/**
+ * Header heading for the opened artifact. The document endpoint nulls a title
+ * that was only a filename and flags it, but the evidence row still carries
+ * that filename — so it is demoted to a muted second line instead of being
+ * promoted back into the heading. Single-evidence views have no flag, so the
+ * same classifier the backend uses is applied there.
+ * @param doc - aggregated document, absent for a single-evidence view.
+ * @param evidenceTitle - title carried by the evidence row, if any.
+ * @returns the primary line plus an optional muted raw-filename line.
+ */
+function headingOf(doc: ReaderDocument | undefined, evidenceTitle: string | undefined): Heading {
+  if (doc !== undefined) {
+    if (doc.title_is_filename || doc.title === null) {
+      return { primary: NO_TITLE, secondary: evidenceTitle ?? null }
+    }
+    return { primary: doc.title, secondary: null }
+  }
+  if (evidenceTitle !== undefined && !FILENAME_ONLY_RE.test(evidenceTitle)) {
+    return { primary: evidenceTitle, secondary: null }
+  }
+  if (evidenceTitle !== undefined) return { primary: NO_TITLE, secondary: evidenceTitle }
+  return { primary: '未命名材料', secondary: null }
+}
+
+/** True while the stylesheet hides the PDF column (same query, one source of truth). */
+function usePdfColumnHidden(): boolean {
+  const [hidden, setHidden] = useState(() => matchesPdfBreakpoint())
+  useEffect(() => {
+    if (typeof window.matchMedia !== 'function') return
+    const list = window.matchMedia(PDF_COLUMN_QUERY)
+    const onChange = (): void => { setHidden(list.matches) }
+    onChange()
+    list.addEventListener('change', onChange)
+    return () => { list.removeEventListener('change', onChange) }
+  }, [])
+  return hidden
+}
+
+function matchesPdfBreakpoint(): boolean {
+  if (typeof window === 'undefined') return false
+  if (typeof window.matchMedia === 'function') return window.matchMedia(PDF_COLUMN_QUERY).matches
+  // No matchMedia: keep the frame from mounting on a narrow window anyway, so
+  // the CSS-hidden column never streams a PDF.
+  return typeof window.innerWidth === 'number' && window.innerWidth <= 1100
+}
+
 /** Cached evidence lookup, kicking a fetch on miss through the ev-cite store. */
 function useEvidence(id: string | undefined): { state: BodyState; retry: () => void } {
   const state = useSyncExternalStore(
@@ -483,6 +568,7 @@ function asReaderDocument(value: unknown): ReaderDocument | undefined {
     source_name: asText(source.source_name) ?? '',
     publish_date: asText(source.publish_date) ?? '',
     title: asText(source.title) ?? null,
+    title_is_filename: source.title_is_filename === true,
     pdf: { exists: pdf?.exists === true },
     chapters,
   }

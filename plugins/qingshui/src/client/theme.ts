@@ -334,6 +334,8 @@ export const SHELL_CSS = `
 .qs-art-head-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
 .qs-art-title { font: var(--dsw-font-s-strong-14); color: var(--dsw-alias-label-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .qs-art-sub { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; font: var(--dsw-font-xxs-12); color: var(--dsw-alias-label-tertiary); }
+/* Raw file name demoted out of the heading: muted, monospaced, truncated. */
+.qs-art-title-raw { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--dsw-font-family-mono, ui-monospace, SFMono-Regular, Menlo, monospace); font-size: 11px; color: var(--dsw-alias-label-dimmed); }
 .qs-art-actions { flex: none; display: flex; align-items: center; gap: 6px; }
 .qs-art-btn {
   display: inline-flex; align-items: center; border: 1px solid var(--dsw-alias-border-l2);
@@ -365,7 +367,7 @@ export const SHELL_CSS = `
 .qs-art-chapter:hover { background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-primary); }
 .qs-art-chapter[data-active="true"] { background: var(--dsw-alias-interactive-bg-active, var(--dsw-alias-interactive-bg-hover)); color: var(--dsw-alias-label-primary); font-weight: 600; box-shadow: inset 2px 0 0 var(--qs-accent); }
 .qs-art-chapter-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.qs-art-chapter-chars { flex: none; font-size: 11px; line-height: 16px; font-variant-numeric: tabular-nums; color: var(--dsw-alias-label-dimmed); }
+.qs-art-chapter-chars { flex: none; white-space: nowrap; font-size: 11px; line-height: 16px; font-variant-numeric: tabular-nums; color: var(--dsw-alias-label-dimmed); }
 
 .qs-art-body { min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 8px; padding: 14px 16px; }
 .qs-art-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; color: var(--dsw-alias-label-tertiary); font: var(--dsw-font-xxs-12); }
