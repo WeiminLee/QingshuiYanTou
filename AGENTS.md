@@ -83,6 +83,11 @@
   `{ann_date}_{ts_code}_{标题}` 复合串；查询必须 int+str 双查。
 - 设计稿 `docs/superpowers/specs/2026-10-21-artifact-reader-and-pdf-retention-design.md`，
   计划 `docs/superpowers/plans/2026-10-21-artifact-reader-and-pdf-retention.md`。
+- **同轮代码清理**：删除零引用死代码与零消费者接口，路由 **112 → 62**。
+  已下线：`/api/v1/{information,data,monitor,logs,sync}`、`/api/v1/concept`（仅保留 3 个被
+  MCP 复用的查询函数）、`/api/v1/stocks` 除 `/search` 外全部；`archive/`、`app/packages`、
+  `logging/{audit_export,log_service}` 一并删除。**不要再按旧 README 的端点清单写代码**，
+  活接口以 `backend/app/main.py` 的 `include_router` 为准。详见 `docs/待办.md` E5。
 
 ### 2026-10-15 增量（HEAD `dba89a1`，`feat/ingestion-drain-limit-20` 已 fast-forward 合入 main）
 
