@@ -7,7 +7,7 @@ def test_defaults_are_safe_for_cloud_machine():
     settings = WorkerSettings.from_environment({})
     assert settings.role == "evidence-extraction"
     assert settings.concurrency == 1
-    assert settings.pdf_storage_root == "/data/qingshui-pdfs"
+    assert settings.pdf_storage_root == "/data/qingshui/pdf"
 
 
 def test_environment_overrides_are_typed():

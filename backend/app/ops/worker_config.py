@@ -21,7 +21,7 @@ class WorkerSettings:
     concurrency: int = 1
     poll_interval: int = 30
     job_timeout: int = 1800
-    pdf_storage_root: str = "/data/qingshui-pdfs"
+    pdf_storage_root: str = "/data/qingshui/pdf"
 
     @classmethod
     def from_environment(cls, environ: dict[str, str] | None = None) -> "WorkerSettings":

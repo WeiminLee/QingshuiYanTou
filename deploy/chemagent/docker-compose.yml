@@ -72,6 +72,8 @@ services:
     env_file: /root/code/QingShuiYanTou/backend/.env
     environment:
       - KNOWLEDGE_BASE_URL=http://qingshui_backend:8000
+    volumes:
+      - /data/qingshui/pdf:/data/qingshui/pdf
     ports:
       - "127.0.0.1:8001:8000"
     depends_on:
