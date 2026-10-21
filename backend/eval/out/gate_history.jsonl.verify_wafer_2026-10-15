@@ -1,1 +1,0 @@
-{"date": "2026-10-15T20:37:21", "out": "backend/eval/out/expected_gap_verify_wafer.json", "cases_file": "backend/eval/expected_gap_cases_v2.json", "pass": 1, "fail": 10, "unscored": 0, "rate": 0.0909, "regressions": []}

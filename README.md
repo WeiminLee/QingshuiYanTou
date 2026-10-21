@@ -39,8 +39,8 @@ Backend API
 
 ### 组件分工
 
-- `archive/frontend/`: 原 Vue 3 前端（全切已归档）；产品壳为 dsh web。
-- `backend/app/main.py`: FastAPI 应用入口，注册数据、知识、信号、日志等 API。
+- `plugins/qingshui/`: dsh 插件（Agent 交互层 + 只读数据代理）。
+- `backend/app/main.py`: FastAPI 应用入口，注册交易数据、知识、信号等 API。
 - `backend/app/data_pipeline/`: 股票、行情、公告、研报、互动易等数据接入和调度。
 - `backend/app/knowledge/`: 知识构建、链接层与判断台账、Evidence-first 管线、图谱与向量检索。
 - `backend/app/mcp_data/`: 只读 Data MCP（dsh 插件的 MCP 服务端，薄包装 Knowledge HTTP）。
@@ -203,14 +203,12 @@ Knowledge HTTP、采集、抽取、worker **保留**。旧前端见 `archive/REA
 
 FastAPI 入口在 `backend/app/main.py`。主要路由类别：
 
-- `/api/v1/data`: 数据查询接口。
-- `/api/v1/stocks`: 股票数据写入和管理接口。
-- `/api/v1/concept`: 概念评分接口。
-- `/api/v1/knowledge`: 知识构建与知识查询接口（含 Agent 只读端点：`search/semantic`、`metrics/compare`、`agent/compare_metric` 等、`links/*`、`market/*`）。
-- `/api/v1/information`: 资讯接口。
+- `/api/v1/stocks`: 股票搜索（插件选股用）。
+- `/api/v1/knowledge`: 知识构建与知识查询接口（Data MCP 22 工具面的全部只读端点都在这里），
+  其中 `knowledge/documents/*` 为产物阅读器（文档聚合 + 原文 PDF 流，见 AGENTS.md 2026-10-21 增量）。
 - `/api/v1/signals`: 预期差信号接口。
 - `/api/v1/readiness`: 数据就绪度接口。
-- `/api/v1/logs`: 日志查询接口。
+- `/api/v1/auth`、`/api/v1/users`、`/api/v1/account`: 用户与持仓（旧 Vue 前端遗留，无在线客户端）。
 - `/health`: 健康检查。
 
 写操作默认需要 API Key。读操作按路由支持可选认证。
@@ -267,16 +265,17 @@ uv run python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
 
 ### 前端启动
 
+Agent 交互层 = dsh web + `plugins/qingshui`，本机运行：
+
 ```bash
-cd frontend
 pnpm install
-pnpm dev
+./scripts/start-local-dsh-web.sh      # DSH_HOME=~/.dsh-qingshui，端口 8399
 ```
 
-构建：
+插件产物（`plugins/qingshui/lib/`）随仓库提交；改源码后重建：
 
 ```bash
-pnpm build
+pnpm build:plugin
 ```
 
 ## 常用命令
@@ -284,7 +283,7 @@ pnpm build
 Evidence-first 管线测试：
 
 ```bash
-python -m pytest backend/tests/test_evidence_service.py backend/tests/test_evidence_builders.py backend/tests/test_evidence_worker.py -q
+python -m pytest backend/tests/test_evidence_service.py backend/tests/test_evidence_builders_simple.py backend/tests/test_evidence_worker.py -q
 ```
 
 链接层 A/B 检索评估（需部署环境，先回填 gold set；完整流程见 [`docs/运维/链接层A-B评估操作手册.md`](docs/运维/链接层A-B评估操作手册.md)）：
