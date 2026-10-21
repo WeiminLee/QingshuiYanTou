@@ -14,12 +14,14 @@ import logging
 import os
 from collections.abc import Awaitable, Callable
 from datetime import date, datetime, time, timedelta
+from typing import Any
 
 import pytz
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from sqlalchemy import text
 
+from app.config import settings
 from app.core.database import engine
 from app.data_pipeline.job_producers import enqueue_irm_company_jobs, enqueue_recent_cninfo_jobs
 from app.data_pipeline.job_worker import IngestionJobWorker
@@ -793,6 +795,27 @@ async def _run_evidence_worker_job() -> None:
         logger.warning("[evidence_worker] 执行异常: %s", exc)
 
 
+async def finalize_announcement_batch(
+    records: list[dict[str, Any]],
+    execute: Callable[[str, dict[str, Any]], Awaitable[Any]],
+) -> int:
+    """标记一批公告已完成 evidence 构建，返回标记条数。
+
+    只改状态、保留 ``file_path``，**不触碰文件系统**：保留 PDF 是有意为之
+    （见设计稿 §4.2）—— 文本虽已进 mongo evidence，原文 PDF 仍是产物阅读器的
+    取数来源，不能随抽取一起删除。
+    """
+    ids = [rec["id"] for rec in records]
+    if not ids:
+        return 0
+    await execute(
+        "UPDATE minishare_announcements SET evidence_at = now(), download_status = 'stored' "
+        "WHERE id = ANY(:ids)",
+        {"ids": ids},
+    )
+    return len(ids)
+
+
 async def _run_announcement_ingestion_job() -> None:
     """公告 PDF → evidence 切分 + 入队（幂等，抽取窗口前夜跑）。"""
     from app.knowledge.evidence import stable_evidence_id
@@ -807,7 +830,6 @@ async def _run_announcement_ingestion_job() -> None:
         records = await get_announcements(limit=batch, offset=0)
         if not records:
             break
-        record_ids = [r["id"] for r in records]
         all_inputs = []
         for rec in records:
             try:
@@ -830,22 +852,11 @@ async def _run_announcement_ingestion_job() -> None:
             enqueued = await service.bulk_enqueue_jobs(evidence_ids)
             evidence_created += written
             jobs_queued += enqueued
-        # 标记已 build evidence（记录哪些 PDF 已处理）+ 删除 PDF（文本已进 mongo evidence，PDF 冗余）
-        from pathlib import Path as _Path
-        for rec in records:
-            fp = rec.get("file_path")
-            if fp:
-                try:
-                    _Path(str(fp)).unlink(missing_ok=True)
-                except Exception:
-                    pass
+        # 标记已 build evidence（记录哪些 PDF 已处理）；PDF 保留在盘上供产物阅读器取原文
         async with engine.begin() as conn:
-            await conn.execute(
-                text(
-                    "UPDATE minishare_announcements SET evidence_at = now(), download_status = 'purged', file_path = NULL "
-                    "WHERE id = ANY(:ids)"
-                ),
-                {"ids": record_ids},
+            await finalize_announcement_batch(
+                records,
+                lambda sql, params: conn.execute(text(sql), params),
             )
         processed += len(records)
         if processed % 1000 == 0:
@@ -865,7 +876,13 @@ async def _run_pdf_rotation_job() -> None:
 
 
 def add_pdf_rotation_job(scheduler: AsyncIOScheduler) -> None:
-    """Register weekly local PDF rotation job idempotently."""
+    """Register weekly local PDF rotation job idempotently.
+
+    默认不注册（``PDF_ROTATION_ENABLED=false``）：PDF 改为长期保留资产后，
+    两年期轮转会删掉原文，只作为运维手工手段保留代码，不随调度自动开跑。
+    """
+    if not settings.pdf_rotation_enabled:
+        return
     scheduler.add_job(
         _run_pdf_rotation_job,
         CronTrigger(
