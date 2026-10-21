@@ -8,7 +8,11 @@
 
 铁律：
 - 绝不删除、绝不覆盖已存在的文件；canonical 目标已存在即 ``skip``。
-- 绝不清空 ``file_path``；只有下载成功后才写入。
+- 闸门与落盘必须同一套路径规则：下载前先比对 ``FileStorage`` 的真实落点，
+  与 canonical 目标不一致就拒绝下载（否则行被计成功、阅读器仍看不到）。
+- 绝不清空 ``file_path``；只有下载成功且产物通过 ``%PDF-`` 校验后才写入，
+  UPDATE 自带「空行才写」守卫。
+- ``skip`` 分支只补台账（文件已在、``file_path`` 为空），不重新下载。
 - ``--dry-run`` 不触网、不落盘、不写库，只打印候选。
 
 用法（chemagent 上经 scheduler 容器执行）：
@@ -59,7 +63,14 @@ WHERE evidence_at IS NOT NULL
 _SQL_ORDER = """ORDER BY ann_date DESC
 LIMIT :limit"""
 
+# 回写只填「空」行：并发的采集写入绝不覆盖。
+_SQL_WRITE_BACK = (
+    "UPDATE minishare_announcements SET file_path = :file_path, download_status = 'stored' "
+    "WHERE id = :ann_id AND (file_path IS NULL OR file_path = '')"
+)
+
 _DATE_SHAPES = ("%Y%m%d", "%Y-%m-%d")
+_PDF_MAGIC = b"%PDF-"
 
 
 def _ann_date_token(ann_date: Any) -> str:
@@ -159,13 +170,39 @@ def _sleep_with_jitter(sleep_s: float) -> None:
     time.sleep(sleep_s * random.uniform(1 - JITTER_RATIO, 1 + JITTER_RATIO))
 
 
+def _has_file_path(candidate: dict[str, Any]) -> bool:
+    return bool(str(candidate.get("file_path") or "").strip())
+
+
+def _is_valid_pdf(path: Path) -> bool:
+    """落盘产物校验：存在、非空、且以 ``%PDF-`` 开头。"""
+    try:
+        if not path.is_file() or path.stat().st_size == 0:
+            return False
+        with path.open("rb") as handle:
+            return handle.read(len(_PDF_MAGIC)) == _PDF_MAGIC
+    except OSError:
+        return False
+
+
+def _storage_target(storage: FileStorage, candidate: dict[str, Any], pub_date: str, filename: str) -> Path:
+    """``FileStorage`` 实际会写入的绝对路径（与 ``save_notice`` 同一套 sanitizer）。"""
+    return Path(storage._get_notice_path(candidate["ts_code"], pub_date, filename)).resolve()
+
+
 def _attempt_download(
     storage: FileStorage,
     candidate: dict[str, Any],
     root: Path | str,
     sleep_s: float,
 ) -> Path | None:
-    """下载单个候选，最多 ``ATTEMPTS`` 次；成功返回落盘路径。"""
+    """下载单个候选，最多 ``ATTEMPTS`` 次；成功返回落盘路径。
+
+    闸门与写盘必须用同一套路径规则：``plan_download`` 只看 canonical 路径，
+    而 ``FileStorage`` 会按自己的 sanitizer 改 ``ts_code`` / 由 ``pub_date[:6]``
+    推月份。二者不一致时下载会落到别处 —— 行被计为下载成功、阅读器却仍看不到，
+    且重跑会截断那份「看起来不存在」的文件。故落盘前先比对，不一致即拒绝下载。
+    """
     url = str(candidate.get("source_url") or "").strip()
     ann_id = candidate["id"]
     if not url:
@@ -176,6 +213,20 @@ def _attempt_download(
     pub_date = _ann_date_token(candidate["ann_date"])
     expected = backfill_target_path(candidate["ts_code"], candidate["ann_date"], ann_id, root)
 
+    try:
+        actual = _storage_target(storage, candidate, pub_date, filename)
+    except Exception:
+        logger.exception("id=%s 解析存储层落点失败，拒绝下载", ann_id)
+        return None
+    if actual != expected.resolve():
+        logger.error(
+            "id=%s 存储层落点与 canonical 目标不一致，拒绝下载: 存储层=%s canonical=%s",
+            ann_id,
+            actual,
+            expected,
+        )
+        return None
+
     for attempt in range(1, ATTEMPTS + 1):
         saved: Path | None = None
         try:
@@ -185,10 +236,14 @@ def _attempt_download(
             result = None
         if result is not None:
             saved = Path(result)
-            if saved != expected:
-                logger.warning("id=%s 落盘路径与 canonical 目标不一致: %s != %s", ann_id, saved, expected)
-            logger.info("id=%s 下载成功 -> %s", ann_id, saved)
-            return saved
+            # 产物只可能由本次尝试写出，重试覆盖的是自己的残次品，绝不删。
+            if not _is_valid_pdf(saved):
+                logger.error("id=%s 下载产物校验失败（缺失/空文件/非 PDF）: %s", ann_id, saved)
+            else:
+                if saved.resolve() != expected.resolve():
+                    logger.warning("id=%s 落盘路径与 canonical 目标不一致: %s != %s", ann_id, saved, expected)
+                logger.info("id=%s 下载成功 -> %s", ann_id, saved)
+                return saved
         logger.warning("id=%s 第 %s/%s 次下载失败", ann_id, attempt, ATTEMPTS)
         if attempt < ATTEMPTS:
             _sleep_with_jitter(sleep_s)
@@ -204,18 +259,15 @@ async def _fetch_candidates(stmt: Any, params: dict[str, Any]) -> list[dict[str,
 
 
 async def _write_back(ann_id: int, path: Path) -> None:
-    """下载成功后回写 ``file_path``；只在成功后调用，绝不置空。"""
+    """回填 ``file_path``；只在文件确认可用后调用，绝不置空。
+
+    UPDATE 自带 ``(file_path IS NULL OR file_path = '')`` 守卫：并发的采集写入
+    （fetcher 已经填好真实路径）不会被本脚本覆盖。
+    """
     from app.core.database import engine
 
     async with engine.begin() as conn:
-        await conn.execute(
-            text(
-                "UPDATE minishare_announcements "
-                "SET file_path = :file_path, download_status = 'stored' "
-                "WHERE id = :ann_id"
-            ),
-            {"file_path": str(path), "ann_id": ann_id},
-        )
+        await conn.execute(text(_SQL_WRITE_BACK), {"file_path": str(path), "ann_id": ann_id})
 
 
 async def run(
@@ -237,8 +289,10 @@ async def run(
         params["ann_ids"] = ann_id_list
 
     counts = {"candidates": 0, "downloaded": 0, "skipped": 0, "failed": 0}
-    rows = await _fetch_candidates(stmt, params)
     root = _resolve_root()
+    logger.info("PDF 存储根: %s（dry_run=%s）", root, dry_run)
+    rows = await _fetch_candidates(stmt, params)
+    logger.info("候选 %s 条", len(rows))
     storage: FileStorage | None = None
 
     for index, candidate in enumerate(rows):
@@ -246,8 +300,25 @@ async def run(
         ann_id = candidate["id"]
         target = backfill_target_path(candidate["ts_code"], candidate["ann_date"], ann_id, root)
         if plan_download(candidate, root) == "skip":
+            # 文件在、台账空 = 上一轮「下载成功但回写失败」的残留。顺带补账，
+            # 否则这些行会被永久跳过且没有任何信号。
+            if dry_run or _has_file_path(candidate):
+                counts["skipped"] += 1
+                logger.info("skip id=%s：目标已存在 %s", ann_id, target)
+                continue
+            if not _is_valid_pdf(target):
+                # 绝不把坏文件写进台账，也绝不删除；留给人工核查。
+                logger.error("id=%s 目标已存在但不是有效 PDF，未回填 file_path: %s", ann_id, target)
+                counts["failed"] += 1
+                continue
+            try:
+                await _write_back(ann_id, target)
+            except Exception:
+                logger.exception("id=%s 目标已存在但回填 file_path 失败", ann_id)
+                counts["failed"] += 1
+                continue
             counts["skipped"] += 1
-            logger.info("skip id=%s：目标已存在 %s", ann_id, target)
+            logger.info("skip id=%s：目标已存在 %s（已回填 file_path）", ann_id, target)
             continue
         if dry_run:
             logger.info(

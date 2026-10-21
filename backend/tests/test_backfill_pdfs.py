@@ -70,6 +70,15 @@ def test_candidates_sql_optional_filters():
     assert "id IN :ann_ids" in script.build_candidates_sql(ann_ids=True)
 
 
+def test_write_back_sql_only_fills_empty_rows():
+    """回写自带「空行才写」守卫，避免覆盖并发采集写入的真实路径。"""
+    sql = _script()._SQL_WRITE_BACK
+
+    assert "file_path IS NULL OR file_path = ''" in sql
+    assert "WHERE id = :ann_id" in sql
+    assert "download_status = 'stored'" in sql
+
+
 # ── 幂等闸门 ──────────────────────────────────────────────────────────────
 
 
@@ -98,15 +107,36 @@ def test_plan_download_never_overwrites_an_existing_directory(tmp_path):
 # ── 下载 ──────────────────────────────────────────────────────────────────
 
 
+def _target(tmp_path, script, ts_code="600962.SH", ann_date="20260812", ann_id=2200763):
+    return script.backfill_target_path(ts_code, ann_date, ann_id, tmp_path)
+
+
+def _storage_writing_to(storage, target):
+    """让假 storage 的存储层落点与 canonical 目标一致。"""
+    storage._get_notice_path = MagicMock(return_value=target)
+    return storage
+
+
+def _write_pdf(path, content=b"%PDF-1.4\n"):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(content)
+    return path
+
+
+def _fake_downloader(target, content=b"%PDF-1.4\n"):
+    """模拟真实下载：调用当下才落盘，然后返回路径。"""
+    return MagicMock(side_effect=lambda *_args, **_kwargs: _write_pdf(target, content))
+
+
 def test_attempt_download_uses_ann_id_filename(tmp_path):
     script = _script()
-    storage = MagicMock()
-    saved = tmp_path / "notices" / "600962.SH" / "2026-08" / "2200763.pdf"
-    storage.download_notice = MagicMock(return_value=saved)
+    target = _target(tmp_path, script)
+    storage = _storage_writing_to(MagicMock(), target)
+    storage.download_notice = _fake_downloader(target)
 
     result = script._attempt_download(storage, _candidate(), tmp_path, 0.0)
 
-    assert result == saved
+    assert result == target
     storage.download_notice.assert_called_once()
     args, _kwargs = storage.download_notice.call_args
     url, ts_code, filename, pub_date = args
@@ -120,7 +150,7 @@ def test_attempt_download_uses_ann_id_filename(tmp_path):
 
 def test_attempt_download_retries_three_times(tmp_path):
     script = _script()
-    storage = MagicMock()
+    storage = _storage_writing_to(MagicMock(), _target(tmp_path, script))
     storage.download_notice = MagicMock(return_value=None)
 
     assert script._attempt_download(storage, _candidate(), tmp_path, 0.0) is None
@@ -129,11 +159,11 @@ def test_attempt_download_retries_three_times(tmp_path):
 
 def test_attempt_download_stops_retrying_after_success(tmp_path):
     script = _script()
-    saved = tmp_path / "notices" / "600962.SH" / "2026-08" / "2200763.pdf"
-    storage = MagicMock()
-    storage.download_notice = MagicMock(side_effect=[None, saved])
+    target = _write_pdf(_target(tmp_path, script))
+    storage = _storage_writing_to(MagicMock(), target)
+    storage.download_notice = MagicMock(side_effect=[None, target])
 
-    assert script._attempt_download(storage, _candidate(), tmp_path, 0.0) == saved
+    assert script._attempt_download(storage, _candidate(), tmp_path, 0.0) == target
     assert storage.download_notice.call_count == 2
 
 
@@ -143,6 +173,65 @@ def test_attempt_download_without_url_does_not_hit_network(tmp_path):
 
     assert script._attempt_download(storage, _candidate(source_url="  "), tmp_path, 0.0) is None
     storage.download_notice.assert_not_called()
+
+
+def test_attempt_download_refuses_diverging_storage_path(tmp_path):
+    """存储层会落到别处时拒绝下载：否则行被计成功、阅读器仍看不到，重跑还会截断文件。"""
+    script = _script()
+    elsewhere = tmp_path / "notices" / "_invalid" / "2026-08" / "2200763.pdf"
+    storage = _storage_writing_to(MagicMock(), elsewhere)
+
+    result = script._attempt_download(storage, _candidate(ts_code="600962.sh"), tmp_path, 0.0)
+
+    assert result is None
+    storage.download_notice.assert_not_called()
+    assert not elsewhere.exists()
+
+
+def test_real_file_storage_lands_on_the_canonical_target(tmp_path):
+    """真实 ``FileStorage`` 的落点必须与 ``backfill_target_path`` 一致，否则闸门失效。"""
+    from app.data_pipeline.file_storage import FileStorage
+
+    script = _script()
+    storage = FileStorage(notices_dir=tmp_path / "notices")
+
+    actual = script._storage_target(storage, _candidate(), "20260812", "2200763.pdf")
+
+    assert actual == _target(tmp_path, script).resolve()
+
+
+def test_real_file_storage_diverges_for_invalid_ts_code(tmp_path):
+    """非法 ts_code 会被存储层降级到 ``_invalid/``，与 canonical 目标分叉。"""
+    from app.data_pipeline.file_storage import FileStorage
+
+    script = _script()
+    storage = FileStorage(notices_dir=tmp_path / "notices")
+    candidate = _candidate(ts_code="600962.sh")
+
+    actual = script._storage_target(storage, candidate, "20260812", "2200763.pdf")
+
+    assert actual != script.backfill_target_path("600962.sh", "20260812", 2200763, tmp_path).resolve()
+
+
+def test_attempt_download_rejects_invalid_downloaded_file(tmp_path):
+    """产物为空文件/非 PDF 一律 failed，且绝不删除。"""
+    script = _script()
+    target = _write_pdf(_target(tmp_path, script), content=b"")
+    storage = _storage_writing_to(MagicMock(), target)
+    storage.download_notice = MagicMock(return_value=target)
+
+    assert script._attempt_download(storage, _candidate(), tmp_path, 0.0) is None
+    assert storage.download_notice.call_count == 3
+    assert target.exists()
+
+
+def test_is_valid_pdf(tmp_path):
+    script = _script()
+
+    assert script._is_valid_pdf(_write_pdf(tmp_path / "ok.pdf")) is True
+    assert script._is_valid_pdf(_write_pdf(tmp_path / "empty.pdf", b"")) is False
+    assert script._is_valid_pdf(_write_pdf(tmp_path / "html.pdf", b"<html>")) is False
+    assert script._is_valid_pdf(tmp_path / "missing.pdf") is False
 
 
 # ── run() ─────────────────────────────────────────────────────────────────
@@ -174,8 +263,9 @@ def test_dry_run_makes_no_network_and_no_writes(monkeypatch, tmp_path):
 
 def test_run_downloads_and_writes_back(monkeypatch, tmp_path):
     script, _fetch, write_back, storage = _patch_run(monkeypatch, tmp_path, [_candidate()])
-    saved = tmp_path / "notices" / "600962.SH" / "2026-08" / "2200763.pdf"
-    storage.download_notice.return_value = saved
+    saved = _target(tmp_path, script)
+    _storage_writing_to(storage, saved)
+    storage.download_notice = _fake_downloader(saved)
 
     counts = asyncio.run(script.run(dry_run=False, limit=10, since=None, sleep_s=0.0))
 
@@ -183,27 +273,63 @@ def test_run_downloads_and_writes_back(monkeypatch, tmp_path):
     write_back.assert_awaited_once_with(2200763, saved)
 
 
-def test_run_skips_rows_whose_target_already_exists(monkeypatch, tmp_path):
+def test_run_skip_repairs_missing_file_path(monkeypatch, tmp_path):
+    """文件在、台账空：skip 分支要顺带回填 file_path，否则该行永久跳过且无信号。"""
     script, _fetch, write_back, storage = _patch_run(monkeypatch, tmp_path, [_candidate()])
-    target = script.backfill_target_path("600962.SH", "20260812", 2200763, tmp_path)
-    target.parent.mkdir(parents=True)
-    target.write_bytes(b"%PDF-1.4")
+    target = _write_pdf(_target(tmp_path, script))
+
+    counts = asyncio.run(script.run(dry_run=False, limit=10, since=None, sleep_s=0.0))
+
+    assert counts == {"candidates": 1, "downloaded": 0, "skipped": 1, "failed": 0}
+    storage.download_notice.assert_not_called()
+    write_back.assert_awaited_once_with(2200763, target)
+    assert target.read_bytes() == b"%PDF-1.4\n"
+
+
+def test_run_skip_leaves_healthy_rows_alone(monkeypatch, tmp_path):
+    """台账已有 file_path 的 skip 行不再动库。"""
+    row = _candidate(file_path="/data/qingshui/pdf/notices/600962.SH/2026-08/2200763.pdf")
+    script, _fetch, write_back, storage = _patch_run(monkeypatch, tmp_path, [row])
+    _write_pdf(_target(tmp_path, script))
 
     counts = asyncio.run(script.run(dry_run=False, limit=10, since=None, sleep_s=0.0))
 
     assert counts == {"candidates": 1, "downloaded": 0, "skipped": 1, "failed": 0}
     storage.download_notice.assert_not_called()
     write_back.assert_not_awaited()
-    assert target.read_bytes() == b"%PDF-1.4"
+
+
+def test_run_skip_never_adopts_a_broken_file(monkeypatch, tmp_path):
+    """已存在的坏文件绝不写进台账（也不删除）。"""
+    script, _fetch, write_back, _storage = _patch_run(monkeypatch, tmp_path, [_candidate()])
+    target = _write_pdf(_target(tmp_path, script), content=b"")
+
+    counts = asyncio.run(script.run(dry_run=False, limit=10, since=None, sleep_s=0.0))
+
+    assert counts == {"candidates": 1, "downloaded": 0, "skipped": 0, "failed": 1}
+    write_back.assert_not_awaited()
+    assert target.exists()
 
 
 def test_run_counts_failures_without_aborting(monkeypatch, tmp_path):
     script, _fetch, write_back, storage = _patch_run(monkeypatch, tmp_path, [_candidate()])
+    _storage_writing_to(storage, _target(tmp_path, script))
     storage.download_notice.return_value = None
 
     counts = asyncio.run(script.run(dry_run=False, limit=10, since=None, sleep_s=0.0))
 
     assert counts == {"candidates": 1, "downloaded": 0, "skipped": 0, "failed": 1}
+    write_back.assert_not_awaited()
+
+
+def test_dry_run_skip_does_not_repair(monkeypatch, tmp_path):
+    script, _fetch, write_back, storage = _patch_run(monkeypatch, tmp_path, [_candidate()])
+    _write_pdf(_target(tmp_path, script))
+
+    counts = asyncio.run(script.run(dry_run=True, limit=10, since=None, sleep_s=0.0))
+
+    assert counts == {"candidates": 1, "downloaded": 0, "skipped": 1, "failed": 0}
+    storage.download_notice.assert_not_called()
     write_back.assert_not_awaited()
 
 
