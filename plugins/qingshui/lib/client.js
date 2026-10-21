@@ -306,6 +306,111 @@ window.__ModuleLoader__.load({id:`qingshui`,factory:e=>{var t={exports:{}},n=t.e
 @media (max-width: 1280px) {
   .qs-panel { display: none; }
 }
+
+/* ── artifact reader（shell.overlay：章节 / 正文 / 原文 PDF） ── */
+/* The dialog portals to <body>, outside .qs-shell, so it carries its own copy
+   of the accent token. */
+.qs-art-backdrop {
+  --qs-accent: rgb(65, 118, 230);
+  position: fixed; inset: 0; z-index: 2147483200;
+  display: flex; align-items: center; justify-content: center; padding: 24px;
+  background: color-mix(in srgb, #000 42%, transparent);
+}
+.qs-art-panel {
+  display: flex; flex-direction: column; width: min(1180px, 94vw); height: 88vh;
+  border: 1px solid var(--dsw-alias-border-l2); border-radius: 12px;
+  background: var(--dsw-alias-bg-layer-1); color: var(--dsw-alias-label-primary);
+  box-shadow: 0 24px 64px color-mix(in srgb, #000 32%, transparent);
+  overflow: hidden; outline: none;
+}
+/* Visible keyboard focus for everything inside; the panel itself takes focus on
+   open and must not draw a ring around the whole frame. */
+.qs-art-panel :focus-visible { outline: 2px solid var(--qs-accent); outline-offset: 2px; }
+.qs-art-head {
+  flex: none; display: flex; align-items: center; gap: 12px;
+  padding: 12px 16px; border-bottom: 1px solid var(--dsw-alias-border-l2);
+}
+.qs-art-head-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.qs-art-title { font: var(--dsw-font-s-strong-14); color: var(--dsw-alias-label-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.qs-art-sub { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; font: var(--dsw-font-xxs-12); color: var(--dsw-alias-label-tertiary); }
+.qs-art-actions { flex: none; display: flex; align-items: center; gap: 6px; }
+.qs-art-btn {
+  display: inline-flex; align-items: center; border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 6px; background: transparent; color: var(--dsw-alias-label-secondary);
+  font: var(--dsw-font-xxs-12); padding: 4px 10px; cursor: pointer; text-decoration: none;
+}
+.qs-art-btn:hover { background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-primary); }
+.qs-art-btn[aria-pressed="true"] { background: var(--dsw-alias-interactive-bg-active, var(--dsw-alias-interactive-bg-hover)); color: var(--dsw-alias-label-primary); }
+/* Rail toggle only exists once the layout is a single column. */
+.qs-art-rail-toggle { display: none; }
+/* The PDF column hands over to a plain link once it is breakpoint-hidden. */
+.qs-art-pdf-link { display: none; }
+
+/* Three lanes by default; the component narrows --qs-art-cols per state, and
+   the breakpoints below override the property outright. */
+.qs-art-grid {
+  position: relative; flex: 1; min-height: 0; display: grid; align-items: stretch;
+  grid-template-columns: var(--qs-art-cols, 220px minmax(0, 1fr) minmax(0, 42%));
+}
+
+.qs-art-rail { min-height: 0; overflow: auto; display: flex; flex-direction: column; border-right: 1px solid var(--dsw-alias-border-l2); background: var(--dsw-alias-bg-base); }
+.qs-art-rail-head { position: sticky; top: 0; z-index: 1; padding: 10px 12px 6px; background: var(--dsw-alias-bg-base); font: var(--dsw-font-xxs-strong-12); color: var(--dsw-alias-label-secondary); }
+.qs-art-rail-list { display: flex; flex-direction: column; gap: 1px; padding: 0 8px 12px; }
+.qs-art-chapter {
+  display: flex; align-items: baseline; gap: 8px; width: 100%; text-align: left;
+  border: none; border-radius: 6px; background: transparent; cursor: pointer;
+  color: var(--dsw-alias-label-secondary); font: var(--dsw-font-xxs-12); padding: 6px 8px;
+}
+.qs-art-chapter:hover { background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-primary); }
+.qs-art-chapter[data-active="true"] { background: var(--dsw-alias-interactive-bg-active, var(--dsw-alias-interactive-bg-hover)); color: var(--dsw-alias-label-primary); font-weight: 600; box-shadow: inset 2px 0 0 var(--qs-accent); }
+.qs-art-chapter-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.qs-art-chapter-chars { flex: none; font-size: 11px; line-height: 16px; font-variant-numeric: tabular-nums; color: var(--dsw-alias-label-dimmed); }
+
+.qs-art-body { min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 8px; padding: 14px 16px; }
+.qs-art-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; color: var(--dsw-alias-label-tertiary); font: var(--dsw-font-xxs-12); }
+.qs-art-badge { display: inline-flex; align-items: center; flex: none; border-radius: 4px; padding: 1px 6px; font: var(--dsw-font-xxxs-11); line-height: 16px; color: var(--dsw-alias-label-secondary); background: var(--dsw-alias-interactive-bg-hover); }
+.qs-art-mono { font-family: var(--dsw-font-family-mono, ui-monospace, SFMono-Regular, Menlo, monospace); font-size: 11px; color: var(--dsw-alias-label-dimmed); word-break: break-all; }
+.qs-art-text { color: var(--dsw-alias-label-secondary); font: var(--dsw-font-xs-13); line-height: 1.7; white-space: pre-wrap; word-break: break-word; }
+.qs-art-text[data-collapsed="true"] { display: -webkit-box; -webkit-box-orient: vertical; overflow: hidden; }
+.qs-art-mark { background: color-mix(in srgb, var(--dsw-static-amber-500) 28%, transparent); color: var(--dsw-alias-label-primary); border-radius: 2px; padding: 0 1px; }
+.qs-art-status { color: var(--dsw-alias-label-tertiary); font: var(--dsw-font-xs-13); padding: 4px 0; }
+.qs-art-error { color: var(--dsw-alias-state-error-primary); display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
+.qs-art-link { align-self: flex-start; border: none; background: transparent; padding: 0; cursor: pointer; color: var(--dsw-static-deepseek-500); font: var(--dsw-font-xxs-12); text-decoration: none; }
+.qs-art-link:hover { text-decoration: underline; }
+
+.qs-art-pdf { min-height: 0; display: flex; flex-direction: column; border-left: 1px solid var(--dsw-alias-border-l2); background: var(--dsw-alias-bg-base); }
+.qs-art-frame { flex: 1; width: 100%; min-height: 0; border: none; background: var(--dsw-alias-bg-base); }
+.qs-art-note { margin: 0; padding: 16px; color: var(--dsw-alias-label-tertiary); font: var(--dsw-font-xs-13); line-height: 1.7; }
+/* Same statement, carried inside the body where no PDF column exists. */
+.qs-art-note-inline { display: none; padding: 0 0 10px; }
+
+/* ≤1100px: the PDF column folds away; the header keeps a link to the file. */
+@media (max-width: 1100px) {
+  .qs-art-grid { grid-template-columns: 220px minmax(0, 1fr); }
+  .qs-art-grid[data-rail="false"] { grid-template-columns: minmax(0, 1fr); }
+  .qs-art-pdf { display: none; }
+  .qs-art-pdf-toggle { display: none; }
+  .qs-art-pdf-link { display: inline-flex; }
+  .qs-art-note-inline { display: block; }
+}
+/* ≤720px: one lane, with the chapter rail sliding over the body on demand. */
+@media (max-width: 720px) {
+  .qs-art-backdrop { padding: 0; }
+  .qs-art-panel { width: 100%; height: 100%; border: none; border-radius: 0; }
+  .qs-art-grid, .qs-art-grid[data-rail="false"] { grid-template-columns: minmax(0, 1fr); }
+  .qs-art-rail-toggle { display: inline-flex; }
+  .qs-art-rail {
+    position: absolute; top: 0; bottom: 0; left: 0; width: min(320px, 84%); z-index: 2;
+    border-right: 1px solid var(--dsw-alias-border-l2);
+    box-shadow: 0 0 24px color-mix(in srgb, #000 24%, transparent);
+  }
+  .qs-art-grid[data-open="false"] .qs-art-rail { display: none; }
+}
+/* Nothing in the reader animates on open; the query keeps later additions from
+   sneaking a transition past users who asked for stillness. */
+@media (prefers-reduced-motion: reduce) {
+  .qs-art-backdrop, .qs-art-panel, .qs-art-panel * { animation: none !important; transition: none !important; }
+}
 `,()=>{e?.remove()}}let A=`问一只股票、一条公告，或一个预期差`;function j(e,t){return e.find(e=>e.children!==void 0&&e.component!==t&&(e.options?.priority??0)!==-1)}function ee(e,t){e.children=t.children,t.inject!==void 0&&(e.inject=t.inject)}function te(e){e.children=void 0,e.inject=void 0}function ne(e){let{sessionId:t,hero:n,composerBlock:r}=e,i=t===void 0;return{variant:`composer`,...i?{disabled:!0,placeholder:A}:!i&&r!==void 0?{blocked:r,placeholder:r.reason}:n?{placeholder:A}:{}}}let re=/\bEV:[0-9a-fA-F]{6,64}\b/g;function ie(e){let t=e.trim();return/^EV:[0-9a-fA-F]{6,64}$/.test(t)?t:void 0}let ae=/^ {0,3}(```+|~~~+)/;function oe(e){if(!e.includes(`EV:`))return e;let t=e.split(`
 `),n=``,r=[];for(let e of t){let t=ae.exec(e);if(n!==``){r.push(e),t?.[1]?.startsWith(n[0])===!0&&t[1].length>=n.length&&(n=``);continue}if(t?.[1]!==void 0){n=t[1],r.push(e);continue}r.push(se(e))}return r.join(`
 `)}function se(e){if(!e.includes(`EV:`))return e;let t=e.split("`"),n=!1;for(let e=0;e<t.length;e+=2){let r=t[e];if(r===void 0||!r.includes(`EV:`))continue;let i=r.replace(re,e=>`\`${e}\``);i!==r&&(t[e]=i,n=!0)}return n?t.join("`"):e}let ce=/* @__PURE__ */ new Set,le={mode:`closed`};function ue(){return le}function de(e){return ce.add(e),()=>{ce.delete(e)}}function fe(e){le=e;for(let e of[...ce])e()}function pe(e,t){le.mode!==`pinned`&&(le.mode===`hover`&&le.id===e&&M(le.anchor,t)||fe({mode:`hover`,id:e,anchor:t}))}function M(e,t){return e.x===t.x&&e.y===t.y&&e.width===t.width&&e.height===t.height}function N(e){le.mode===`hover`&&(e===void 0||le.id===e)&&fe({mode:`closed`})}function me(e){fe({mode:`pinned`,id:e})}function he(){le.mode===`pinned`&&fe({mode:`closed`})}let ge=/* @__PURE__ */ new Map;function _e(e,t){let n=ge.get(e);if(n!==void 0)return n;t(e).then(t=>{ge.set(e,t)}).catch(t=>{ge.set(e,{status:`error`,message:String(t?.message??t)})}).finally(()=>{for(let e of[...ce])e()});let r={status:`loading`};return ge.set(e,r),r}async function ve(e){let t;try{t=await fetch(`/qingshui/evidence/${encodeURIComponent(e)}`)}catch{return{status:`error`,message:`无法连接本地知识路由（服务未启动或已断开）`}}let n;try{n=await t.json()}catch{return{status:`error`,message:`证据路由响应异常（HTTP ${t.status}）`}}let r=n;if(t.ok&&r?.ok===!0&&r.doc!==void 0)return{status:`ok`,doc:r.doc};let i=e.length<67;return{status:`error`,message:r?.error??`证据未命中（HTTP ${t.status}）`,shortId:i}}function ye(e){ge.delete(e);for(let e of[...ce])e()}function be(e){return`kind`in e}function xe(e){return be(e)?e.isError?`error`:`ok`:`running`}function Se(e){let t=be(e)?e.call?.argsRaw??``:e.argsRaw;if(t===``)return{};try{let e=JSON.parse(t);return typeof e==`object`&&e&&!Array.isArray(e)?e:{}}catch{return{}}}function Ce(e){let t=[];for(let n of e.content)typeof n==`object`&&n&&n.type===`text`&&typeof n.text==`string`?t.push(n.text):t.push(JSON.stringify(n,null,2));return t.length===0&&e.error!==void 0&&t.push(`${e.error.name}: ${e.error.code}`),t.join(`
