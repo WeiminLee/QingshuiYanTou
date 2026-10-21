@@ -6,7 +6,10 @@
 
 from __future__ import annotations
 
-from app.config import settings
+import inspect
+
+from app.config import Settings, settings
+from app.data_pipeline import scheduler as scheduler_module
 from app.data_pipeline.scheduler import add_pdf_rotation_job, finalize_announcement_batch
 
 
@@ -27,6 +30,18 @@ async def test_finalize_keeps_pdf_and_marks_stored(tmp_path):
     assert seen[0][1] == {"ids": [7]}
 
 
+def test_ingestion_job_source_never_deletes_the_pdf():
+    """重装删除逻辑必须让测试失败：抽取任务是唯一的删文件点（设计稿 §4.2）。
+
+    ``finalize_announcement_batch`` 只写状态、不碰文件系统，所以任务源码里
+    既不能出现 ``unlink(``，也必须把标记统一委托给它。
+    """
+    source = inspect.getsource(scheduler_module._run_announcement_ingestion_job)
+
+    assert "unlink(" not in source
+    assert "finalize_announcement_batch" in source
+
+
 class _FakeScheduler:
     """只记录 add_job 的假 scheduler。"""
 
@@ -38,6 +53,8 @@ class _FakeScheduler:
 
 
 def test_rotation_job_is_off_by_default(monkeypatch):
+    # 真默认值（不是 monkeypatch 造出来的）必须就是关。
+    assert Settings().pdf_rotation_enabled is False
     monkeypatch.setattr(settings, "pdf_rotation_enabled", False, raising=False)
     fake = _FakeScheduler()
 

@@ -86,8 +86,14 @@ export function openArtifact(artifact: Artifact): void {
   publish({ artifact: cloneArtifact(artifact) })
 }
 
-/** Close the reader. No notification when it is already closed. */
+/**
+ * Close the reader. No notification when it is already closed.
+ *
+ * Closing also claims the newest open intent: an asynchronous open already
+ * awaiting its evidence row must not reopen the reader behind the user's back.
+ */
 export function closeArtifact(): void {
+  beginOpen()
   if (state.artifact === undefined) return
   publish({})
 }

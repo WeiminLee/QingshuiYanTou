@@ -57,8 +57,7 @@ JITTER_RATIO = 0.25
 
 _SQL_BASE = """SELECT id, ts_code, ann_date, title, source_url, file_path
 FROM minishare_announcements
-WHERE evidence_at IS NOT NULL
-  AND (file_path IS NULL OR file_path = '')"""
+WHERE evidence_at IS NOT NULL"""
 
 _SQL_ORDER = """ORDER BY ann_date DESC
 LIMIT :limit"""
@@ -120,7 +119,12 @@ def plan_download(candidate: dict[str, Any], root: Path | str) -> str:
 
 
 def build_candidates_sql(*, since: bool = False, ann_ids: bool = False) -> str:
-    """候选查询：已建 evidence 但 ``file_path`` 为空的行，最新公告优先。"""
+    """候选查询：所有已建 evidence 的公告，最新公告优先。
+
+    不按 ``file_path`` 过滤：历史清理只把 ``file_path`` 置空，但也存在指向旧
+    目录的陈旧非空路径 —— 那些行的 canonical 目标仍缺失，必须能被复访。
+    是否跳过/补账/下载，由 :func:`plan_download` 与调用方就地判断。
+    """
     conditions = [_SQL_BASE]
     if since:
         conditions.append("  AND ann_date >= :since")

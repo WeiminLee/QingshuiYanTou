@@ -13,6 +13,7 @@ from typing import Any
 
 import pytest
 
+from app.knowledge import document_service
 from app.knowledge.document_service import (
     FILENAME_TITLE_RE,
     ann_id_variants,
@@ -22,6 +23,7 @@ from app.knowledge.document_service import (
     load_document,
     load_pdf_path,
     parse_range,
+    warm_document_indexes,
 )
 
 TS_CODE = "600962.SH"
@@ -165,6 +167,23 @@ def test_pdf_resolves_through_legacy_stored_path(tmp_path: Path) -> None:
     assert doc is not None
     assert doc["pdf"]["exists"] is True
     assert doc["pdf"]["size"] == len(payload)
+
+
+def test_pdf_probe_agrees_with_the_stream_for_an_escaping_stored_path(tmp_path: Path) -> None:
+    """An escaping stored path makes /pdf answer 400, so the probe must say absent.
+
+    The canonical file below does exist, which is exactly what the fallback would
+    find — reporting ``exists: true`` here would mount an iframe of the 400 body.
+    """
+    root = tmp_path / "root"
+    _touch(root / "notices" / TS_CODE / "2026-08" / f"{ANN_ID}.pdf")
+    rows = [_row(source_ref=_source_ref(pdf_path="/x/notices/../../etc/passwd"))]
+
+    doc = build_document_response(rows, root=root)
+
+    assert doc is not None
+    assert doc["pdf"]["exists"] is False
+    assert doc["pdf"]["size"] is None
 
 
 def test_response_never_exposes_server_paths(tmp_path: Path) -> None:
@@ -388,6 +407,31 @@ async def test_ensure_document_indexes_creates_source_ref_ann_id_index() -> None
     await ensure_document_indexes(db)
 
     assert [keys for keys, _ in db.kg_evidence.indexes] == ["source_ref.ann_id"]
+
+
+async def test_warm_document_indexes_creates_the_index_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[Any] = []
+
+    async def fake_ensure(db: Any) -> None:
+        calls.append(db)
+
+    monkeypatch.setattr(document_service, "ensure_document_indexes", fake_ensure)
+    monkeypatch.setattr(document_service, "get_mongo_db", lambda: "db")
+
+    await warm_document_indexes()
+
+    assert calls == ["db"]
+
+
+async def test_warm_document_indexes_swallows_failures(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def boom(db: Any) -> None:
+        raise RuntimeError("mongo down")
+
+    monkeypatch.setattr(document_service, "ensure_document_indexes", boom)
+    monkeypatch.setattr(document_service, "get_mongo_db", lambda: "db")
+
+    # Startup must never fail because the index could not be created.
+    await warm_document_indexes()
 
 
 @pytest.mark.parametrize(

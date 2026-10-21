@@ -22,6 +22,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Literal
 
+from app.core.mongodb import get_mongo_db
 from app.knowledge.pdf_store import resolve_pdf_path, strip_to_storage_tail
 
 logger = logging.getLogger(__name__)
@@ -209,7 +210,12 @@ def _stored_pdf_path_escapes(rows: list[dict[str, Any]], *, root: Path | str) ->
 
 def _pdf_summary(rows: list[dict[str, Any]], *, root: Path | str) -> dict[str, Any]:
     sha256 = _first_str(rows, lambda row: _source_ref(row).get("pdf_sha256"))
-    resolved = _resolve_document_pdf(rows, root=root)
+    # The stream endpoint refuses an escaping stored path (400) even when the
+    # canonical fallback exists; the summary must report the same absence, or
+    # the reader would mount an iframe of the stream's JSON error.
+    resolved = (
+        None if _stored_pdf_path_escapes(rows, root=root) else _resolve_document_pdf(rows, root=root)
+    )
     size: int | None = None
     if resolved is not None:
         try:
@@ -292,6 +298,18 @@ async def load_pdf_path(db: Any, ann_id: str, *, root: Path | str) -> tuple[Path
 async def ensure_document_indexes(db: Any) -> None:
     """Create the lookup index used by both document endpoints."""
     await db.kg_evidence.create_index("source_ref.ann_id")
+
+
+async def warm_document_indexes() -> None:
+    """Create the document lookup index at startup, never failing startup.
+
+    The index is an optimisation on 377k evidence rows; an unreachable or slow
+    MongoDB must degrade the endpoints to a scan, not take the API down.
+    """
+    try:
+        await ensure_document_indexes(get_mongo_db())
+    except Exception:
+        logger.exception("document index warmup failed; document endpoints will scan")
 
 
 def parse_range(header: str | None, size: int) -> tuple[int, int] | None:

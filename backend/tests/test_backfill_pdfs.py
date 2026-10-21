@@ -53,12 +53,13 @@ def test_target_path_accepts_date_objects_and_dashed_strings(tmp_path):
 # ── 候选 SQL ──────────────────────────────────────────────────────────────
 
 
-def test_candidates_sql_only_targets_purged_rows():
+def test_candidates_sql_targets_every_ingested_row():
+    """不按 file_path 过滤：陈旧非空路径的行也必须成为候选，否则永不复访。"""
     sql = _script().build_candidates_sql()
 
     assert "evidence_at IS NOT NULL" in sql and "ORDER BY ann_date DESC" in sql
     assert "minishare_announcements" in sql
-    assert "file_path IS NULL" in sql and "file_path = ''" in sql
+    assert "file_path IS NULL" not in sql and "file_path = ''" not in sql
     assert ":since" not in sql
     assert ":ann_ids" not in sql
 
@@ -263,6 +264,22 @@ def test_dry_run_makes_no_network_and_no_writes(monkeypatch, tmp_path):
 
 def test_run_downloads_and_writes_back(monkeypatch, tmp_path):
     script, _fetch, write_back, storage = _patch_run(monkeypatch, tmp_path, [_candidate()])
+    saved = _target(tmp_path, script)
+    _storage_writing_to(storage, saved)
+    storage.download_notice = _fake_downloader(saved)
+
+    counts = asyncio.run(script.run(dry_run=False, limit=10, since=None, sleep_s=0.0))
+
+    assert counts == {"candidates": 1, "downloaded": 1, "skipped": 0, "failed": 0}
+    write_back.assert_awaited_once_with(2200763, saved)
+
+
+def test_run_downloads_rows_whose_file_path_is_stale(monkeypatch, tmp_path):
+    """file_path 非空但指向旧目录的行同样是候选：canonical 目标缺失就走下载。"""
+    stale = "/data/qingshui-pdfs/notices/600962.SH/2026-08/gone.pdf"
+    script, _fetch, write_back, storage = _patch_run(
+        monkeypatch, tmp_path, [_candidate(file_path=stale)],
+    )
     saved = _target(tmp_path, script)
     _storage_writing_to(storage, saved)
     storage.download_notice = _fake_downloader(saved)

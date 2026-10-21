@@ -143,6 +143,35 @@ test('openEvidenceArtifact keeps the newest click when evidence resolutions race
   }
 })
 
+test('closeArtifact cancels a pending evidence open', async () => {
+  closeArtifact()
+  const original = globalThis.fetch
+  const pending: Array<(doc: Record<string, unknown>) => void> = []
+  globalThis.fetch = (() => new Promise<Response>((resolve) => {
+    pending.push((doc) => {
+      resolve({ ok: true, json: async () => ({ ok: true, doc }) } as unknown as Response)
+    })
+  })) as typeof fetch
+
+  try {
+    const opening = openEvidenceArtifact('EV:pending-close')
+    assert.equal(pending.length, 1, 'the open is waiting on its evidence row')
+
+    closeArtifact()
+    pending[0]?.({ evidence_id: 'EV:pending-close', source_ref: { ann_id: '880123' } })
+    await opening
+
+    assert.equal(
+      getArtifactState().artifact,
+      undefined,
+      'a close must not be undone by an open that resolves afterwards',
+    )
+  } finally {
+    globalThis.fetch = original
+    closeArtifact()
+  }
+})
+
 test('clampSpans drops out-of-range, reversed, empty and non-integer spans', () => {
   assert.deepEqual(clampSpans(undefined, 10), [])
   assert.deepEqual(clampSpans([], 10), [])
