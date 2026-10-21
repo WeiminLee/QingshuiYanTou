@@ -32,6 +32,10 @@ FILENAME_TITLE_RE = re.compile(r"^[\w.-]+\.(?:pdf|PDF)$")
 
 _ANN_ID_DIGITS_RE = re.compile(r"[0-9]+")
 
+# Fields needed to resolve a PDF: enough for the storage path and the canonical
+# fallback, without pulling each chapter's text_excerpt.
+_PDF_ROW_PROJECTION = {"source_ref": 1, "subject_hint": 1, "source_name": 1}
+
 
 def classify_title(title: str | None) -> tuple[str | None, bool]:
     """Return ``(display_title, title_is_filename)``.
@@ -107,6 +111,14 @@ def _first_str(rows: list[dict[str, Any]], getter: Callable[[dict[str, Any]], An
     return None
 
 
+def _first_present(rows: list[dict[str, Any]], getter: Callable[[dict[str, Any]], Any]) -> Any:
+    for row in rows:
+        value = getter(row)
+        if value is not None and value != "":
+            return value
+    return None
+
+
 def _chapter(row: dict[str, Any]) -> dict[str, Any]:
     ref = _source_ref(row)
     heading = ref.get("chapter_heading")
@@ -140,24 +152,43 @@ def _chapters_parsed(rows: list[dict[str, Any]]) -> int:
     return max(totals) if totals else 0
 
 
-def _pdf_summary(rows: list[dict[str, Any]], *, root: Path | str) -> dict[str, Any]:
-    ref = _source_ref(rows[0])
-    stored_path = _first_str(rows, lambda row: _source_ref(row).get("pdf_path"))
-    sha256 = _first_str(rows, lambda row: _source_ref(row).get("pdf_sha256"))
-    raw_ann_id = ref.get("ann_id")
-    resolved = resolve_pdf_path(
-        stored_path,
-        ts_code=_row_ts_code(rows[0]) or "",
-        ann_date=ref.get("ann_date"),
+def _pdf_source_row(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """Return the row whose ``source_ref.pdf_path`` drives resolution.
+
+    Rows are per chapter, so the legacy ``pdf_path`` may sit on any of them;
+    only some rows carry it, and the first row may not.  Both the document
+    probe and the PDF stream resolve through this row, so ``pdf.exists`` can
+    never disagree with ``GET /pdf``.
+    """
+    for row in rows:
+        stored_path = _source_ref(row).get("pdf_path")
+        if isinstance(stored_path, str) and stored_path.strip():
+            return row
+    return rows[0]
+
+
+def _resolve_document_pdf(rows: list[dict[str, Any]], *, root: Path | str) -> Path | None:
+    """Single path-resolution rule shared by both loaders."""
+    row = _pdf_source_row(rows)
+    raw_ann_id = _first_present(rows, lambda candidate: _source_ref(candidate).get("ann_id"))
+    return resolve_pdf_path(
+        _source_ref(row).get("pdf_path"),
+        ts_code=_row_ts_code(row) or "",
+        ann_date=_first_str(rows, lambda candidate: _source_ref(candidate).get("ann_date")),
         ann_id=raw_ann_id if raw_ann_id is not None else "",
         root=Path(root),
     )
+
+
+def _pdf_summary(rows: list[dict[str, Any]], *, root: Path | str) -> dict[str, Any]:
+    sha256 = _first_str(rows, lambda row: _source_ref(row).get("pdf_sha256"))
+    resolved = _resolve_document_pdf(rows, root=root)
     size: int | None = None
     if resolved is not None:
         try:
             size = resolved.stat().st_size
         except OSError:
-            logger.warning("pdf stat failed for ann_id=%r", raw_ann_id)
+            logger.warning("pdf stat failed for ann_id=%r", _source_ref(rows[0]).get("ann_id"))
             resolved = None
     return {"exists": resolved is not None, "sha256": sha256, "size": size}
 
@@ -205,22 +236,20 @@ async def load_document(db: Any, ann_id: str, *, root: Path | str) -> dict[str, 
 
 
 async def load_pdf_path(db: Any, ann_id: str, *, root: Path | str) -> Path | None:
-    """Resolve the retained PDF for ``ann_id``, or ``None`` when absent."""
-    document = await db.kg_evidence.find_one(
+    """Resolve the retained PDF for ``ann_id``, or ``None`` when absent.
+
+    Reads the same row set as :func:`load_document` (same ``$in`` query, same
+    order) and resolves through :func:`_resolve_document_pdf`, so the streamed
+    file is exactly the one the document endpoint reported as existing.
+    """
+    cursor = db.kg_evidence.find(
         {"source_ref.ann_id": {"$in": ann_id_variants(ann_id)}},
-        {"source_ref": 1, "subject_hint": 1, "source_name": 1},
+        _PDF_ROW_PROJECTION,
     )
-    if not document:
+    rows = await cursor.to_list(length=None)
+    if not rows:
         return None
-    ref = _source_ref(document)
-    raw_ann_id = ref.get("ann_id")
-    return resolve_pdf_path(
-        ref.get("pdf_path"),
-        ts_code=_row_ts_code(document) or "",
-        ann_date=ref.get("ann_date"),
-        ann_id=raw_ann_id if raw_ann_id is not None else ann_id,
-        root=Path(root),
-    )
+    return _resolve_document_pdf(rows, root=root)
 
 
 async def ensure_document_indexes(db: Any) -> None:

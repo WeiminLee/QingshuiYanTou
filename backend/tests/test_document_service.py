@@ -254,15 +254,17 @@ class _FakeCollection:
     def __init__(self, docs: list[dict[str, Any]] | None = None) -> None:
         self.docs = docs or []
         self.queries: list[Any] = []
-        self.find_one_calls: list[tuple[Any, Any]] = []
+        self.projections: list[Any] = []
         self.indexes: list[tuple[Any, dict[str, Any]]] = []
 
     def find(self, query: Any, *args: Any, **kwargs: Any) -> _FakeCursor:
         self.queries.append(query)
+        self.projections.append(args[0] if args else kwargs.get("projection"))
         return _FakeCursor(self.docs)
 
     async def find_one(self, query: Any, projection: Any = None) -> dict[str, Any] | None:
-        self.find_one_calls.append((query, projection))
+        # Mongo returns an arbitrary match; the stub mirrors "first row only",
+        # the behavior the document loader must not depend on.
         return self.docs[0] if self.docs else None
 
     async def create_index(self, keys: Any, **kwargs: Any) -> str:
@@ -305,6 +307,34 @@ async def test_load_pdf_path_returns_none_when_missing(tmp_path: Path) -> None:
 
 async def test_load_pdf_path_returns_none_without_rows(tmp_path: Path) -> None:
     assert await load_pdf_path(_FakeDB(), str(ANN_ID), root=tmp_path) is None
+
+
+async def test_load_pdf_path_picks_later_row_that_carries_pdf_path(tmp_path: Path) -> None:
+    expected = _touch(tmp_path / "notices" / TS_CODE / "2026-08" / "1225468566.PDF")
+    rows = [
+        _row(evidence_id="EV:no-path", source_ref=_source_ref(chapter_index=91, pdf_path=None)),
+        _row(
+            evidence_id="EV:with-path",
+            text_excerpt="第二章",
+            source_ref=_source_ref(
+                chapter_index=92,
+                pdf_path="/data/qingshui-pdfs/notices/600962.SH/2026-08/1225468566.PDF",
+            ),
+        ),
+    ]
+    db = _FakeDB(rows)
+
+    resolved = await load_pdf_path(db, str(ANN_ID), root=tmp_path)
+
+    # The canonical fallback (2200763.pdf) does not exist; only the legacy file
+    # named on the second row does, so a first-row-only lookup would return None.
+    assert resolved == expected.resolve()
+    assert db.kg_evidence.queries == [{"source_ref.ann_id": {"$in": [ANN_ID, str(ANN_ID)]}}]
+
+    doc = build_document_response(rows, root=tmp_path)
+    assert doc is not None
+    assert doc["pdf"]["exists"] is True
+    assert resolved is not None and resolved.stat().st_size == doc["pdf"]["size"]
 
 
 async def test_ensure_document_indexes_creates_source_ref_ann_id_index() -> None:
