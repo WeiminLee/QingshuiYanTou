@@ -16,6 +16,13 @@ import { evidenceAnnId } from './toolviews/model.ts'
 /** Half-open character range into an evidence body: `[start, end)`. */
 export type ArtifactSpan = { start: number; end: number }
 
+/**
+ * How long an asynchronous open waits for the evidence row that names its
+ * parent announcement. Past this the reader opens the single-evidence view,
+ * which shows its own load state and retry.
+ */
+const EVIDENCE_WAIT_MS = 4000
+
 export type Artifact =
   | { kind: 'document'; annId: string; evidenceId?: string; spans?: ArtifactSpan[] }
   | { kind: 'evidence'; evidenceId: string; spans?: ArtifactSpan[] }
@@ -29,6 +36,14 @@ export type ArtifactSegment = { text: string; marked: boolean }
 const listeners = new Set<Listener>()
 
 let state: ArtifactState = {}
+
+/**
+ * Monotonic token of the newest open intent. An asynchronous opener reserves
+ * one before its await and applies only while it is still the newest: two
+ * anchors clicked inside one evidence round-trip resolve in either order, and
+ * the later click must win rather than whichever fetch answered last.
+ */
+let openGeneration = 0
 
 /**
  * Stable snapshot source for useSyncExternalStore.
@@ -53,12 +68,20 @@ function publish(next: ArtifactState): void {
   for (const listener of [...listeners]) listener()
 }
 
+/** Claim the newest open intent. @returns its generation token. */
+function beginOpen(): number {
+  openGeneration += 1
+  return openGeneration
+}
+
 /**
  * Open the reader on one artifact. Re-opening the same artifact is a no-op so
- * subscribers are notified once per real change.
+ * subscribers are notified once per real change; either way the call becomes
+ * the newest open intent, superseding any asynchronous open still in flight.
  * @param artifact - document or single-evidence view to show.
  */
 export function openArtifact(artifact: Artifact): void {
+  beginOpen()
   if (state.artifact !== undefined && sameArtifact(state.artifact, artifact)) return
   publish({ artifact: cloneArtifact(artifact) })
 }
@@ -73,14 +96,17 @@ export function closeArtifact(): void {
  * Open the reader for one evidence id. The evidence row names its parent
  * announcement (`source_ref.ann_id`) when it has one, so that id is resolved
  * first and the reader opens the whole document; evidence without a parent
- * (IRM / research reports / uploads) opens alone. A failed lookup opens the
- * single-evidence view too — the reader states its own load failure there
- * instead of blocking the click.
+ * (IRM / research reports / uploads) opens alone. A failed or timed-out lookup
+ * opens the single-evidence view too — the reader states its own load failure
+ * there instead of blocking the click. Resolution applies only while this call
+ * is still the newest open intent.
  * @param evidenceId - evidence to read.
  * @param spans - ranges to mark in that evidence body (a finding's sentence).
  */
 export async function openEvidenceArtifact(evidenceId: string, spans?: ArtifactSpan[]): Promise<void> {
+  const generation = beginOpen()
   const doc = await waitForEvidence(evidenceId)
+  if (generation !== openGeneration) return
   const annId = evidenceAnnId(doc)
   if (annId === undefined) {
     openArtifact({ kind: 'evidence', evidenceId, ...(spans === undefined ? {} : { spans }) })
@@ -92,9 +118,11 @@ export async function openEvidenceArtifact(evidenceId: string, spans?: ArtifactS
 /**
  * Wait for the evidence cache to settle on one id. Reading through
  * getEvEvidence keeps the reader's own lookup on the same cached entry, so
- * opening costs one fetch no matter how many places asked first.
+ * opening costs one fetch no matter how many places asked first. The wait is
+ * bounded: a hung evidence request must not leave an opener pending, and the
+ * shared ev-cite listener is released on every exit path.
  * @param id - evidence id.
- * @returns the raw evidence document, or undefined when it failed to load.
+ * @returns the raw evidence document, or undefined when it failed or ran out of time.
  */
 function waitForEvidence(id: string): Promise<Record<string, unknown> | undefined> {
   const cached = getEvEvidence(id, fetchEvEvidence)
@@ -102,12 +130,17 @@ function waitForEvidence(id: string): Promise<Record<string, unknown> | undefine
     return Promise.resolve(cached.status === 'ok' ? cached.doc : undefined)
   }
   return new Promise((resolve) => {
+    const finish = (doc: Record<string, unknown> | undefined): void => {
+      clearTimeout(timer)
+      unsubscribe()
+      resolve(doc)
+    }
     const unsubscribe = subscribeEvCite(() => {
       const entry = getEvEvidence(id, fetchEvEvidence)
       if (entry.status === 'loading') return
-      unsubscribe()
-      resolve(entry.status === 'ok' ? entry.doc : undefined)
+      finish(entry.status === 'ok' ? entry.doc : undefined)
     })
+    const timer = setTimeout(() => { finish(undefined) }, EVIDENCE_WAIT_MS)
   })
 }
 

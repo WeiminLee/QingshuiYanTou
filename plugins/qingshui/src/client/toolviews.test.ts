@@ -265,6 +265,8 @@ test('asFindingDoc keeps well-formed supports and drops dirty anchors', () => {
       { obs_id: 'o4', evidence_id: 'EV:cccc', span_start: 1.5, span_end: 8 },
       { obs_id: 'o5', evidence_id: 'EV:dddd', span_start: 0, span_end: '9' },
       { obs_id: 'o6', evidence_id: 'EV:eeee' },
+      { obs_id: 'o7', evidence_id: 'EV:ffff', span_start: -4, span_end: 3 },
+      { obs_id: 'o8', evidence_id: 'EV:gggg', span_start: 9, span_end: 4 },
       { evidence_id: 7, span_start: 0, span_end: 1 },
       null,
     ],

@@ -110,6 +110,39 @@ test('openEvidenceArtifact resolves the parent ann_id, else opens the evidence a
   closeArtifact()
 })
 
+test('openEvidenceArtifact keeps the newest click when evidence resolutions race', async () => {
+  closeArtifact()
+  const original = globalThis.fetch
+  const pending: Array<(doc: Record<string, unknown>) => void> = []
+  globalThis.fetch = (() => new Promise<Response>((resolve) => {
+    pending.push((doc) => {
+      resolve({ ok: true, json: async () => ({ ok: true, doc }) } as unknown as Response)
+    })
+  })) as typeof fetch
+
+  try {
+    const slow = openEvidenceArtifact('EV:slow')
+    const fast = openEvidenceArtifact('EV:fast')
+    assert.equal(pending.length, 2, 'each open asks for its own evidence row')
+
+    // The later click answers first and opens; the earlier one answers last.
+    pending[1]?.({ evidence_id: 'EV:fast' })
+    await fast
+    assert.deepEqual(getArtifactState().artifact, { kind: 'evidence', evidenceId: 'EV:fast' })
+
+    pending[0]?.({ evidence_id: 'EV:slow', source_ref: { ann_id: '880123' } })
+    await slow
+    assert.deepEqual(
+      getArtifactState().artifact,
+      { kind: 'evidence', evidenceId: 'EV:fast' },
+      'the stale resolution must not replace the open a later click already made',
+    )
+  } finally {
+    globalThis.fetch = original
+    closeArtifact()
+  }
+})
+
 test('clampSpans drops out-of-range, reversed, empty and non-integer spans', () => {
   assert.deepEqual(clampSpans(undefined, 10), [])
   assert.deepEqual(clampSpans([], 10), [])

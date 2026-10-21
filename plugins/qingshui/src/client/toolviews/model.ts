@@ -445,8 +445,9 @@ export interface FindingSupport {
 /**
  * Ledger `supports` are `[{obs_id, evidence_id, span_start, span_end}]`, but
  * only the three fields the reader can act on survive. An entry without a
- * usable evidence id or with non-integer offsets cannot be opened or marked,
- * so it is dropped instead of rendered as a dead anchor.
+ * usable evidence id, with non-integer offsets, with a negative start or with
+ * a reversed range cannot be opened on a span — the reader would refuse the
+ * mark — so it is dropped instead of rendered as a dead anchor.
  * @param value - raw `supports` value from a finding row.
  * @returns well-formed supports, in row order.
  */
@@ -461,6 +462,7 @@ function asFindingSupports(value: unknown): FindingSupport[] {
     const start = support.span_start
     const end = support.span_end
     if (!Number.isInteger(start) || !Number.isInteger(end)) continue
+    if ((start as number) < 0 || (end as number) < (start as number)) continue
     supports.push({ evidence_id: evidenceId, span_start: start as number, span_end: end as number })
   }
   return supports
