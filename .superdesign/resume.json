@@ -1,0 +1,80 @@
+{
+  "schemaVersion": 1,
+  "targets": {
+    "/": {
+      "targetKind": "existing-ui",
+      "projectId": "868792a7-cf80-4b38-a469-b4f3aec641c9",
+      "baselineDraftId": "6167cd30-c6c6-41eb-b5c8-50e8bcb33781",
+      "activeDraftId": "8d747cc4-6728-477d-9676-f9b640e08915",
+      "designSystemPath": ".superdesign/design-system.md",
+      "referenceIds": [
+        "plugins-qingshui-src-client-Brand.tsx"
+      ],
+      "brandAssets": {
+        "logo": {
+          "assetKey": "plugins-qingshui-src-client-Brand.tsx",
+          "url": "https://vgbujcuwptvheqijyjbe.supabase.co/storage/v1/object/public/hmac-uploads/projects/868792a7-cf80-4b38-a469-b4f3aec641c9/brand-assets/plugins-qingshui-src-client-Brand.tsx/qingshui-mark.svg",
+          "sourcePath": "plugins/qingshui/src/client/Brand.tsx"
+        }
+      },
+      "contextFiles": [
+        ".superdesign/design-system.md",
+        ".superdesign/init/theme.md",
+        ".superdesign/init/layouts.md",
+        "plugins/qingshui/src/client/Brand.tsx",
+        "plugins/qingshui/src/client/SessionBrowser.tsx",
+        "plugins/qingshui/src/client/ResearchConversation.tsx",
+        "plugins/qingshui/src/client/theme.ts"
+      ],
+      "fingerprints": {
+        ".superdesign/design-system.md": "c3d6cdfdcfbf11afc9b33999ec63b6c95c0c730b553f021bac3c504fc6b52b9e",
+        ".superdesign/init/theme.md": "7102673c88cc71e86204de0419eb114dab7ad350c19719819749c741b2d7ff83",
+        ".superdesign/init/layouts.md": "9ae05f8ef31bf6aa20f10eafeba47a4c2252e9613bdcb52340502e6cc03675c1",
+        "plugins/qingshui/src/client/Brand.tsx": "5a4b702a1c14f5493d6796123cdc8025c92fc977235e727b5dcd03eccd9ac80a",
+        "plugins/qingshui/src/client/SessionBrowser.tsx": "1c81c6ea4b728da9cd6cb558b04d6cdd94d6199e269ea2a29fd42872a8a530bb",
+        "plugins/qingshui/src/client/ResearchConversation.tsx": "13627b020e4a02eedbf16cf96fbb89537a7ddf0d189d277e24a0221b9f4a833f",
+        "plugins/qingshui/src/client/theme.ts": "c519abe75453bc6f07e3398d78d128d6545a3a4efcc4397912fb097c565227f8"
+      },
+      "components": [
+        {
+          "name": "ResearchSidebar",
+          "id": "cac46ae6-451d-4346-ade1-d234f7429bc0",
+          "sourcePath": "plugins/qingshui/src/client/SessionBrowser.tsx",
+          "logoAssetKey": "plugins-qingshui-src-client-Brand.tsx"
+        }
+      ],
+      "drafts": {
+        "6167cd30-c6c6-41eb-b5c8-50e8bcb33781": {
+          "title": "Current research shell",
+          "visualDirection": "pixel reproduction of the live desktop shell",
+          "currentVersion": 1
+        },
+        "23225e3f-697c-46fd-935e-4f5fbf56ab81": {
+          "title": "Research desk with everyday questions",
+          "visualDirection": "three spoken research questions",
+          "parentDraftId": "6167cd30-c6c6-41eb-b5c8-50e8bcb33781",
+          "currentVersion": 2
+        },
+        "d1f87d31-0e90-4a10-bded-bb0be4dffa9e": {
+          "title": "Aligned evidence card",
+          "visualDirection": "answer and evidence card share one top edge",
+          "parentDraftId": "6167cd30-c6c6-41eb-b5c8-50e8bcb33781",
+          "currentVersion": 2
+        },
+        "7d95c51e-f88a-41cb-b769-bbfe282f4403": {
+          "title": "Market strip",
+          "visualDirection": "thin quote strip above the conversation",
+          "parentDraftId": "6167cd30-c6c6-41eb-b5c8-50e8bcb33781",
+          "currentVersion": 1
+        },
+        "8d747cc4-6728-477d-9676-f9b640e08915": {
+          "title": "一条投研路径",
+          "visualDirection": "quote strip, answer, aligned evidence card",
+          "parentDraftId": "d1f87d31-0e90-4a10-bded-bb0be4dffa9e",
+          "currentVersion": 1
+        }
+      },
+      "updatedAt": "2026-10-17T01:21:18Z"
+    }
+  }
+}

@@ -26,7 +26,13 @@
             name: DeepSeek V4 Flash
             contextWindow: 131072
             maxTokens: 8192
+          # Boyue 35.220.164.252:3888 对现有 OPENAI_API_KEY 返回 401。
+          # 这个 id 在 pjlab /v1/models 里，短请求已返回。
+          - id: deepseek-v4-flash-0731
+            name: DeepSeek V4 Flash 0731
+            contextWindow: 131072
+            maxTokens: 8192
 - id: agent-default-model
   config:
     provider: qingshui
-    model: glm-5.3
+    model: deepseek-v4-flash-0731

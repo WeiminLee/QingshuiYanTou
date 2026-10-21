@@ -63,7 +63,7 @@
 | Mongo / PG / Qdrant / Redis | chemagent docker（数据在 `/data`） | ✅ 已迁移并对账（kg_evidence 353,768 / link_links 1307 万+ / 三集合向量齐） |
 | backend API | chemagent :8001 | ✅ 运行中 |
 | scheduler（采集全家桶） | chemagent compose 服务 | ✅ 2026-10-12 接管，ingestion 积压消化中 |
-| Data MCP（只读 **21 工具** = P0×9 + P0.5×12） | chemagent :8100 | ✅ 冒烟全绿（工具数 2026-10-15 对 `backend/app/mcp_data/tools_readonly.py` 核实） |
+| Data MCP（只读 **22 工具** = P0×9 + P0.5×12 + `get_market_snapshot`） | chemagent :8100 | ✅ 工具数 2026-10-17 对 `backend/app/mcp_data/tools_readonly.py` 核实 |
 | knowledge_worker / pdf_worker | chemagent systemd | ✅ 已切本机 API（17:02） |
 | bge-m3 / Qwen 推理 | H200 rjob | ✅ 运行中，本机内网直连 |
 | Agent 交互层（dsh web） | 本地 Mac | ✅ 已搭建（主仓根目录直接运行，`scripts/start-local-dsh-web.sh`，金标 3/3 通过；2026-10-14 worktree 全部并回主目录） |
@@ -83,7 +83,7 @@
 **唯一**投研 Agent 入口：DeepSeek harness（dsh）+ `plugins/qingshui` + 只读 Data MCP。  
 旧 LangChain `/api/v1/agent/*` 与 `backend/app/reasoning/**` 旧运行时已删除（2026-10-13）。见 `docs/superpowers/specs/2026-10-10-agent-mcp-deepseek-harness-design.md` 与 `deploy/mcp/DUAL_TRACK_RUNBOOK.md`。
 
-- **工具面**：只读 Data MCP **21 工具**（P0×9 + P0.5×12；2026-10-15 对
+- **工具面**：只读 Data MCP **22 工具**（P0×9 + P0.5×12 + `get_market_snapshot`；2026-10-17 对
   `backend/app/mcp_data/tools_readonly.py` 的 `TOOL_NAMES` 与 `@mcp.tool` 注册逐项核实）
   + Knowledge HTTP（`knowledge/{search,metrics,agent,links,market,sources,ledger}`）。
   **判断沉淀**：write_observation/write_finding 只经 HTTP+插件写面（MCP 不注册写工具），

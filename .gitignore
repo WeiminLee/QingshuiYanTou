@@ -127,3 +127,4 @@ backend/eval/out/gate_history.jsonl
 
 # 临时脚本工作区
 .scratch/
+.superdesign/tmp/
