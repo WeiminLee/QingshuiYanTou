@@ -20,7 +20,6 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
-    Numeric,
     String,
     Text,
     UniqueConstraint,
@@ -121,31 +120,6 @@ class IndexDaily(Base):
 
 # ── 2. 概念层 ────────────────────────────────────────────────────────────────
 
-
-class Concept(Base):
-    """概念板块（通用，来源不限）"""
-
-    __tablename__ = "concepts"
-
-    code: Mapped[str] = mapped_column(String(20), primary_key=True)
-    name: Mapped[str] = mapped_column(String(100), nullable=False)
-    src: Mapped[str | None] = mapped_column(String(20))
-
-
-class StockConcept(Base):
-    """个股-概念映射（通用）"""
-
-    __tablename__ = "stock_concepts"
-    __table_args__ = (
-        UniqueConstraint("ts_code", "concept_code", name="idx_stock_concepts_unique"),
-        Index("idx_stock_concepts_concept", "concept_code"),
-    )
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    ts_code: Mapped[str] = mapped_column(String(20), nullable=False)
-    concept_code: Mapped[str] = mapped_column(String(20), nullable=False)
-
-
 class ThsConcept(Base):
     """THS 同花顺概念板块（TI 格式，与 limit_cpt_list 体系一致）"""
 
@@ -195,27 +169,6 @@ class ConceptLimit(Base):
     up_nums: Mapped[int | None] = mapped_column(Integer)  # 涨停股票数
     pct_chg: Mapped[float | None] = mapped_column(Float)
     rank: Mapped[int | None] = mapped_column(Integer)
-
-
-class ConceptLimitDetail(Base):
-    """涨停概念内个股明细"""
-
-    __tablename__ = "concept_limit_detail"
-    __table_args__ = (
-        UniqueConstraint("concept_code", "ts_code", "trade_date", name="idx_concept_limit_detail_unique"),
-        Index("idx_concept_limit_detail_date", "trade_date"),
-    )
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    concept_code: Mapped[str] = mapped_column(String(20), nullable=False)
-    concept_name: Mapped[str] = mapped_column(String(100), nullable=False)
-    ts_code: Mapped[str] = mapped_column(String(20), nullable=False)
-    stock_name: Mapped[str | None] = mapped_column(String(50))
-    trade_date: Mapped[date] = mapped_column(Date, nullable=False)
-
-
-# ── 3. 用户数据层 ─────────────────────────────────────────────────────────────
-
 
 class Watchlist(Base):
     """自选股"""
@@ -307,55 +260,6 @@ class Announcement(Base):
     extracted_at: Mapped[datetime | None] = mapped_column(DateTime)
 
 
-class ResearchReportMeta(Base):
-    """研报元数据（含元数据字段）"""
-
-    __tablename__ = "research_report_meta"
-    __table_args__ = (
-        UniqueConstraint("trade_date", "file_name", name="idx_rmeta_unique"),
-        Index("idx_rmeta_ts_date", "ts_code", "trade_date"),
-        Index("idx_rmeta_date", "trade_date"),
-    )
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    trade_date: Mapped[date] = mapped_column(Date, nullable=False)
-    ts_code: Mapped[str | None] = mapped_column(String(20))
-    file_name: Mapped[str] = mapped_column(String(500), nullable=False)
-    author: Mapped[str | None] = mapped_column(String(200))
-    inst_csname: Mapped[str | None] = mapped_column(String(200))
-    # 数据接入层元数据
-    source_type: Mapped[str] = mapped_column(String(50), server_default="research_report")
-    source_name: Mapped[str] = mapped_column(String(100), server_default="Tushare研报")
-    confidence_tier: Mapped[str] = mapped_column(String(20), server_default="Tier 4")
-    parser_version: Mapped[str] = mapped_column(String(20), server_default=CURRENT_PARSER_VERSION)
-    extracted_at: Mapped[datetime | None] = mapped_column(DateTime)
-
-
-# ── 6. 业务层 ────────────────────────────────────────────────────────────────
-
-
-class StockPool(Base):
-    """调研池（每日收盘后更新热门板块纳入的股票）"""
-
-    __tablename__ = "stock_pool"
-    __table_args__ = (Index("idx_pool_in_date", "in_date"),)
-
-    ts_code: Mapped[str] = mapped_column(String(20), primary_key=True)
-    concept_code: Mapped[str | None] = mapped_column(String(20))
-    concept_name: Mapped[str | None] = mapped_column(String(100))
-    in_date: Mapped[date] = mapped_column(Date, nullable=False)
-    out_date: Mapped[date | None] = mapped_column(Date)
-    pct_chg_5d: Mapped[float | None] = mapped_column(Numeric(8, 2))
-    score: Mapped[float | None] = mapped_column(Numeric(5, 2))
-    updated_at: Mapped[datetime | None] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
-    # 元数据
-    source_type: Mapped[str] = mapped_column(String(30), server_default="ths_concept")
-    source_name: Mapped[str] = mapped_column(String(50), server_default="THS同花顺概念")
-    confidence_tier: Mapped[str] = mapped_column(String(10), server_default="Tier 0")
-    parser_version: Mapped[str] = mapped_column(String(10), server_default=CURRENT_PARSER_VERSION)
-    extracted_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
-
-
 class CompanyProfile(Base):
     """公司概况（Tushare stock_company）"""
 
@@ -383,59 +287,6 @@ class CompanyProfile(Base):
 
 
 # ── 7. 评分层 ────────────────────────────────────────────────────────────────
-
-
-class ConceptScore(Base):
-    """概念每日评分"""
-
-    __tablename__ = "concept_scores"
-    __table_args__ = (
-        UniqueConstraint("concept_ts_code", "trade_date", name="uq_concept_score_ts_date"),
-        Index("idx_concept_score_trade_date", "trade_date"),
-        Index("idx_concept_score_score", "score"),
-    )
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    concept_ts_code: Mapped[str] = mapped_column(String(20), nullable=False)
-    name: Mapped[str | None] = mapped_column(String(100))
-    score: Mapped[float | None] = mapped_column(Float)
-    momentum_5d: Mapped[float | None] = mapped_column(Float)
-    momentum_1d: Mapped[float | None] = mapped_column(Float)
-    breadth: Mapped[float | None] = mapped_column(Float)
-    breadth_rising: Mapped[int | None] = mapped_column(Integer)
-    breadth_total: Mapped[int | None] = mapped_column(Integer)
-    relative_strength: Mapped[float | None] = mapped_column(Float)
-    stock_count: Mapped[int | None] = mapped_column(Integer)
-    trade_date: Mapped[date] = mapped_column(Date, nullable=False)
-    calculated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
-
-
-class StockScore(Base):
-    """个股每日评分"""
-
-    __tablename__ = "stock_scores"
-    __table_args__ = (
-        UniqueConstraint("ts_code", "trade_date", name="uq_stock_score_ts_date"),
-        Index("idx_stock_score_trade_date", "trade_date"),
-        Index("idx_stock_score_total", "total_score"),
-    )
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    ts_code: Mapped[str] = mapped_column(String(20), nullable=False)
-    name: Mapped[str | None] = mapped_column(String(50))
-    total_score: Mapped[float | None] = mapped_column(Float)
-    momentum_score: Mapped[float | None] = mapped_column(Float)
-    trend_score: Mapped[float | None] = mapped_column(Float)
-    capital_score: Mapped[float | None] = mapped_column(Float)
-    concept_bonus: Mapped[float | None] = mapped_column(Float)
-    valuation_bonus: Mapped[float | None] = mapped_column(Float)
-    momentum_5d: Mapped[float | None] = mapped_column(Float)
-    turnover_rate_pct: Mapped[float | None] = mapped_column(Float)
-    vol_ratio: Mapped[float | None] = mapped_column(Float)
-    ma_state: Mapped[str | None] = mapped_column(String(20))
-    trade_date: Mapped[date] = mapped_column(Date, nullable=False)
-    calculated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
-
 
 class IngestionRun(Base):
     """一次数据接入任务运行记录。"""

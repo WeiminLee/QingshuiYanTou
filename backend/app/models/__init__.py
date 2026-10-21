@@ -1,5 +1,10 @@
 """
 数据模型 - 统一导出
+
+清理说明（2026-10-21）：以下模型零引用且其表已 DROP（alembic 030），已删除：
+Concept / StockConcept / ConceptLimitDetail / StockPool / ConceptScore /
+StockScore。`research_report_meta` 表仍在，但只经原生 SQL 读写（无 ORM
+路径），其模型一并删除；如需 ORM 访问再按实际库结构重建。
 """
 
 from app.models.event import Event
@@ -13,12 +18,8 @@ from .models import (
     # Base
     Base,
     CompanyProfile,
-    # 概念
-    Concept,
+    # 概念（现行：THS 体系）
     ConceptLimit,
-    ConceptLimitDetail,
-    # 评分
-    ConceptScore,
     DailyBasic,
     DailyData,
     IndexDaily,
@@ -27,13 +28,8 @@ from .models import (
     IngestionRun,
     MonitorRule,
     PortfolioPosition,
-    ResearchReportMeta,
     # 行情
     Stock,
-    StockConcept,
-    # 业务
-    StockPool,
-    StockScore,
     ThsConcept,
     ThsConceptMember,
     # Sub-Project 1: 用户与持仓
@@ -47,12 +43,9 @@ __all__ = [
     "DailyData",
     "DailyBasic",
     "IndexDaily",
-    "Concept",
-    "StockConcept",
     "ThsConcept",
     "ThsConceptMember",
     "ConceptLimit",
-    "ConceptLimitDetail",
     "Watchlist",
     "MonitorRule",
     "Alert",
@@ -60,11 +53,7 @@ __all__ = [
     "PortfolioPosition",
     "AnalysisReport",
     "Announcement",
-    "ResearchReportMeta",
-    "StockPool",
     "CompanyProfile",
-    "ConceptScore",
-    "StockScore",
     "IngestionRun",
     "IngestionProgressEvent",
     "IngestionCheckpoint",

@@ -50,6 +50,25 @@ static/charts/
 *~
 .DS_Store
 
+# ── macOS 扩展属性残留（tar/scp 带出的 AppleDouble）────
+._*
+**/._*
+.AppleDouble
+.LSOverride
+
+# ── 测试与评测（镜像不跑测试）──────────────────────────
+tests/
+eval/
+migrations/
+pytest.ini
+pyproject.toml
+uv.lock
+frontend_patch/
+crontab.txt
+remove_cloud_sync.sh
+*.md
+=2.8
+
 # ── Git ───────────────────────────────────────────────
 .git/
 .gitattributes
