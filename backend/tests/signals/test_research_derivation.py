@@ -898,3 +898,24 @@ def test_summary_prompt_placeholder_is_stripped():
     assert _clean_summary("删句后，公司通过协议打通了融资通道。") == "公司通过协议打通了融资通道。"
     assert _clean_summary("【summary】公司通过协议打通了融资通道。") == "公司通过协议打通了融资通道。"
     assert _clean_summary("公司通过协议打通了融资通道。") == "公司通过协议打通了融资通道。"
+
+
+@pytest.mark.asyncio
+async def test_proposal_form_is_rejected():
+    proposal = _signal(
+        subject="封测工厂",
+        subject_type="product",
+        landing_form="关于公司拟对外投资的议案",
+        summary="关于公司拟对外投资的议案打通了资本金通道，用于封测工厂建设。",
+        excerpt="公司审议通过《关于公司拟对外投资的议案》",
+        transmission="该议案打通了封测工厂的资本金通道",
+        falsify="若投资未实施则改号",
+    )
+    event = _event(
+        "eastmoney_flash",
+        "关于公司拟对外投资的公告",
+        "公司审议通过《关于公司拟对外投资的议案》，拟投资建设封测工厂。",
+    )
+    outcome, _prompt = await _derive(event, _response(proposal))
+    assert "form_not_specific" in outcome.rejected
+    assert outcome.candidates == []

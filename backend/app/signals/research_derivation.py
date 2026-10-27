@@ -480,6 +480,7 @@ def _validate_signal(
         len(landing_form) < 4
         or len(landing_form) > 40
         or "一系列" in landing_form
+        or "议案" in landing_form
         or landing_form in _NOT_A_FORM
         or _is_result_form(landing_form)
     ):
