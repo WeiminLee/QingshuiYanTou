@@ -259,7 +259,7 @@ def test_scheduler_skips_evidence_worker_when_disabled(monkeypatch):
     jobs = []
 
     class FakeScheduler:
-        def __init__(self, *, timezone):
+        def __init__(self, *, timezone, **kwargs):
             self.timezone = timezone
             self.running = False
 
@@ -321,7 +321,7 @@ def test_scheduler_registers_ingestion_worker_drain(monkeypatch):
     jobs = []
 
     class FakeScheduler:
-        def __init__(self, *, timezone):
+        def __init__(self, *, timezone, **kwargs):
             self.timezone = timezone
 
         def add_job(self, _func, _trigger, **kwargs):

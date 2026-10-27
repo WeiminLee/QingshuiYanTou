@@ -33,6 +33,18 @@ lwm-server-chemagent（开发机，唯一枢纽）
 | `status.sh` | shared storage | 全栈状态一览 |
 | `restore_qdrant.sh` | `/data/migration/` | qdrant 集合目录恢复（doc_chunks 用；kg_entities/kg_relations 2026-10-12 补迁同法） |
 
+### scheduler 的 LLM 端点
+
+`scheduler` 启动时执行 `backend/scripts/scheduler_entrypoint.py`：
+
+1. 读 `endpoints.json`，连接 `<node_ip>:23457/v1`，确认 `Qwen3.6-35B-A3B` 在 `/v1/models` 中；
+2. 命中则覆盖 `LLM_BASE_URL` / `LLM_MODEL` / `LLM_EXTRACTION_MODEL` 为自部署 GPU；
+3. GPU 不可达时保持网关配置，并按 `LLM_EXTRACTION_FALLBACK_ORDER`（默认 `flash,minimax,*`）
+   从网关 `/v1/models` 选一个仍可用的抽取模型，避免模型下架后 scheduler 静默空转。
+
+解析只在容器启动时做一次：rjob 重调度导致 `node_ip` 变化后，需
+`docker compose restart scheduler` 跟随新节点。worker 侧由 `worker_supervisor.py` 轮询自动跟随。
+
 ## GPU 推理部署（不变）
 
 ```bash

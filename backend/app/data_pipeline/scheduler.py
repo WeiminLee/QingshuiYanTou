@@ -739,7 +739,7 @@ async def _run_announcement_ingestion_job() -> None:
                     timeout=60,
                 )
                 all_inputs.extend(result)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 logger.warning("公告 evidence 构建超时(60s)跳过 [%s]", str(rec.get("title", ""))[:40])
             except Exception as exc:
                 logger.warning("公告 evidence 构建失败 [%s]: %s", str(rec.get("title", ""))[:40], exc)
@@ -867,13 +867,13 @@ async def _run_sync_stocks_job() -> None:
         notify_task_start,
         notify_task_success,
     )
-    from scripts.sync_stock_basic import sync_stock_basic
     from app.data_pipeline.monitor import (
         TaskStatus,
         init_monitor,
         record_task_result,
         record_task_start,
     )
+    from scripts.sync_stock_basic import sync_stock_basic
 
     await init_monitor()
     run_id = await record_task_start("stocks")
@@ -921,7 +921,12 @@ class Scheduler:
 
     def __init__(self, run_now: bool = False):
         self.run_now = run_now
-        self._scheduler = AsyncIOScheduler(timezone=TIMEZONE)
+        # 单个任务阻塞事件循环超过 1s 时，同分钟的其他任务会被 APScheduler 判为
+        # missed 并静默跳过（2026-10-27 实测公告任务 2.9s 跳过了同分钟 news_sync）。
+        self._scheduler = AsyncIOScheduler(
+            timezone=TIMEZONE,
+            job_defaults={"misfire_grace_time": 60, "coalesce": True, "max_instances": 1},
+        )
 
     def start(self) -> None:
         """注册任务并启动调度器。"""

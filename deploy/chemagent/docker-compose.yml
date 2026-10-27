@@ -101,15 +101,20 @@ services:
     image: qingshui-backend:chemagent
     container_name: qingshui_scheduler
     restart: unless-stopped
-    command: python -m app.data_pipeline.scheduler
+    command: ["python", "/usr/local/bin/scheduler_entrypoint.py"]
     env_file: /root/code/QingShuiYanTou/backend/.env
     environment:
       - KNOWLEDGE_BASE_URL=http://qingshui_backend:8000
+      # 启动时从 endpoints.json 解析自部署 GPU（rjob 写入），不可达再回落网关
+      - GPU_ENDPOINTS_FILE=/data/qingshui/endpoints.json
+      - GPU_LLM_MODEL=Qwen3.6-35B-A3B
       - http_proxy=http://httpproxy-headless.kubebrain.svc.pjlab.local:3128
       - https_proxy=http://httpproxy-headless.kubebrain.svc.pjlab.local:3128
       - no_proxy=127.0.0.1,localhost,qingshui_mongo,qingshui_postgres,qingshui_qdrant,qingshui_redis,qingshui_backend,.pjlab.org.cn,10.0.0.0/8,100.96.0.0/12
     volumes:
       - /data/qingshui/pdf:/data/qingshui/pdf
+      - /mnt/shared-storage-user/liweimin/qingshui/endpoints.json:/data/qingshui/endpoints.json:ro
+      - /root/code/QingShuiYanTou/backend/scripts/scheduler_entrypoint.py:/usr/local/bin/scheduler_entrypoint.py:ro
     depends_on:
       - backend
     networks: [qingshui_net]
