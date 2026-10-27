@@ -96,12 +96,51 @@ _RESULT_FORM_RE = re.compile(
 )
 _SHIFT_RE = re.compile(r"从.{2,24}(?:向|到|变成|转为|改成).{2,24}")
 _PRIOR_SIDE_RE = re.compile(r"从(.{2,24}?)(?:向|到|变成|转为|改成)")
-_SHIFT_MARKERS = ("原先", "原来没有", "入口", "门槛", "注入")
-# 只这些原因再给一稿。旧状态编造、形式不在原文里，重写也不会变真。
-_RETRY_REASONS = frozenset({"form_not_in_summary", "summary_no_shift"})
+# 通道变化的自然表述。只认「从 A 向 B」会把「锁定为收入确认通道」「迁移承接」
+# 这类正确句子误杀（2026-10-27 抽样：summary_no_shift 占拒绝原因第一位）。
+_CHANNEL_MARKERS = (
+    "通道",
+    "入口",
+    "门槛",
+    "注入",
+    "承接",
+    "迁移",
+    "打通",
+    "锁定为",
+    "承载主体",
+    "收入确认",
+    "融资",
+    "资本金",
+    "股东结构",
+    "业务主体",
+    "产能",
+    "扩产",
+)
+_ELLIPSIS_RE = re.compile(r"(?:\.{2,}|…+)")
+# 只这些原因再给一稿。旧状态编造、形式不在原文里，重写也不会变真；
+# 形式只取标题、摘录用省略号拼接、摘录没带上形式，都属于可通过重写修正的格式问题。
+_RETRY_REASONS = frozenset(
+    {
+        "form_not_in_summary",
+        "summary_no_shift",
+        "form_not_specific",
+        "form_only_in_title",
+        "excerpt_missing_form",
+        "excerpt_not_in_source",
+        "excerpt_not_contiguous",
+    }
+)
 _RETRY_REASON_TEXT = {
-    "form_not_in_summary": "落地形式没有原样出现在摘要里",
-    "summary_no_shift": "摘要没有写出通道变化",
+    "form_not_in_summary": "落地形式没有原样出现在摘要里；summary 必须以 landing_form 原文开头",
+    "summary_no_shift": (
+        "摘要没有写出通道变化；summary 必须出现通道/入口/门槛/注入/承接/迁移/打通/"
+        "锁定为/承载主体/收入确认/融资/资本金/股东结构/业务主体/产能/扩产 之一"
+    ),
+    "form_not_specific": "落地形式太泛或太长；必须从正文复制 4-40 字的具体名称",
+    "form_only_in_title": "落地形式只出现在标题里；必须从正文复制",
+    "excerpt_missing_form": "证据摘录没有包含落地形式原文",
+    "excerpt_not_in_source": "证据摘录不是正文里的连续原文",
+    "excerpt_not_contiguous": "证据摘录用省略号拼接了多段；只能取包含落地形式的一段连续原文",
 }
 _BOARD_TERMS = (
     "北交所",
@@ -245,11 +284,11 @@ def build_research_prompt(payload: SourcePayload, prior_lines: list[str]) -> str
 
 没有新的一层是合格结果：new_layer 设为 false，signals 设为空数组。不要为了产出而编一句。
 行情涨跌、调研问询、标题复述，都不是新的一层。
-落地形式必须是材料里点名的制度、产品、接口、规则或工具，而且是原文里的连续片段。业绩结果（盈利改善、销售增长、提升、下降）和经营范围里的业务门类不是落地形式。多条措施不要收成一句泛利好，每条通道单独一条。
+落地形式必须是材料正文里点名的制度、产品、接口、规则、工具或合同/协议名称，4-40 个字，而且是正文里的连续片段。不能取标题；不能是业绩结果（盈利/销售/营收/利润/收入/业绩/经营/需求 + 改善/增长/提升/下降/增强/降低/优化）；不能只写「增资」「投资」「协议」这类泛词，必须带具体主体、项目或文件名称。多条措施不要收成一句泛利好，每条通道单独一条。
 主体必须是材料里出现的名字。禁止用这些词当主体：政策主题、风险事件、公司、上市公司。
 传导要写这条形式改变了哪条通道、对谁、方向。证伪写下一档哪个观测会让这句改号；写不出就填「依据不足」。
-summary 不能等于标题或表面句，也不能只是原文摘录。summary 必须原样包含落地形式这几个字，连续出现；换一种说法，这句就不入库。旧状态只能引用已有水位里的原句。水位里没有的旧状态，不要写「原先」「原来」，也不要写「从某状态向/到/变成某状态」。从 A 向 B 时，A 必须能在原文或水位里原样找到。写不出这条形式改变了哪条通道，把 new_layer 设为 false。不要编一个旧状态来过关。
-evidence_excerpt 必须能在材料里原样找到，并且包含落地形式。
+summary 不能等于标题或表面句，也不能只是原文摘录。summary 必须原样包含落地形式（landing_form）这几个字（连续出现），再写通道变化；summary 里必须出现下面之一：通道、入口、门槛、注入、承接、迁移、打通、锁定为、承载主体、收入确认、融资、资本金、股东结构、业务主体、产能、扩产。不要用「从 A 向/到/变成/转为/改成」，除非 A 能在原文或水位里原样找到。旧状态只能引用已有水位里的原句。写不出通道变化，把 new_layer 设为 false。不要编一个旧状态来过关。
+evidence_excerpt 必须是正文里一段连续原文（4-240 字），必须包含 landing_form；不要用「...」「…」拼接多段。
 
 只输出一个 JSON 对象，不要别的文字：
 {{
@@ -264,7 +303,7 @@ evidence_excerpt 必须能在材料里原样找到，并且包含落地形式。
       "landing_form": "原文里的落地形式",
       "transmission": "这条形式改变了哪条通道",
       "falsify": "改号条件，或依据不足",
-      "summary": "删句后的二阶导",
+      "summary": "【summary】",
       "evidence_excerpt": "包含落地形式的原文连续片段",
       "strength": 60
     }}
@@ -335,7 +374,45 @@ def _states_channel_shift(summary: str) -> bool:
     """二阶导要写出通道变化。推动某个结果、换种说法复述标题，都不是。"""
     if _SHIFT_RE.search(summary):
         return True
-    return any(marker in summary for marker in _SHIFT_MARKERS)
+    return any(marker in summary for marker in _CHANNEL_MARKERS)
+
+
+def _contiguous_excerpt(excerpt: str, landing_form: str, body: str) -> str | None:
+    """Pick a contiguous span containing the landing form.
+
+    Models sometimes join two distant spans with "..." — keep the segment that
+    contains the landing form instead of rejecting an otherwise grounded signal.
+    """
+    if not _ELLIPSIS_RE.search(excerpt):
+        return excerpt
+    segments = [seg.strip() for seg in _ELLIPSIS_RE.split(excerpt) if seg.strip()]
+    containing = [seg for seg in segments if _contains_span(seg, landing_form)]
+    ordered = containing + [seg for seg in sorted(segments, key=len, reverse=True) if seg not in containing]
+    for seg in ordered:
+        if 4 <= len(seg) <= 240 and _contains_span(body, seg):
+            return seg
+    return None
+
+
+_SUMMARY_PLACEHOLDERS = (
+    "删句后的二阶导：",
+    "删句后的二阶导:",
+    "删句后的二阶导",
+    "删句后，",
+    "删句后,",
+    "删句后：",
+    "删句后:",
+    "【summary】",
+)
+
+
+def _clean_summary(text: str) -> str:
+    """Strip literal prompt placeholders the model sometimes copies back."""
+    text = (text or "").strip()
+    for prefix in _SUMMARY_PLACEHOLDERS:
+        if text.startswith(prefix):
+            return text[len(prefix) :].lstrip()
+    return text
 
 
 def _shift_prior_grounded(summary: str, source: str, prior_lines: list[str]) -> bool:
@@ -382,9 +459,10 @@ def _validate_signal(
     landing_form = str(item.get("landing_form") or "").strip()
     transmission = str(item.get("transmission") or "").strip()
     falsify = str(item.get("falsify") or "").strip()
-    summary = str(item.get("summary") or "").strip()
+    summary = _clean_summary(str(item.get("summary") or ""))
     excerpt = str(item.get("evidence_excerpt") or "").strip()
     title = (payload.title or "").strip()
+    body_text = "\n".join(part for part in (payload.summary, payload.content) if part)
 
     if signal_type not in _SIGNAL_TYPES:
         return None, "bad_type"
@@ -406,11 +484,14 @@ def _validate_signal(
         or _is_result_form(landing_form)
     ):
         return None, "form_not_specific"
-    if not _contains_span(text, landing_form):
-        return None, "form_not_in_source"
+    if not _contains_span(body_text, landing_form):
+        return None, "form_only_in_title" if _contains_span(title, landing_form) else "form_not_in_source"
     if not _contains_span(summary, landing_form):
         return None, "form_not_in_summary"
-    if len(excerpt) < 4 or len(excerpt) > 240 or not _contains_span(text, excerpt):
+    excerpt = _contiguous_excerpt(excerpt, landing_form, body_text)
+    if excerpt is None:
+        return None, "excerpt_not_contiguous"
+    if len(excerpt) < 4 or len(excerpt) > 240 or not _contains_span(body_text, excerpt):
         return None, "excerpt_not_in_source"
     if not _contains_span(excerpt, landing_form):
         return None, "excerpt_missing_form"
@@ -475,7 +556,7 @@ def _rejection_parts(rejected: list[str]) -> list[str]:
 
 
 def _can_retry(outcome: DerivationOutcome) -> bool:
-    """摘要没抄上落地形式，或没写出通道变化，才改一稿。别的原因重写也不会变真。"""
+    """格式类原因再给一稿；编造形式/旧状态不重写，重写也不会变真。"""
     if outcome.candidates or outcome.stats.get("derivation_failed"):
         return False
     parts = _rejection_parts(outcome.rejected)
@@ -491,8 +572,10 @@ def _retry_note(rejected: list[str]) -> str:
     return (
         "上一稿没有入库，原因："
         + "；".join(seen)
-        + "。只改摘要：落地形式这几个字必须原样、连续出现在 summary 里。"
-        + "通道变化写成「从…向/到/变成…」，或写出入口、门槛、注入。"
+        + "。请只改 signals，保留原结论："
+        + "landing_form 从正文原样复制 4-40 字；"
+        + "summary 原样包含 landing_form，并写出通道变化；"
+        + "evidence_excerpt 取包含 landing_form 的一段连续原文，不要用省略号拼接。"
         + "旧状态仍然只能来自原文或已有水位，不要新编主体、落地形式或旧状态。"
         + "改不出来就把 new_layer 设为 false，signals 设为空数组。"
     )
@@ -633,7 +716,7 @@ async def _call_llm(prompt: str) -> str:
     return await chat_async(
         prompt,
         model=model,
-        temperature=0.1,
+        temperature=0.0,
         timeout=60,
         max_tokens=1200,
         force_disable_thinking=True,
@@ -689,7 +772,14 @@ async def derive_candidates(
         ",".join(outcome.rejected),
     )
     try:
-        raw = await caller(prompt + "\n\n" + _retry_note(outcome.rejected))
+        retry_prompt = (
+            prompt
+            + "\n\n上一稿（未入库）：\n"
+            + raw[:2000]
+            + "\n\n"
+            + _retry_note(outcome.rejected)
+        )
+        raw = await caller(retry_prompt)
         parsed = parse_research_json(raw)
     except Exception as exc:  # noqa: BLE001 — 改稿失败就保持第一稿的零条，不把整单打成失败重试
         logger.warning(

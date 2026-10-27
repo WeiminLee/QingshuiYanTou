@@ -841,3 +841,60 @@ def test_confidence_is_not_a_flat_constant():
     for strength in range(1, 101):
         assert 0.50 <= _confidence(strength, "证伪条件") <= 0.95
         assert 0.50 <= _confidence(strength, "依据不足") <= 0.95
+
+
+def test_channel_shift_accepts_natural_channel_words():
+    from app.signals.research_derivation import _states_channel_shift
+
+    assert _states_channel_shift("项目被锁定为合同项下分节点收款与收入确认通道。")
+    assert _states_channel_shift("业务整体迁移至子公司承接运营，改变了承载主体。")
+    assert _states_channel_shift("注册资本增加至6亿元，打开了资本金通道。")
+    assert not _states_channel_shift("公司收入增长，利润改善。")
+
+
+@pytest.mark.asyncio
+async def test_ellipsis_excerpt_keeps_the_contiguous_segment():
+    signal = _signal(excerpt="下一步将推出北证50ETF...并优化新三板分层")
+    outcome, _prompt = await _derive(
+        _event("eastmoney_flash", BSE_TITLE, BSE_BODY),
+        _response(signal),
+    )
+    assert outcome.stats["derived"] == 1
+    assert outcome.candidates[0].evidence_excerpt == "下一步将推出北证50ETF"
+    assert "..." not in outcome.candidates[0].evidence_excerpt
+
+
+@pytest.mark.asyncio
+async def test_landing_form_only_in_title_is_rejected_and_retried():
+    prompts, script = _calls()
+    title_form = _signal(
+        subject="参股公司",
+        subject_type="company",
+        landing_form="向参股公司增资暨关联交易",
+        summary="向参股公司增资暨关联交易打开了资本金通道，改善参股公司资金结构。",
+        excerpt="公司拟对参股公司进行增资",
+        transmission="增资改变了参股公司的资本金通道",
+        falsify="若增资未实施则改号",
+    )
+    event = _event(
+        "eastmoney_flash",
+        "关于向参股公司增资暨关联交易的公告",
+        "公司拟对参股公司进行增资，具体方案另行公告。",
+    )
+    outcome = await derive_candidates(
+        event_to_source_payload(event),
+        llm=script(_response(title_form), _response(title_form)),
+        prior_lines=[],
+    )
+    assert len(prompts) == 2
+    assert "form_only_in_title" in outcome.rejected
+    assert outcome.candidates == []
+
+
+def test_summary_prompt_placeholder_is_stripped():
+    from app.signals.research_derivation import _clean_summary
+
+    assert _clean_summary("删句后的二阶导：公司通过协议打通了融资通道。") == "公司通过协议打通了融资通道。"
+    assert _clean_summary("删句后，公司通过协议打通了融资通道。") == "公司通过协议打通了融资通道。"
+    assert _clean_summary("【summary】公司通过协议打通了融资通道。") == "公司通过协议打通了融资通道。"
+    assert _clean_summary("公司通过协议打通了融资通道。") == "公司通过协议打通了融资通道。"
