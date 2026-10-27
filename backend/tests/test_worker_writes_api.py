@@ -116,6 +116,8 @@ def test_worker_writes_router_declares_paths():
     paths = {r.path for r in worker_writes_router.routes}
     assert "/api/v1/knowledge/vector/upsert" in paths
     assert "/api/v1/knowledge/link/upsert" in paths
+    assert "/api/v1/knowledge/signal/upsert" in paths
+    assert "/api/v1/knowledge/signal/prior-lines" in paths
 
 
 def test_link_upsert_rejects_empty_evidence_id(client):
@@ -123,3 +125,42 @@ def test_link_upsert_rejects_empty_evidence_id(client):
         "/api/v1/knowledge/link/upsert", headers=HEADERS, json={"evidence_id": "", "actions": []}
     )
     assert r.status_code == 422
+
+
+def test_signal_prior_lines_requires_api_key(client):
+    r = client.post("/api/v1/knowledge/signal/prior-lines", json={"terms": ["硅片"]})
+    assert r.status_code == 401
+
+
+def test_signal_prior_lines_returns_lines(client):
+    async def fake_lookup(terms, *, limit):
+        return [f"{terms[0]}：旧判断"]
+
+    with patch(
+        "app.signals.research_derivation._lookup_prior_signal_lines_db",
+        side_effect=fake_lookup,
+    ):
+        r = client.post(
+            "/api/v1/knowledge/signal/prior-lines",
+            headers=HEADERS,
+            json={"terms": ["硅片"], "limit": 3},
+        )
+    assert r.status_code == 200
+    assert r.json() == {"lines": ["硅片：旧判断"]}
+
+
+def test_signal_upsert_requires_api_key(client):
+    r = client.post(
+        "/api/v1/knowledge/signal/upsert", json={"signals": [], "propagations": []}
+    )
+    assert r.status_code == 401
+
+
+def test_signal_upsert_empty_returns_zero(client):
+    r = client.post(
+        "/api/v1/knowledge/signal/upsert",
+        headers=HEADERS,
+        json={"signals": [], "propagations": []},
+    )
+    assert r.status_code == 200
+    assert r.json() == {"signals_upserted": 0, "propagations_upserted": 0}

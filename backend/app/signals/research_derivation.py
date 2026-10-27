@@ -7,9 +7,13 @@
 from __future__ import annotations
 
 import logging
+import os
 import re
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import Any, Awaitable, Callable
+from typing import Any
+
+import httpx
 
 from app.signals.event_sources import resolve_event_origin
 from app.signals.extractor import SignalCandidate, SourcePayload
@@ -551,7 +555,7 @@ def _accept(payload: SourcePayload, parsed: dict[str, Any], prior_lines: list[st
     return DerivationOutcome(candidates=candidates, stats=stats, rejected=rejected)
 
 
-async def lookup_prior_signal_lines(terms: list[str], *, limit: int = 8) -> list[str]:
+async def _lookup_prior_signal_lines_db(terms: list[str], *, limit: int = 8) -> list[str]:
     """按主体名精确查，板名再查摘要。查不到或超时由调用方决定不落 signal。"""
     cleaned: list[str] = []
     for term in terms:
@@ -577,7 +581,7 @@ async def lookup_prior_signal_lines(terms: list[str], *, limit: int = 8) -> list
                 return
 
     async with async_session() as session:
-        await session.execute(text("SET LOCAL statement_timeout = '2000ms'"))
+        await session.execute(text("SET LOCAL statement_timeout = '8000ms'"))
         exact = await session.execute(
             select(Signal.subject_name, Signal.summary)
             .where(Signal.subject_name.in_(cleaned[:8]))
@@ -597,6 +601,29 @@ async def lookup_prior_signal_lines(terms: list[str], *, limit: int = 8) -> list
             )
             _collect(list(fuzzy.all()))
     return lines[:limit]
+
+
+async def _lookup_prior_signal_lines_http(api_url: str, terms: list[str], *, limit: int) -> list[str]:
+    api_key = os.environ.get("KNOWLEDGE_API_KEY", "")
+    async with httpx.AsyncClient(timeout=10.0, trust_env=False) as client:
+        resp = await client.post(
+            f"{api_url}/api/v1/knowledge/signal/prior-lines",
+            json={"terms": terms, "limit": limit},
+            headers={"X-API-Key": api_key},
+        )
+        resp.raise_for_status()
+        lines = resp.json().get("lines", [])
+    return [str(line) for line in lines if isinstance(line, str)][:limit]
+
+
+async def lookup_prior_signal_lines(terms: list[str], *, limit: int = 8) -> list[str]:
+    """worker 经 Knowledge API 查询；API/scheduler 进程直接查库。"""
+    if not terms:
+        return []
+    api_url = os.environ.get("KNOWLEDGE_API_URL", "").rstrip("/")
+    if api_url:
+        return await _lookup_prior_signal_lines_http(api_url, terms, limit=limit)
+    return await _lookup_prior_signal_lines_db(terms, limit=limit)
 
 
 async def _call_llm(prompt: str) -> str:

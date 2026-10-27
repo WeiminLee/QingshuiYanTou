@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import uuid
+from datetime import date, datetime
+from decimal import Decimal
 from typing import Any
 
 from fastapi import APIRouter, Header, HTTPException
@@ -84,3 +86,81 @@ async def link_upsert(req: LinkUpsertRequest, x_api_key: str | None = Header(def
         links = await persist_link_actions(session, req.evidence_id, actions)
         ledger = await run_link_ledger_pipeline(session, req.evidence_id)
     return {"ok": True, "links": links, **ledger}
+
+
+class PriorLinesRequest(BaseModel):
+    terms: list[str] = Field(default_factory=list)
+    limit: int = Field(8, ge=1, le=50)
+
+
+@router.post("/signal/prior-lines")
+async def signal_prior_lines(req: PriorLinesRequest, x_api_key: str | None = Header(default=None)):
+    """worker 侧 signal 推导查水位；worker 不直连 PG。"""
+    require_api_key(x_api_key)
+    from app.signals.research_derivation import _lookup_prior_signal_lines_db
+
+    return {"lines": await _lookup_prior_signal_lines_db(req.terms, limit=req.limit)}
+
+
+class SignalRecord(BaseModel):
+    signal_id: str = Field(min_length=1, max_length=40)
+    source_type: str = Field(min_length=1, max_length=32)
+    source_id: str = Field(min_length=1, max_length=128)
+    source_title: str | None = None
+    source_url: str | None = None
+    published_at: datetime | None = None
+    signal_kind: str = "observed"
+    event_date: date | None = None
+    detected_at: datetime | None = None
+    subject_name: str
+    subject_type: str
+    signal_type: str
+    polarity: str
+    strength: int
+    confidence: Decimal
+    freshness_score: int
+    value_score: int
+    summary: str
+    evidence_excerpt: str | None = None
+    status: str = "new"
+    metadata_: dict[str, Any] = Field(default_factory=dict)
+
+
+class PropagationRecord(BaseModel):
+    propagation_id: str = Field(min_length=1, max_length=48)
+    signal_id: str = Field(min_length=1, max_length=40)
+    target_name: str
+    target_type: str
+    relation_path: str
+    direction: str
+    impact_horizon: str
+    confidence: Decimal
+    reasoning: str
+    evidence_refs: list[dict[str, Any]] = Field(default_factory=list)
+    metadata_: dict[str, Any] = Field(default_factory=dict)
+
+
+class SignalUpsertRequest(BaseModel):
+    signals: list[SignalRecord] = Field(default_factory=list)
+    propagations: list[PropagationRecord] = Field(default_factory=list)
+
+
+@router.post("/signal/upsert")
+async def signal_upsert(req: SignalUpsertRequest, x_api_key: str | None = Header(default=None)):
+    """worker 算好的 signal / propagation 经此落库。"""
+    require_api_key(x_api_key)
+    if not req.signals and not req.propagations:
+        return {"signals_upserted": 0, "propagations_upserted": 0}
+    from app.signals.evidence_ingestion import _upsert_signal_records
+
+    async with async_session() as session:
+        signals_upserted, propagations_upserted = await _upsert_signal_records(
+            session,
+            [item.model_dump(exclude_none=True) for item in req.signals],
+            [item.model_dump(exclude_none=True) for item in req.propagations],
+        )
+        await session.commit()
+    return {
+        "signals_upserted": signals_upserted,
+        "propagations_upserted": propagations_upserted,
+    }

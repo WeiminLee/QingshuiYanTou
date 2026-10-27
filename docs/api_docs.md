@@ -2,7 +2,7 @@
 
 > **权威来源**：运行时 `GET /openapi.json`（以及交互式 `GET /docs`）。
 > 本文是人工维护的速查表，**与代码不一致时以 `openapi.json` 为准**。
-> 最后核对：2026-10-21（`backend/app/main.py` 实际注册 62 条路由）。
+> 最后核对：2026-10-27（`backend/app/main.py` 实际注册 65 条路由）。
 
 ## 1. 认证与通用约定
 
@@ -19,7 +19,7 @@
   DeepSeek harness 经 Data MCP（22 工具）调用，**不注册写工具**。
 - **Agent 写面**：`/api/v1/knowledge/ledger/{observation,finding}`，由插件在 HTTP 侧调用，
   用于把研究判断沉淀进台账。
-- **Worker 面**：`/api/v1/knowledge/{jobs,evidence/jobs,evidence/upsert,link/upsert,vector/upsert}`，
+- **Worker 面**：`/api/v1/knowledge/{jobs,evidence/jobs,evidence/upsert,link/upsert,vector/upsert,signal/{prior-lines,upsert}}`，
   只给 chemagent 上的 worker 轮询领取，不对外。
 - **运维/业务面**：`/api/v1/{signals,readiness,stocks}`，以及历史遗留的 `auth/users/account`。
 
@@ -102,6 +102,8 @@
 | POST | `/api/v1/knowledge/evidence/upsert` | 写入 evidence |
 | POST | `/api/v1/knowledge/link/upsert` | 写入链接 |
 | POST | `/api/v1/knowledge/vector/upsert` | 写入向量 |
+| POST | `/api/v1/knowledge/signal/prior-lines` | 读取 signal 水位（worker 推导用） |
+| POST | `/api/v1/knowledge/signal/upsert` | 写入 signal / propagation |
 
 ## 9. 信号（预期差）
 
