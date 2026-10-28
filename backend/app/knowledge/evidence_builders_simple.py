@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import os
 import re
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from typing import Any, Literal
 
 from app.knowledge.evidence import EvidenceInput, default_source_confidence
@@ -18,7 +18,7 @@ from app.ops.pdf_metadata import build_pdf_metadata
 
 logger = __import__("logging").getLogger(__name__)
 
-UTC = timezone.utc
+UTC = UTC
 
 # ── 公告章节过滤规则 ──────────────────────────────────────────────
 
@@ -134,6 +134,16 @@ _KEEP_CHAPTER_KW = [
     "回购",
     "增持",
     "减持",
+    # 繁体公告（H 股）
+    "增資",
+    "股權",
+    "協議",
+    "收購",
+    "重組",
+    "訂單",
+    "合約",
+    "關連交易",
+    "關聯交易",
 ]
 
 # 正文实质性关键词（用于 heading 无匹配时的 body override）
@@ -142,7 +152,10 @@ _RE_SUBSTANTIVE_KW = re.compile(
     r"发行股份|购买资产|募集配套资金|股权|收购|重组|"
     r"交易对方|标的资产|业绩下滑|业绩增长|业绩变动|业绩亏损|业绩驱动|"
     r"业务|产品|市场|收入|研发|"
-    r"资产总额|资产净额|净利润|营业收入|营业成本"
+    r"资产总额|资产净额|净利润|营业收入|营业成本|"
+    r"合同|中标|订单|增资|框架协议|采购|销售|产能|投产|扩产|"
+    r"募集|担保|授信|贷款|租赁|专利|许可|合作|"
+    r"增資|股權|協議|收購|重組|訂單|合約|資產|業績|營業收入|淨利潤"
 )
 
 # 始终保留的公告类型（这类公告内容精炼，不分章节噪音）

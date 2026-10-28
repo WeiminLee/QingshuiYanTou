@@ -65,3 +65,16 @@ def test_keep_quarter_report_with_performance():
     assert _classify_announcement_chapter(
         "报告期内基金的业绩表现", "基金管理人业务运作正常，净值增长率为-11.19%", "quarter_report"
     ) == "keep"
+
+
+def test_keep_substantive_corporate_actions_by_body():
+    """短公告没有章节标题时，合同/中标/增资等正文也应保留。"""
+    assert _classify_announcement_chapter("", "公司签署重大合同，合同金额为...") == "keep"
+    assert _classify_announcement_chapter("", "子公司收到中标通知书，中标金额为...") == "keep"
+    assert _classify_announcement_chapter("", "公司签署增资协议，注册资本增加...") == "keep"
+
+
+def test_keep_traditional_chinese_corporate_actions():
+    """H 股繁体公告也应保留实质性公司行动。"""
+    assert _classify_announcement_chapter("", "本公司簽署增資協議，股權比例...") == "keep"
+    assert _classify_announcement_chapter("關連交易", "訂立增資協議...") == "keep"
