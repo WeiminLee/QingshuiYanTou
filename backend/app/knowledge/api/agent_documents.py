@@ -23,6 +23,7 @@ from app.config import settings
 from app.core.mongodb import get_mongo_db
 from app.knowledge.api._auth import require_api_key
 from app.knowledge.document_service import load_document, load_pdf_path, parse_range
+from app.knowledge.document_summary import get_document_summary
 
 logger = logging.getLogger(__name__)
 
@@ -44,9 +45,10 @@ async def get_document(
     x_api_key: str | None = Header(default=None),
 ) -> dict[str, Any]:
     require_api_key(x_api_key)
+    db = get_mongo_db()
     try:
         document = await load_document(
-            get_mongo_db(),
+            db,
             ann_id,
             root=settings.pdf_storage_root,
         )
@@ -58,6 +60,17 @@ async def get_document(
         raise HTTPException(503, detail={"code": "document_unavailable"}) from exc
     if document is None:
         raise HTTPException(404, detail={"code": "document_not_found"})
+    # Summary is additive: a missing row or a summary-store error must never
+    # turn a readable document into an error response.
+    try:
+        summary = await get_document_summary(db, ann_id)
+    except Exception as exc:  # noqa: BLE001 — optional summary
+        logger.warning("document summary lookup failed for ann_id=%r: %s", ann_id, exc)
+        summary = None
+    if summary is not None:
+        document = {**document, "summary": summary["summary"]}
+        if summary.get("updated_at") is not None:
+            document["summary_updated_at"] = summary["updated_at"]
     return document
 
 

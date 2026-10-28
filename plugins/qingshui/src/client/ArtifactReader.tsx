@@ -55,6 +55,9 @@ type ReaderDocument = {
   title_is_filename: boolean
   pdf: { exists: boolean }
   chapters: ReaderChapter[]
+  /** GPU-generated document summary; absent until the batch has run. */
+  summary?: string
+  summary_updated_at?: string
 }
 
 type DocState =
@@ -313,6 +316,15 @@ function ReaderDialog({ artifact }: { artifact: Artifact }): React.ReactElement 
           ) : null}
 
           <article className="qs-art-body" aria-label="证据正文">
+            {doc?.summary === undefined ? null : (
+              <section className="qs-art-summary" aria-label="AI 摘要">
+                <div className="qs-art-summary-head">AI 摘要</div>
+                <p className="qs-art-summary-text">{doc.summary}</p>
+                {doc.summary_updated_at === undefined ? null : (
+                  <div className="qs-art-summary-meta">{`生成于 ${formatDate(doc.summary_updated_at)}`}</div>
+                )}
+              </section>
+            )}
             {/* The narrow layout has no PDF column, so the same statement sits
                 here (CSS shows it below 1100px only). */}
             {doc !== undefined && !doc.pdf.exists ? <p className="qs-art-note qs-art-note-inline">{UNARCHIVED_NOTE}</p> : null}
@@ -565,6 +577,8 @@ function asReaderDocument(value: unknown): ReaderDocument | undefined {
       chars: asNumber(chapter.chars) ?? null,
     })
   }
+  const summary = asText(source.summary)
+  const summaryUpdatedAt = asText(source.summary_updated_at)
   return {
     ts_code: asText(source.ts_code) ?? '',
     source_name: asText(source.source_name) ?? '',
@@ -573,5 +587,7 @@ function asReaderDocument(value: unknown): ReaderDocument | undefined {
     title_is_filename: source.title_is_filename === true,
     pdf: { exists: pdf?.exists === true },
     chapters,
+    ...(summary === undefined ? {} : { summary }),
+    ...(summaryUpdatedAt === undefined ? {} : { summary_updated_at: summaryUpdatedAt }),
   }
 }

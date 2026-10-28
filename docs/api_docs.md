@@ -84,11 +84,14 @@
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| GET | `/api/v1/knowledge/documents/{ann_id}` | 文档聚合：章节列表 + PDF 存在性（不返回正文） |
+| GET | `/api/v1/knowledge/documents/{ann_id}` | 文档聚合：章节列表 + PDF 存在性（不返回正文；已生成时附 `summary` / `summary_updated_at`） |
 | GET | `/api/v1/knowledge/documents/{ann_id}/pdf` | 原文 PDF 字节流，手写 Range（200/206/416） |
 
 `ann_id` 类型不统一：老公告是 PG 整数，新采集是 `{ann_date}_{ts_code}_{标题}` 复合串，
 服务端 int + str 双查。详见 `AGENTS.md` 2026-10-21 增量。
+
+`summary` 由 `backend/scripts/summarize_documents.py` 用本地 GPU 批量生成（只含事实摘要，
+不写买卖/估值结论）；未生成时字段省略。
 
 ## 8. Worker 面（仅 chemagent 内部）
 

@@ -139,3 +139,30 @@ def test_document_code_bug_is_not_masked_as_unavailable(client, service):
 
     with pytest.raises(RuntimeError, match="unexpected bug"):
         client.get("/api/v1/knowledge/documents/1225468566", headers=HEADERS)
+
+
+def test_document_includes_ai_summary(client, service, monkeypatch):
+    from datetime import UTC, datetime
+
+    class _SummaryCollection:
+        async def find_one(self, query):
+            assert query["ann_id"]["$in"] == [1225468566, "1225468566"]
+            return {
+                "ann_id": 1225468566,
+                "summary": "AI 摘要内容",
+                "model": "qwen",
+                "updated_at": datetime(2026, 10, 28, tzinfo=UTC),
+            }
+
+    class _DB(dict):
+        pass
+
+    db = _DB({"kg_document_summaries": _SummaryCollection()})
+    monkeypatch.setattr(agent_documents, "get_mongo_db", lambda: db)
+
+    r = client.get("/api/v1/knowledge/documents/1225468566", headers=HEADERS)
+
+    assert r.status_code == 200
+    payload = r.json()
+    assert payload["summary"] == "AI 摘要内容"
+    assert payload["summary_updated_at"].startswith("2026-10-28")

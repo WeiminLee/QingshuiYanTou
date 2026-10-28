@@ -393,6 +393,11 @@ export const SHELL_CSS = `
 /* Same statement, carried inside the body where no PDF column exists. */
 .qs-art-note-inline { display: none; padding: 0 0 10px; }
 
+.qs-art-summary { margin: 0 0 4px; padding: 12px 14px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 8px; background: var(--dsw-alias-bg-base); }
+.qs-art-summary-head { margin-bottom: 6px; color: var(--dsw-alias-label-tertiary); font: var(--dsw-font-xxs-12); letter-spacing: .04em; }
+.qs-art-summary-text { margin: 0; color: var(--dsw-alias-label-primary); font: var(--dsw-font-xs-13); line-height: 1.8; white-space: pre-wrap; }
+.qs-art-summary-meta { margin-top: 6px; color: var(--dsw-alias-label-dimmed); font: var(--dsw-font-xxs-12); }
+
 /* ≤1100px: the PDF column folds away; the header keeps a link to the file. */
 @media (max-width: 1100px) {
   .qs-art-grid { grid-template-columns: 220px minmax(0, 1fr); }
