@@ -179,7 +179,11 @@ class AnnouncementStoredRequest(BaseModel):
 async def mark_announcement_stored(
     req: AnnouncementStoredRequest, x_api_key: str | None = Header(default=None)
 ):
-    """PDF worker 下载/建 evidence 后回写 minishare_announcements 台账。"""
+    """PDF worker 下载/建 evidence 后回写 minishare_announcements 台账。
+
+    `evidence_at` 表示“PDF 已被 worker 处理过”，0 条 evidence 也标记，避免
+    `announcement_ingestion` 对无正文的提示性公告反复按 60s 超时解析。
+    """
     require_api_key(x_api_key)
     async with async_session() as session:
         result = await session.execute(
@@ -188,10 +192,7 @@ async def mark_announcement_stored(
                 UPDATE minishare_announcements
                 SET file_path = :file_path,
                     download_status = 'stored',
-                    evidence_at = CASE
-                        WHEN :evidence_inputs > 0 THEN COALESCE(evidence_at, now())
-                        ELSE evidence_at
-                    END
+                    evidence_at = COALESCE(evidence_at, now())
                 WHERE source_url = :source_url
                   AND ann_date = :ann_date
                   AND ts_code = :ts_code
@@ -199,7 +200,6 @@ async def mark_announcement_stored(
             ),
             {
                 "file_path": req.file_path,
-                "evidence_inputs": req.evidence_inputs,
                 "source_url": req.source_url,
                 "ann_date": req.ann_date,
                 "ts_code": req.ts_code,
