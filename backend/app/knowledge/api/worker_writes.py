@@ -8,6 +8,7 @@ from typing import Any
 
 from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel, Field
+from sqlalchemy import text
 
 from app.core.database import async_session
 from app.knowledge.api._auth import require_api_key
@@ -164,3 +165,45 @@ async def signal_upsert(req: SignalUpsertRequest, x_api_key: str | None = Header
         "signals_upserted": signals_upserted,
         "propagations_upserted": propagations_upserted,
     }
+
+
+class AnnouncementStoredRequest(BaseModel):
+    source_url: str = Field(min_length=1, max_length=1000)
+    ann_date: date
+    ts_code: str = Field(min_length=1, max_length=20)
+    file_path: str = Field(min_length=1, max_length=1000)
+    evidence_inputs: int = Field(0, ge=0)
+
+
+@router.post("/announcement/mark-stored")
+async def mark_announcement_stored(
+    req: AnnouncementStoredRequest, x_api_key: str | None = Header(default=None)
+):
+    """PDF worker 下载/建 evidence 后回写 minishare_announcements 台账。"""
+    require_api_key(x_api_key)
+    async with async_session() as session:
+        result = await session.execute(
+            text(
+                """
+                UPDATE minishare_announcements
+                SET file_path = :file_path,
+                    download_status = 'stored',
+                    evidence_at = CASE
+                        WHEN :evidence_inputs > 0 THEN COALESCE(evidence_at, now())
+                        ELSE evidence_at
+                    END
+                WHERE source_url = :source_url
+                  AND ann_date = :ann_date
+                  AND ts_code = :ts_code
+                """
+            ),
+            {
+                "file_path": req.file_path,
+                "evidence_inputs": req.evidence_inputs,
+                "source_url": req.source_url,
+                "ann_date": req.ann_date,
+                "ts_code": req.ts_code,
+            },
+        )
+        await session.commit()
+    return {"updated": result.rowcount}

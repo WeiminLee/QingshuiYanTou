@@ -8,10 +8,10 @@ import socket
 import uuid
 from datetime import date
 from pathlib import Path
-from urllib.request import Request, urlopen
 from typing import TYPE_CHECKING, Any
+from urllib.request import Request, urlopen
 
-from app.data_pipeline.file_storage import FileStorage, HTTP_HEADERS
+from app.data_pipeline.file_storage import HTTP_HEADERS, FileStorage
 from app.data_pipeline.pdf_download_contract import PdfDownloadJobPayload
 
 if TYPE_CHECKING:
@@ -221,11 +221,40 @@ class PdfDownloadWorker:
             "saved_path": str(pdf_path),
             "evidence_inputs": len(evidence_inputs),
             "downloaded": int(not existing_file),
+            "announcement_marked": await self._mark_announcement_stored(
+                payload, pdf_path, len(evidence_inputs)
+            ),
         }
         marked = await queue.mark_success(job_id, self.worker_id, summary)
         if not marked:
             return {"status": "failed", "error": "lost job lock"}
         return {"status": "done", **summary}
+
+    async def _mark_announcement_stored(
+        self, payload: PdfDownloadJobPayload, pdf_path: Path, evidence_inputs: int
+    ) -> bool:
+        """回写 minishare_announcements；worker 不直连 PG，统一走 Knowledge API。"""
+        import os
+
+        api_url = os.environ.get("KNOWLEDGE_API_URL", "").rstrip("/")
+        if not api_url:
+            return False
+        from app.knowledge.worker_api_client import KnowledgeApiClient
+
+        client = KnowledgeApiClient(
+            api_url, os.environ.get("KNOWLEDGE_API_KEY", ""), timeout=30
+        )
+        try:
+            return await client.mark_announcement_stored(
+                source_url=payload.source_url,
+                ann_date=payload.publish_date,
+                ts_code=payload.stock_code,
+                file_path=str(pdf_path),
+                evidence_inputs=evidence_inputs,
+            )
+        except Exception as exc:  # noqa: BLE001 — 台账回写失败不影响 PDF/evidence
+            logger.warning("mark announcement stored failed [%s]: %s", payload.source_id, exc)
+            return False
 
     def _notice_path(self, payload: PdfDownloadJobPayload) -> Path:
         pub_date = _publish_date_token(payload.publish_date)

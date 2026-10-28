@@ -1,8 +1,12 @@
 """Async client implementing the ingestion queue interface over Knowledge API."""
 from __future__ import annotations
-import httpx
+
 from datetime import date, datetime
+
+import httpx
+
 from app.data_pipeline.job_queue import IngestionJobRecord
+
 
 class KnowledgeApiClient:
     def __init__(self, base_url: str, api_key: str, timeout: float = 60.0):
@@ -12,7 +16,8 @@ class KnowledgeApiClient:
 
     async def claim_jobs(self, worker_id, limit=20, job_types=None):
         payload = {"worker_id": worker_id, "limit": limit}
-        if job_types: payload["job_types"] = list(job_types)
+        if job_types:
+            payload["job_types"] = list(job_types)
         async with httpx.AsyncClient(timeout=self.timeout) as c:
             r = await c.post(f"{self.base_url}/api/v1/knowledge/jobs/claim", json=payload, headers=self.headers)
             r.raise_for_status()
@@ -56,3 +61,27 @@ class KnowledgeApiClient:
         if not r.is_success:
             return None
         return r.json()
+
+    async def mark_announcement_stored(
+        self,
+        *,
+        source_url: str,
+        ann_date,
+        ts_code: str,
+        file_path: str,
+        evidence_inputs: int,
+    ) -> bool:
+        payload = {
+            "source_url": source_url,
+            "ann_date": ann_date.isoformat() if hasattr(ann_date, "isoformat") else str(ann_date),
+            "ts_code": ts_code,
+            "file_path": file_path,
+            "evidence_inputs": int(evidence_inputs),
+        }
+        async with httpx.AsyncClient(timeout=self.timeout) as c:
+            r = await c.post(
+                f"{self.base_url}/api/v1/knowledge/announcement/mark-stored",
+                json=payload,
+                headers=self.headers,
+            )
+        return r.is_success

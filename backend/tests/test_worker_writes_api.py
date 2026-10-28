@@ -118,6 +118,7 @@ def test_worker_writes_router_declares_paths():
     assert "/api/v1/knowledge/link/upsert" in paths
     assert "/api/v1/knowledge/signal/upsert" in paths
     assert "/api/v1/knowledge/signal/prior-lines" in paths
+    assert "/api/v1/knowledge/announcement/mark-stored" in paths
 
 
 def test_link_upsert_rejects_empty_evidence_id(client):
@@ -164,3 +165,51 @@ def test_signal_upsert_empty_returns_zero(client):
     )
     assert r.status_code == 200
     assert r.json() == {"signals_upserted": 0, "propagations_upserted": 0}
+
+
+def test_mark_announcement_stored_requires_api_key(client):
+    r = client.post(
+        "/api/v1/knowledge/announcement/mark-stored",
+        json={
+            "source_url": "https://example.test/a.pdf",
+            "ann_date": "2026-10-27",
+            "ts_code": "301446.SZ",
+            "file_path": "/data/qingshui/pdf/notices/301446.SZ/2026-10/a.pdf",
+            "evidence_inputs": 1,
+        },
+    )
+    assert r.status_code == 401
+
+
+def test_mark_announcement_stored_updates(client):
+    class _Result:
+        rowcount = 1
+
+    class _Session:
+        async def execute(self, *args, **kwargs):
+            return _Result()
+
+        async def commit(self):
+            pass
+
+    class _Ctx:
+        async def __aenter__(self):
+            return _Session()
+
+        async def __aexit__(self, *args):
+            return False
+
+    with patch("app.knowledge.api.worker_writes.async_session", return_value=_Ctx()):
+        r = client.post(
+            "/api/v1/knowledge/announcement/mark-stored",
+            headers=HEADERS,
+            json={
+                "source_url": "https://example.test/a.pdf",
+                "ann_date": "2026-10-27",
+                "ts_code": "301446.SZ",
+                "file_path": "/data/qingshui/pdf/notices/301446.SZ/2026-10/a.pdf",
+                "evidence_inputs": 1,
+            },
+        )
+    assert r.status_code == 200
+    assert r.json() == {"updated": 1}
