@@ -44,6 +44,8 @@ type ReaderChapter = {
   chapter_index: number
   heading: string | null
   chars: number | null
+  /** Per-chapter GPU summary; absent until generated. */
+  summary?: string
 }
 
 type ReaderDocument = {
@@ -125,6 +127,7 @@ function ReaderDialog({ artifact }: { artifact: Artifact }): React.ReactElement 
   const chapters = doc?.chapters ?? []
   const displayId = selectedId ?? artifact.evidenceId ?? chapters[0]?.evidence_id
   const body = useEvidence(displayId)
+  const selectedChapter = chapters.find(chapter => chapter.evidence_id === displayId)
 
   const showRail = chapters.length > 0
   const pdfHref = annId === undefined ? undefined : `/qingshui/pdf/${encodeURIComponent(annId)}`
@@ -323,6 +326,12 @@ function ReaderDialog({ artifact }: { artifact: Artifact }): React.ReactElement 
                 {doc.summary_updated_at === undefined ? null : (
                   <div className="qs-art-summary-meta">{`生成于 ${formatDate(doc.summary_updated_at)}`}</div>
                 )}
+              </section>
+            )}
+            {selectedChapter?.summary === undefined ? null : (
+              <section className="qs-art-summary" aria-label="章节摘要">
+                <div className="qs-art-summary-head">章节摘要</div>
+                <p className="qs-art-summary-text">{selectedChapter.summary}</p>
               </section>
             )}
             {/* The narrow layout has no PDF column, so the same statement sits
@@ -570,11 +579,13 @@ function asReaderDocument(value: unknown): ReaderDocument | undefined {
     const chapter = asRecord(raw)
     const evidenceId = chapter === undefined ? undefined : asText(chapter.evidence_id)
     if (chapter === undefined || evidenceId === undefined) continue
+    const summary = asText(chapter.summary)
     chapters.push({
       evidence_id: evidenceId,
       chapter_index: asNumber(chapter.chapter_index) ?? Number.NaN,
       heading: asText(chapter.heading) ?? null,
       chars: asNumber(chapter.chars) ?? null,
+      ...(summary === undefined ? {} : { summary }),
     })
   }
   const summary = asText(source.summary)

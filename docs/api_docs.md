@@ -90,8 +90,8 @@
 `ann_id` 类型不统一：老公告是 PG 整数，新采集是 `{ann_date}_{ts_code}_{标题}` 复合串，
 服务端 int + str 双查。详见 `AGENTS.md` 2026-10-21 增量。
 
-`summary` 由 `backend/scripts/summarize_documents.py` 用本地 GPU 批量生成（只含事实摘要，
-不写买卖/估值结论）；未生成时字段省略。
+`summary` / `chapters[].summary` 由 `backend/scripts/summarize_documents.py` 用本地 GPU
+批量生成（文档级 / 章节级；只含事实摘要，不写买卖/估值结论）；未生成时字段省略。
 
 ## 8. Worker 面（仅 chemagent 内部）
 

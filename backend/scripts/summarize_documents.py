@@ -26,7 +26,11 @@ from app.config import settings
 from app.core.llm_client import chat_async
 from app.core.mongodb import get_mongo_db
 from app.knowledge.document_service import ann_id_variants
-from app.knowledge.document_summary import ensure_summary_indexes, save_document_summary
+from app.knowledge.document_summary import (
+    ensure_summary_indexes,
+    save_chapter_summary,
+    save_document_summary,
+)
 
 logger = logging.getLogger("summarize_documents")
 
@@ -35,6 +39,15 @@ PROMPT = """你是投研文档摘要器。只总结材料中的事实，不写�
 不要编造材料没有的内容；不要用「本文」「该报告」开头。
 
 标题：{title}
+正文：
+{text}
+"""
+
+CHAPTER_PROMPT = """你是投研文档章节摘要器。只总结本节事实，不写买入、卖出、估值或推荐结论。
+用 80-120 个中文字符输出一段章节摘要，覆盖关键数字、重大事项、风险提示；不要编造材料没有的内容。
+
+文档标题：{title}
+章节：{heading}
 正文：
 {text}
 """
@@ -151,6 +164,60 @@ async def _summarize_one(db: Any, ann_id: Any, args: argparse.Namespace) -> dict
     }
 
 
+async def _summarize_chapters(
+    db: Any, ann_id: Any, args: argparse.Namespace
+) -> dict[str, Any] | None:
+    rows = await db.kg_evidence.find(
+        {"source_ref.ann_id": {"$in": ann_id_variants(str(ann_id))}}
+    ).to_list(length=None)
+    if not rows:
+        return None
+    actual_ann_id = (rows[0].get("source_ref") or {}).get("ann_id", ann_id)
+    title, _ts_code, _publish_date = _meta(rows)
+    model = args.model or os.environ.get("LLM_EXTRACTION_MODEL") or settings.llm_model
+    created = skipped = 0
+    for row in rows:
+        evidence_id = str(row.get("evidence_id") or "")
+        body = str(row.get("text_excerpt") or "").strip()
+        if not evidence_id or not body:
+            skipped += 1
+            continue
+        body = body[:6000]
+        text_sha = hashlib.sha256(body.encode("utf-8")).hexdigest()[:16]
+        existing = await db.kg_chapter_summaries.find_one({"evidence_id": evidence_id})
+        if existing and existing.get("text_sha") == text_sha and not args.force:
+            skipped += 1
+            continue
+        ref = row.get("source_ref") if isinstance(row.get("source_ref"), dict) else {}
+        heading = str(ref.get("chapter_heading") or "").strip()
+        raw = await chat_async(
+            CHAPTER_PROMPT.format(title=title or "", heading=heading or "", text=body),
+            model=model,
+            temperature=0.0,
+            timeout=90,
+            max_tokens=240,
+            force_disable_thinking=True,
+        )
+        summary = _PREFIX_RE.sub("", raw.strip()).strip().strip('"“”').strip()
+        if not summary:
+            skipped += 1
+            continue
+        chapter_index = ref.get("chapter_index")
+        await save_chapter_summary(
+            db,
+            evidence_id=evidence_id,
+            ann_id=actual_ann_id,
+            chapter_index=int(chapter_index) if isinstance(chapter_index, int) else None,
+            heading=heading or None,
+            summary=summary,
+            model=model,
+            text_sha=text_sha,
+        )
+        created += 1
+        logger.info("chapter summary evidence_id=%s ann_id=%s", evidence_id, actual_ann_id)
+    return {"ann_id": actual_ann_id, "created": created, "skipped": skipped}
+
+
 async def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--limit", type=int, default=0, help="max documents (0=all)")
@@ -159,6 +226,7 @@ async def main() -> None:
     parser.add_argument("--concurrency", type=int, default=8)
     parser.add_argument("--model", default=None)
     parser.add_argument("--force", action="store_true")
+    parser.add_argument("--chapters", action="store_true", help="generate per-chapter summaries")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
 
@@ -180,6 +248,22 @@ async def main() -> None:
         nonlocal done, skipped, failed
         async with sem:
             try:
+                if args.chapters:
+                    chapter_result = await _summarize_chapters(db, ann_id, args)
+                    async with lock:
+                        if chapter_result is None:
+                            skipped += 1
+                        else:
+                            done += 1
+                            skipped += chapter_result.get("skipped", 0)
+                            logger.info(
+                                "chapters ann_id=%s created=%s skipped=%s",
+                                chapter_result["ann_id"],
+                                chapter_result["created"],
+                                chapter_result["skipped"],
+                            )
+                            print(json.dumps(chapter_result, ensure_ascii=False), flush=True)
+                    return
                 result = await _summarize_one(db, ann_id, args)
                 async with lock:
                     if result is None:

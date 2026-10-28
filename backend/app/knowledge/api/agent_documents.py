@@ -23,7 +23,7 @@ from app.config import settings
 from app.core.mongodb import get_mongo_db
 from app.knowledge.api._auth import require_api_key
 from app.knowledge.document_service import load_document, load_pdf_path, parse_range
-from app.knowledge.document_summary import get_document_summary
+from app.knowledge.document_summary import get_chapter_summaries, get_document_summary
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +71,31 @@ async def get_document(
         document = {**document, "summary": summary["summary"]}
         if summary.get("updated_at") is not None:
             document["summary_updated_at"] = summary["updated_at"]
+
+    chapter_ids = [
+        str(chapter.get("evidence_id"))
+        for chapter in (document.get("chapters") or [])
+        if isinstance(chapter, dict) and chapter.get("evidence_id")
+    ]
+    try:
+        chapter_summaries = await get_chapter_summaries(db, chapter_ids)
+    except Exception as exc:  # noqa: BLE001 — optional chapter summaries
+        logger.warning("chapter summary lookup failed for ann_id=%r: %s", ann_id, exc)
+        chapter_summaries = {}
+    if chapter_summaries:
+        chapters: list[Any] = []
+        for chapter in document.get("chapters") or []:
+            if not isinstance(chapter, dict):
+                chapters.append(chapter)
+                continue
+            item = dict(chapter)
+            chapter_summary = chapter_summaries.get(str(item.get("evidence_id")))
+            if chapter_summary is not None:
+                item["summary"] = chapter_summary["summary"]
+                if chapter_summary.get("updated_at") is not None:
+                    item["summary_updated_at"] = chapter_summary["updated_at"]
+            chapters.append(item)
+        document = {**document, "chapters": chapters}
     return document
 
 

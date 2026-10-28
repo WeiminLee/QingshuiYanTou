@@ -166,3 +166,51 @@ def test_document_includes_ai_summary(client, service, monkeypatch):
     payload = r.json()
     assert payload["summary"] == "AI 摘要内容"
     assert payload["summary_updated_at"].startswith("2026-10-28")
+
+
+def test_document_includes_chapter_summary(client, service, monkeypatch):
+    from datetime import UTC, datetime
+
+    class _Cursor:
+        def __init__(self, docs):
+            self._it = iter(docs)
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            try:
+                return next(self._it)
+            except StopIteration:
+                raise StopAsyncIteration
+
+    class _ChapterCollection:
+        def find(self, query):
+            assert query["evidence_id"]["$in"] == ["EV:abc123"]
+            return _Cursor([
+                {
+                    "evidence_id": "EV:abc123",
+                    "summary": "章节摘要内容",
+                    "updated_at": datetime(2026, 10, 28, tzinfo=UTC),
+                }
+            ])
+
+    class _SummaryCollection:
+        async def find_one(self, query):
+            return None
+
+    class _DB(dict):
+        pass
+
+    db = _DB({
+        "kg_document_summaries": _SummaryCollection(),
+        "kg_chapter_summaries": _ChapterCollection(),
+    })
+    monkeypatch.setattr(agent_documents, "get_mongo_db", lambda: db)
+
+    r = client.get("/api/v1/knowledge/documents/1225468566", headers=HEADERS)
+
+    assert r.status_code == 200
+    chapters = r.json()["chapters"]
+    assert chapters[0]["summary"] == "章节摘要内容"
+    assert chapters[0]["summary_updated_at"].startswith("2026-10-28")
