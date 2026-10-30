@@ -14,6 +14,7 @@ import random
 import re
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
+from urllib.parse import parse_qs, urlparse
 
 import pytz
 from sqlalchemy import text
@@ -51,6 +52,27 @@ HTTP_HEADERS = {
                   "Chrome/120.0.0.0 Safari/537.36",
     "Accept": "application/pdf,*/*",
 }
+
+
+def normalize_cninfo_pdf_url(url: str, ann_date: date | None) -> str:
+    """cninfo 详情页 URL → static finalpage PDF 直链。
+
+    历史公告（尤其 2024~2025）minishare 返回的是
+    ``http://www.cninfo.com.cn/new/disclosure/detail?...announcementId=xxx``
+    这类 HTML 详情页，直接下载会得到 "invalid pdf content"。
+    cninfo 的 PDF 直链规则稳定：
+    ``http://static.cninfo.com.cn/finalpage/{YYYY-MM-DD}/{announcementId}.PDF``
+    """
+    if not url or "cninfo.com.cn" not in url or "/detail" not in url:
+        return url
+    try:
+        qs = parse_qs(urlparse(url).query)
+        ann_id = (qs.get("announcementId") or [None])[0]
+    except Exception:  # noqa: BLE001 — 解析失败时保持原 URL
+        return url
+    if not ann_id or ann_date is None:
+        return url
+    return f"http://static.cninfo.com.cn/finalpage/{ann_date.isoformat()}/{ann_id}.PDF"
 
 
 # ── 常量 ───────────────────────────────────────────────
@@ -373,7 +395,9 @@ class DataFetcher:
         try:
             # 转换日期格式 YYYYMMDD -> DATE
             date_val = datetime.strptime(ann_date, "%Y%m%d").date() if ann_date else None
-            url = rec.get("url") or ""
+            # 历史公告的 minishare URL 常是 cninfo 详情页（HTML），统一换成 PDF 直链，
+            # 否则 pdf worker 会判定 "invalid pdf content"，且 mark-stored 需按同一 URL 回写。
+            url = normalize_cninfo_pdf_url(rec.get("url") or "", date_val)
 
             async with engine.begin() as conn:
                 result = await conn.execute(
@@ -407,7 +431,7 @@ class DataFetcher:
                 source_id = f"{ann_date}_{ts_code}_{safe_title}"
                 published_date = datetime.strptime(ann_date, "%Y%m%d").date()
                 await self._enqueue_pdf_download(
-                    source_url=url,
+                    source_url=normalize_cninfo_pdf_url(url, published_date),
                     source_type="minishare_announcements",
                     source_id=source_id,
                     stock_code=ts_code,
