@@ -226,58 +226,103 @@ class DataSourceClientMinishare:
             return []
 
 
+    # anns_d 单次请求硬上限 2000 条（limit=5000/20000 也只回 2000），
+    # 且 offset 有效。单日全市场 4500+ 条，必须翻页，否则每天漏一半以上。
+    _ANNS_PAGE_SIZE = 2000
+    _ANNS_MAX_PAGES = 50
+
     def get_announcements(
         self,
         ann_date: str | None = None,
         ts_code: str | None = None,
         start_date: str | None = None,
         end_date: str | None = None,
-        limit: int = 5000,
+        limit: int = 20000,
     ) -> list[dict[str, Any]]:
-        """获取公告数据（minishare anns_d）。
+        """获取公告数据（minishare anns_d），按 offset 自动翻页。
 
         Args:
             ann_date: 按公告日期 YYYYMMDD（与 ts_code 二选一）
             ts_code: 按股票代码（配合 start_date/end_date）
             start_date: 起始日期 YYYYMMDD
             end_date: 结束日期 YYYYMMDD
-            limit: 最大返回条数
+            limit: 最大返回条数（翻页后的上限）
         """
         api = self._ensure_anns_api()
         if api is None:
             logger.warning("公告数据源未配置 token")
             return []
 
-        try:
-            if ann_date:
-                df = api.anns_d(ann_date=ann_date, limit=limit, offset=0)
-            elif ts_code:
-                df = api.anns_d(ts_code=ts_code, start_date=start_date, end_date=end_date, limit=limit, offset=0)
-            else:
-                logger.warning("get_announcements 需要 ann_date 或 ts_code 参数")
-                return []
+        if not ann_date and not ts_code:
+            logger.warning("get_announcements 需要 ann_date 或 ts_code 参数")
+            return []
 
-            if df is None or len(df) == 0:
+        page_size = self._ANNS_PAGE_SIZE
+        records: list[dict[str, Any]] = []
+        seen: set[tuple[str, str, str]] = set()
+        offset = 0
+        pages = 0
+        empty_pages = 0
+
+        try:
+            while len(records) < limit and pages < self._ANNS_MAX_PAGES:
+                if ann_date:
+                    df = api.anns_d(ann_date=ann_date, limit=page_size, offset=offset)
+                else:
+                    df = api.anns_d(
+                        ts_code=ts_code,
+                        start_date=start_date,
+                        end_date=end_date,
+                        limit=page_size,
+                        offset=offset,
+                    )
+                if df is None or len(df) == 0:
+                    break
+
+                pages += 1
+                new_rows = 0
+                for _, row in df.iterrows():
+                    ann_date_val = _safe_str(row.get("ann_date"))
+                    if not ann_date_val:
+                        continue
+                    ts_code_val = _normalize_ts_code(str(row.get("ts_code") or ""))
+                    title = _safe_str(row.get("title"))
+                    # 供应商标注排序不稳定，跨页会重复；按入库唯一键去重
+                    key = (ann_date_val, ts_code_val, title)
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    new_rows += 1
+                    records.append(
+                        {
+                            "ann_date": ann_date_val,
+                            "ts_code": ts_code_val,
+                            "name": _safe_str(row.get("name")),
+                            "title": title,
+                            "url": _safe_str(row.get("url")),
+                        }
+                    )
+
+                if len(df) < page_size:
+                    break
+                offset += len(df)
+                # 整页都是已见过的记录：连续两页无新增才停，避免分页抖动提前截断
+                if new_rows == 0:
+                    empty_pages += 1
+                    if empty_pages >= 2:
+                        break
+                else:
+                    empty_pages = 0
+
+            if not records:
                 logger.info("minishare 公告数据为空")
                 return []
 
-            records = []
-            for _, row in df.iterrows():
-                ann_date_val = _safe_str(row.get("ann_date"))
-                if not ann_date_val:
-                    continue
-                ts_code_val = _normalize_ts_code(str(row.get("ts_code") or ""))
-                records.append(
-                    {
-                        "ann_date": ann_date_val,
-                        "ts_code": ts_code_val,
-                        "name": _safe_str(row.get("name")),
-                        "title": _safe_str(row.get("title")),
-                        "url": _safe_str(row.get("url")),
-                    }
-                )
-
-            logger.info(f"minishare 获取公告数据: {len(records)} 条")
+            logger.info(
+                "minishare 获取公告数据: %d 条（%d 页）",
+                len(records),
+                pages,
+            )
             return records[:limit]
         except Exception as e:
             logger.error(f"minishare 获取公告数据失败: {e}")
