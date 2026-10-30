@@ -875,6 +875,9 @@ async def _run_overseas_job(markets: list[str], range_: str) -> None:
     run_id = await record_task_start(task)
     try:
         result = await sync_markets(markets, range_=range_)
+        for market in markets:
+            latest = await _overseas_latest(market)
+            logger.info("[overseas] %s latest_trade_date=%s", market, latest)
         await record_task_result(
             task,
             TaskStatus.SUCCESS if result.get("failed", 0) == 0 else TaskStatus.PARTIAL,
@@ -886,6 +889,43 @@ async def _run_overseas_job(markets: list[str], range_: str) -> None:
     except Exception as exc:  # noqa: BLE001
         await record_task_result(task, TaskStatus.FAILED, error_message=str(exc), **_run_id_kwarg(run_id))
         raise
+
+
+async def _overseas_latest(market: str):
+    """某市场在库的最新交易日（用于巡检/补跑）。"""
+    from sqlalchemy import text
+
+    from app.core.database import engine
+
+    async with engine.connect() as conn:
+        row = await conn.execute(
+            text(
+                """
+                SELECT MAX(d.trade_date)
+                FROM daily_data d
+                JOIN stocks s ON s.ts_code = d.ts_code
+                WHERE s.market = :market
+                """
+            ),
+            {"market": market},
+        )
+        return row.scalar()
+
+
+async def _run_overseas_guard_job() -> None:
+    """每 6 小时巡检：市场数据落后超过 7 天则补跑（覆盖停机/漏跑）。"""
+    from datetime import date as _date
+
+    stale: list[str] = []
+    for market in ("US", "TW", "KR"):
+        latest = await _overseas_latest(market)
+        if latest is None or (_date.today() - latest).days >= 7:
+            stale.append(market)
+    if stale:
+        logger.warning("[overseas] guard: stale markets=%s, trigger catch-up", stale)
+        await _run_overseas_job(stale, "1mo")
+    else:
+        logger.info("[overseas] guard: all markets fresh")
 
 
 async def _run_overseas_us_job() -> None:
@@ -1092,11 +1132,22 @@ class Scheduler:
             replace_existing=True,
             max_instances=1,
             coalesce=True,
+            misfire_grace_time=3600,
         )
         self._scheduler.add_job(
             _run_overseas_asia_job,
             CronTrigger(hour=18, minute=0, timezone=TIMEZONE),
             id="overseas_asia_daily",
+            replace_existing=True,
+            max_instances=1,
+            coalesce=True,
+            misfire_grace_time=3600,
+        )
+        self._scheduler.add_job(
+            _run_overseas_guard_job,
+            "interval",
+            hours=6,
+            id="overseas_guard",
             replace_existing=True,
             max_instances=1,
             coalesce=True,

@@ -120,6 +120,9 @@ function createKnowledgeClient(options) {
 		getMarketSnapshot() {
 			return get("/api/v1/knowledge/market/snapshot");
 		},
+		getOverseasSnapshot() {
+			return get("/api/v1/knowledge/market/overseas");
+		},
 		health() {
 			return get("/health");
 		},
@@ -1610,6 +1613,7 @@ function pickBoardQuotes(payload) {
 //#endregion
 //#region src/market-route.ts
 const SNAPSHOT_ROUTE_PATH = "/qingshui/market-snapshot";
+const OVERSEAS_ROUTE_PATH = "/qingshui/overseas-snapshot";
 function sendJson$5(res, status, body) {
 	res.writeHead(status, {
 		"content-type": "application/json; charset=utf-8",
@@ -1622,7 +1626,7 @@ function sendJson$5(res, status, body) {
 * @returns disposer.
 */
 function installMarketRoute(webCtx, deps) {
-	return webCtx.webServer.register({
+	const disposeSnapshot = webCtx.webServer.register({
 		kind: "exact",
 		path: SNAPSHOT_ROUTE_PATH,
 		handler: async (req, res) => {
@@ -1658,6 +1662,42 @@ function installMarketRoute(webCtx, deps) {
 			}
 		}
 	});
+	const disposeOverseas = webCtx.webServer.register({
+		kind: "exact",
+		path: OVERSEAS_ROUTE_PATH,
+		handler: async (req, res) => {
+			if (!isLoopbackHostRequest(req)) {
+				sendJson$5(res, 403, {
+					ok: false,
+					error: "forbidden"
+				});
+				return;
+			}
+			const client = deps.client();
+			if (client === void 0) {
+				sendJson$5(res, 503, {
+					ok: false,
+					error: "知识库未配置"
+				});
+				return;
+			}
+			try {
+				sendJson$5(res, 200, {
+					ok: true,
+					...await client.getOverseasSnapshot()
+				});
+			} catch (error) {
+				sendJson$5(res, 502, {
+					ok: false,
+					error: error instanceof Error ? error.message : "知识库查询失败"
+				});
+			}
+		}
+	});
+	return () => {
+		disposeSnapshot();
+		disposeOverseas();
+	};
 }
 //#endregion
 //#region src/news-tape.ts

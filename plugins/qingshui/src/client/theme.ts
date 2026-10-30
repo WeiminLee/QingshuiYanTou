@@ -84,6 +84,19 @@ export const SHELL_CSS = `
 .qs-board-up { color: var(--dsw-static-red-600, var(--dsw-static-red-400)); }
 .qs-board-down { color: var(--dsw-alias-state-success-primary, var(--dsw-static-green-500, #1f8a4c)); }
 .qs-board-flat { color: var(--dsw-alias-label-primary); }
+/* Overseas strip: US/TW/KR compact rows under the board quotes. */
+.qs-overseas { flex: none; padding: 4px 16px 6px; border-bottom: 1px solid var(--dsw-alias-border-l2); background: var(--dsw-alias-bg-base); }
+.qs-overseas-head { display: flex; align-items: baseline; justify-content: space-between; padding: 2px 0 4px; font: var(--dsw-font-xxs-12); color: var(--dsw-alias-label-secondary); }
+.qs-overseas-date { color: var(--dsw-alias-label-tertiary); font-variant-numeric: tabular-nums; }
+.qs-overseas-row { display: flex; align-items: baseline; gap: 8px; min-width: 0; padding: 2px 0; }
+.qs-overseas-market { flex: none; width: 30px; font: var(--dsw-font-xxs-12); color: var(--dsw-alias-label-tertiary); }
+.qs-overseas-pct { flex: none; width: 58px; font: var(--dsw-font-xxs-12); font-weight: 600; font-variant-numeric: tabular-nums; }
+.qs-overseas-symbols { display: flex; align-items: baseline; gap: 12px; min-width: 0; overflow: hidden; }
+.qs-overseas-symbol { display: inline-flex; align-items: baseline; gap: 4px; white-space: nowrap; font: var(--dsw-font-xxs-12); }
+.qs-overseas-name { max-width: 72px; overflow: hidden; text-overflow: ellipsis; color: var(--dsw-alias-label-secondary); }
+.qs-overseas-up { color: var(--dsw-static-red-600, var(--dsw-static-red-400)); }
+.qs-overseas-down { color: var(--dsw-alias-state-success-primary, var(--dsw-static-green-500, #1f8a4c)); }
+.qs-overseas-flat { color: var(--dsw-alias-label-primary); }
 .qs-tape { flex: none; height: 44px; min-width: 0; max-width: 100%; overflow: hidden; border-bottom: 1px solid var(--dsw-alias-border-l2); background: var(--dsw-alias-bg-base); display: flex; align-items: center; }
 .qs-tape-empty { margin: 0; padding: 0 16px; color: var(--dsw-alias-label-tertiary); font: var(--dsw-font-xs-13); white-space: nowrap; }
 .qs-tape-track { display: flex; flex-direction: row; align-items: center; width: max-content; }

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { installMarketRoute, SNAPSHOT_ROUTE_PATH } from './market-route.ts'
+import { installMarketRoute, OVERSEAS_ROUTE_PATH, SNAPSHOT_ROUTE_PATH } from './market-route.ts'
 import type { KnowledgeClient } from './knowledge-client.ts'
 
 const SNAPSHOT = {
@@ -52,4 +52,21 @@ test('market route refuses a non-loopback host', async () => {
   })
   const denied = await call(routes[0]!, 'evil.example')
   assert.equal(denied.status, 403)
+})
+
+test('overseas route proxies the overseas snapshot', async () => {
+  const { routes, webServer } = capture()
+  const payload = { as_of: '20261030', markets: [{ market: 'US', name: '美股', pct_chg: 0.8, symbols: [] }] }
+  installMarketRoute({ webServer }, {
+    client: () => ({
+      getMarketSnapshot: async () => SNAPSHOT,
+      getOverseasSnapshot: async () => payload,
+    }) as unknown as KnowledgeClient,
+  })
+  const route = routes.find(item => item.path === OVERSEAS_ROUTE_PATH)
+  assert.ok(route)
+  const ok = await call(route!)
+  assert.equal(ok.status, 200)
+  assert.equal(ok.body?.ok, true)
+  assert.equal((ok.body?.markets as Array<{ market: string }>)[0]?.market, 'US')
 })

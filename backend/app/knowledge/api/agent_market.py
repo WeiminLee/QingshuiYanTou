@@ -155,6 +155,75 @@ async def api_stock_concepts(
         return await concept_api.get_stock_concepts(req.ts_code, db=db)
 
 
+@router.get("/overseas")
+async def api_overseas_snapshot(
+    limit: int = Query(default=5, ge=1, le=20),
+    x_api_key: str | None = Header(default=None),
+):
+    """美股/台股/韩股核心指标：最新交易日、等权涨跌幅、前 N 只核心股。"""
+    from sqlalchemy import text
+
+    from app.core.database import async_session
+    from app.data_pipeline.overseas_universe import OVERSEAS_UNIVERSE, universe_for
+
+    require_api_key(x_api_key)
+    sql = """
+        WITH latest AS (
+            SELECT s.market AS market, MAX(d.trade_date) AS md
+            FROM daily_data d
+            JOIN stocks s ON s.ts_code = d.ts_code
+            WHERE s.market IN ('US', 'TW', 'KR')
+            GROUP BY 1
+        )
+        SELECT s.market, d.ts_code, s.name, d.close, d.pct_chg, d.trade_date
+        FROM daily_data d
+        JOIN stocks s ON s.ts_code = d.ts_code
+        JOIN latest l ON l.market = s.market AND l.md = d.trade_date
+        WHERE s.market IN ('US', 'TW', 'KR')
+    """
+    try:
+        async with async_session() as db:
+            rows = (await db.execute(text(sql))).mappings().all()
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("overseas snapshot failed")
+        raise HTTPException(500, f"tool failed: {exc}") from exc
+
+    order = {sym: idx for idx, (sym, _n, _i, _m) in enumerate(universe_for())}
+    market_names = {"US": "美股", "TW": "台股", "KR": "韩股"}
+    grouped: dict[str, list[dict[str, Any]]] = {m: [] for m in OVERSEAS_UNIVERSE}
+    for row in rows:
+        grouped.setdefault(row["market"], []).append(
+            {
+                "ts_code": row["ts_code"],
+                "name": row["name"],
+                "close": row["close"],
+                "pct_chg": row["pct_chg"],
+                "trade_date": row["trade_date"].strftime("%Y%m%d"),
+            }
+        )
+
+    markets: list[dict[str, Any]] = []
+    as_of = ""
+    for market, items in grouped.items():
+        if not items:
+            continue
+        items.sort(key=lambda x: order.get(x["ts_code"], 999))
+        pcts = [x["pct_chg"] for x in items if x["pct_chg"] is not None]
+        as_of = max([as_of] + [x["trade_date"] for x in items])
+        markets.append(
+            {
+                "market": market,
+                "name": market_names.get(market, market),
+                "trade_date": max(x["trade_date"] for x in items),
+                "count": len(items),
+                "pct_chg": round(sum(pcts) / len(pcts), 2) if pcts else None,
+                "symbols": items[:limit],
+            }
+        )
+    markets.sort(key=lambda m: list(OVERSEAS_UNIVERSE).index(m["market"]))
+    return {"as_of": as_of, "markets": markets}
+
+
 @router.get("/snapshot")
 async def api_market_snapshot(
     trade_date: str = Query(default="", max_length=10),

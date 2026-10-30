@@ -13,6 +13,7 @@ import { getEvCiteState, subscribeEvCite } from './ev-cite-store.ts'
 import { NewsTape } from './NewsTape.tsx'
 import { NetworkStatus } from './NetworkStatus.tsx'
 import { QuoteStrip } from './QuoteStrip.tsx'
+import { OverseasStrip } from './OverseasStrip.tsx'
 import { ResearchPanel } from './ResearchPanel.tsx'
 import { ResearchStarts } from './ResearchStarts.tsx'
 import { SignalBoard } from './SignalBoard.tsx'
@@ -117,6 +118,7 @@ export function ResearchConversationRoot(props: ResearchConversationProps) {
       {renderSlot('conversation.session.header', {})}
       <div className="qs-market">
         <QuoteStrip />
+        <OverseasStrip />
         <NewsTape onAsk={ask} />
       </div>
       <div className="qs-conv-main">

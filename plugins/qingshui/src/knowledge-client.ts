@@ -42,6 +42,7 @@ export interface KnowledgeClient {
   getStockProfile(tsCode: string): Promise<Record<string, unknown>>
   searchStocks(input: { q: string; limit?: number }): Promise<Record<string, unknown>>
   getMarketSnapshot(): Promise<Record<string, unknown>>
+  getOverseasSnapshot(): Promise<Record<string, unknown>>
   /** Liveness probe against the Knowledge API /health (open, no auth). */
   health(): Promise<Record<string, unknown>>
   /** Latest active findings (ledger search, newest first; dismissed/superseded excluded). */
@@ -198,6 +199,9 @@ export function createKnowledgeClient(options: {
     },
     getMarketSnapshot() {
       return get('/api/v1/knowledge/market/snapshot')
+    },
+    getOverseasSnapshot() {
+      return get('/api/v1/knowledge/market/overseas')
     },
     health() {
       return get('/health')

@@ -8,6 +8,7 @@ import { isLoopbackHostRequest } from './ev-route.ts'
 import { pickBoardQuotes, pickShanghaiQuote } from './quote-strip.ts'
 
 export const SNAPSHOT_ROUTE_PATH = '/qingshui/market-snapshot'
+export const OVERSEAS_ROUTE_PATH = '/qingshui/overseas-snapshot'
 
 export type MarketRouteDeps = {
   client: () => KnowledgeClient | undefined
@@ -29,7 +30,7 @@ export function installMarketRoute(
   webCtx: { webServer: { register: (route: { kind: 'exact' | 'prefix'; path: string; handler: (req: IncomingMessage, res: ServerResponse) => Promise<void> | void }) => () => void } },
   deps: MarketRouteDeps,
 ): () => void {
-  return webCtx.webServer.register({
+  const disposeSnapshot = webCtx.webServer.register({
     kind: 'exact',
     path: SNAPSHOT_ROUTE_PATH,
     handler: async (req, res): Promise<void> => {
@@ -53,4 +54,32 @@ export function installMarketRoute(
       }
     },
   })
+
+  const disposeOverseas = webCtx.webServer.register({
+    kind: 'exact',
+    path: OVERSEAS_ROUTE_PATH,
+    handler: async (req, res): Promise<void> => {
+      if (!isLoopbackHostRequest(req)) {
+        sendJson(res, 403, { ok: false, error: 'forbidden' })
+        return
+      }
+      const client = deps.client()
+      if (client === undefined) {
+        sendJson(res, 503, { ok: false, error: '知识库未配置' })
+        return
+      }
+      try {
+        const payload = await client.getOverseasSnapshot()
+        sendJson(res, 200, { ok: true, ...payload })
+      } catch (error) {
+        const message = error instanceof Error ? error.message : '知识库查询失败'
+        sendJson(res, 502, { ok: false, error: message })
+      }
+    },
+  })
+
+  return () => {
+    disposeSnapshot()
+    disposeOverseas()
+  }
 }
