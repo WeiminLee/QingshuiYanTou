@@ -401,7 +401,11 @@ def register_tools(mcp: Any) -> None:
         end_date: str = "",
         freq: str = "D",
     ) -> str:
-        """Stock OHLCV kline from local market DB."""
+        """Stock OHLCV kline from local market DB.
+
+        ts_code examples: 300308.SZ (A-share), NVDA (US), 2330.TW (Taiwan),
+        005930.KS (Korea). Overseas symbols use Yahoo code format.
+        """
         return _json_result(
             await get_kline(ts_code=ts_code, start_date=start_date, end_date=end_date, freq=freq)
         )

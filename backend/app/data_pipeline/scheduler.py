@@ -861,6 +861,43 @@ async def _run_kline_catchup_job() -> None:
     await _run_kline_job()
 
 
+async def _run_overseas_job(markets: list[str], range_: str) -> None:
+    from app.data_pipeline.monitor import (
+        TaskStatus,
+        init_monitor,
+        record_task_result,
+        record_task_start,
+    )
+    from app.data_pipeline.overseas_client import sync_markets
+
+    await init_monitor()
+    task = "overseas_" + "_".join(m.lower() for m in markets)
+    run_id = await record_task_start(task)
+    try:
+        result = await sync_markets(markets, range_=range_)
+        await record_task_result(
+            task,
+            TaskStatus.SUCCESS if result.get("failed", 0) == 0 else TaskStatus.PARTIAL,
+            total=result.get("symbols", 0) + result.get("failed", 0),
+            success=result.get("symbols", 0),
+            fail=result.get("failed", 0),
+            **_run_id_kwarg(run_id),
+        )
+    except Exception as exc:  # noqa: BLE001
+        await record_task_result(task, TaskStatus.FAILED, error_message=str(exc), **_run_id_kwarg(run_id))
+        raise
+
+
+async def _run_overseas_us_job() -> None:
+    """美股收盘后（HKT 07:00）抓取上一交易日。"""
+    await _run_overseas_job(["US"], "1mo")
+
+
+async def _run_overseas_asia_job() -> None:
+    """台股/韩股收盘后（HKT 18:00）抓取当日。"""
+    await _run_overseas_job(["TW", "KR"], "1mo")
+
+
 async def _run_sync_stocks_job() -> None:
     from app.data_pipeline.dingtalk import (
         notify_task_failed,
@@ -1047,6 +1084,22 @@ class Scheduler:
             ),
             id="sync_stocks_weekly",
             replace_existing=True,
+        )
+        self._scheduler.add_job(
+            _run_overseas_us_job,
+            CronTrigger(hour=7, minute=0, timezone=TIMEZONE),
+            id="overseas_us_daily",
+            replace_existing=True,
+            max_instances=1,
+            coalesce=True,
+        )
+        self._scheduler.add_job(
+            _run_overseas_asia_job,
+            CronTrigger(hour=18, minute=0, timezone=TIMEZONE),
+            id="overseas_asia_daily",
+            replace_existing=True,
+            max_instances=1,
+            coalesce=True,
         )
         self._scheduler.add_job(
             _run_news_job,

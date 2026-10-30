@@ -211,6 +211,7 @@ class KlineService:
                             FROM daily_data d
                             JOIN stocks s ON s.ts_code = d.ts_code
                             WHERE s.name NOT LIKE '%指数%'
+                              AND COALESCE(s.market, '') NOT IN ('US', 'TW', 'KR')
                             """
                         )
                     )
@@ -231,6 +232,7 @@ class KlineService:
                         JOIN stocks s ON s.ts_code = d.ts_code
                         WHERE d.trade_date = :day
                           AND s.name NOT LIKE '%指数%'
+                          AND COALESCE(s.market, '') NOT IN ('US', 'TW', 'KR')
                         """
                     ),
                     {"day": day},
