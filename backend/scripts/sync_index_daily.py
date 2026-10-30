@@ -34,6 +34,18 @@ INDEX_TS_CODES: tuple[str, ...] = (
     "000688.SH",  # 科创50
     "899050.BJ",  # 北证50
 )
+
+INDEX_NAMES: dict[str, str] = {
+    "000001.SH": "上证综合指数",
+    "399001.SZ": "深证成份指数",
+    "399006.SZ": "创业板指数",
+    "000300.SH": "沪深300指数",
+    "000016.SH": "上证50指数",
+    "000905.SH": "中证500指数",
+    "000852.SH": "中证1000指数",
+    "000688.SH": "科创50指数",
+    "899050.BJ": "北证50指数",
+}
 DEFAULT_INDEX_START = "20260801"
 
 
@@ -128,6 +140,26 @@ async def _max_trade_date(ts_code: str) -> date | None:
     return row[0] if row else None
 
 
+async def _ensure_index_stocks(codes: tuple[str, ...]) -> None:
+    """确保指数代码在 stocks 表中（daily_data 外键依赖），缺失则补建。
+
+    个股同步（sync_stock_basic）只覆盖股票，科创50/北证50 等指数可能不在表里，
+    会被 _listed_codes 跳过，导致前端行情条显示「暂无」。
+    """
+    rows = [{"code": code, "name": INDEX_NAMES.get(code, code)} for code in codes]
+    async with engine.begin() as conn:
+        await conn.execute(
+            text(
+                """
+                INSERT INTO stocks (ts_code, symbol, name)
+                VALUES (:code, :code, :name)
+                ON CONFLICT (ts_code) DO NOTHING
+                """
+            ),
+            rows,
+        )
+
+
 async def _listed_codes(codes: tuple[str, ...]) -> set[str]:
     """daily_data.ts_code 外键指向 stocks。不在股票表里的指数不能写入。"""
     async with engine.connect() as conn:
@@ -150,6 +182,7 @@ async def sync_indices(
     saved = 0
     ok = 0
     failed: list[str] = []
+    await _ensure_index_stocks(codes)
     listed = await _listed_codes(codes)
     for ts_code in codes:
         if ts_code not in listed:

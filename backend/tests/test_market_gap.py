@@ -7,7 +7,7 @@ import pytest
 from app.data_pipeline.services.kline_service import shape_market_snapshot
 from app.data_pipeline.tinyshare_client import assert_tinyshare_gateway
 from app.data_pipeline.services.news_service import list_recent_events, parse_event_day, search_events
-from scripts.sync_index_daily import next_index_start, rows_from_index_frame
+from scripts.sync_index_daily import INDEX_NAMES, INDEX_TS_CODES, next_index_start, rows_from_index_frame
 
 
 def test_tinyshare_gateway_rejects_official_tushare():
@@ -141,3 +141,10 @@ def test_shape_market_snapshot_converts_qianyuan_to_yi():
     out = shape_market_snapshot("20261016", 3061, 2021, 132, 1_550_023_000, [])
     assert out["up"] == 3061
     assert out["amount_yi"] == 15500.23
+
+
+def test_index_names_cover_all_codes():
+    """行情条四个板块依赖 000688.SH / 899050.BJ；名称映射缺一个就会被跳过。"""
+    assert set(INDEX_TS_CODES) <= set(INDEX_NAMES)
+    assert "000688.SH" in INDEX_TS_CODES
+    assert "899050.BJ" in INDEX_TS_CODES
