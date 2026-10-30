@@ -163,3 +163,14 @@ export async function loadSignalBoard(
     return { id: lane.id, label: lane.label, items, absent }
   }))
 }
+
+/**
+ * Rows to render in a lane. When items exceed the visible cap, duplicate the
+ * list so a CSS translateY(-50%) loop is seamless; reduced motion keeps the
+ * static capped view.
+ */
+export function laneScrollRows<T>(items: T[], cap: number | undefined, reduced: boolean): { rows: T[]; roll: boolean } {
+  if (cap === undefined) return { rows: items, roll: false }
+  if (reduced || items.length <= cap) return { rows: items.slice(0, cap), roll: false }
+  return { rows: [...items, ...items], roll: true }
+}

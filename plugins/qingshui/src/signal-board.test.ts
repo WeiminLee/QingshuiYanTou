@@ -68,3 +68,11 @@ test('loadSignalBoard fills four lanes and marks a failed lane absent', async ()
   assert.equal(board[0]?.items.length, 0)
   assert.equal(board[3]?.items.length, 0)
 })
+
+test('laneScrollRows duplicates overflowing lanes and respects reduced motion', async () => {
+  const { laneScrollRows } = await import('./signal-board.ts')
+  assert.deepEqual(laneScrollRows([1, 2, 3], 2, false), { rows: [1, 2, 3, 1, 2, 3], roll: true })
+  assert.deepEqual(laneScrollRows([1, 2, 3], 2, true), { rows: [1, 2], roll: false })
+  assert.deepEqual(laneScrollRows([1], 2, false), { rows: [1], roll: false })
+  assert.deepEqual(laneScrollRows([1, 2, 3], undefined, false), { rows: [1, 2, 3], roll: false })
+})

@@ -137,6 +137,13 @@ export const SHELL_CSS = `
 .qs-signal-mark { font-size: 12px; line-height: 20px; font-weight: 600; }
 .qs-signal-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; line-height: 20px; }
 .qs-signal-empty { margin: 0; padding: 2px 12px 4px; color: var(--dsw-alias-label-tertiary); font: var(--dsw-font-xxs-12); }
+/* Overflowing lanes roll vertically; hover pauses so a row can be clicked. */
+.qs-signal-body { position: relative; overflow: hidden; }
+.qs-signal-track { display: flex; flex-direction: column; }
+.qs-signal-track-roll { animation-name: qs-signal-roll; animation-timing-function: linear; animation-iteration-count: infinite; }
+.qs-signal-body[data-roll="true"]:hover .qs-signal-track-roll { animation-play-state: paused; }
+@keyframes qs-signal-roll { from { transform: translateY(0); } to { transform: translateY(-50%); } }
+@media (prefers-reduced-motion: reduce) { .qs-signal-track-roll { animation: none; } }
 .qs-signals-dock { border-bottom: none; border-top: 1px solid var(--dsw-alias-border-l2); max-height: 148px; overflow: auto; }
 /* Blank desk: the signal briefing sits at the TOP of the scroll area (under the
    market strip), leaving the bottom to the composer alone. */
